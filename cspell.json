@@ -61,6 +61,8 @@
     "subdirs",
     "taskloop",
     "zaudu",
-    "initialises"
+    "initialises",
+    "posthog",
+    "POSTHOG"
   ]
 }

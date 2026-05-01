@@ -6,6 +6,7 @@ import { readState, writeState, buildInitialState, ensureState } from "@ralphy/c
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
 import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
+import { capture } from "@ralphy/telemetry";
 import {
   buildTaskPrompt,
   checkStopCondition,
@@ -108,13 +109,24 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         writeState(stateDir, currentState);
       }
 
-      setIsResume(currentState.iteration > 0);
+      const isResume = currentState.iteration > 0;
+      setIsResume(isResume);
       setState(currentState);
+
+      capture("task_started", {
+        engine: opts.engine,
+        model: opts.model,
+        is_resume: isResume,
+        has_prompt: opts.prompt.length > 0,
+        max_iterations: opts.maxIterations,
+        max_cost_usd: opts.maxCostUsd,
+      });
 
       let iter = 0;
       const loopStartTime = Date.now();
       let consFailures = 0;
       let lastResult = "";
+      let finalStopReason: StopReason | null = null;
 
       while (!cancelled) {
         currentState = readState(stateDir);
@@ -122,6 +134,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
 
         const stop = checkStopCondition(currentState, iter, opts, loopStartTime, consFailures);
         if (stop !== null) {
+          finalStopReason = stop;
           setStopReason(stop);
           break;
         }
@@ -143,6 +156,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           } catch (err) {
             addInfo(`Archive warning: ${err}`);
           }
+          finalStopReason = "completed";
           setStopReason("completed");
           break;
         }
@@ -225,6 +239,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
 
             // Stop immediately on rate limits or fatal engine errors
             if (failure.shouldStop || engineResult.rateLimited) {
+              finalStopReason = "rateLimited";
               setStopReason("rateLimited");
               break;
             }
@@ -284,6 +299,15 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
 
       currentState = ensureState(stateDir);
       setState(currentState);
+
+      capture("task_stopped", {
+        stop_reason: finalStopReason,
+        iterations: iter,
+        total_cost_usd: currentState.usage.total_cost_usd,
+        total_duration_ms: Date.now() - loopStartTime,
+        engine: opts.engine,
+        model: opts.model,
+      });
 
       addInfo(`Ralph loop finished after ${iter} iterations.`);
 

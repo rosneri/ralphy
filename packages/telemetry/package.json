@@ -1,0 +1,12 @@
+{
+  "name": "@ralphy/telemetry",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "posthog-node": "^4.0.0"
+  }
+}

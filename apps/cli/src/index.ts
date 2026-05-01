@@ -15,6 +15,7 @@ import { createElement } from "react";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
+import * as telemetry from "@ralphy/telemetry";
 
 /**
  * Find the project root by walking up from cwd looking for an openspec/ directory.
@@ -29,6 +30,8 @@ async function findProjectRoot(): Promise<string> {
   return process.cwd();
 }
 
+await telemetry.init();
+
 let args: ParsedArgs;
 try {
   args = await parseArgs(process.argv.slice(2));
@@ -37,6 +40,8 @@ try {
   printHelp();
   process.exit(1);
 }
+
+telemetry.capture("command_run", { mode: args.mode, engine: args.engine, model: args.model });
 
 try {
   const projectRoot = await findProjectRoot();
@@ -62,9 +67,11 @@ try {
     await mkdir(join(tasksDir, args.name), { recursive: true });
   }
 
-  runWithContext(createDefaultContext(), () => {
-    render(createElement(App, { args, statesDir, tasksDir }));
+  await runWithContext(createDefaultContext(), async () => {
+    const { waitUntilExit } = render(createElement(App, { args, statesDir, tasksDir }));
+    await waitUntilExit();
   });
+  await telemetry.shutdown();
 } catch (err) {
   process.stderr.write((err instanceof Error ? err.message : String(err)) + "\n");
   process.exit(1);
