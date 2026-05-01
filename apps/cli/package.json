@@ -10,6 +10,7 @@
     "@ralphy/engine": "workspace:*",
     "@ralphy/openspec": "workspace:*",
     "@ralphy/output": "workspace:*",
+    "@ralphy/telemetry": "workspace:*",
     "@ralphy/types": "workspace:*",
     "ink": "^5.1.0",
     "react": "^18.3.1"
