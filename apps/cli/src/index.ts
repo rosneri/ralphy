@@ -32,10 +32,28 @@ async function findProjectRoot(): Promise<string> {
 
 await telemetry.init();
 
+const rawArgs = process.argv.slice(2);
+
+if (rawArgs.length === 0) {
+  telemetry.capture("help_shown", { trigger: "empty_args" });
+  await telemetry.shutdown();
+  printHelp();
+  process.exit(0);
+}
+
+if (rawArgs.includes("--help") || rawArgs.includes("-h")) {
+  telemetry.capture("help_shown", { trigger: "explicit" });
+  await telemetry.shutdown();
+  printHelp();
+  process.exit(0);
+}
+
 let args: ParsedArgs;
 try {
-  args = await parseArgs(process.argv.slice(2));
+  args = await parseArgs(rawArgs);
 } catch (err) {
+  telemetry.capture("help_shown", { trigger: "bad_args" });
+  await telemetry.shutdown();
   process.stderr.write((err instanceof Error ? err.message : String(err)) + "\n\n");
   printHelp();
   process.exit(1);
