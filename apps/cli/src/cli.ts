@@ -162,10 +162,6 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     }
 
     switch (arg) {
-      case "--help":
-      case "-h":
-        printHelp();
-        process.exit(0);
       case "--claude":
         if (result.engineSet && result.engine !== "claude") {
           throw new Error("Choose only one engine flag: --claude or --codex");
