@@ -90,12 +90,14 @@ export class AgentCoordinator {
 
     const state = this.state!;
     const seen = new Set(state.processedIssueIds);
+    const failed = new Set(state.failedIssueIds);
     const queued = new Set(this.queue.map((i) => i.id));
     const active = new Set(this.workers.map((w) => w.issueId));
 
     let added = 0;
     for (const issue of issues) {
       if (seen.has(issue.id)) continue;
+      if (failed.has(issue.id)) continue;
       if (queued.has(issue.id)) continue;
       if (active.has(issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
@@ -211,6 +213,13 @@ export class AgentCoordinator {
         this.state.processedIssueIds.push(issue.id);
         void this.deps.saveState(this.state);
       }
+      if (!ok && this.state && !this.state.failedIssueIds.includes(issue.id)) {
+        // Quarantine the issue so the next poll doesn't immediately re-pick
+        // it and infinite-loop on the same failure. User clears with
+        // `ralph clean --name <change>`.
+        this.state.failedIssueIds.push(issue.id);
+        void this.deps.saveState(this.state);
+      }
       void this.notifyExited(issue, changeName, code);
       this.deps.onWorkersChanged();
       this.spawnNext();
@@ -250,7 +259,11 @@ export class AgentCoordinator {
     if (this.opts.postComments !== false) {
       const body = ok
         ? `✅ Ralph completed work on this issue. Change: \`${changeName}\``
-        : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\``;
+        : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
+          `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
+          `Inspect the worktree at \`.ralph/worktrees/${changeName}\`, fix the underlying ` +
+          `failure (e.g. lint/typecheck), then run \`ralph clean --name ${changeName}\` to ` +
+          `clear the quarantine and let the next poll re-pick the issue.`;
       try {
         await updater.postComment(issue, body);
       } catch (err) {

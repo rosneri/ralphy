@@ -139,6 +139,7 @@ try {
           (id) => id !== meta.issueId,
         );
         agentState.startedIssueIds = agentState.startedIssueIds.filter((id) => id !== meta.issueId);
+        agentState.failedIssueIds = agentState.failedIssueIds.filter((id) => id !== meta.issueId);
         delete agentState.changeMeta[args.name];
         await writeAgentState(projectRoot, agentState);
         removed.push(`agent-state entry for ${meta.identifier} (${meta.issueId})`);
