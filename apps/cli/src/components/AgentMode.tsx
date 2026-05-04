@@ -77,11 +77,33 @@ function nextId(): string {
   return `${Date.now()}-${lineCounter}`;
 }
 
+interface WorkerMeta {
+  startedAt: number;
+  statesDir: string;
+  iter: number;
+}
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function fmtElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 60) return `${m}m${rem.toString().padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h${(m % 60).toString().padStart(2, "0")}m`;
+}
+
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [, setTick] = useState(0);
+  const [clock, setClock] = useState(0);
   const coordRef = useRef<AgentCoordinator | null>(null);
+  const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
+  const nextPollAtRef = useRef<number>(0);
+  const pollIntervalRef = useRef<number>(0);
 
   function appendLog(text: string, color?: string) {
     setLogs((prev) => [...prev, { id: nextId(), text, color }]);
@@ -98,6 +120,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
       const concurrency = args.concurrency || cfg.concurrency;
       const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
+      pollIntervalRef.current = pollInterval;
       appendLog(`concurrency=${concurrency} pollInterval=${pollInterval}s`, "gray");
 
       const apiKey = process.env["LINEAR_API_KEY"];
@@ -252,6 +275,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               stderr: "ignore",
               stdin: "ignore",
             });
+            workerMetaRef.current.set(changeName, {
+              startedAt: Date.now(),
+              statesDir: statesDirByChange.get(changeName) ?? statesDir,
+              iter: 0,
+            });
 
             // Wrap exited so we can run teardown + worktree cleanup before
             // the coordinator sees the exit code.
@@ -388,6 +416,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               statesDirByChange.delete(changeName);
               branchByChange.delete(changeName);
               issueByChange.delete(changeName);
+              workerMetaRef.current.delete(changeName);
               return effectiveCode;
             });
 
@@ -452,6 +481,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         const { found, added } = await coord.pollOnce();
         appendLog(`  found ${found} open, ${added} new (queue=${coord.queuedCount})`);
         if (cancelled) return;
+        nextPollAtRef.current = Date.now() + pollInterval * 1000;
         pollTimer = setTimeout(tick, pollInterval * 1000);
       };
       void tick();
@@ -479,7 +509,37 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const interval = setInterval(() => {
+      if (cancelled) return;
+      void (async () => {
+        for (const [changeName, meta] of workerMetaRef.current) {
+          try {
+            const file = Bun.file(join(meta.statesDir, changeName, ".ralph-state.json"));
+            if (await file.exists()) {
+              const json = (await file.json()) as { iteration?: number };
+              meta.iter = json.iteration ?? meta.iter;
+            }
+          } catch {
+            /* state file may not exist yet */
+          }
+        }
+        if (!cancelled) setClock((c) => c + 1);
+      })();
+    }, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   const coord = coordRef.current;
+  const spinnerFrame = SPINNER_FRAMES[clock % SPINNER_FRAMES.length];
+  const now = Date.now();
+  const secsToNextPoll = nextPollAtRef.current
+    ? Math.max(0, Math.ceil((nextPollAtRef.current - now) / 1000))
+    : null;
   return (
     <Box flexDirection="column">
       <Static items={logs}>
@@ -495,13 +555,21 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       </Static>
       <Box marginTop={1} flexDirection="column">
         <Text dimColor>
-          workers active: {coord?.activeCount ?? 0} · queued: {coord?.queuedCount ?? 0}
+          {spinnerFrame} workers active: {coord?.activeCount ?? 0} · queued:{" "}
+          {coord?.queuedCount ?? 0}
+          {secsToNextPoll !== null ? ` · next poll in ${secsToNextPoll}s` : ""}
         </Text>
-        {coord?.activeWorkers.map((w) => (
-          <Text key={w.changeName} color="cyan">
-            {"  "}● {w.issueIdentifier} ({w.changeName})
-          </Text>
-        ))}
+        {coord?.activeWorkers.map((w) => {
+          const meta = workerMetaRef.current.get(w.changeName);
+          const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
+          const iter = meta?.iter ?? 0;
+          return (
+            <Text key={w.changeName} color="cyan">
+              {"  "}
+              {spinnerFrame} {w.issueIdentifier} ({w.changeName}) · iter {iter} · {elapsed}
+            </Text>
+          );
+        })}
       </Box>
     </Box>
   );
