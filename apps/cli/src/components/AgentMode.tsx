@@ -16,6 +16,7 @@ import { scaffoldChangeForIssue } from "../agent/scaffold";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
 import { createWorktree, removeWorktree, type GitRunner } from "../agent/worktree";
+import { createPullRequest, type CmdRunner } from "../agent/pr";
 import { join } from "node:path";
 
 const bunGitRunner: GitRunner = {
@@ -26,6 +27,25 @@ const bunGitRunner: GitRunner = {
     const code = await proc.exited;
     if (code !== 0) {
       const err = new Error("git command failed") as Error & {
+        stderr?: string;
+        code?: number;
+      };
+      err.stderr = stderr;
+      err.code = code;
+      throw err;
+    }
+    return { stdout, stderr };
+  },
+};
+
+const bunCmdRunner: CmdRunner = {
+  run: async (cmd, cwd) => {
+    const proc = Bun.spawn({ cmd, cwd, stdout: "pipe", stderr: "pipe" });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      const err = new Error(`command \`${cmd[0]}\` failed`) as Error & {
         stderr?: string;
         code?: number;
       };
@@ -86,10 +106,20 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         return;
       }
 
+      const inProgressName = args.inProgressStatus || cfg.linear.inProgressStatus;
+      const baseStatuses = args.linearStatus.length ? args.linearStatus : cfg.linear.statuses;
+      // Always include `inProgressStatus` in the effective filter when one
+      // is configured, so issues left in flight by an interrupted previous
+      // run are picked up again on restart. (Workers are deduped against
+      // .ralph/agent-state.json, so we won't double-process.)
+      const effectiveStatuses =
+        inProgressName && baseStatuses.length > 0 && !baseStatuses.includes(inProgressName)
+          ? [...baseStatuses, inProgressName]
+          : baseStatuses;
       const filter = {
         team: args.linearTeam || cfg.linear.team,
         assignee: args.linearAssignee || cfg.linear.assignee,
-        statuses: args.linearStatus.length ? args.linearStatus : cfg.linear.statuses,
+        statuses: effectiveStatuses,
         labels: args.linearLabel.length ? args.linearLabel : cfg.linear.labels,
       };
 
@@ -103,6 +133,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       // else projectRoot).
       const cwdByChange = new Map<string, string>();
       const statesDirByChange = new Map<string, string>();
+      const branchByChange = new Map<string, string>();
+      const issueByChange = new Map<string, LinearIssue>();
 
       async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
         appendLog(`  ${label}: ${cmd}`, "gray");
@@ -143,11 +175,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             let workerCwd = projectRoot;
             let scaffoldTasksDir = tasksDir;
             let scaffoldStatesDir = statesDir;
+            let workerBranch: string | null = null;
             const probeName = issue.identifier.toLowerCase();
             if (useWorktree) {
               try {
                 const wt = await createWorktree(projectRoot, probeName, bunGitRunner);
                 workerCwd = wt.cwd;
+                workerBranch = wt.branch;
                 scaffoldTasksDir = join(wt.cwd, "openspec", "changes");
                 scaffoldStatesDir = join(wt.cwd, ".ralph", "tasks");
                 appendLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
@@ -169,6 +203,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             );
             cwdByChange.set(changeName, workerCwd);
             statesDirByChange.set(changeName, scaffoldStatesDir);
+            issueByChange.set(changeName, issue);
+            if (workerBranch) branchByChange.set(changeName, workerBranch);
 
             if (cfg.setupScript) {
               await runScript("setup", cfg.setupScript, workerCwd);
@@ -202,6 +238,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
             // Wrap exited so we can run teardown + worktree cleanup before
             // the coordinator sees the exit code.
+            const wantPr = args.createPr || cfg.createPrOnSuccess;
             const wrapped = proc.exited.then(async (code) => {
               if (cfg.teardownScript) {
                 try {
@@ -210,8 +247,38 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   /* runScript already logs */
                 }
               }
+              const ok = code === 0;
+              if (ok && wantPr) {
+                const branch = branchByChange.get(changeName);
+                const prIssue = issueByChange.get(changeName);
+                if (!branch || !prIssue) {
+                  appendLog(
+                    `! createPr requested but no worktree branch is tracked for ${changeName} (use --worktree)`,
+                    "yellow",
+                  );
+                } else {
+                  try {
+                    const pr = await createPullRequest(
+                      { cwd, branch, issue: prIssue, base: cfg.prBaseBranch },
+                      bunCmdRunner,
+                    );
+                    if (!pr) {
+                      appendLog(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
+                    } else {
+                      appendLog(
+                        `  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`,
+                        "green",
+                      );
+                    }
+                  } catch (err) {
+                    appendLog(
+                      `! PR create failed for ${changeName}: ${(err as Error).message}`,
+                      "red",
+                    );
+                  }
+                }
+              }
               if (useWorktree && cwd !== projectRoot) {
-                const ok = code === 0;
                 if (ok && cfg.cleanupWorktreeOnSuccess) {
                   try {
                     await removeWorktree(projectRoot, cwd, bunGitRunner);
@@ -226,6 +293,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               }
               cwdByChange.delete(changeName);
               statesDirByChange.delete(changeName);
+              branchByChange.delete(changeName);
+              issueByChange.delete(changeName);
               return code;
             });
 

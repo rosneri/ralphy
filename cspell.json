@@ -22,6 +22,8 @@
     "unstarted",
     "worktree",
     "worktrees",
+    "oneline",
+    "idempotently",
     "bunx",
     "tauri",
     "oxlint",

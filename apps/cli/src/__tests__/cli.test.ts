@@ -250,6 +250,11 @@ describe("parseArgs", () => {
     expect(result.doneStatus).toBe("");
     expect(result.doneLabel).toBe("");
   });
+
+  test("parses --create-pr flag", async () => {
+    expect((await parseArgs(["agent", "--create-pr"])).createPr).toBe(true);
+    expect((await parseArgs(["agent"])).createPr).toBe(false);
+  });
 });
 
 describe("printHelp", () => {
