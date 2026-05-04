@@ -37,7 +37,7 @@ function ErrorMessage({ message }: { message: string }) {
 export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
   switch (args.mode) {
     case "list":
-      return <TaskList statesDir={statesDir} />;
+      return <TaskList statesDir={statesDir} projectRoot={projectRoot} />;
 
     case "agent":
       return (
