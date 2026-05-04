@@ -105,10 +105,20 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
     "doneLabel": "ralphy-done",
     "postComments": true,
   },
+  "useWorktree": true,
+  "cleanupWorktreeOnSuccess": false,
+  "setupScript": "bun install",
+  "teardownScript": "git status",
 }
 ```
 
 `doneStatus` and `doneLabel` are independent — set either, both, or neither. Use `doneLabel` if your team marks completion via a label rather than a workflow state.
+
+#### Per-task git worktrees
+
+With `--worktree` (or `useWorktree: true` in config) each task runs in an isolated worktree at `.ralph/worktrees/<change-name>` checked out onto a fresh `ralph/<change-name>` branch. The change is scaffolded _inside_ the worktree, and the loop's cwd is the worktree, so concurrent workers can't stomp on each other.
+
+Use `setupScript` (run inside the worktree right after scaffolding) to install dependencies, copy `.env`, etc. Use `teardownScript` (run after the loop exits, before any worktree cleanup) to gather artifacts or roll back local mutations. Both run via `sh -c`; failures are logged but never block the loop. With `cleanupWorktreeOnSuccess: true` the worktree is removed when the worker exits 0 — failed workers always keep their worktree (and branch) for human inspection.
 
 Failed workers (non-zero exit) are not marked processed, so they'll be retried on the next poll. SIGINT/SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the task loop.
 
@@ -141,6 +151,7 @@ Failed workers (non-zero exit) are not marked processed, so they'll be retried o
 | `--linear-label <name>`  | Filter by label name (repeatable, any-of)    |
 | `--poll-interval <s>`    | Seconds between Linear polls (default: 60)   |
 | `--concurrency <n>`      | Max concurrent task loops (default: 1)       |
+| `--worktree`             | Run each task in its own git worktree        |
 
 ## OpenSpec Flow
 

@@ -22,6 +22,7 @@ export interface ParsedArgs {
   linearLabel: string[];
   pollInterval: number;
   concurrency: number;
+  worktree: boolean;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent"]);
@@ -61,6 +62,7 @@ const HELP_TEXT = [
   "  --linear-label <name>   Filter by label name (repeatable, any-of)",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
+  "  --worktree              Run each task in its own git worktree (.ralph/worktrees/<name>)",
   "",
   "  --help, -h              Show this help message",
   "",
@@ -98,6 +100,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     linearLabel: [],
     pollInterval: 60,
     concurrency: 1,
+    worktree: false,
   };
 
   let expectModel = false;
@@ -295,6 +298,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--concurrency":
         expectConcurrency = true;
+        break;
+      case "--worktree":
+        result.worktree = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

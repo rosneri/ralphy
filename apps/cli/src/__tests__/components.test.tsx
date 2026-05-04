@@ -358,6 +358,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     linearLabel: [],
     pollInterval: 60,
     concurrency: 1,
+    worktree: false,
     ...overrides,
   };
 }
