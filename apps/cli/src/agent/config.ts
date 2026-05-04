@@ -14,9 +14,20 @@ const RalphyConfigSchema = z
         team: z.string().optional(),
         assignee: z.string().optional(),
         statuses: z.array(z.string()).default([]),
-        label: z.string().optional(),
+        // Match any-of these label names. Single string in old configs is
+        // accepted and coerced to a 1-element array.
+        labels: z
+          .union([z.array(z.string()), z.string()])
+          .transform((v) => (typeof v === "string" ? [v] : v))
+          .default([]),
+        // Status name to move issues to when ralph starts working on them.
+        inProgressStatus: z.string().optional(),
+        // Status name to move issues to after a successful run.
+        doneStatus: z.string().optional(),
+        // Whether to post progress comments on the Linear issue.
+        postComments: z.boolean().default(true),
       })
-      .default({ statuses: [] }),
+      .default({ statuses: [], labels: [], postComments: true }),
   })
   .default({
     concurrency: 1,
@@ -25,7 +36,7 @@ const RalphyConfigSchema = z
     maxCostUsdPerTask: 0,
     engine: "claude",
     model: "opus",
-    linear: { statuses: [] },
+    linear: { statuses: [], labels: [], postComments: true },
   });
 
 type RalphyConfig = z.infer<typeof RalphyConfigSchema>;

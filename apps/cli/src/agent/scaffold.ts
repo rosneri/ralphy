@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import type { LinearIssue } from "./linear";
+import type { LinearComment, LinearIssue } from "./linear";
 
 /** Convert a Linear identifier (e.g. "ENG-123") into a safe change-name slug. */
 export function changeNameForIssue(issue: LinearIssue): string {
@@ -16,6 +16,7 @@ export async function scaffoldChangeForIssue(
   tasksDir: string,
   statesDir: string,
   issue: LinearIssue,
+  comments: LinearComment[] = [],
 ): Promise<string> {
   const name = changeNameForIssue(issue);
   const changeDir = join(tasksDir, name);
@@ -23,6 +24,21 @@ export async function scaffoldChangeForIssue(
   await mkdir(changeDir, { recursive: true });
   await mkdir(join(changeDir, "specs"), { recursive: true });
   await mkdir(stateDir, { recursive: true });
+
+  const commentsBlock =
+    comments.length > 0
+      ? [
+          "",
+          "## Linear comments",
+          "",
+          ...comments.flatMap((c) => [
+            `**${c.user?.name ?? "unknown"}** — ${c.createdAt}`,
+            "",
+            c.body.trim(),
+            "",
+          ]),
+        ]
+      : [];
 
   const proposal = [
     `# ${issue.identifier}: ${issue.title}`,
@@ -35,6 +51,7 @@ export async function scaffoldChangeForIssue(
     "## Description",
     "",
     issue.description?.trim() || "_No description provided in Linear._",
+    ...commentsBlock,
     "",
     "## Steering",
     "",

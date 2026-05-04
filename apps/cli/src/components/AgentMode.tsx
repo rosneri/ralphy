@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, useApp } from "ink";
 import type { ParsedArgs } from "../cli";
-import { fetchOpenIssues } from "../agent/linear";
+import {
+  fetchOpenIssues,
+  addIssueComment,
+  fetchIssueComments,
+  fetchWorkflowStates,
+  updateIssueState,
+  type LinearIssue,
+} from "../agent/linear";
 import { readAgentState, writeAgentState } from "../agent/state";
 import { scaffoldChangeForIssue } from "../agent/scaffold";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
@@ -60,13 +67,28 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         team: args.linearTeam || cfg.linear.team,
         assignee: args.linearAssignee || cfg.linear.assignee,
         statuses: args.linearStatus.length ? args.linearStatus : cfg.linear.statuses,
-        label: args.linearLabel || cfg.linear.label,
+        labels: args.linearLabel.length ? args.linearLabel : cfg.linear.labels,
       };
+
+      // Cache: teamKey -> Map<lowercased state name, state id>
+      const stateCache = new Map<string, Map<string, string>>();
+      const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
 
       const coord = new AgentCoordinator(
         {
           fetchIssues: (f) => fetchOpenIssues(apiKey, f),
-          scaffold: (issue) => scaffoldChangeForIssue(tasksDir, statesDir, issue),
+          scaffold: async (issue) => {
+            let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
+            try {
+              comments = await fetchIssueComments(apiKey, issue.id);
+            } catch (err) {
+              appendLog(
+                `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+                "yellow",
+              );
+            }
+            return scaffoldChangeForIssue(tasksDir, statesDir, issue, comments);
+          },
           spawnWorker: (changeName) => {
             const cmd: string[] = [
               process.execPath,
@@ -95,8 +117,28 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           saveState: (s) => writeAgentState(projectRoot, s),
           onLog: appendLog,
           onWorkersChanged: () => setTick((t) => t + 1),
+          updater: {
+            postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
+            setState: (issue, stateId) => updateIssueState(apiKey, issue.id, stateId),
+            resolveStateId: async (issue, stateName) => {
+              const team = teamKeyOf(issue);
+              let map = stateCache.get(team);
+              if (!map) {
+                const states = await fetchWorkflowStates(apiKey, team);
+                map = new Map(states.map((s) => [s.name.toLowerCase(), s.id]));
+                stateCache.set(team, map);
+              }
+              return map.get(stateName.toLowerCase()) ?? null;
+            },
+          },
         },
-        { concurrency, filter },
+        {
+          concurrency,
+          filter,
+          inProgressStatus: cfg.linear.inProgressStatus,
+          doneStatus: cfg.linear.doneStatus,
+          postComments: cfg.linear.postComments,
+        },
       );
       coordRef.current = coord;
       await coord.init();
@@ -105,7 +147,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         if (cancelled) return;
         const filterDesc = `team=${filter.team ?? "*"}, assignee=${filter.assignee ?? "*"}, statuses=${
           filter.statuses?.length ? filter.statuses.join(",") : "open"
-        }${filter.label ? `, label=${filter.label}` : ""}`;
+        }${filter.labels?.length ? `, labels=${filter.labels.join(",")}` : ""}`;
         appendLog(`… polling Linear (${filterDesc})`);
         const { found, added } = await coord.pollOnce();
         appendLog(`  found ${found} open, ${added} new (queue=${coord.queuedCount})`);

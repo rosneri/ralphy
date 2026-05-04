@@ -1,6 +1,13 @@
 import type { LinearIssue, LinearFilter } from "./linear";
 import type { AgentState } from "./state";
 
+export interface IssueUpdater {
+  /** Resolve a status name to its workflow-state ID, scoped to the issue's team. */
+  resolveStateId: (issue: LinearIssue, stateName: string) => Promise<string | null>;
+  postComment: (issue: LinearIssue, body: string) => Promise<void>;
+  setState: (issue: LinearIssue, stateId: string) => Promise<void>;
+}
+
 export interface CoordinatorDeps {
   fetchIssues: (filter: LinearFilter) => Promise<LinearIssue[]>;
   scaffold: (issue: LinearIssue) => Promise<string>;
@@ -12,11 +19,16 @@ export interface CoordinatorDeps {
   saveState: (state: AgentState) => Promise<void>;
   onLog: (text: string, color?: string) => void;
   onWorkersChanged: () => void;
+  /** Optional: when present, the coordinator updates the Linear issue on start/exit. */
+  updater?: IssueUpdater;
 }
 
 interface CoordinatorOptions {
   concurrency: number;
   filter: LinearFilter;
+  inProgressStatus?: string | undefined;
+  doneStatus?: string | undefined;
+  postComments?: boolean | undefined;
 }
 
 interface ActiveWorker {
@@ -128,6 +140,8 @@ export class AgentCoordinator {
     this.pendingIds.delete(issue.id);
     this.deps.onWorkersChanged();
 
+    void this.notifyStarted(issue, changeName);
+
     void handle.exited.then((code) => {
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
@@ -140,9 +154,74 @@ export class AgentCoordinator {
         this.state.processedIssueIds.push(issue.id);
         void this.deps.saveState(this.state);
       }
+      void this.notifyExited(issue, changeName, code);
       this.deps.onWorkersChanged();
       this.spawnNext();
     });
+  }
+
+  private async notifyStarted(issue: LinearIssue, changeName: string): Promise<void> {
+    const updater = this.deps.updater;
+    if (!updater) return;
+    if (this.opts.postComments !== false) {
+      try {
+        await updater.postComment(
+          issue,
+          `🤖 Ralph started working on this issue. Tracking change: \`${changeName}\``,
+        );
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          "red",
+        );
+      }
+    }
+    if (this.opts.inProgressStatus) {
+      await this.moveIssue(issue, this.opts.inProgressStatus);
+    }
+  }
+
+  private async notifyExited(issue: LinearIssue, changeName: string, code: number): Promise<void> {
+    const updater = this.deps.updater;
+    if (!updater) return;
+    const ok = code === 0;
+    if (this.opts.postComments !== false) {
+      const body = ok
+        ? `✅ Ralph completed work on this issue. Change: \`${changeName}\``
+        : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\``;
+      try {
+        await updater.postComment(issue, body);
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          "red",
+        );
+      }
+    }
+    if (ok && this.opts.doneStatus) {
+      await this.moveIssue(issue, this.opts.doneStatus);
+    }
+  }
+
+  private async moveIssue(issue: LinearIssue, stateName: string): Promise<void> {
+    const updater = this.deps.updater!;
+    try {
+      const stateId = await updater.resolveStateId(issue, stateName);
+      if (!stateId) {
+        this.deps.onLog(
+          `! Linear state '${stateName}' not found for ${issue.identifier}`,
+          "yellow",
+        );
+        return;
+      }
+      await updater.setState(issue, stateId);
+      this.deps.onLog(`  → ${issue.identifier} moved to '${stateName}'`, "gray");
+    } catch (err) {
+      this.deps.onLog(
+        `! Linear state move failed for ${issue.identifier}: ${(err as Error).message}`,
+        "red",
+      );
+    }
   }
 
   stop(): void {

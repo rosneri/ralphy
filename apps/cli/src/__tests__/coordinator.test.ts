@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
+import { AgentCoordinator, type CoordinatorDeps, type IssueUpdater } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import type { AgentState } from "../agent/state";
 
@@ -206,5 +206,150 @@ describe("AgentCoordinator", () => {
     expect(ws[0]!.issueId).toBe("a");
     expect(ws[0]!.issueIdentifier).toBe("ENG-1");
     expect(ws[0]!.changeName).toBe("change-eng-1");
+  });
+});
+
+describe("AgentCoordinator + IssueUpdater", () => {
+  function makeUpdater(): {
+    updater: IssueUpdater;
+    comments: { id: string; body: string }[];
+    moves: { id: string; stateId: string }[];
+    setStateNotFound?: boolean;
+  } {
+    const comments: { id: string; body: string }[] = [];
+    const moves: { id: string; stateId: string }[] = [];
+    const updater: IssueUpdater = {
+      postComment: async (i, body) => {
+        comments.push({ id: i.id, body });
+      },
+      setState: async (i, stateId) => {
+        moves.push({ id: i.id, stateId });
+      },
+      resolveStateId: async (_i, name) => {
+        if (name === "missing") return null;
+        return `state-${name.toLowerCase().replace(/\s+/g, "-")}`;
+      },
+    };
+    return { updater, comments, moves };
+  }
+
+  test("posts start/exit comments and moves through inProgress + done", async () => {
+    const issues = [issue("a", "ENG-1")];
+    const { deps, workers } = makeDeps({ issues });
+    const { updater, comments, moves } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      inProgressStatus: "In Progress",
+      doneStatus: "In Review",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(comments[0]!.body).toContain("started working");
+    expect(moves[0]).toEqual({ id: "a", stateId: "state-in-progress" });
+
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(comments[1]!.body).toContain("completed work");
+    expect(moves[1]).toEqual({ id: "a", stateId: "state-in-review" });
+  });
+
+  test("does not move to done when worker exits non-zero", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, comments, moves } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      doneStatus: "In Review",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(2);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(moves).toEqual([]);
+    expect(comments[1]!.body).toContain("exited with code 2");
+  });
+
+  test("postComments=false suppresses comments but still moves state", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, comments, moves } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      inProgressStatus: "In Progress",
+      postComments: false,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(comments).toEqual([]);
+    expect(moves).toHaveLength(1);
+
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(comments).toEqual([]);
+  });
+
+  test("logs warning when target state name is unknown", async () => {
+    const { deps, workers, logs } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      inProgressStatus: "missing",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(logs.some((l) => l.text.includes("'missing' not found"))).toBe(true);
+  });
+
+  test("logs error and continues when comment posting fails", async () => {
+    const { deps, workers, logs } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const updater: IssueUpdater = {
+      postComment: async () => {
+        throw new Error("rate limited");
+      },
+      setState: async () => {},
+      resolveStateId: async () => "state-1",
+    };
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(logs.some((l) => l.text.includes("Linear comment failed"))).toBe(true);
+  });
+
+  test("no updater means no Linear side effects", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    // deps.updater intentionally not set
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      inProgressStatus: "In Progress",
+      doneStatus: "Done",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    // no crash, worker completed normally
+    expect(coord.activeCount).toBe(0);
   });
 });
