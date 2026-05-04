@@ -23,6 +23,9 @@ export interface ParsedArgs {
   pollInterval: number;
   concurrency: number;
   worktree: boolean;
+  inProgressStatus: string;
+  doneStatus: string;
+  doneLabel: string;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent"]);
@@ -63,6 +66,9 @@ const HELP_TEXT = [
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
   "  --worktree              Run each task in its own git worktree (.ralph/worktrees/<name>)",
+  "  --in-progress-status <name>  Linear status to set when work starts on an issue",
+  "  --done-status <name>    Linear status to set when work completes successfully",
+  "  --done-label <name>     Linear label to add when work completes successfully",
   "",
   "  --help, -h              Show this help message",
   "",
@@ -101,6 +107,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     pollInterval: 60,
     concurrency: 1,
     worktree: false,
+    inProgressStatus: "",
+    doneStatus: "",
+    doneLabel: "",
   };
 
   let expectModel = false;
@@ -121,6 +130,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectLinearLabel = false;
   let expectPollInterval = false;
   let expectConcurrency = false;
+  let expectInProgressStatus = false;
+  let expectDoneStatus = false;
+  let expectDoneLabel = false;
 
   for (const arg of argv) {
     // Check if we're expecting a model argument after --claude
@@ -222,6 +234,21 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       expectConcurrency = false;
       continue;
     }
+    if (expectInProgressStatus) {
+      result.inProgressStatus = arg;
+      expectInProgressStatus = false;
+      continue;
+    }
+    if (expectDoneStatus) {
+      result.doneStatus = arg;
+      expectDoneStatus = false;
+      continue;
+    }
+    if (expectDoneLabel) {
+      result.doneLabel = arg;
+      expectDoneLabel = false;
+      continue;
+    }
 
     switch (arg) {
       case "--claude":
@@ -301,6 +328,15 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--worktree":
         result.worktree = true;
+        break;
+      case "--in-progress-status":
+        expectInProgressStatus = true;
+        break;
+      case "--done-status":
+        expectDoneStatus = true;
+        break;
+      case "--done-label":
+        expectDoneLabel = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

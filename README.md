@@ -143,15 +143,18 @@ Failed workers (non-zero exit) are not marked processed, so they'll be retried o
 
 ### Agent mode flags
 
-| Option                   | Description                                  |
-| ------------------------ | -------------------------------------------- |
-| `--linear-team <key>`    | Linear team key (e.g. `ENG`)                 |
-| `--linear-assignee <id>` | Filter by assignee (user id, email, or `me`) |
-| `--linear-status <name>` | Filter by status name (repeatable)           |
-| `--linear-label <name>`  | Filter by label name (repeatable, any-of)    |
-| `--poll-interval <s>`    | Seconds between Linear polls (default: 60)   |
-| `--concurrency <n>`      | Max concurrent task loops (default: 1)       |
-| `--worktree`             | Run each task in its own git worktree        |
+| Option                        | Description                                   |
+| ----------------------------- | --------------------------------------------- |
+| `--linear-team <key>`         | Linear team key (e.g. `ENG`)                  |
+| `--linear-assignee <id>`      | Filter by assignee (user id, email, or `me`)  |
+| `--linear-status <name>`      | Filter by status name (repeatable)            |
+| `--linear-label <name>`       | Filter by label name (repeatable, any-of)     |
+| `--poll-interval <s>`         | Seconds between Linear polls (default: 60)    |
+| `--concurrency <n>`           | Max concurrent task loops (default: 1)        |
+| `--worktree`                  | Run each task in its own git worktree         |
+| `--in-progress-status <name>` | Linear status to set when work starts         |
+| `--done-status <name>`        | Linear status to set on successful completion |
+| `--done-label <name>`         | Linear label to add on successful completion  |
 
 ## OpenSpec Flow
 

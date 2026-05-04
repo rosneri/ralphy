@@ -359,6 +359,9 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     pollInterval: 60,
     concurrency: 1,
     worktree: false,
+    inProgressStatus: "",
+    doneStatus: "",
+    doneLabel: "",
     ...overrides,
   };
 }
