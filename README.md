@@ -140,6 +140,8 @@ Use `setupScript` (run inside the worktree right after scaffolding) to install d
 
 **`fixCiOnFailure`** (or `--fix-ci`) watches the PR's checks via `gh pr checks` and, on failure, fetches the failed-run logs (`gh run view --log-failed`), appends them to `proposal.md` under `## Steering`, re-spawns the task loop in the worktree, and pushes the new commits — repeating until checks go green or `maxCiFixAttempts` is hit (default 5, polling interval `ciPollIntervalSeconds` defaults to 30s). Requires `--create-pr`.
 
+When `fixCiOnFailure` is enabled, the issue is **not** moved to `doneStatus` (and `doneLabel` is not applied, and the issue is not marked processed in `.ralph/agent-state.json`) until CI actually goes green. If the fix loop exhausts its attempts the worker is treated as failed for completion-marking purposes and the issue will be re-picked-up on the next poll (the resume-in-progress filter ensures that).
+
 Every CLI flag is also configurable in `ralphy.config.json`; CLI values override config when both are set. The agent forwards `maxRuntimeMinutesPerTask` / `maxConsecutiveFailuresPerTask` / `iterationDelaySeconds` / `logRawStream` / `taskVerbose` to each spawned `ralph task` worker.
 
 Failed workers (non-zero exit) are not marked processed, so they'll be retried on the next poll. SIGINT/SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the task loop.
