@@ -100,5 +100,4 @@ export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
       );
     }
   }
-  return null;
 }

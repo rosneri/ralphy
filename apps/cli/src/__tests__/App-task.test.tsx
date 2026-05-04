@@ -120,7 +120,9 @@ describe("App task mode", () => {
         maxIterations: 1,
       });
 
-      const { frames } = render(<App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />);
+      const { frames } = render(
+        <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
+      );
       await new Promise((r) => setTimeout(r, 500));
 
       const allText = frames.join("\n");

@@ -16,6 +16,8 @@ export interface LinearFilter {
   label?: string | undefined;
 }
 
+const OPEN_STATE_TYPES = ["unstarted", "started", "backlog"] as const;
+
 const LINEAR_API = "https://api.linear.app/graphql";
 
 interface LinearNode {
@@ -52,7 +54,7 @@ export async function fetchOpenIssues(
   if (filter.statuses && filter.statuses.length > 0) {
     where.state = { name: { in: filter.statuses } };
   } else {
-    where.state = { type: { in: ["unstarted", "started", "backlog"] } };
+    where.state = { type: { in: [...OPEN_STATE_TYPES] } };
   }
   if (filter.label) where.labels = { some: { name: { eq: filter.label } } };
 
@@ -77,12 +79,22 @@ export async function fetchOpenIssues(
   });
 
   if (!res.ok) {
-    throw new Error(`Linear API ${res.status}: ${await res.text()}`);
+    const err = new Error("Linear API request failed") as Error & {
+      status?: number;
+      body?: string;
+    };
+    err.status = res.status;
+    err.body = await res.text();
+    throw err;
   }
 
   const json = (await res.json()) as LinearResponse;
   if (json.errors?.length) {
-    throw new Error(`Linear: ${json.errors.map((e) => e.message).join(", ")}`);
+    const err = new Error("Linear API returned errors") as Error & {
+      messages?: string[];
+    };
+    err.messages = json.errors.map((e) => e.message);
+    throw err;
   }
   if (!json.data) return [];
 

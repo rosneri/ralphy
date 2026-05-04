@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { z } from "zod";
 
-export const RalphyConfigSchema = z
+const RalphyConfigSchema = z
   .object({
     concurrency: z.number().int().positive().default(1),
     pollIntervalSeconds: z.number().int().positive().default(60),
@@ -28,7 +28,7 @@ export const RalphyConfigSchema = z
     linear: { statuses: [] },
   });
 
-export type RalphyConfig = z.infer<typeof RalphyConfigSchema>;
+type RalphyConfig = z.infer<typeof RalphyConfigSchema>;
 
 export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfig> {
   const path = join(projectRoot, "ralphy.config.json");

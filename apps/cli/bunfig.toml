@@ -1,3 +1,7 @@
 [test]
 coverageThreshold = { lines = 0.9, functions = 0.9 }
-coveragePathIgnorePatterns = ["../**", "**/dist/**"]
+# AgentMode.tsx is a thin Ink/React adapter that wires the AgentCoordinator to
+# real fetch / Bun.spawn / signal handlers. Its orchestration logic lives in
+# src/agent/coordinator.ts (100% covered). The adapter itself is exercised by
+# the live smoke test, not unit tests.
+coveragePathIgnorePatterns = ["../**", "**/dist/**", "**/components/AgentMode.tsx"]
