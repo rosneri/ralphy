@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const AgentStateSchema = z.object({
   processedIssueIds: z.array(z.string()).default([]),
+  startedIssueIds: z.array(z.string()).default([]),
   lastPollAt: z.string().nullable().default(null),
 });
 
