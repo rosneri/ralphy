@@ -363,6 +363,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     doneStatus: "",
     doneLabel: "",
     createPr: false,
+    fixCi: false,
     ...overrides,
   };
 }

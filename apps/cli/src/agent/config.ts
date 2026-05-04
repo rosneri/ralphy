@@ -7,6 +7,18 @@ const RalphyConfigSchema = z
     pollIntervalSeconds: z.number().int().positive().default(60),
     maxIterationsPerTask: z.number().int().nonnegative().default(0),
     maxCostUsdPerTask: z.number().nonnegative().default(0),
+    // Wall-clock minutes a single task may run before being stopped
+    // (0 = no limit). Forwarded as `--max-runtime` to each worker.
+    maxRuntimeMinutesPerTask: z.number().nonnegative().default(0),
+    // Stop a task after N consecutive identical failures (0 = disable).
+    // Forwarded as `--max-failures` to each worker.
+    maxConsecutiveFailuresPerTask: z.number().int().nonnegative().default(5),
+    // Seconds the worker waits between iterations (forwarded as --delay).
+    iterationDelaySeconds: z.number().int().nonnegative().default(0),
+    // Forward --log to each worker (raw engine stream output).
+    logRawStream: z.boolean().default(false),
+    // Forward --verbose to each worker.
+    taskVerbose: z.boolean().default(false),
     // When true, every task runs in a per-issue git worktree under
     // .ralph/worktrees/<change-name> on a fresh `ralph/<change-name>` branch.
     useWorktree: z.boolean().default(false),
@@ -34,6 +46,15 @@ const RalphyConfigSchema = z
     createPrOnSuccess: z.boolean().default(false),
     // Base branch for the PR (default "main").
     prBaseBranch: z.string().default("main"),
+    // After opening the PR, watch its CI checks and re-run the task with
+    // failure logs as steering until checks go green or maxCiFixAttempts
+    // is hit. Requires createPrOnSuccess (or --create-pr) and the `gh`
+    // CLI authenticated.
+    fixCiOnFailure: z.boolean().default(false),
+    // Max number of "fix CI" attempts before giving up.
+    maxCiFixAttempts: z.number().int().positive().default(5),
+    // Seconds between poll attempts when waiting for CI to settle.
+    ciPollIntervalSeconds: z.number().int().positive().default(30),
     engine: z.enum(["claude", "codex"]).default("claude"),
     model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
     linear: z

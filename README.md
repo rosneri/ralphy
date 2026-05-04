@@ -113,6 +113,14 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
   "appendPrompt": "Always run lint before committing.",
   "createPrOnSuccess": true,
   "prBaseBranch": "main",
+  "fixCiOnFailure": true,
+  "maxCiFixAttempts": 5,
+  "ciPollIntervalSeconds": 30,
+  "maxRuntimeMinutesPerTask": 0,
+  "maxConsecutiveFailuresPerTask": 5,
+  "iterationDelaySeconds": 0,
+  "logRawStream": false,
+  "taskVerbose": false,
 }
 ```
 
@@ -129,6 +137,10 @@ Use `setupScript` (run inside the worktree right after scaffolding) to install d
 **`updateEveryIterations`** (default `10`, `0` disables) posts a "🔄 Ralph progress update: iteration N" comment on the Linear issue every N task iterations. Requires `postComments: true`.
 
 **`createPrOnSuccess`** (or `--create-pr`) pushes the worker's branch and opens a GitHub PR via `gh` after a clean exit. Requires `--worktree` (the PR needs a branch to point at) and the `gh` CLI authenticated. The PR title is `<ID>: <title>`, the body links the Linear issue. If a PR already exists for the branch the existing URL is reported (idempotent for retries). `prBaseBranch` defaults to `main`.
+
+**`fixCiOnFailure`** (or `--fix-ci`) watches the PR's checks via `gh pr checks` and, on failure, fetches the failed-run logs (`gh run view --log-failed`), appends them to `proposal.md` under `## Steering`, re-spawns the task loop in the worktree, and pushes the new commits — repeating until checks go green or `maxCiFixAttempts` is hit (default 5, polling interval `ciPollIntervalSeconds` defaults to 30s). Requires `--create-pr`.
+
+Every CLI flag is also configurable in `ralphy.config.json`; CLI values override config when both are set. The agent forwards `maxRuntimeMinutesPerTask` / `maxConsecutiveFailuresPerTask` / `iterationDelaySeconds` / `logRawStream` / `taskVerbose` to each spawned `ralph task` worker.
 
 Failed workers (non-zero exit) are not marked processed, so they'll be retried on the next poll. SIGINT/SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the task loop.
 
@@ -153,19 +165,20 @@ Failed workers (non-zero exit) are not marked processed, so they'll be retried o
 
 ### Agent mode flags
 
-| Option                        | Description                                                           |
-| ----------------------------- | --------------------------------------------------------------------- |
-| `--linear-team <key>`         | Linear team key (e.g. `ENG`)                                          |
-| `--linear-assignee <id>`      | Filter by assignee (user id, email, or `me`)                          |
-| `--linear-status <name>`      | Filter by status name (repeatable)                                    |
-| `--linear-label <name>`       | Filter by label name (repeatable, any-of)                             |
-| `--poll-interval <s>`         | Seconds between Linear polls (default: 60)                            |
-| `--concurrency <n>`           | Max concurrent task loops (default: 1)                                |
-| `--worktree`                  | Run each task in its own git worktree                                 |
-| `--in-progress-status <name>` | Linear status to set when work starts                                 |
-| `--done-status <name>`        | Linear status to set on successful completion                         |
-| `--done-label <name>`         | Linear label to add on successful completion                          |
-| `--create-pr`                 | Push worker branch + open a GitHub PR on success (needs `--worktree`) |
+| Option                        | Description                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `--linear-team <key>`         | Linear team key (e.g. `ENG`)                                                 |
+| `--linear-assignee <id>`      | Filter by assignee (user id, email, or `me`)                                 |
+| `--linear-status <name>`      | Filter by status name (repeatable)                                           |
+| `--linear-label <name>`       | Filter by label name (repeatable, any-of)                                    |
+| `--poll-interval <s>`         | Seconds between Linear polls (default: 60)                                   |
+| `--concurrency <n>`           | Max concurrent task loops (default: 1)                                       |
+| `--worktree`                  | Run each task in its own git worktree                                        |
+| `--in-progress-status <name>` | Linear status to set when work starts                                        |
+| `--done-status <name>`        | Linear status to set on successful completion                                |
+| `--done-label <name>`         | Linear label to add on successful completion                                 |
+| `--create-pr`                 | Push worker branch + open a GitHub PR on success (needs `--worktree`)        |
+| `--fix-ci`                    | After PR opens, re-run task on CI failures until green (needs `--create-pr`) |
 
 ## OpenSpec Flow
 
