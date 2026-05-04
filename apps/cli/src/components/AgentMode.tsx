@@ -21,6 +21,7 @@ interface LogLine {
 
 interface Worker {
   changeName: string;
+  issueId: string;
   issueIdentifier: string;
   proc: ReturnType<typeof Bun.spawn>;
   startedAt: number;
@@ -38,6 +39,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const [workersTick, setWorkersTick] = useState(0);
   const workersRef = useRef<Worker[]>([]);
   const pendingRef = useRef(0);
+  const pendingIdsRef = useRef<Set<string>>(new Set());
   const queueRef = useRef<LinearIssue[]>([]);
   const stoppedRef = useRef(false);
   const stateRef = useRef<AgentState | null>(null);
@@ -60,6 +62,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     ) {
       const issue = queueRef.current.shift()!;
       pendingRef.current += 1;
+      pendingIdsRef.current.add(issue.id);
       void launchWorker(issue);
     }
   }
@@ -70,6 +73,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       changeName = await scaffoldChangeForIssue(tasksDir, statesDir, issue);
     } catch (err) {
       pendingRef.current -= 1;
+      pendingIdsRef.current.delete(issue.id);
       log(`! scaffold failed for ${issue.identifier}: ${(err as Error).message}`, "red");
       spawnNext();
       return;
@@ -102,12 +106,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
     const worker: Worker = {
       changeName,
+      issueId: issue.id,
       issueIdentifier: issue.identifier,
       proc,
       startedAt: Date.now(),
     };
     workersRef.current.push(worker);
     pendingRef.current -= 1;
+    pendingIdsRef.current.delete(issue.id);
     setWorkersTick((t) => t + 1);
 
     void proc.exited.then((code) => {
@@ -163,13 +169,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     const state = stateRef.current!;
     const seen = new Set(state.processedIssueIds);
     const queued = new Set(queueRef.current.map((i) => i.id));
-    const active = new Set(workersRef.current.map((w) => w.issueIdentifier));
+    const active = new Set(workersRef.current.map((w) => w.issueId));
 
     let added = 0;
     for (const issue of issues) {
       if (seen.has(issue.id)) continue;
       if (queued.has(issue.id)) continue;
-      if (active.has(issue.identifier)) continue;
+      if (active.has(issue.id)) continue;
+      if (pendingIdsRef.current.has(issue.id)) continue;
       queueRef.current.push(issue);
       added += 1;
     }
