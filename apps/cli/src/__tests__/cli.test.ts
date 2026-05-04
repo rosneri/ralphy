@@ -203,6 +203,8 @@ describe("parseArgs", () => {
       "In Progress",
       "--linear-label",
       "p1",
+      "--linear-label",
+      "bug",
       "--poll-interval",
       "30",
       "--concurrency",
@@ -212,7 +214,7 @@ describe("parseArgs", () => {
     expect(result.linearTeam).toBe("ENG");
     expect(result.linearAssignee).toBe("me");
     expect(result.linearStatus).toEqual(["Todo", "In Progress"]);
-    expect(result.linearLabel).toBe("p1");
+    expect(result.linearLabel).toEqual(["p1", "bug"]);
     expect(result.pollInterval).toBe(30);
     expect(result.concurrency).toBe(4);
   });

@@ -19,7 +19,7 @@ export interface ParsedArgs {
   linearTeam: string;
   linearAssignee: string;
   linearStatus: string[];
-  linearLabel: string;
+  linearLabel: string[];
   pollInterval: number;
   concurrency: number;
 }
@@ -58,7 +58,7 @@ const HELP_TEXT = [
   "  --linear-team <key>     Linear team key (e.g. ENG)",
   "  --linear-assignee <id>  Filter by assignee (user id, email, or 'me')",
   "  --linear-status <name>  Filter by status name (repeatable, e.g. Todo, In Progress)",
-  "  --linear-label <name>   Filter by label name",
+  "  --linear-label <name>   Filter by label name (repeatable, any-of)",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
   "",
@@ -95,7 +95,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     linearTeam: "",
     linearAssignee: "",
     linearStatus: [],
-    linearLabel: "",
+    linearLabel: [],
     pollInterval: 60,
     concurrency: 1,
   };
@@ -205,7 +205,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       continue;
     }
     if (expectLinearLabel) {
-      result.linearLabel = arg;
+      result.linearLabel.push(arg);
       expectLinearLabel = false;
       continue;
     }

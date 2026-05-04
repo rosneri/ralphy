@@ -5,7 +5,14 @@ import { tmpdir } from "node:os";
 import { loadRalphyConfig, ensureRalphyConfig } from "../agent/config";
 import { readAgentState, writeAgentState } from "../agent/state";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../agent/scaffold";
-import { fetchOpenIssues, type LinearIssue } from "../agent/linear";
+import {
+  fetchOpenIssues,
+  addIssueComment,
+  fetchIssueComments,
+  fetchWorkflowStates,
+  updateIssueState,
+  type LinearIssue,
+} from "../agent/linear";
 
 let tempDir: string;
 
@@ -131,6 +138,31 @@ describe("agent/scaffold", () => {
     expect(existsSync(join(statesDir, name))).toBe(true);
   });
 
+  test("scaffoldChangeForIssue includes Linear comments when provided", async () => {
+    const tasksDir = join(tempDir, "tasks");
+    const statesDir = join(tempDir, "states");
+    const name = await scaffoldChangeForIssue(tasksDir, statesDir, makeIssue(), [
+      {
+        id: "c1",
+        body: "Looks good — please ensure dark mode follows system preference.",
+        createdAt: "2026-05-01T10:00:00Z",
+        user: { name: "Alice", email: "alice@example.com" },
+      },
+      {
+        id: "c2",
+        body: "Also add a toggle in /settings.",
+        createdAt: "2026-05-02T09:00:00Z",
+        user: null,
+      },
+    ]);
+    const proposal = readFileSync(join(tasksDir, name, "proposal.md"), "utf-8");
+    expect(proposal).toContain("## Linear comments");
+    expect(proposal).toContain("**Alice**");
+    expect(proposal).toContain("system preference");
+    expect(proposal).toContain("**unknown**");
+    expect(proposal).toContain("toggle in /settings");
+  });
+
   test("scaffoldChangeForIssue handles missing description and assignee", async () => {
     const tasksDir = join(tempDir, "tasks");
     const statesDir = join(tempDir, "states");
@@ -213,13 +245,13 @@ describe("agent/linear", () => {
       team: "ENG",
       assignee: "me",
       statuses: ["Todo", "In Progress"],
-      label: "p1",
+      labels: ["p1", "bug"],
     });
     expect(captured!.variables.filter).toEqual({
       team: { key: { eq: "ENG" } },
       assignee: { isMe: { eq: true } },
       state: { name: { in: ["Todo", "In Progress"] } },
-      labels: { some: { name: { eq: "p1" } } },
+      labels: { some: { name: { in: ["p1", "bug"] } } },
     });
   });
 
@@ -270,8 +302,92 @@ describe("agent/linear", () => {
     expect(err.message).toBe("Linear API returned errors");
   });
 
-  test("fetchOpenIssues returns [] when data is missing", async () => {
+  test("fetchOpenIssues throws when GraphQL data is missing", async () => {
     mockFetch(async () => new Response(JSON.stringify({}), { status: 200 }));
-    expect(await fetchOpenIssues("k", {})).toEqual([]);
+    await expect(fetchOpenIssues("k", {})).rejects.toThrow("Linear API returned no data");
+  });
+
+  test("addIssueComment posts a commentCreate mutation", async () => {
+    let captured: { query: string; variables: { issueId: string; body: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { commentCreate: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await addIssueComment("k", "issue-1", "hello");
+    expect(captured!.variables).toEqual({ issueId: "issue-1", body: "hello" });
+    expect(captured!.query).toContain("commentCreate");
+  });
+
+  test("fetchWorkflowStates returns nodes scoped by team key", async () => {
+    let captured: { variables: { team: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(
+        JSON.stringify({
+          data: {
+            workflowStates: {
+              nodes: [
+                { id: "s1", name: "Todo", type: "unstarted" },
+                { id: "s2", name: "In Progress", type: "started" },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const states = await fetchWorkflowStates("k", "ENG");
+    expect(captured!.variables).toEqual({ team: "ENG" });
+    expect(states).toHaveLength(2);
+    expect(states[1]!.name).toBe("In Progress");
+  });
+
+  test("fetchIssueComments returns comment nodes", async () => {
+    let captured: { variables: { id: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(
+        JSON.stringify({
+          data: {
+            issue: {
+              comments: {
+                nodes: [
+                  {
+                    id: "c1",
+                    body: "first",
+                    createdAt: "2026-05-01T00:00:00Z",
+                    user: { name: "Alice", email: null },
+                  },
+                ],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const out = await fetchIssueComments("k", "issue-1");
+    expect(captured!.variables).toEqual({ id: "issue-1" });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.body).toBe("first");
+  });
+
+  test("fetchIssueComments returns [] when issue is null", async () => {
+    mockFetch(async () => new Response(JSON.stringify({ data: { issue: null } }), { status: 200 }));
+    expect(await fetchIssueComments("k", "missing")).toEqual([]);
+  });
+
+  test("updateIssueState posts an issueUpdate mutation with stateId", async () => {
+    let captured: { variables: { id: string; stateId: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await updateIssueState("k", "issue-1", "state-2");
+    expect(captured!.variables).toEqual({ id: "issue-1", stateId: "state-2" });
   });
 });

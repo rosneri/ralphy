@@ -98,7 +98,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     linearTeam: "",
     linearAssignee: "",
     linearStatus: [],
-    linearLabel: "",
+    linearLabel: [],
     pollInterval: 60,
     concurrency: 1,
     ...overrides,
