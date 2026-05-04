@@ -3,7 +3,20 @@ import { z } from "zod";
 
 export const AgentStateSchema = z.object({
   processedIssueIds: z.array(z.string()).default([]),
+  startedIssueIds: z.array(z.string()).default([]),
   lastPollAt: z.string().nullable().default(null),
+  /** Map of change-name → Linear issue identity, written by the agent at
+   *  scaffold time so `ralph clean --name <change>` can find and remove
+   *  the corresponding entries from processedIssueIds / startedIssueIds. */
+  changeMeta: z
+    .record(
+      z.string(),
+      z.object({
+        issueId: z.string(),
+        identifier: z.string(),
+      }),
+    )
+    .default({}),
 });
 
 export type AgentState = z.infer<typeof AgentStateSchema>;

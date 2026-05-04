@@ -37,7 +37,12 @@ function makeDeps(
   const workers = new Map<string, FakeWorker>();
   const logs: { text: string; color?: string }[] = [];
   const saved: AgentState[] = [];
-  const state: AgentState = initial.state ?? { processedIssueIds: [], lastPollAt: null };
+  const state: AgentState = initial.state ?? {
+    processedIssueIds: [],
+    startedIssueIds: [],
+    lastPollAt: null,
+    changeMeta: {},
+  };
 
   const deps: CoordinatorDeps = {
     fetchIssues: initial.fetchImpl ?? mock(async () => initial.issues ?? []),

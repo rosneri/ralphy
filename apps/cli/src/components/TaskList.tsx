@@ -14,6 +14,7 @@ function countTaskItems(content: string): { checked: number; unchecked: number }
 
 interface TaskListProps {
   statesDir: string;
+  projectRoot?: string;
 }
 
 interface TaskRow {
@@ -24,66 +25,85 @@ interface TaskRow {
   progress: string;
   progressStyled: boolean;
   prompt: string;
+  source: string;
 }
 
-function buildRows(statesDir: string): TaskRow[] {
+function buildRows(statesDir: string, projectRoot?: string): TaskRow[] {
   const storage = getStorage();
-  const entries = storage.list(statesDir);
   const rows: TaskRow[] = [];
+  const seenNames = new Set<string>();
 
-  for (const entry of entries) {
-    const raw = storage.read(join(statesDir, entry, ".ralph-state.json"));
-    if (raw === null) continue;
-
-    let state: Record<string, unknown>;
-    try {
-      state = JSON.parse(raw);
-    } catch {
-      continue;
+  // Sources: main statesDir + per-worktree .ralph/tasks (when --worktree
+  // was used in agent mode, per-task state lives inside the worktree).
+  const sources: { dir: string; label: string }[] = [{ dir: statesDir, label: "main" }];
+  if (projectRoot) {
+    const worktreesRoot = join(projectRoot, ".ralph", "worktrees");
+    for (const wt of storage.list(worktreesRoot)) {
+      sources.push({
+        dir: join(worktreesRoot, wt, ".ralph", "tasks"),
+        label: `wt:${wt}`,
+      });
     }
+  }
 
-    if (String(state.status ?? "") === "completed") continue;
+  for (const { dir, label } of sources) {
+    for (const entry of storage.list(dir)) {
+      if (seenNames.has(entry)) continue;
+      const raw = storage.read(join(dir, entry, ".ralph-state.json"));
+      if (raw === null) continue;
 
-    const promptRaw = String(state.prompt ?? "");
-    const firstLine = promptRaw.split("\n").find((l) => l.trim() !== "") ?? "";
-
-    let progress = "—";
-    let progressStyled = true;
-    const tasksContent = storage.read(join(statesDir, entry, "tasks.md"));
-    if (tasksContent !== null) {
-      const { checked, unchecked } = countTaskItems(tasksContent);
-      const total = checked + unchecked;
-      if (total > 0) {
-        progress = `${checked}/${total}`;
-        progressStyled = false;
+      let state: Record<string, unknown>;
+      try {
+        state = JSON.parse(raw);
+      } catch {
+        continue;
       }
-    }
 
-    rows.push({
-      name: String(state.name ?? entry),
-      phase: String(state.status ?? "active"),
-      status: String(state.status ?? "unknown"),
-      iters: String(state.iteration ?? 0),
-      progress,
-      progressStyled,
-      prompt: firstLine
-        .replace(/^#+\s*/, "")
-        .trim()
-        .slice(0, 60),
-    });
+      if (String(state.status ?? "") === "completed") continue;
+
+      const promptRaw = String(state.prompt ?? "");
+      const firstLine = promptRaw.split("\n").find((l) => l.trim() !== "") ?? "";
+
+      let progress = "—";
+      let progressStyled = true;
+      const tasksContent = storage.read(join(dir, entry, "tasks.md"));
+      if (tasksContent !== null) {
+        const { checked, unchecked } = countTaskItems(tasksContent);
+        const total = checked + unchecked;
+        if (total > 0) {
+          progress = `${checked}/${total}`;
+          progressStyled = false;
+        }
+      }
+
+      seenNames.add(entry);
+      rows.push({
+        name: String(state.name ?? entry),
+        phase: String(state.status ?? "active"),
+        status: String(state.status ?? "unknown"),
+        iters: String(state.iteration ?? 0),
+        progress,
+        progressStyled,
+        prompt: firstLine
+          .replace(/^#+\s*/, "")
+          .trim()
+          .slice(0, 60),
+        source: label,
+      });
+    }
   }
 
   return rows;
 }
 
-export function TaskList({ statesDir }: TaskListProps) {
+export function TaskList({ statesDir, projectRoot }: TaskListProps) {
   const { exit } = useApp();
 
   useEffect(() => {
     exit();
   }, [exit]);
 
-  const rows = buildRows(statesDir);
+  const rows = buildRows(statesDir, projectRoot);
 
   if (rows.length === 0) {
     return (
@@ -101,9 +121,11 @@ export function TaskList({ statesDir }: TaskListProps) {
     status: Math.max(6, ...rows.map((r) => r.status.length)),
     iters: 5,
     progress: 8,
+    source: Math.max(6, ...rows.map((r) => r.source.length)),
   };
 
-  const ruleWidth = cols.name + cols.phase + cols.status + cols.iters + cols.progress + 60 + 10;
+  const ruleWidth =
+    cols.name + cols.phase + cols.status + cols.iters + cols.progress + cols.source + 60 + 12;
 
   return (
     <Box flexDirection="column">
@@ -118,6 +140,8 @@ export function TaskList({ statesDir }: TaskListProps) {
         <Text bold>{"Iters".padEnd(cols.iters)}</Text>
         {"  "}
         <Text bold>{"Progress".padEnd(cols.progress)}</Text>
+        {"  "}
+        <Text bold>{"Source".padEnd(cols.source)}</Text>
         {"  "}
         <Text bold>Description</Text>
       </Text>
@@ -137,6 +161,8 @@ export function TaskList({ statesDir }: TaskListProps) {
           ) : (
             row.progress.padStart(cols.progress)
           )}
+          {"  "}
+          <Text dimColor>{row.source.padEnd(cols.source)}</Text>
           {"  "}
           <Text dimColor>{row.prompt}</Text>
         </Text>

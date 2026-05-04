@@ -21,6 +21,8 @@ help:
 
 install: build copy-bin copy-assets init-tasks configure-mcp configure-package init-openspec
 	@echo "✓ Installation complete at $(INSTALL_PATH)"
+	@echo "  cli: $(abspath $(INSTALL_PATH)/bin/cli.js)"
+	@echo "  mcp: $(abspath $(INSTALL_PATH)/bin/mcp.js)"
 
 build:
 	@echo "Building..."

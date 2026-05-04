@@ -9,12 +9,13 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
 }
 
 import { resolve, join, dirname } from "node:path";
-import { exists, mkdir } from "node:fs/promises";
+import { exists, mkdir, rm } from "node:fs/promises";
 import { render } from "ink";
 import { createElement } from "react";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
+import { readAgentState, writeAgentState } from "./agent/state";
 import * as telemetry from "@ralphy/telemetry";
 
 /**
@@ -78,6 +79,82 @@ try {
       stdio: ["inherit", "inherit", "inherit"],
       cwd: process.cwd(),
     });
+  }
+
+  if (args.mode === "clean") {
+    if (!args.name) {
+      process.stderr.write("Error: --name is required for clean mode\n");
+      process.exit(1);
+    }
+    const worktreeDir = join(projectRoot, ".ralph", "worktrees", args.name);
+    const changeDir = join(tasksDir, args.name);
+    const stateDir = join(statesDir, args.name);
+    const branch = `ralph/${args.name}`;
+    const removed: string[] = [];
+
+    if (await exists(worktreeDir)) {
+      const proc = Bun.spawn({
+        cmd: ["git", "worktree", "remove", "--force", worktreeDir],
+        cwd: projectRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const code = await proc.exited;
+      if (code !== 0) {
+        await rm(worktreeDir, { recursive: true, force: true });
+        await Bun.spawn({
+          cmd: ["git", "worktree", "prune"],
+          cwd: projectRoot,
+          stdout: "ignore",
+          stderr: "ignore",
+        }).exited;
+      }
+      removed.push(`worktree ${worktreeDir}`);
+    }
+
+    const branchProc = Bun.spawn({
+      cmd: ["git", "branch", "-D", branch],
+      cwd: projectRoot,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    if ((await branchProc.exited) === 0) removed.push(`branch ${branch}`);
+
+    if (await exists(changeDir)) {
+      await rm(changeDir, { recursive: true, force: true });
+      removed.push(`openspec change ${changeDir}`);
+    }
+    if (await exists(stateDir)) {
+      await rm(stateDir, { recursive: true, force: true });
+      removed.push(`task state ${stateDir}`);
+    }
+
+    // Scrub the corresponding Linear issue id from agent-state.json so the
+    // ticket can be picked up cleanly on the next agent poll.
+    try {
+      const agentState = await readAgentState(projectRoot);
+      const meta = agentState.changeMeta[args.name];
+      if (meta) {
+        agentState.processedIssueIds = agentState.processedIssueIds.filter(
+          (id) => id !== meta.issueId,
+        );
+        agentState.startedIssueIds = agentState.startedIssueIds.filter((id) => id !== meta.issueId);
+        delete agentState.changeMeta[args.name];
+        await writeAgentState(projectRoot, agentState);
+        removed.push(`agent-state entry for ${meta.identifier} (${meta.issueId})`);
+      }
+    } catch {
+      /* agent-state.json may not exist; nothing to scrub */
+    }
+
+    if (removed.length === 0) {
+      process.stdout.write(`Nothing to clean for '${args.name}'\n`);
+    } else {
+      process.stdout.write(`Cleaned '${args.name}':\n`);
+      for (const r of removed) process.stdout.write(`  ✓ removed ${r}\n`);
+    }
+    await telemetry.shutdown();
+    process.exit(0);
   }
 
   if (args.mode === "task" && args.name) {

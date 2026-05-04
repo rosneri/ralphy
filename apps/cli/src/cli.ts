@@ -30,7 +30,7 @@ export interface ParsedArgs {
   fixCi: boolean;
 }
 
-const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent"]);
+const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean"]);
 
 const VALID_MODELS = new Set<string>(["haiku", "sonnet", "opus"]);
 
@@ -43,6 +43,7 @@ const HELP_TEXT = [
   "  status                  Show detailed change status",
   "  init                    Initialize OpenSpec in current directory",
   "  agent                   Poll Linear for new tasks and run loops concurrently",
+  "  clean                   Remove worktree, branch, openspec change, and task state for --name",
   "",
   "Options:",
   "  --name <name>           Change name (required for most commands)",

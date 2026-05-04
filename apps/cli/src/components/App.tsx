@@ -37,7 +37,7 @@ function ErrorMessage({ message }: { message: string }) {
 export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
   switch (args.mode) {
     case "list":
-      return <TaskList statesDir={statesDir} />;
+      return <TaskList statesDir={statesDir} projectRoot={projectRoot} />;
 
     case "agent":
       return (
@@ -69,6 +69,14 @@ export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
       return (
         <ExitAfterRender>
           <Text color="green">Initialized openspec directory</Text>
+        </ExitAfterRender>
+      );
+
+    case "clean":
+      // Handled in index.ts before render; should not reach here.
+      return (
+        <ExitAfterRender>
+          <Text></Text>
         </ExitAfterRender>
       );
 

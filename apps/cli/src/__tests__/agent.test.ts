@@ -95,7 +95,9 @@ describe("agent/state", () => {
   test("write then read roundtrip", async () => {
     await writeAgentState(tempDir, {
       processedIssueIds: ["a", "b"],
+      startedIssueIds: [],
       lastPollAt: "2026-05-04T00:00:00Z",
+      changeMeta: {},
     });
     const s = await readAgentState(tempDir);
     expect(s.processedIssueIds).toEqual(["a", "b"]);

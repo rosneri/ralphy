@@ -220,12 +220,17 @@ export class AgentCoordinator {
   private async notifyStarted(issue: LinearIssue, changeName: string): Promise<void> {
     const updater = this.deps.updater;
     if (!updater) return;
-    if (this.opts.postComments !== false) {
+    const alreadyStarted = this.state?.startedIssueIds.includes(issue.id) ?? false;
+    if (this.opts.postComments !== false && !alreadyStarted) {
       try {
         await updater.postComment(
           issue,
           `🤖 Ralph started working on this issue. Tracking change: \`${changeName}\``,
         );
+        if (this.state && !this.state.startedIssueIds.includes(issue.id)) {
+          this.state.startedIssueIds.push(issue.id);
+          await this.deps.saveState(this.state);
+        }
       } catch (err) {
         this.deps.onLog(
           `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
