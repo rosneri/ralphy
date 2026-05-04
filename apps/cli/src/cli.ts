@@ -1,5 +1,8 @@
 import { log } from "@ralphy/output";
 import type { Engine, Mode } from "@ralphy/types";
+import pkg from "../../../package.json" with { type: "json" };
+
+export const VERSION: string = pkg.version;
 
 export interface ParsedArgs {
   mode: Mode;
@@ -35,6 +38,8 @@ const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", 
 const VALID_MODELS = new Set<string>(["haiku", "sonnet", "opus"]);
 
 const HELP_TEXT = [
+  `ralph v${VERSION}`,
+  "",
   "Usage: ralph <command> [options]",
   "",
   "Commands:",
