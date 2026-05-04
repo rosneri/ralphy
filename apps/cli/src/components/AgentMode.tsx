@@ -256,6 +256,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             // Wrap exited so we can run teardown + worktree cleanup before
             // the coordinator sees the exit code.
             const wantPr = args.createPr || cfg.createPrOnSuccess;
+            // CI-fix exit code: when fix-CI is enabled and CI never goes
+            // green, we override the worker's exit code to non-zero so the
+            // coordinator skips doneStatus/doneLabel and won't mark the
+            // issue as processed. Picked-up again on the next poll (the
+            // resume-in-progress logic ensures it's still in the filter).
+            const CI_FAILED_EXIT = 70;
             const wrapped = proc.exited.then(async (code) => {
               if (cfg.teardownScript) {
                 try {
@@ -264,6 +270,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   /* runScript already logs */
                 }
               }
+              let effectiveCode = code;
               const ok = code === 0;
               if (ok && wantPr) {
                 const branch = branchByChange.get(changeName);
@@ -346,9 +353,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         );
                         if (!result.success) {
                           appendLog(
-                            `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"})`,
+                            `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
                             "red",
                           );
+                          effectiveCode = CI_FAILED_EXIT;
                         }
                       }
                     }
@@ -361,7 +369,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 }
               }
               if (useWorktree && cwd !== projectRoot) {
-                if (ok && cfg.cleanupWorktreeOnSuccess) {
+                // Only clean up the worktree on full success — that includes
+                // CI passing when fix-CI is on. Failed CI keeps the worktree
+                // and branch for human inspection on the existing PR.
+                if (effectiveCode === 0 && cfg.cleanupWorktreeOnSuccess) {
                   try {
                     await removeWorktree(projectRoot, cwd, bunGitRunner);
                     appendLog(`  removed worktree ${cwd}`, "gray");
@@ -377,7 +388,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               statesDirByChange.delete(changeName);
               branchByChange.delete(changeName);
               issueByChange.delete(changeName);
-              return code;
+              return effectiveCode;
             });
 
             return { exited: wrapped, kill: () => proc.kill() };
