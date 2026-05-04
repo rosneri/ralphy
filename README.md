@@ -68,6 +68,47 @@ ralph list                    # Table of all tasks
 ralph status --name fix-auth  # Detailed view of one task
 ```
 
+### Agent Mode (Linear integration)
+
+`ralph agent` polls Linear for open issues and runs up to N concurrent task loops, scaffolding an OpenSpec change per new issue. Requires `LINEAR_API_KEY` in the environment.
+
+```bash
+export LINEAR_API_KEY=lin_api_xxx
+ralph agent --linear-team ENG --linear-assignee me --concurrency 3 --poll-interval 60
+```
+
+What it does on each tick:
+
+1. Polls Linear for open issues matching the filter (team / assignee / status / labels)
+2. Dedupes against `.ralph/agent-state.json` (already processed) plus any in-flight workers
+3. For each new issue: fetches existing comments, scaffolds `openspec/changes/<id-slug>/{proposal.md,tasks.md,design.md}` (with the comments embedded so the worker sees prior discussion), then spawns `ralph task --name <id-slug>` up to the concurrency cap
+4. Posts a "🤖 started" comment on the Linear issue and (optionally) moves it to `inProgressStatus`
+5. On worker exit, posts a success/failure comment and (on success) moves the issue to `doneStatus`
+
+Defaults are written to `ralphy.config.json` on first run; CLI flags override config values per invocation.
+
+```jsonc
+{
+  "concurrency": 3,
+  "pollIntervalSeconds": 60,
+  "maxIterationsPerTask": 0,
+  "maxCostUsdPerTask": 0,
+  "engine": "claude",
+  "model": "opus",
+  "linear": {
+    "team": "ENG",
+    "assignee": "me",
+    "statuses": ["Todo", "In Progress"],
+    "labels": ["ralph", "automation"],
+    "inProgressStatus": "In Progress",
+    "doneStatus": "In Review",
+    "postComments": true,
+  },
+}
+```
+
+Failed workers (non-zero exit) are not marked processed, so they'll be retried on the next poll. SIGINT/SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the task loop.
+
 ## CLI Options
 
 | Option                 | Description                                              |
@@ -86,6 +127,17 @@ ralph status --name fix-auth  # Detailed view of one task
 | `--delay <N>`          | Seconds to wait between iterations                       |
 | `--log`                | Log raw JSON stream output                               |
 | `--verbose`            | Verbose output                                           |
+
+### Agent mode flags
+
+| Option                   | Description                                  |
+| ------------------------ | -------------------------------------------- |
+| `--linear-team <key>`    | Linear team key (e.g. `ENG`)                 |
+| `--linear-assignee <id>` | Filter by assignee (user id, email, or `me`) |
+| `--linear-status <name>` | Filter by status name (repeatable)           |
+| `--linear-label <name>`  | Filter by label name (repeatable, any-of)    |
+| `--poll-interval <s>`    | Seconds between Linear polls (default: 60)   |
+| `--concurrency <n>`      | Max concurrent task loops (default: 1)       |
 
 ## OpenSpec Flow
 
