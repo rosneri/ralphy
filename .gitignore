@@ -12,3 +12,4 @@ target/
 .claude/skills/openspec-archive-change/
 .claude/skills/openspec-explore/
 .claude/skills/openspec-propose/.claude/scheduled_tasks.lock
+.claude/scheduled_tasks.lock
