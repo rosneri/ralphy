@@ -259,9 +259,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         {
           concurrency,
           filter,
-          inProgressStatus: cfg.linear.inProgressStatus,
-          doneStatus: cfg.linear.doneStatus,
-          doneLabel: cfg.linear.doneLabel,
+          inProgressStatus: args.inProgressStatus || cfg.linear.inProgressStatus,
+          doneStatus: args.doneStatus || cfg.linear.doneStatus,
+          doneLabel: args.doneLabel || cfg.linear.doneLabel,
           postComments: cfg.linear.postComments,
         },
       );

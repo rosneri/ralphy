@@ -228,6 +228,28 @@ describe("parseArgs", () => {
     const result = await parseArgs(["agent"]);
     expect(result.worktree).toBe(false);
   });
+
+  test("parses --in-progress-status / --done-status / --done-label", async () => {
+    const result = await parseArgs([
+      "agent",
+      "--in-progress-status",
+      "In Progress",
+      "--done-status",
+      "In Review",
+      "--done-label",
+      "ralphy-done",
+    ]);
+    expect(result.inProgressStatus).toBe("In Progress");
+    expect(result.doneStatus).toBe("In Review");
+    expect(result.doneLabel).toBe("ralphy-done");
+  });
+
+  test("status/label flags default to empty strings", async () => {
+    const result = await parseArgs(["agent"]);
+    expect(result.inProgressStatus).toBe("");
+    expect(result.doneStatus).toBe("");
+    expect(result.doneLabel).toBe("");
+  });
 });
 
 describe("printHelp", () => {
