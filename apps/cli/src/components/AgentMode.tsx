@@ -15,6 +15,27 @@ import { readAgentState, writeAgentState } from "../agent/state";
 import { scaffoldChangeForIssue } from "../agent/scaffold";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
+import { createWorktree, removeWorktree, type GitRunner } from "../agent/worktree";
+import { join } from "node:path";
+
+const bunGitRunner: GitRunner = {
+  run: async (args, cwd) => {
+    const proc = Bun.spawn({ cmd: ["git", ...args], cwd, stdout: "pipe", stderr: "pipe" });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      const err = new Error("git command failed") as Error & {
+        stderr?: string;
+        code?: number;
+      };
+      err.stderr = stderr;
+      err.code = code;
+      throw err;
+    }
+    return { stdout, stderr };
+  },
+};
 
 interface AgentModeProps {
   args: ParsedArgs;
@@ -77,6 +98,30 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       const labelCache = new Map<string, Map<string, string>>();
       const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
 
+      const useWorktree = args.worktree || cfg.useWorktree;
+      // Per-changeName: cwd to spawn the worker in (worktree path if enabled,
+      // else projectRoot).
+      const cwdByChange = new Map<string, string>();
+
+      async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
+        appendLog(`  ${label}: ${cmd}`, "gray");
+        const proc = Bun.spawn({
+          cmd: ["sh", "-c", cmd],
+          cwd,
+          stdout: "ignore",
+          stderr: "pipe",
+          stdin: "ignore",
+        });
+        const code = await proc.exited;
+        if (code !== 0) {
+          const stderr = await new Response(proc.stderr).text();
+          appendLog(
+            `! ${label} exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
+            "yellow",
+          );
+        }
+      }
+
       const coord = new AgentCoordinator(
         {
           fetchIssues: (f) => fetchOpenIssues(apiKey, f),
@@ -90,7 +135,42 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 "yellow",
               );
             }
-            return scaffoldChangeForIssue(tasksDir, statesDir, issue, comments);
+
+            // Decide where this change's files live:
+            //  - useWorktree: scaffold inside the worktree so the loop sees them
+            //  - else: scaffold in main project root
+            let workerCwd = projectRoot;
+            let scaffoldTasksDir = tasksDir;
+            let scaffoldStatesDir = statesDir;
+            const probeName = issue.identifier.toLowerCase();
+            if (useWorktree) {
+              try {
+                const wt = await createWorktree(projectRoot, probeName, bunGitRunner);
+                workerCwd = wt.cwd;
+                scaffoldTasksDir = join(wt.cwd, "openspec", "changes");
+                scaffoldStatesDir = join(wt.cwd, ".ralph", "tasks");
+                appendLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
+              } catch (err) {
+                appendLog(
+                  `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — falling back to project root`,
+                  "yellow",
+                );
+              }
+            }
+
+            const changeName = await scaffoldChangeForIssue(
+              scaffoldTasksDir,
+              scaffoldStatesDir,
+              issue,
+              comments,
+            );
+            cwdByChange.set(changeName, workerCwd);
+
+            if (cfg.setupScript) {
+              await runScript("setup", cfg.setupScript, workerCwd);
+            }
+
+            return changeName;
           },
           spawnWorker: (changeName) => {
             const cmd: string[] = [
@@ -107,14 +187,44 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             const maxCost = args.maxCostUsd || cfg.maxCostUsdPerTask;
             if (maxCost > 0) cmd.push("--max-cost", String(maxCost));
 
+            const cwd = cwdByChange.get(changeName) ?? projectRoot;
             const proc = Bun.spawn({
               cmd,
-              cwd: projectRoot,
+              cwd,
               stdout: "ignore",
               stderr: "ignore",
               stdin: "ignore",
             });
-            return { exited: proc.exited, kill: () => proc.kill() };
+
+            // Wrap exited so we can run teardown + worktree cleanup before
+            // the coordinator sees the exit code.
+            const wrapped = proc.exited.then(async (code) => {
+              if (cfg.teardownScript) {
+                try {
+                  await runScript("teardown", cfg.teardownScript, cwd);
+                } catch {
+                  /* runScript already logs */
+                }
+              }
+              if (useWorktree && cwd !== projectRoot) {
+                const ok = code === 0;
+                if (ok && cfg.cleanupWorktreeOnSuccess) {
+                  try {
+                    await removeWorktree(projectRoot, cwd, bunGitRunner);
+                    appendLog(`  removed worktree ${cwd}`, "gray");
+                  } catch (err) {
+                    appendLog(
+                      `! worktree remove failed for ${changeName}: ${(err as Error).message}`,
+                      "yellow",
+                    );
+                  }
+                }
+              }
+              cwdByChange.delete(changeName);
+              return code;
+            });
+
+            return { exited: wrapped, kill: () => proc.kill() };
           },
           loadState: () => readAgentState(projectRoot),
           saveState: (s) => writeAgentState(projectRoot, s),

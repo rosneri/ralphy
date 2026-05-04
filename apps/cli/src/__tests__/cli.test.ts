@@ -218,6 +218,16 @@ describe("parseArgs", () => {
     expect(result.pollInterval).toBe(30);
     expect(result.concurrency).toBe(4);
   });
+
+  test("parses --worktree flag", async () => {
+    const result = await parseArgs(["agent", "--worktree"]);
+    expect(result.worktree).toBe(true);
+  });
+
+  test("worktree defaults to false", async () => {
+    const result = await parseArgs(["agent"]);
+    expect(result.worktree).toBe(false);
+  });
 });
 
 describe("printHelp", () => {

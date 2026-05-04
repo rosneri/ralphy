@@ -7,6 +7,22 @@ const RalphyConfigSchema = z
     pollIntervalSeconds: z.number().int().positive().default(60),
     maxIterationsPerTask: z.number().int().nonnegative().default(0),
     maxCostUsdPerTask: z.number().nonnegative().default(0),
+    // When true, every task runs in a per-issue git worktree under
+    // .ralph/worktrees/<change-name> on a fresh `ralph/<change-name>` branch.
+    useWorktree: z.boolean().default(false),
+    // Whether to remove the worktree (and its branch is left intact) when
+    // the task exits cleanly. Failed tasks always keep the worktree for
+    // human inspection. Ignored when useWorktree is false.
+    cleanupWorktreeOnSuccess: z.boolean().default(false),
+    // Shell command to run after a worktree is created and the change is
+    // scaffolded, but before the task loop starts. Runs in the worktree
+    // (or project root if useWorktree is false). Use this to install
+    // dependencies, copy .env files, etc.
+    setupScript: z.string().optional(),
+    // Shell command to run after the task loop exits, before any worktree
+    // teardown. Runs in the same cwd as setupScript. Failures are logged
+    // but never block.
+    teardownScript: z.string().optional(),
     engine: z.enum(["claude", "codex"]).default("claude"),
     model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
     linear: z
