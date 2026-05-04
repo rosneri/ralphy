@@ -11,6 +11,8 @@ import {
   fetchIssueComments,
   fetchWorkflowStates,
   updateIssueState,
+  fetchIssueLabels,
+  addLabelToIssue,
   type LinearIssue,
 } from "../agent/linear";
 
@@ -389,5 +391,41 @@ describe("agent/linear", () => {
     });
     await updateIssueState("k", "issue-1", "state-2");
     expect(captured!.variables).toEqual({ id: "issue-1", stateId: "state-2" });
+  });
+
+  test("fetchIssueLabels returns label nodes scoped by team", async () => {
+    let captured: { variables: { team: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(
+        JSON.stringify({
+          data: {
+            issueLabels: {
+              nodes: [
+                { id: "l1", name: "ralphy-done" },
+                { id: "l2", name: "needs-review" },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const labels = await fetchIssueLabels("k", "ENG");
+    expect(captured!.variables).toEqual({ team: "ENG" });
+    expect(labels).toHaveLength(2);
+    expect(labels[0]!.name).toBe("ralphy-done");
+  });
+
+  test("addLabelToIssue posts an issueAddLabel mutation", async () => {
+    let captured: { variables: { id: string; labelId: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issueAddLabel: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await addLabelToIssue("k", "issue-1", "label-9");
+    expect(captured!.variables).toEqual({ id: "issue-1", labelId: "label-9" });
   });
 });

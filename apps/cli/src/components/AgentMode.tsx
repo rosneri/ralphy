@@ -7,6 +7,8 @@ import {
   fetchIssueComments,
   fetchWorkflowStates,
   updateIssueState,
+  fetchIssueLabels,
+  addLabelToIssue,
   type LinearIssue,
 } from "../agent/linear";
 import { readAgentState, writeAgentState } from "../agent/state";
@@ -70,8 +72,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         labels: args.linearLabel.length ? args.linearLabel : cfg.linear.labels,
       };
 
-      // Cache: teamKey -> Map<lowercased state name, state id>
+      // Caches: teamKey -> Map<lowercased name, id>
       const stateCache = new Map<string, Map<string, string>>();
+      const labelCache = new Map<string, Map<string, string>>();
       const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
 
       const coord = new AgentCoordinator(
@@ -130,6 +133,17 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               }
               return map.get(stateName.toLowerCase()) ?? null;
             },
+            addLabel: (issue, labelId) => addLabelToIssue(apiKey, issue.id, labelId),
+            resolveLabelId: async (issue, labelName) => {
+              const team = teamKeyOf(issue);
+              let map = labelCache.get(team);
+              if (!map) {
+                const labels = await fetchIssueLabels(apiKey, team);
+                map = new Map(labels.map((l) => [l.name.toLowerCase(), l.id]));
+                labelCache.set(team, map);
+              }
+              return map.get(labelName.toLowerCase()) ?? null;
+            },
           },
         },
         {
@@ -137,6 +151,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           filter,
           inProgressStatus: cfg.linear.inProgressStatus,
           doneStatus: cfg.linear.doneStatus,
+          doneLabel: cfg.linear.doneLabel,
           postComments: cfg.linear.postComments,
         },
       );

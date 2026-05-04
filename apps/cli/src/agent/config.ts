@@ -24,6 +24,9 @@ const RalphyConfigSchema = z
         inProgressStatus: z.string().optional(),
         // Status name to move issues to after a successful run.
         doneStatus: z.string().optional(),
+        // Label name to add to the issue after a successful run.
+        // Useful when your team marks done via a label rather than a state.
+        doneLabel: z.string().optional(),
         // Whether to post progress comments on the Linear issue.
         postComments: z.boolean().default(true),
       })

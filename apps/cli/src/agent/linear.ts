@@ -194,3 +194,36 @@ export async function updateIssueState(
     stateId,
   });
 }
+
+interface IssueLabel {
+  id: string;
+  name: string;
+}
+
+/** Fetch all issue labels for a given team key. */
+export async function fetchIssueLabels(apiKey: string, teamKey: string): Promise<IssueLabel[]> {
+  const query = `query Labels($team: String!) {
+    issueLabels(filter: { team: { key: { eq: $team } } }, first: 250) {
+      nodes { id name }
+    }
+  }`;
+  const data = await linearRequest<{ issueLabels: { nodes: IssueLabel[] } }>(apiKey, query, {
+    team: teamKey,
+  });
+  return data.issueLabels.nodes;
+}
+
+/** Add a label to an issue. Linear preserves existing labels. */
+export async function addLabelToIssue(
+  apiKey: string,
+  issueId: string,
+  labelId: string,
+): Promise<void> {
+  const mutation = `mutation AddLabel($id: String!, $labelId: String!) {
+    issueAddLabel(id: $id, labelId: $labelId) { success }
+  }`;
+  await linearRequest<{ issueAddLabel: { success: boolean } }>(apiKey, mutation, {
+    id: issueId,
+    labelId,
+  });
+}
