@@ -83,7 +83,7 @@ What it does on each tick:
 2. Dedupes against `.ralph/agent-state.json` (already processed) plus any in-flight workers
 3. For each new issue: fetches existing comments, scaffolds `openspec/changes/<id-slug>/{proposal.md,tasks.md,design.md}` (with the comments embedded so the worker sees prior discussion), then spawns `ralph task --name <id-slug>` up to the concurrency cap
 4. Posts a "🤖 started" comment on the Linear issue and (optionally) moves it to `inProgressStatus`
-5. On worker exit, posts a success/failure comment and (on success) moves the issue to `doneStatus`
+5. On worker exit, posts a success/failure comment and (on success) moves the issue to `doneStatus` and/or applies `doneLabel`
 
 Defaults are written to `ralphy.config.json` on first run; CLI flags override config values per invocation.
 
@@ -102,10 +102,13 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
     "labels": ["ralph", "automation"],
     "inProgressStatus": "In Progress",
     "doneStatus": "In Review",
+    "doneLabel": "ralphy-done",
     "postComments": true,
   },
 }
 ```
+
+`doneStatus` and `doneLabel` are independent — set either, both, or neither. Use `doneLabel` if your team marks completion via a label rather than a workflow state.
 
 Failed workers (non-zero exit) are not marked processed, so they'll be retried on the next poll. SIGINT/SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the task loop.
 

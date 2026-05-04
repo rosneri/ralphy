@@ -214,10 +214,11 @@ describe("AgentCoordinator + IssueUpdater", () => {
     updater: IssueUpdater;
     comments: { id: string; body: string }[];
     moves: { id: string; stateId: string }[];
-    setStateNotFound?: boolean;
+    labels: { id: string; labelId: string }[];
   } {
     const comments: { id: string; body: string }[] = [];
     const moves: { id: string; stateId: string }[] = [];
+    const labels: { id: string; labelId: string }[] = [];
     const updater: IssueUpdater = {
       postComment: async (i, body) => {
         comments.push({ id: i.id, body });
@@ -229,8 +230,15 @@ describe("AgentCoordinator + IssueUpdater", () => {
         if (name === "missing") return null;
         return `state-${name.toLowerCase().replace(/\s+/g, "-")}`;
       },
+      resolveLabelId: async (_i, name) => {
+        if (name === "missing-label") return null;
+        return `label-${name.toLowerCase().replace(/\s+/g, "-")}`;
+      },
+      addLabel: async (i, labelId) => {
+        labels.push({ id: i.id, labelId });
+      },
     };
-    return { updater, comments, moves };
+    return { updater, comments, moves, labels };
   }
 
   test("posts start/exit comments and moves through inProgress + done", async () => {
@@ -351,5 +359,97 @@ describe("AgentCoordinator + IssueUpdater", () => {
     await new Promise((r) => setTimeout(r, 10));
     // no crash, worker completed normally
     expect(coord.activeCount).toBe(0);
+  });
+
+  test("doneLabel adds the label on success", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, labels } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      doneLabel: "ralphy-done",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(labels).toEqual([{ id: "a", labelId: "label-ralphy-done" }]);
+  });
+
+  test("doneLabel and doneStatus both apply on success", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, moves, labels } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      doneStatus: "Done",
+      doneLabel: "ralphy-done",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(moves).toEqual([{ id: "a", stateId: "state-done" }]);
+    expect(labels).toEqual([{ id: "a", labelId: "label-ralphy-done" }]);
+  });
+
+  test("doneLabel does not apply on non-zero exit", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, labels } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      doneLabel: "ralphy-done",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(2);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(labels).toEqual([]);
+  });
+
+  test("logs warning when target label name is unknown", async () => {
+    const { deps, workers, logs } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater } = makeUpdater();
+    deps.updater = updater;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      doneLabel: "missing-label",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(logs.some((l) => l.text.includes("'missing-label' not found"))).toBe(true);
+  });
+
+  test("logs warning when updater lacks label support but doneLabel set", async () => {
+    const { deps, workers, logs } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    // Updater without resolveLabelId / addLabel
+    const partial: IssueUpdater = {
+      postComment: async () => {},
+      setState: async () => {},
+      resolveStateId: async () => "x",
+    };
+    deps.updater = partial;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      doneLabel: "ralphy-done",
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(logs.some((l) => l.text.includes("does not support labels"))).toBe(true);
   });
 });

@@ -6,6 +6,9 @@ export interface IssueUpdater {
   resolveStateId: (issue: LinearIssue, stateName: string) => Promise<string | null>;
   postComment: (issue: LinearIssue, body: string) => Promise<void>;
   setState: (issue: LinearIssue, stateId: string) => Promise<void>;
+  /** Resolve a label name to its label ID, scoped to the issue's team. */
+  resolveLabelId?: (issue: LinearIssue, labelName: string) => Promise<string | null>;
+  addLabel?: (issue: LinearIssue, labelId: string) => Promise<void>;
 }
 
 export interface CoordinatorDeps {
@@ -28,6 +31,8 @@ interface CoordinatorOptions {
   filter: LinearFilter;
   inProgressStatus?: string | undefined;
   doneStatus?: string | undefined;
+  /** Label to add to the issue on successful completion. */
+  doneLabel?: string | undefined;
   postComments?: boolean | undefined;
 }
 
@@ -200,6 +205,37 @@ export class AgentCoordinator {
     }
     if (ok && this.opts.doneStatus) {
       await this.moveIssue(issue, this.opts.doneStatus);
+    }
+    if (ok && this.opts.doneLabel) {
+      await this.tagIssue(issue, this.opts.doneLabel);
+    }
+  }
+
+  private async tagIssue(issue: LinearIssue, labelName: string): Promise<void> {
+    const updater = this.deps.updater!;
+    if (!updater.resolveLabelId || !updater.addLabel) {
+      this.deps.onLog(
+        `! Linear updater does not support labels (cannot tag ${issue.identifier} with '${labelName}')`,
+        "yellow",
+      );
+      return;
+    }
+    try {
+      const labelId = await updater.resolveLabelId(issue, labelName);
+      if (!labelId) {
+        this.deps.onLog(
+          `! Linear label '${labelName}' not found for ${issue.identifier}`,
+          "yellow",
+        );
+        return;
+      }
+      await updater.addLabel(issue, labelId);
+      this.deps.onLog(`  → ${issue.identifier} tagged with '${labelName}'`, "gray");
+    } catch (err) {
+      this.deps.onLog(
+        `! Linear label add failed for ${issue.identifier}: ${(err as Error).message}`,
+        "red",
+      );
     }
   }
 
