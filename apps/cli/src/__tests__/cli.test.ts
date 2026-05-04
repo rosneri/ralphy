@@ -2,7 +2,7 @@ import { describe, expect, test, spyOn } from "bun:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
-import { parseArgs, printHelp } from "../cli";
+import { parseArgs, printHelp, VERSION } from "../cli";
 
 describe("parseArgs", () => {
   test("defaults to task mode with claude/opus", async () => {
@@ -273,5 +273,10 @@ describe("printHelp", () => {
     expect(output).toContain("--name");
     expect(output).toContain("--help");
     expect(output).toContain("Examples:");
+    expect(output).toContain(`ralph v${VERSION}`);
+  });
+
+  test("VERSION is a non-empty semver-like string", () => {
+    expect(VERSION).toMatch(/^\d+\.\d+\.\d+/);
   });
 });
