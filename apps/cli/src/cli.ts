@@ -43,7 +43,7 @@ const HELP_TEXT = [
   "  status                  Show detailed change status",
   "  init                    Initialize OpenSpec in current directory",
   "  agent                   Poll Linear for new tasks and run loops concurrently",
-  "  clean                   Remove worktree, branch, openspec change, and task state for --name",
+  "  clean                   Remove worktree, branch, openspec change, and task state for --name (slug, Linear identifier like COD-27, or issue UUID)",
   "",
   "Options:",
   "  --name <name>           Change name (required for most commands)",

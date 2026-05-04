@@ -86,10 +86,33 @@ try {
       process.stderr.write("Error: --name is required for clean mode\n");
       process.exit(1);
     }
-    const worktreeDir = join(projectRoot, ".ralph", "worktrees", args.name);
-    const changeDir = join(tasksDir, args.name);
-    const stateDir = join(statesDir, args.name);
-    const branch = `ralph/${args.name}`;
+    // Resolve --name. Accepts:
+    //   - the change-name slug (e.g. "cod-27-add-feedback-…")
+    //   - the Linear identifier (e.g. "COD-27")
+    //   - the Linear issue UUID
+    // Identifier/UUID are looked up via changeMeta in agent-state.json.
+    let resolvedName = args.name;
+    try {
+      const s = await readAgentState(projectRoot);
+      if (!s.changeMeta[args.name]) {
+        const lower = args.name.toLowerCase();
+        for (const [changeName, m] of Object.entries(s.changeMeta)) {
+          if (m.identifier.toLowerCase() === lower || m.issueId === args.name) {
+            resolvedName = changeName;
+            break;
+          }
+        }
+      }
+    } catch {
+      /* no agent-state.json — fall through with raw name */
+    }
+    if (resolvedName !== args.name) {
+      process.stdout.write(`Resolved '${args.name}' → '${resolvedName}'\n`);
+    }
+    const worktreeDir = join(projectRoot, ".ralph", "worktrees", resolvedName);
+    const changeDir = join(tasksDir, resolvedName);
+    const stateDir = join(statesDir, resolvedName);
+    const branch = `ralph/${resolvedName}`;
     const removed: string[] = [];
 
     if (await exists(worktreeDir)) {
@@ -133,14 +156,14 @@ try {
     // ticket can be picked up cleanly on the next agent poll.
     try {
       const agentState = await readAgentState(projectRoot);
-      const meta = agentState.changeMeta[args.name];
+      const meta = agentState.changeMeta[resolvedName];
       if (meta) {
         agentState.processedIssueIds = agentState.processedIssueIds.filter(
           (id) => id !== meta.issueId,
         );
         agentState.startedIssueIds = agentState.startedIssueIds.filter((id) => id !== meta.issueId);
         agentState.failedIssueIds = agentState.failedIssueIds.filter((id) => id !== meta.issueId);
-        delete agentState.changeMeta[args.name];
+        delete agentState.changeMeta[resolvedName];
         await writeAgentState(projectRoot, agentState);
         removed.push(`agent-state entry for ${meta.identifier} (${meta.issueId})`);
       }
@@ -149,9 +172,9 @@ try {
     }
 
     if (removed.length === 0) {
-      process.stdout.write(`Nothing to clean for '${args.name}'\n`);
+      process.stdout.write(`Nothing to clean for '${resolvedName}'\n`);
     } else {
-      process.stdout.write(`Cleaned '${args.name}':\n`);
+      process.stdout.write(`Cleaned '${resolvedName}':\n`);
       for (const r of removed) process.stdout.write(`  ✓ removed ${r}\n`);
     }
     await telemetry.shutdown();
