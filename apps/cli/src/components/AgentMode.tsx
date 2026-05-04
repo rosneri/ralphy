@@ -415,10 +415,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   } catch (err) {
                     const e = err as Error & { stderr?: string; code?: number };
                     const detail = e.stderr?.trim() || e.message;
-                    appendLog(
-                      `! PR create failed for ${changeName}: ${detail}`,
-                      "red",
-                    );
+                    appendLog(`! PR create failed for ${changeName}: ${detail}`, "red");
                     effectiveCode = PR_FAILED_EXIT;
                   }
                 }
