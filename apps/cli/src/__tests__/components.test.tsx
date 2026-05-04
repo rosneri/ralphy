@@ -362,6 +362,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     inProgressStatus: "",
     doneStatus: "",
     doneLabel: "",
+    createPr: false,
     ...overrides,
   };
 }

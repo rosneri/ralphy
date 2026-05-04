@@ -27,6 +27,13 @@ const RalphyConfigSchema = z
     // instructions" section. Use for cross-cutting guidance you want every
     // task to see (e.g. "Always run lint before committing").
     appendPrompt: z.string().optional(),
+    // When true, push the worker's branch and open a GitHub PR via `gh`
+    // after the task loop exits cleanly. Requires useWorktree (the PR
+    // needs a branch to point at) and a configured GitHub remote. The
+    // PR URL is then included in the Linear completion comment.
+    createPrOnSuccess: z.boolean().default(false),
+    // Base branch for the PR (default "main").
+    prBaseBranch: z.string().default("main"),
     engine: z.enum(["claude", "codex"]).default("claude"),
     model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
     linear: z
