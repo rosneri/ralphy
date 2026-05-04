@@ -104,11 +104,13 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
     "doneStatus": "In Review",
     "doneLabel": "ralphy-done",
     "postComments": true,
+    "updateEveryIterations": 10,
   },
   "useWorktree": true,
   "cleanupWorktreeOnSuccess": false,
   "setupScript": "bun install",
   "teardownScript": "git status",
+  "appendPrompt": "Always run lint before committing.",
 }
 ```
 
@@ -119,6 +121,10 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
 With `--worktree` (or `useWorktree: true` in config) each task runs in an isolated worktree at `.ralph/worktrees/<change-name>` checked out onto a fresh `ralph/<change-name>` branch. The change is scaffolded _inside_ the worktree, and the loop's cwd is the worktree, so concurrent workers can't stomp on each other.
 
 Use `setupScript` (run inside the worktree right after scaffolding) to install dependencies, copy `.env`, etc. Use `teardownScript` (run after the loop exits, before any worktree cleanup) to gather artifacts or roll back local mutations. Both run via `sh -c`; failures are logged but never block the loop. With `cleanupWorktreeOnSuccess: true` the worktree is removed when the worker exits 0 — failed workers always keep their worktree (and branch) for human inspection.
+
+**`appendPrompt`** (or `--prompt` in agent mode) is appended to every scaffolded `proposal.md` under an `## Additional instructions` section — use it for cross-cutting guidance every task should see.
+
+**`updateEveryIterations`** (default `10`, `0` disables) posts a "🔄 Ralph progress update: iteration N" comment on the Linear issue every N task iterations. Requires `postComments: true`.
 
 Failed workers (non-zero exit) are not marked processed, so they'll be retried on the next poll. SIGINT/SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the task loop.
 

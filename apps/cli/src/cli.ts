@@ -44,7 +44,7 @@ const HELP_TEXT = [
   "",
   "Options:",
   "  --name <name>           Change name (required for most commands)",
-  "  --prompt <text>         Task description",
+  "  --prompt <text>         Task description (in agent mode: appended to every scaffolded proposal)",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",
   "  --claude [model]        Use Claude engine (haiku|sonnet|opus, default: opus)",

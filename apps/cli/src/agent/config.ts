@@ -23,6 +23,10 @@ const RalphyConfigSchema = z
     // teardown. Runs in the same cwd as setupScript. Failures are logged
     // but never block.
     teardownScript: z.string().optional(),
+    // Text appended to every scaffolded proposal.md under an "Additional
+    // instructions" section. Use for cross-cutting guidance you want every
+    // task to see (e.g. "Always run lint before committing").
+    appendPrompt: z.string().optional(),
     engine: z.enum(["claude", "codex"]).default("claude"),
     model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
     linear: z
@@ -45,6 +49,9 @@ const RalphyConfigSchema = z
         doneLabel: z.string().optional(),
         // Whether to post progress comments on the Linear issue.
         postComments: z.boolean().default(true),
+        // Post a progress update on the Linear issue every N task
+        // iterations. 0 disables. Requires postComments to be true.
+        updateEveryIterations: z.number().int().nonnegative().default(10),
       })
       .default({ statuses: [], labels: [], postComments: true }),
   })

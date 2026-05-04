@@ -431,6 +431,107 @@ describe("AgentCoordinator + IssueUpdater", () => {
     expect(logs.some((l) => l.text.includes("'missing-label' not found"))).toBe(true);
   });
 
+  test("posts a progress comment on each new iteration milestone", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, comments } = makeUpdater();
+    deps.updater = updater;
+    let count = 0;
+    deps.getIterationCount = async () => count;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      commentEveryIterations: 10,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    // Worker is active. Initial iteration 0 → no progress comment yet.
+    expect(comments.filter((c) => c.body.includes("progress"))).toHaveLength(0);
+
+    // Below threshold — still no comment.
+    count = 7;
+    await coord.pollOnce();
+    expect(comments.filter((c) => c.body.includes("progress"))).toHaveLength(0);
+
+    // Cross first milestone (10).
+    count = 10;
+    await coord.pollOnce();
+    expect(comments.filter((c) => c.body.includes("iteration 10"))).toHaveLength(1);
+
+    // Same milestone — no duplicate.
+    count = 14;
+    await coord.pollOnce();
+    expect(comments.filter((c) => c.body.includes("progress"))).toHaveLength(1);
+
+    // Cross second milestone (20).
+    count = 22;
+    await coord.pollOnce();
+    expect(comments.filter((c) => c.body.includes("iteration 22"))).toHaveLength(1);
+
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("commentEveryIterations=0 disables progress comments", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, comments } = makeUpdater();
+    deps.updater = updater;
+    deps.getIterationCount = async () => 99;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      commentEveryIterations: 0,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    await coord.pollOnce();
+    expect(comments.filter((c) => c.body.includes("progress"))).toHaveLength(0);
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("postComments=false suppresses progress comments too", async () => {
+    const { deps, workers } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater, comments } = makeUpdater();
+    deps.updater = updater;
+    deps.getIterationCount = async () => 50;
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      commentEveryIterations: 10,
+      postComments: false,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    await coord.pollOnce();
+    expect(comments).toEqual([]);
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("getIterationCount failure logs warning and continues", async () => {
+    const { deps, workers, logs } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const { updater } = makeUpdater();
+    deps.updater = updater;
+    deps.getIterationCount = async () => {
+      throw new Error("disk read failed");
+    };
+    const coord = new AgentCoordinator(deps, {
+      concurrency: 1,
+      filter: {},
+      commentEveryIterations: 10,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    await coord.pollOnce();
+    expect(logs.some((l) => l.text.includes("iteration count read failed"))).toBe(true);
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("logs warning when updater lacks label support but doneLabel set", async () => {
     const { deps, workers, logs } = makeDeps({ issues: [issue("a", "ENG-1")] });
     // Updater without resolveLabelId / addLabel

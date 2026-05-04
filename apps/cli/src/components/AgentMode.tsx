@@ -102,6 +102,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       // Per-changeName: cwd to spawn the worker in (worktree path if enabled,
       // else projectRoot).
       const cwdByChange = new Map<string, string>();
+      const statesDirByChange = new Map<string, string>();
 
       async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
         appendLog(`  ${label}: ${cmd}`, "gray");
@@ -158,13 +159,16 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               }
             }
 
+            const appendPrompt = args.prompt || cfg.appendPrompt || "";
             const changeName = await scaffoldChangeForIssue(
               scaffoldTasksDir,
               scaffoldStatesDir,
               issue,
               comments,
+              appendPrompt,
             );
             cwdByChange.set(changeName, workerCwd);
+            statesDirByChange.set(changeName, scaffoldStatesDir);
 
             if (cfg.setupScript) {
               await runScript("setup", cfg.setupScript, workerCwd);
@@ -221,6 +225,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 }
               }
               cwdByChange.delete(changeName);
+              statesDirByChange.delete(changeName);
               return code;
             });
 
@@ -230,6 +235,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           saveState: (s) => writeAgentState(projectRoot, s),
           onLog: appendLog,
           onWorkersChanged: () => setTick((t) => t + 1),
+          getIterationCount: async (changeName) => {
+            const dir = statesDirByChange.get(changeName) ?? statesDir;
+            const file = Bun.file(join(dir, changeName, ".ralph-state.json"));
+            if (!(await file.exists())) return 0;
+            const json = (await file.json()) as { iteration?: number };
+            return json.iteration ?? 0;
+          },
           updater: {
             postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
             setState: (issue, stateId) => updateIssueState(apiKey, issue.id, stateId),
@@ -263,6 +275,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           doneStatus: args.doneStatus || cfg.linear.doneStatus,
           doneLabel: args.doneLabel || cfg.linear.doneLabel,
           postComments: cfg.linear.postComments,
+          commentEveryIterations: cfg.linear.updateEveryIterations,
         },
       );
       coordRef.current = coord;

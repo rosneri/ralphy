@@ -24,6 +24,9 @@ export interface CoordinatorDeps {
   onWorkersChanged: () => void;
   /** Optional: when present, the coordinator updates the Linear issue on start/exit. */
   updater?: IssueUpdater;
+  /** Optional: returns the current iteration count for an active worker.
+   *  Used to drive periodic progress comments on the Linear issue. */
+  getIterationCount?: (changeName: string) => Promise<number>;
 }
 
 interface CoordinatorOptions {
@@ -34,13 +37,18 @@ interface CoordinatorOptions {
   /** Label to add to the issue on successful completion. */
   doneLabel?: string | undefined;
   postComments?: boolean | undefined;
+  /** Post a progress comment every N task iterations (0 disables). */
+  commentEveryIterations?: number | undefined;
 }
 
 interface ActiveWorker {
   changeName: string;
   issueId: string;
   issueIdentifier: string;
+  issue: LinearIssue;
   kill: () => void;
+  /** Highest iteration count we've already posted a progress comment for. */
+  lastReportedIteration: number;
 }
 
 export class AgentCoordinator {
@@ -99,7 +107,49 @@ export class AgentCoordinator {
     await this.deps.saveState(state);
 
     this.spawnNext();
+    await this.reportProgress();
     return { found: issues.length, added };
+  }
+
+  private async reportProgress(): Promise<void> {
+    const updater = this.deps.updater;
+    const everyN = this.opts.commentEveryIterations ?? 0;
+    if (
+      everyN <= 0 ||
+      !updater ||
+      this.opts.postComments === false ||
+      !this.deps.getIterationCount
+    ) {
+      return;
+    }
+    for (const w of this.workers) {
+      let count: number;
+      try {
+        count = await this.deps.getIterationCount(w.changeName);
+      } catch (err) {
+        this.deps.onLog(
+          `! iteration count read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        continue;
+      }
+      if (count < everyN) continue;
+      const currMilestone = Math.floor(count / everyN);
+      const lastMilestone = Math.floor(w.lastReportedIteration / everyN);
+      if (currMilestone <= lastMilestone) continue;
+      try {
+        await updater.postComment(
+          w.issue,
+          `🔄 Ralph progress update: iteration ${count} on \`${w.changeName}\``,
+        );
+        w.lastReportedIteration = count;
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear progress comment failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+          "red",
+        );
+      }
+    }
   }
 
   spawnNext(): void {
@@ -139,7 +189,9 @@ export class AgentCoordinator {
       changeName,
       issueId: issue.id,
       issueIdentifier: issue.identifier,
+      issue,
       kill: handle.kill,
+      lastReportedIteration: 0,
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);

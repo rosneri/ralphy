@@ -140,6 +140,29 @@ describe("agent/scaffold", () => {
     expect(existsSync(join(statesDir, name))).toBe(true);
   });
 
+  test("scaffoldChangeForIssue appends extra prompt under Additional instructions", async () => {
+    const tasksDir = join(tempDir, "tasks");
+    const statesDir = join(tempDir, "states");
+    const name = await scaffoldChangeForIssue(
+      tasksDir,
+      statesDir,
+      makeIssue(),
+      [],
+      "Always run lint before committing.",
+    );
+    const proposal = readFileSync(join(tasksDir, name, "proposal.md"), "utf-8");
+    expect(proposal).toContain("## Additional instructions");
+    expect(proposal).toContain("Always run lint before committing.");
+  });
+
+  test("scaffoldChangeForIssue omits Additional instructions when prompt is empty", async () => {
+    const tasksDir = join(tempDir, "tasks");
+    const statesDir = join(tempDir, "states");
+    const name = await scaffoldChangeForIssue(tasksDir, statesDir, makeIssue(), [], "  ");
+    const proposal = readFileSync(join(tasksDir, name, "proposal.md"), "utf-8");
+    expect(proposal).not.toContain("## Additional instructions");
+  });
+
   test("scaffoldChangeForIssue includes Linear comments when provided", async () => {
     const tasksDir = join(tempDir, "tasks");
     const statesDir = join(tempDir, "states");
