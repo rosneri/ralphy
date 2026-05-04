@@ -352,6 +352,12 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     delay: 0,
     log: false,
     verbose: false,
+    linearTeam: "",
+    linearAssignee: "",
+    linearStatus: [],
+    linearLabel: "",
+    pollInterval: 60,
+    concurrency: 1,
     ...overrides,
   };
 }
@@ -363,14 +369,26 @@ describe("App", () => {
     withStorage(() => {
       mkdirSync(tempDir, { recursive: true });
       const { lastFrame } = render(
-        <App args={makeArgs({ mode: "list" })} statesDir={tempDir} tasksDir={tempDir} />,
+        <App
+          args={makeArgs({ mode: "list" })}
+          statesDir={tempDir}
+          tasksDir={tempDir}
+          projectRoot={tempDir}
+        />,
       );
       expect(lastFrame()!).toContain("No incomplete tasks");
     }));
 
   test("status mode without name shows error", async () => {
     const { frames } = withStorage(() =>
-      render(<App args={makeArgs({ mode: "status" })} statesDir={tempDir} tasksDir={tempDir} />),
+      render(
+        <App
+          args={makeArgs({ mode: "status" })}
+          statesDir={tempDir}
+          tasksDir={tempDir}
+          projectRoot={tempDir}
+        />,
+      ),
     );
     await tick();
     const frame = findFrame(frames, "--name is required");
@@ -385,6 +403,7 @@ describe("App", () => {
           args={makeArgs({ mode: "status", name: "nonexistent" })}
           statesDir={tempDir}
           tasksDir={tempDir}
+          projectRoot={tempDir}
         />,
       ),
     );
@@ -405,6 +424,7 @@ describe("App", () => {
           args={makeArgs({ mode: "status", name: "my-change" })}
           statesDir={tempDir}
           tasksDir={tempDir}
+          projectRoot={tempDir}
         />,
       );
       const frame = lastFrame()!;
@@ -413,11 +433,41 @@ describe("App", () => {
 
   test("task mode without name shows error", async () => {
     const { frames } = withStorage(() =>
-      render(<App args={makeArgs({ mode: "task" })} statesDir={tempDir} tasksDir={tempDir} />),
+      render(
+        <App
+          args={makeArgs({ mode: "task" })}
+          statesDir={tempDir}
+          tasksDir={tempDir}
+          projectRoot={tempDir}
+        />,
+      ),
     );
     await tick();
     const frame = findFrame(frames, "--name is required");
     expect(frame).toContain("--name is required");
     process.exitCode = 0;
+  });
+
+  test("agent mode renders AgentMode (exits gracefully without LINEAR_API_KEY)", async () => {
+    const prevKey = process.env["LINEAR_API_KEY"];
+    delete process.env["LINEAR_API_KEY"];
+    try {
+      await withStorage(async () => {
+        const { frames } = render(
+          <App
+            args={makeArgs({ mode: "agent" })}
+            statesDir={tempDir}
+            tasksDir={tempDir}
+            projectRoot={tempDir}
+          />,
+        );
+        await new Promise((r) => setTimeout(r, 50));
+        const text = frames.join("\n");
+        expect(text).toContain("agent mode");
+        expect(text).toContain("LINEAR_API_KEY not set");
+      });
+    } finally {
+      if (prevKey !== undefined) process.env["LINEAR_API_KEY"] = prevKey;
+    }
   });
 });

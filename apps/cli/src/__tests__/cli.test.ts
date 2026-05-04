@@ -189,6 +189,33 @@ describe("parseArgs", () => {
   test("unknown argument error includes help hint", async () => {
     await expect(parseArgs(["--bogus"])).rejects.toThrow("ralph --help");
   });
+
+  test("parses agent mode and linear/concurrency flags", async () => {
+    const result = await parseArgs([
+      "agent",
+      "--linear-team",
+      "ENG",
+      "--linear-assignee",
+      "me",
+      "--linear-status",
+      "Todo",
+      "--linear-status",
+      "In Progress",
+      "--linear-label",
+      "p1",
+      "--poll-interval",
+      "30",
+      "--concurrency",
+      "4",
+    ]);
+    expect(result.mode).toBe("agent");
+    expect(result.linearTeam).toBe("ENG");
+    expect(result.linearAssignee).toBe("me");
+    expect(result.linearStatus).toEqual(["Todo", "In Progress"]);
+    expect(result.linearLabel).toBe("p1");
+    expect(result.pollInterval).toBe(30);
+    expect(result.concurrency).toBe(4);
+  });
 });
 
 describe("printHelp", () => {

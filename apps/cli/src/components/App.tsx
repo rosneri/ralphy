@@ -7,12 +7,14 @@ import { getStorage } from "@ralphy/context";
 import { TaskList } from "./TaskList";
 import { TaskStatus } from "./TaskStatus";
 import { TaskLoop } from "./TaskLoop";
+import { AgentMode } from "./AgentMode";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
 
 interface AppProps {
   args: ParsedArgs;
   statesDir: string;
   tasksDir: string;
+  projectRoot: string;
 }
 
 function ExitAfterRender({ children }: { children: ReactNode }) {
@@ -32,10 +34,20 @@ function ErrorMessage({ message }: { message: string }) {
   return <Text color="red">{message}</Text>;
 }
 
-export function App({ args, statesDir, tasksDir }: AppProps) {
+export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
   switch (args.mode) {
     case "list":
       return <TaskList statesDir={statesDir} />;
+
+    case "agent":
+      return (
+        <AgentMode
+          args={args}
+          projectRoot={projectRoot}
+          statesDir={statesDir}
+          tasksDir={tasksDir}
+        />
+      );
 
     case "status": {
       if (!args.name) {

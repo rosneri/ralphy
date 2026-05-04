@@ -1,0 +1,210 @@
+import { describe, expect, test, mock } from "bun:test";
+import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
+import type { LinearIssue } from "../agent/linear";
+import type { AgentState } from "../agent/state";
+
+function issue(id: string, identifier: string): LinearIssue {
+  return {
+    id,
+    identifier,
+    title: `Issue ${identifier}`,
+    description: null,
+    url: `https://example/${identifier}`,
+    state: { name: "Todo", type: "unstarted" },
+    assignee: null,
+    labels: [],
+  };
+}
+
+interface FakeWorker {
+  resolve: (code: number) => void;
+  killed: boolean;
+}
+
+function makeDeps(
+  initial: Partial<{
+    issues: LinearIssue[];
+    state: AgentState;
+    fetchImpl: () => Promise<LinearIssue[]>;
+    scaffoldImpl: (issue: LinearIssue) => Promise<string>;
+  }> = {},
+): {
+  deps: CoordinatorDeps;
+  workers: Map<string, FakeWorker>;
+  logs: { text: string; color?: string }[];
+  saved: AgentState[];
+} {
+  const workers = new Map<string, FakeWorker>();
+  const logs: { text: string; color?: string }[] = [];
+  const saved: AgentState[] = [];
+  const state: AgentState = initial.state ?? { processedIssueIds: [], lastPollAt: null };
+
+  const deps: CoordinatorDeps = {
+    fetchIssues: initial.fetchImpl ?? mock(async () => initial.issues ?? []),
+    scaffold:
+      initial.scaffoldImpl ??
+      mock(async (i: LinearIssue) => `change-${i.identifier.toLowerCase()}`),
+    spawnWorker: mock((changeName: string) => {
+      let resolve!: (code: number) => void;
+      const exited = new Promise<number>((r) => {
+        resolve = r;
+      });
+      const w: FakeWorker = { resolve, killed: false };
+      workers.set(changeName, w);
+      return {
+        exited,
+        kill: () => {
+          w.killed = true;
+          resolve(143);
+        },
+      };
+    }),
+    loadState: async () => state,
+    saveState: async (s) => {
+      saved.push(JSON.parse(JSON.stringify(s)));
+    },
+    onLog: (text, color) => {
+      logs.push(color !== undefined ? { text, color } : { text });
+    },
+    onWorkersChanged: () => {},
+  };
+  return { deps, workers, logs, saved };
+}
+
+describe("AgentCoordinator", () => {
+  test("polls, scaffolds, and respects concurrency cap", async () => {
+    const issues = [issue("a", "ENG-1"), issue("b", "ENG-2"), issue("c", "ENG-3")];
+    const { deps, workers } = makeDeps({ issues });
+    const coord = new AgentCoordinator(deps, { concurrency: 2, filter: {} });
+    await coord.init();
+
+    const result = await coord.pollOnce();
+    expect(result).toEqual({ found: 3, added: 3 });
+    // Wait a microtask for async scaffold + spawn
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(coord.activeCount).toBe(2);
+    expect(coord.queuedCount).toBe(1);
+    expect(workers.size).toBe(2);
+  });
+
+  test("queue drains as workers exit, marking only success as processed", async () => {
+    const issues = [issue("a", "ENG-1"), issue("b", "ENG-2"), issue("c", "ENG-3")];
+    const { deps, workers, saved } = makeDeps({ issues });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(coord.activeCount).toBe(1);
+    // Fail the first worker -> not processed, next dequeues
+    workers.get("change-eng-1")!.resolve(1);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(coord.activeCount).toBe(1);
+    expect(workers.size).toBe(2);
+    // Succeed the second -> processed
+    workers.get("change-eng-2")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+    // Last worker
+    workers.get("change-eng-3")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(coord.activeCount).toBe(0);
+
+    const last = saved[saved.length - 1]!;
+    expect(last.processedIssueIds).toContain("b");
+    expect(last.processedIssueIds).toContain("c");
+    expect(last.processedIssueIds).not.toContain("a");
+  });
+
+  test("re-poll dedupes against processed, queued, active, and pending", async () => {
+    let resolveScaffold!: (name: string) => void;
+    const scaffoldImpl = (i: LinearIssue) =>
+      new Promise<string>((r) => {
+        resolveScaffold = (n) => r(n);
+        // for second issue, resolve immediately
+        if (i.id !== "a") r(`change-${i.identifier.toLowerCase()}`);
+      });
+    const issues = [issue("a", "ENG-1")];
+    const { deps } = makeDeps({ issues, scaffoldImpl });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+
+    await coord.pollOnce();
+    // worker is in pending state (scaffold not resolved)
+    expect(coord.queuedCount).toBe(0);
+
+    // re-poll while still pending — should not re-queue
+    const r2 = await coord.pollOnce();
+    expect(r2.added).toBe(0);
+
+    // resolve scaffold so the worker becomes active
+    resolveScaffold("change-eng-1");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(coord.activeCount).toBe(1);
+
+    // re-poll while active — still no duplicate
+    const r3 = await coord.pollOnce();
+    expect(r3.added).toBe(0);
+  });
+
+  test("scaffold failure releases the slot and triggers next", async () => {
+    const issues = [issue("a", "ENG-1"), issue("b", "ENG-2")];
+    let count = 0;
+    const scaffoldImpl = async (i: LinearIssue) => {
+      count++;
+      if (i.id === "a") throw new Error("disk full");
+      return `change-${i.identifier.toLowerCase()}`;
+    };
+    const { deps, logs } = makeDeps({ issues, scaffoldImpl });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(count).toBe(2);
+    expect(coord.activeCount).toBe(1);
+    expect(logs.some((l) => l.text.includes("scaffold failed for ENG-1"))).toBe(true);
+  });
+
+  test("fetch failure logs and returns zero counts", async () => {
+    const fetchImpl = async () => {
+      throw new Error("network down");
+    };
+    const { deps, logs } = makeDeps({ fetchImpl });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    const r = await coord.pollOnce();
+    expect(r).toEqual({ found: 0, added: 0 });
+    expect(logs.some((l) => l.text.includes("Linear poll failed: network down"))).toBe(true);
+  });
+
+  test("stop kills active workers and prevents new spawns", async () => {
+    const issues = [issue("a", "ENG-1"), issue("b", "ENG-2")];
+    const { deps, workers } = makeDeps({ issues });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(coord.activeCount).toBe(1);
+
+    coord.stop();
+    expect(workers.get("change-eng-1")!.killed).toBe(true);
+
+    // pollOnce becomes a no-op
+    const r = await coord.pollOnce();
+    expect(r).toEqual({ found: 0, added: 0 });
+  });
+
+  test("activeWorkers exposes worker descriptors", async () => {
+    const { deps } = makeDeps({ issues: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+    const ws = coord.activeWorkers;
+    expect(ws).toHaveLength(1);
+    expect(ws[0]!.issueId).toBe("a");
+    expect(ws[0]!.issueIdentifier).toBe("ENG-1");
+    expect(ws[0]!.changeName).toBe("change-eng-1");
+  });
+});

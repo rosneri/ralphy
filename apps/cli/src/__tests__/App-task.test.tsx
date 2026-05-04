@@ -95,6 +95,12 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     delay: 0,
     log: false,
     verbose: false,
+    linearTeam: "",
+    linearAssignee: "",
+    linearStatus: [],
+    linearLabel: "",
+    pollInterval: 60,
+    concurrency: 1,
     ...overrides,
   };
 }
@@ -114,7 +120,9 @@ describe("App task mode", () => {
         maxIterations: 1,
       });
 
-      const { frames } = render(<App args={args} statesDir={tempDir} tasksDir={tempDir} />);
+      const { frames } = render(
+        <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
+      );
       await new Promise((r) => setTimeout(r, 500));
 
       const allText = frames.join("\n");
