@@ -15,9 +15,16 @@ export interface ParsedArgs {
   delay: number;
   log: boolean;
   verbose: boolean;
+  // agent mode
+  linearTeam: string;
+  linearAssignee: string;
+  linearStatus: string[];
+  linearLabel: string;
+  pollInterval: number;
+  concurrency: number;
 }
 
-const VALID_MODES = new Set<string>(["task", "list", "status", "init"]);
+const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent"]);
 
 const VALID_MODELS = new Set<string>(["haiku", "sonnet", "opus"]);
 
@@ -29,6 +36,7 @@ const HELP_TEXT = [
   "  list                    List active changes",
   "  status                  Show detailed change status",
   "  init                    Initialize OpenSpec in current directory",
+  "  agent                   Poll Linear for new tasks and run loops concurrently",
   "",
   "Options:",
   "  --name <name>           Change name (required for most commands)",
@@ -45,6 +53,15 @@ const HELP_TEXT = [
   "  --unlimited             No iteration limit (default)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
+  "",
+  "Agent mode options (require LINEAR_API_KEY env var):",
+  "  --linear-team <key>     Linear team key (e.g. ENG)",
+  "  --linear-assignee <id>  Filter by assignee (user id, email, or 'me')",
+  "  --linear-status <name>  Filter by status name (repeatable, e.g. Todo, In Progress)",
+  "  --linear-label <name>   Filter by label name",
+  "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
+  "  --concurrency <n>       Max concurrent task loops (default: 1)",
+  "",
   "  --help, -h              Show this help message",
   "",
   "Examples:",
@@ -75,6 +92,12 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     delay: 0,
     log: false,
     verbose: false,
+    linearTeam: "",
+    linearAssignee: "",
+    linearStatus: [],
+    linearLabel: "",
+    pollInterval: 60,
+    concurrency: 1,
   };
 
   let expectModel = false;
@@ -89,6 +112,12 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectMaxIterations = false;
   let expectTimeout = false;
   let expectPushInterval = false;
+  let expectLinearTeam = false;
+  let expectLinearAssignee = false;
+  let expectLinearStatus = false;
+  let expectLinearLabel = false;
+  let expectPollInterval = false;
+  let expectConcurrency = false;
 
   for (const arg of argv) {
     // Check if we're expecting a model argument after --claude
@@ -160,6 +189,36 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       expectPushInterval = false;
       continue;
     }
+    if (expectLinearTeam) {
+      result.linearTeam = arg;
+      expectLinearTeam = false;
+      continue;
+    }
+    if (expectLinearAssignee) {
+      result.linearAssignee = arg;
+      expectLinearAssignee = false;
+      continue;
+    }
+    if (expectLinearStatus) {
+      result.linearStatus.push(arg);
+      expectLinearStatus = false;
+      continue;
+    }
+    if (expectLinearLabel) {
+      result.linearLabel = arg;
+      expectLinearLabel = false;
+      continue;
+    }
+    if (expectPollInterval) {
+      result.pollInterval = parseInt(arg, 10);
+      expectPollInterval = false;
+      continue;
+    }
+    if (expectConcurrency) {
+      result.concurrency = parseInt(arg, 10);
+      expectConcurrency = false;
+      continue;
+    }
 
     switch (arg) {
       case "--claude":
@@ -218,6 +277,24 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--verbose":
         result.verbose = true;
+        break;
+      case "--linear-team":
+        expectLinearTeam = true;
+        break;
+      case "--linear-assignee":
+        expectLinearAssignee = true;
+        break;
+      case "--linear-status":
+        expectLinearStatus = true;
+        break;
+      case "--linear-label":
+        expectLinearLabel = true;
+        break;
+      case "--poll-interval":
+        expectPollInterval = true;
+        break;
+      case "--concurrency":
+        expectConcurrency = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

@@ -85,8 +85,16 @@ try {
     await mkdir(join(tasksDir, args.name), { recursive: true });
   }
 
+  if (args.mode === "agent") {
+    await mkdir(statesDir, { recursive: true });
+    await mkdir(tasksDir, { recursive: true });
+    await mkdir(join(projectRoot, ".ralph"), { recursive: true });
+  }
+
   await runWithContext(createDefaultContext(), async () => {
-    const { waitUntilExit } = render(createElement(App, { args, statesDir, tasksDir }));
+    const { waitUntilExit } = render(
+      createElement(App, { args, statesDir, tasksDir, projectRoot }),
+    );
     await waitUntilExit();
   });
   await telemetry.shutdown();

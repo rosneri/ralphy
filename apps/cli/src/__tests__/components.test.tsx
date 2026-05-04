@@ -352,6 +352,12 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     delay: 0,
     log: false,
     verbose: false,
+    linearTeam: "",
+    linearAssignee: "",
+    linearStatus: [],
+    linearLabel: "",
+    pollInterval: 60,
+    concurrency: 1,
     ...overrides,
   };
 }
@@ -363,14 +369,14 @@ describe("App", () => {
     withStorage(() => {
       mkdirSync(tempDir, { recursive: true });
       const { lastFrame } = render(
-        <App args={makeArgs({ mode: "list" })} statesDir={tempDir} tasksDir={tempDir} />,
+        <App args={makeArgs({ mode: "list" })} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
       );
       expect(lastFrame()!).toContain("No incomplete tasks");
     }));
 
   test("status mode without name shows error", async () => {
     const { frames } = withStorage(() =>
-      render(<App args={makeArgs({ mode: "status" })} statesDir={tempDir} tasksDir={tempDir} />),
+      render(<App args={makeArgs({ mode: "status" })} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />),
     );
     await tick();
     const frame = findFrame(frames, "--name is required");
@@ -384,7 +390,7 @@ describe("App", () => {
         <App
           args={makeArgs({ mode: "status", name: "nonexistent" })}
           statesDir={tempDir}
-          tasksDir={tempDir}
+          tasksDir={tempDir} projectRoot={tempDir}
         />,
       ),
     );
@@ -404,7 +410,7 @@ describe("App", () => {
         <App
           args={makeArgs({ mode: "status", name: "my-change" })}
           statesDir={tempDir}
-          tasksDir={tempDir}
+          tasksDir={tempDir} projectRoot={tempDir}
         />,
       );
       const frame = lastFrame()!;
@@ -413,7 +419,7 @@ describe("App", () => {
 
   test("task mode without name shows error", async () => {
     const { frames } = withStorage(() =>
-      render(<App args={makeArgs({ mode: "task" })} statesDir={tempDir} tasksDir={tempDir} />),
+      render(<App args={makeArgs({ mode: "task" })} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />),
     );
     await tick();
     const frame = findFrame(frames, "--name is required");
