@@ -72,6 +72,14 @@ export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
         </ExitAfterRender>
       );
 
+    case "clean":
+      // Handled in index.ts before render; should not reach here.
+      return (
+        <ExitAfterRender>
+          <Text></Text>
+        </ExitAfterRender>
+      );
+
     case "task": {
       if (!args.name) {
         return <ErrorMessage message="Error: --name is required for task mode" />;

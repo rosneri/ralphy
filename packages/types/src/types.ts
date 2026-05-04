@@ -16,7 +16,7 @@ export interface StorageProvider {
 // --- Type aliases ---
 
 export type Engine = "claude" | "codex";
-export type Mode = "task" | "list" | "status" | "init" | "agent";
+export type Mode = "task" | "list" | "status" | "init" | "agent" | "clean";
 
 // --- Iteration usage (per-run stats) ---
 
