@@ -157,15 +157,41 @@ try {
     try {
       const agentState = await readAgentState(projectRoot);
       const meta = agentState.changeMeta[resolvedName];
-      if (meta) {
+      // Build a set of ids to remove. Always include the changeMeta entry's
+      // issueId when present. Additionally, if --name itself looks like a
+      // UUID, treat it as an issue id directly — handles entries that
+      // pre-date the changeMeta map (older agent runs).
+      const idsToRemove = new Set<string>();
+      if (meta) idsToRemove.add(meta.issueId);
+      const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        args.name,
+      );
+      if (looksLikeUuid) idsToRemove.add(args.name);
+
+      if (idsToRemove.size > 0) {
+        const before = {
+          processed: agentState.processedIssueIds.length,
+          started: agentState.startedIssueIds.length,
+          failed: agentState.failedIssueIds.length,
+        };
         agentState.processedIssueIds = agentState.processedIssueIds.filter(
-          (id) => id !== meta.issueId,
+          (id) => !idsToRemove.has(id),
         );
-        agentState.startedIssueIds = agentState.startedIssueIds.filter((id) => id !== meta.issueId);
-        agentState.failedIssueIds = agentState.failedIssueIds.filter((id) => id !== meta.issueId);
-        delete agentState.changeMeta[resolvedName];
-        await writeAgentState(projectRoot, agentState);
-        removed.push(`agent-state entry for ${meta.identifier} (${meta.issueId})`);
+        agentState.startedIssueIds = agentState.startedIssueIds.filter(
+          (id) => !idsToRemove.has(id),
+        );
+        agentState.failedIssueIds = agentState.failedIssueIds.filter((id) => !idsToRemove.has(id));
+        if (meta) delete agentState.changeMeta[resolvedName];
+        const changed =
+          before.processed !== agentState.processedIssueIds.length ||
+          before.started !== agentState.startedIssueIds.length ||
+          before.failed !== agentState.failedIssueIds.length ||
+          meta !== undefined;
+        if (changed) {
+          await writeAgentState(projectRoot, agentState);
+          const label = meta ? `${meta.identifier} (${meta.issueId})` : [...idsToRemove].join(", ");
+          removed.push(`agent-state entry for ${label}`);
+        }
       }
     } catch {
       /* agent-state.json may not exist; nothing to scrub */
