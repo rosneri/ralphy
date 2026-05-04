@@ -40,6 +40,7 @@ function makeDeps(
   const state: AgentState = initial.state ?? {
     processedIssueIds: [],
     startedIssueIds: [],
+    failedIssueIds: [],
     lastPollAt: null,
     changeMeta: {},
   };
@@ -150,6 +151,33 @@ describe("AgentCoordinator", () => {
     // re-poll while active — still no duplicate
     const r3 = await coord.pollOnce();
     expect(r3.added).toBe(0);
+  });
+
+  test("non-zero exit quarantines the issue; next poll skips it", async () => {
+    const issues = [issue("a", "ENG-1")];
+    const { deps, workers, saved } = makeDeps({ issues });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+
+    const r1 = await coord.pollOnce();
+    expect(r1.added).toBe(1);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(coord.activeCount).toBe(1);
+
+    // Worker fails.
+    workers.get("change-eng-1")!.resolve(71);
+    await new Promise((r) => setTimeout(r, 5));
+
+    // failedIssueIds was persisted.
+    const last = saved[saved.length - 1]!;
+    expect(last.failedIssueIds).toContain("a");
+    expect(last.processedIssueIds).not.toContain("a");
+
+    // Re-poll: same issue still in Linear, but now skipped.
+    const r2 = await coord.pollOnce();
+    expect(r2.found).toBe(1);
+    expect(r2.added).toBe(0);
+    expect(coord.activeCount).toBe(0);
   });
 
   test("scaffold failure releases the slot and triggers next", async () => {

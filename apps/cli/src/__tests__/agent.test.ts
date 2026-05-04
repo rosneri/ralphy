@@ -96,6 +96,7 @@ describe("agent/state", () => {
     await writeAgentState(tempDir, {
       processedIssueIds: ["a", "b"],
       startedIssueIds: [],
+      failedIssueIds: [],
       lastPollAt: "2026-05-04T00:00:00Z",
       changeMeta: {},
     });
