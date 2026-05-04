@@ -17,6 +17,7 @@ export async function scaffoldChangeForIssue(
   statesDir: string,
   issue: LinearIssue,
   comments: LinearComment[] = [],
+  appendPrompt: string = "",
 ): Promise<string> {
   const name = changeNameForIssue(issue);
   const changeDir = join(tasksDir, name);
@@ -52,6 +53,7 @@ export async function scaffoldChangeForIssue(
     "",
     issue.description?.trim() || "_No description provided in Linear._",
     ...commentsBlock,
+    ...(appendPrompt.trim() ? ["", "## Additional instructions", "", appendPrompt.trim()] : []),
     "",
     "## Steering",
     "",
