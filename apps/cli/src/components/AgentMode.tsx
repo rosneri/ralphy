@@ -239,6 +239,19 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             issueByChange.set(changeName, issue);
             if (workerBranch) branchByChange.set(changeName, workerBranch);
 
+            // Persist a change-name → issue mapping so `ralph clean --name` can
+            // later remove the issue ID from processed/startedIssueIds.
+            try {
+              const s = await readAgentState(projectRoot);
+              s.changeMeta[changeName] = { issueId: issue.id, identifier: issue.identifier };
+              await writeAgentState(projectRoot, s);
+            } catch (err) {
+              appendLog(
+                `! failed to record agent meta for ${changeName}: ${(err as Error).message}`,
+                "yellow",
+              );
+            }
+
             if (cfg.setupScript) {
               await runScript("setup", cfg.setupScript, workerCwd);
             }

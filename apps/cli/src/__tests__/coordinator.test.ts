@@ -41,6 +41,7 @@ function makeDeps(
     processedIssueIds: [],
     startedIssueIds: [],
     lastPollAt: null,
+    changeMeta: {},
   };
 
   const deps: CoordinatorDeps = {

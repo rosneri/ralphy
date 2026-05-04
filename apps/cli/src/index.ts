@@ -15,6 +15,7 @@ import { createElement } from "react";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
+import { readAgentState, writeAgentState } from "./agent/state";
 import * as telemetry from "@ralphy/telemetry";
 
 /**
@@ -126,6 +127,24 @@ try {
     if (await exists(stateDir)) {
       await rm(stateDir, { recursive: true, force: true });
       removed.push(`task state ${stateDir}`);
+    }
+
+    // Scrub the corresponding Linear issue id from agent-state.json so the
+    // ticket can be picked up cleanly on the next agent poll.
+    try {
+      const agentState = await readAgentState(projectRoot);
+      const meta = agentState.changeMeta[args.name];
+      if (meta) {
+        agentState.processedIssueIds = agentState.processedIssueIds.filter(
+          (id) => id !== meta.issueId,
+        );
+        agentState.startedIssueIds = agentState.startedIssueIds.filter((id) => id !== meta.issueId);
+        delete agentState.changeMeta[args.name];
+        await writeAgentState(projectRoot, agentState);
+        removed.push(`agent-state entry for ${meta.identifier} (${meta.issueId})`);
+      }
+    } catch {
+      /* agent-state.json may not exist; nothing to scrub */
     }
 
     if (removed.length === 0) {
