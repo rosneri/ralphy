@@ -17,6 +17,7 @@ import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
 import { createWorktree, removeWorktree, type GitRunner } from "../agent/worktree";
 import { createPullRequest, type CmdRunner } from "../agent/pr";
+import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "../agent/ci";
 import { join } from "node:path";
 
 const bunGitRunner: GitRunner = {
@@ -213,23 +214,39 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             return changeName;
           },
           spawnWorker: (changeName) => {
-            const cmd: string[] = [
-              process.execPath,
-              process.argv[1] ?? "",
-              "task",
-              "--name",
-              changeName,
-              "--" + (args.engineSet ? args.engine : cfg.engine),
-              args.engineSet ? args.model : cfg.model,
-            ];
-            const maxIter = args.maxIterations || cfg.maxIterationsPerTask;
-            if (maxIter > 0) cmd.push("--max-iterations", String(maxIter));
-            const maxCost = args.maxCostUsd || cfg.maxCostUsdPerTask;
-            if (maxCost > 0) cmd.push("--max-cost", String(maxCost));
+            const buildTaskCmd = (): string[] => {
+              const c: string[] = [
+                process.execPath,
+                process.argv[1] ?? "",
+                "task",
+                "--name",
+                changeName,
+                "--" + (args.engineSet ? args.engine : cfg.engine),
+                args.engineSet ? args.model : cfg.model,
+              ];
+              const maxIter = args.maxIterations || cfg.maxIterationsPerTask;
+              if (maxIter > 0) c.push("--max-iterations", String(maxIter));
+              const maxCost = args.maxCostUsd || cfg.maxCostUsdPerTask;
+              if (maxCost > 0) c.push("--max-cost", String(maxCost));
+              const maxRuntime = args.maxRuntimeMinutes || cfg.maxRuntimeMinutesPerTask;
+              if (maxRuntime > 0) c.push("--max-runtime", String(maxRuntime));
+              // --max-failures default (5) is preserved by the worker; only
+              // forward when CLI/config explicitly differ from the default.
+              const maxFailures =
+                args.maxConsecutiveFailures !== 5
+                  ? args.maxConsecutiveFailures
+                  : cfg.maxConsecutiveFailuresPerTask;
+              if (maxFailures !== 5) c.push("--max-failures", String(maxFailures));
+              const delay = args.delay || cfg.iterationDelaySeconds;
+              if (delay > 0) c.push("--delay", String(delay));
+              if (args.log || cfg.logRawStream) c.push("--log");
+              if (args.verbose || cfg.taskVerbose) c.push("--verbose");
+              return c;
+            };
 
             const cwd = cwdByChange.get(changeName) ?? projectRoot;
             const proc = Bun.spawn({
-              cmd,
+              cmd: buildTaskCmd(),
               cwd,
               stdout: "ignore",
               stderr: "ignore",
@@ -269,6 +286,71 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         `  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`,
                         "green",
                       );
+
+                      const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
+                      if (wantFixCi) {
+                        appendLog(
+                          `  watching CI for ${pr.url} (max ${cfg.maxCiFixAttempts} fix attempts)`,
+                          "gray",
+                        );
+                        const proposalPath = join(
+                          statesDirByChange.get(changeName) ?? statesDir,
+                          "..",
+                          "..",
+                          "openspec",
+                          "changes",
+                          changeName,
+                          "proposal.md",
+                        );
+                        const result = await fixCiUntilGreen(
+                          {
+                            getStatus: () => getPrChecksStatus(pr.url, bunCmdRunner, cwd),
+                            getFailedLogs: (ids) => fetchFailedRunLogs(ids, bunCmdRunner, cwd),
+                            runTaskWithSteering: async (steering) => {
+                              try {
+                                const file = Bun.file(proposalPath);
+                                const prev = (await file.exists()) ? await file.text() : "";
+                                const stamped = `\n\n### CI feedback (${new Date().toISOString()})\n\n${steering}\n`;
+                                const next = prev.includes("## Steering")
+                                  ? prev.replace(
+                                      /## Steering\n+([\s\S]*?)$/,
+                                      (_m, rest) => `## Steering\n${stamped}\n${rest}`,
+                                    )
+                                  : prev + `\n## Steering\n${stamped}\n`;
+                                await Bun.write(proposalPath, next);
+                              } catch (err) {
+                                appendLog(
+                                  `! could not append steering: ${(err as Error).message}`,
+                                  "red",
+                                );
+                              }
+                              const p = Bun.spawn({
+                                cmd: buildTaskCmd(),
+                                cwd,
+                                stdout: "ignore",
+                                stderr: "ignore",
+                                stdin: "ignore",
+                              });
+                              return p.exited;
+                            },
+                            pushBranch: async () => {
+                              await bunCmdRunner.run(["git", "push", "origin", branch], cwd);
+                            },
+                            log: appendLog,
+                            sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                          },
+                          {
+                            maxAttempts: cfg.maxCiFixAttempts,
+                            pollIntervalSeconds: cfg.ciPollIntervalSeconds,
+                          },
+                        );
+                        if (!result.success) {
+                          appendLog(
+                            `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"})`,
+                            "red",
+                          );
+                        }
+                      }
                     }
                   } catch (err) {
                     appendLog(

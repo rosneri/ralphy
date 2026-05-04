@@ -27,6 +27,7 @@ export interface ParsedArgs {
   doneStatus: string;
   doneLabel: string;
   createPr: boolean;
+  fixCi: boolean;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent"]);
@@ -71,6 +72,7 @@ const HELP_TEXT = [
   "  --done-status <name>    Linear status to set when work completes successfully",
   "  --done-label <name>     Linear label to add when work completes successfully",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
+  "  --fix-ci                After opening the PR, re-run the task on CI failures until green (needs --create-pr)",
   "",
   "  --help, -h              Show this help message",
   "",
@@ -113,6 +115,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     doneStatus: "",
     doneLabel: "",
     createPr: false,
+    fixCi: false,
   };
 
   let expectModel = false;
@@ -343,6 +346,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--create-pr":
         result.createPr = true;
+        break;
+      case "--fix-ci":
+        result.fixCi = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {
