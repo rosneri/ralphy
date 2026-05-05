@@ -90,21 +90,45 @@ describe("agent/config", () => {
 describe("agent/state", () => {
   test("readAgentState returns defaults when missing", async () => {
     const s = await readAgentState(tempDir);
-    expect(s.processedIssueIds).toEqual([]);
+    expect(s.tasks).toEqual({});
     expect(s.lastPollAt).toBeNull();
   });
 
   test("write then read roundtrip", async () => {
     await writeAgentState(tempDir, {
-      processedIssueIds: ["a", "b"],
-      startedIssueIds: [],
-      failedIssueIds: [],
+      tasks: {
+        "ENG-1": { issueId: "uuid-a", identifier: "ENG-1", state: "processed" },
+        "ENG-2": { issueId: "uuid-b", identifier: "ENG-2", state: "processed" },
+      },
       lastPollAt: "2026-05-04T00:00:00Z",
-      changeMeta: {},
     });
     const s = await readAgentState(tempDir);
-    expect(s.processedIssueIds).toEqual(["a", "b"]);
+    expect(s.tasks["ENG-1"]?.state).toBe("processed");
+    expect(s.tasks["ENG-2"]?.issueId).toBe("uuid-b");
     expect(s.lastPollAt).toBe("2026-05-04T00:00:00Z");
+  });
+
+  test("migrates legacy schema (processed/started/failed arrays + changeMeta)", async () => {
+    await Bun.write(
+      `${tempDir}/.ralph/agent-state.json`,
+      JSON.stringify({
+        processedIssueIds: ["uuid-done"],
+        startedIssueIds: ["uuid-active"],
+        failedIssueIds: ["uuid-broken"],
+        lastPollAt: "2026-05-04T00:00:00Z",
+        changeMeta: {
+          "eng-1-done": { issueId: "uuid-done", identifier: "ENG-1" },
+          "eng-2-active": { issueId: "uuid-active", identifier: "ENG-2" },
+          "eng-3-broken": { issueId: "uuid-broken", identifier: "ENG-3" },
+        },
+      }),
+    );
+    const s = await readAgentState(tempDir);
+    expect(s.tasks["ENG-1"]?.state).toBe("processed");
+    expect(s.tasks["ENG-1"]?.changeName).toBe("eng-1-done");
+    expect(s.tasks["ENG-2"]?.state).toBe("started");
+    expect(s.tasks["ENG-2"]?.commentPosted).toBe(true);
+    expect(s.tasks["ENG-3"]?.state).toBe("failed");
   });
 });
 

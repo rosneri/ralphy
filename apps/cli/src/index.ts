@@ -129,20 +129,16 @@ try {
       removed.push(`task state ${stateDir}`);
     }
 
-    // Scrub the corresponding Linear issue id from agent-state.json so the
-    // ticket can be picked up cleanly on the next agent poll.
+    // Drop the corresponding agent-state.json entry so the ticket can be
+    // picked up cleanly on the next agent poll. The map is keyed by Linear
+    // identifier; we look up by changeName.
     try {
       const agentState = await readAgentState(projectRoot);
-      const meta = agentState.changeMeta[args.name];
-      if (meta) {
-        agentState.processedIssueIds = agentState.processedIssueIds.filter(
-          (id) => id !== meta.issueId,
-        );
-        agentState.startedIssueIds = agentState.startedIssueIds.filter((id) => id !== meta.issueId);
-        agentState.failedIssueIds = agentState.failedIssueIds.filter((id) => id !== meta.issueId);
-        delete agentState.changeMeta[args.name];
+      const entry = Object.values(agentState.tasks).find((t) => t.changeName === args.name);
+      if (entry) {
+        delete agentState.tasks[entry.identifier];
         await writeAgentState(projectRoot, agentState);
-        removed.push(`agent-state entry for ${meta.identifier} (${meta.issueId})`);
+        removed.push(`agent-state entry for ${entry.identifier} (${entry.issueId})`);
       }
     } catch {
       /* agent-state.json may not exist; nothing to scrub */

@@ -1,5 +1,5 @@
 import type { LinearIssue, LinearFilter } from "./linear";
-import type { AgentState } from "./state";
+import type { AgentState, TaskEntry } from "./state";
 
 export interface IssueUpdater {
   /** Resolve a status name to its workflow-state ID, scoped to the issue's team. */
@@ -89,19 +89,23 @@ export class AgentCoordinator {
     }
 
     const state = this.state!;
-    const seen = new Set(state.processedIssueIds);
-    const failed = new Set(state.failedIssueIds);
+    const tasksByIssueId = new Map<string, TaskEntry>();
+    for (const entry of Object.values(state.tasks)) {
+      tasksByIssueId.set(entry.issueId, entry);
+    }
+    const isProcessed = (id: string): boolean => tasksByIssueId.get(id)?.state === "processed";
+    const isFailed = (id: string): boolean => tasksByIssueId.get(id)?.state === "failed";
     const queued = new Set(this.queue.map((i) => i.id));
     const active = new Set(this.workers.map((w) => w.issueId));
 
     let added = 0;
     for (const issue of issues) {
-      if (seen.has(issue.id)) continue;
-      if (failed.has(issue.id)) continue;
+      if (isProcessed(issue.id)) continue;
+      if (isFailed(issue.id)) continue;
       if (queued.has(issue.id)) continue;
       if (active.has(issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
-      const blocker = issue.blockedByIds.find((bid) => !seen.has(bid));
+      const blocker = issue.blockedByIds.find((bid) => !isProcessed(bid));
       if (blocker !== undefined) {
         this.deps.onLog(
           `  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`,
@@ -183,6 +187,18 @@ export class AgentCoordinator {
     }
   }
 
+  private upsertTask(issue: LinearIssue, patch: Partial<TaskEntry>): void {
+    if (!this.state) return;
+    const existing = this.state.tasks[issue.identifier];
+    this.state.tasks[issue.identifier] = {
+      issueId: issue.id,
+      identifier: issue.identifier,
+      state: existing?.state ?? "started",
+      ...existing,
+      ...patch,
+    };
+  }
+
   private async launchWorker(issue: LinearIssue): Promise<void> {
     let changeName: string;
     try {
@@ -200,6 +216,18 @@ export class AgentCoordinator {
     if (this.stopped) {
       this.pendingIds.delete(issue.id);
       return;
+    }
+
+    if (this.state) {
+      // Single-writer rule: scaffold callbacks no longer touch
+      // agent-state.json directly. The coordinator owns `this.state` and
+      // every persist goes through `saveState`.
+      this.upsertTask(issue, {
+        state: "started",
+        changeName,
+        startedAt: this.state.tasks[issue.identifier]?.startedAt ?? new Date().toISOString(),
+      });
+      void this.deps.saveState(this.state);
     }
 
     this.deps.onLog(`▶ ${issue.identifier} → ${changeName} (worker started)`, "cyan");
@@ -226,15 +254,16 @@ export class AgentCoordinator {
         `${ok ? "✓" : "✗"} ${issue.identifier} → ${changeName} exited (code ${code})`,
         ok ? "green" : "red",
       );
-      if (ok && this.state && !this.state.processedIssueIds.includes(issue.id)) {
-        this.state.processedIssueIds.push(issue.id);
-        void this.deps.saveState(this.state);
-      }
-      if (!ok && this.state && !this.state.failedIssueIds.includes(issue.id)) {
-        // Quarantine the issue so the next poll doesn't immediately re-pick
-        // it and infinite-loop on the same failure. User clears with
+      if (this.state) {
+        // ok → "processed". non-ok → "failed", which quarantines the
+        // issue so the next poll doesn't immediately re-pick it and
+        // infinite-loop on the same failure. Clear via
         // `ralph clean --name <change>`.
-        this.state.failedIssueIds.push(issue.id);
+        this.upsertTask(issue, {
+          state: ok ? "processed" : "failed",
+          finishedAt: new Date().toISOString(),
+          exitCode: code,
+        });
         void this.deps.saveState(this.state);
       }
       void this.notifyExited(issue, changeName, code);
@@ -246,15 +275,18 @@ export class AgentCoordinator {
   private async notifyStarted(issue: LinearIssue, changeName: string): Promise<void> {
     const updater = this.deps.updater;
     if (!updater) return;
-    const alreadyStarted = this.state?.startedIssueIds.includes(issue.id) ?? false;
-    if (this.opts.postComments !== false && !alreadyStarted) {
+    // Whether we've already posted the "Ralph started…" comment.
+    // Recorded by `commentPosted: true` on the task entry once the post
+    // succeeds. Survives restarts so we don't double-comment on resumes.
+    const alreadyCommented = this.state?.tasks[issue.identifier]?.commentPosted === true;
+    if (this.opts.postComments !== false && !alreadyCommented) {
       try {
         await updater.postComment(
           issue,
           `🤖 Ralph started working on this issue. Tracking change: \`${changeName}\``,
         );
-        if (this.state && !this.state.startedIssueIds.includes(issue.id)) {
-          this.state.startedIssueIds.push(issue.id);
+        if (this.state) {
+          this.upsertTask(issue, { commentPosted: true });
           await this.deps.saveState(this.state);
         }
       } catch (err) {

@@ -45,11 +45,8 @@ function makeDeps(
   const logs: { text: string; color?: string }[] = [];
   const saved: AgentState[] = [];
   const state: AgentState = initial.state ?? {
-    processedIssueIds: [],
-    startedIssueIds: [],
-    failedIssueIds: [],
+    tasks: {},
     lastPollAt: null,
-    changeMeta: {},
   };
 
   const deps: CoordinatorDeps = {
@@ -161,9 +158,12 @@ describe("AgentCoordinator", () => {
     expect(coord.activeCount).toBe(0);
 
     const last = saved[saved.length - 1]!;
-    expect(last.processedIssueIds).toContain("b");
-    expect(last.processedIssueIds).toContain("c");
-    expect(last.processedIssueIds).not.toContain("a");
+    const processed = Object.values(last.tasks)
+      .filter((t) => t.state === "processed")
+      .map((t) => t.issueId);
+    expect(processed).toContain("b");
+    expect(processed).toContain("c");
+    expect(processed).not.toContain("a");
   });
 
   test("re-poll dedupes against processed, queued, active, and pending", async () => {
@@ -212,10 +212,10 @@ describe("AgentCoordinator", () => {
     workers.get("change-eng-1")!.resolve(71);
     await new Promise((r) => setTimeout(r, 5));
 
-    // failedIssueIds was persisted.
+    // failed state was persisted.
     const last = saved[saved.length - 1]!;
-    expect(last.failedIssueIds).toContain("a");
-    expect(last.processedIssueIds).not.toContain("a");
+    expect(last.tasks["ENG-1"]?.state).toBe("failed");
+    expect(last.tasks["ENG-1"]?.exitCode).toBe(71);
 
     // Re-poll: same issue still in Linear, but now skipped.
     const r2 = await coord.pollOnce();
@@ -320,11 +320,14 @@ describe("AgentCoordinator", () => {
     const { deps, workers } = makeDeps({
       issues,
       state: {
-        processedIssueIds: ["already-done"],
-        startedIssueIds: [],
-        failedIssueIds: [],
+        tasks: {
+          "DONE-1": {
+            issueId: "already-done",
+            identifier: "DONE-1",
+            state: "processed",
+          },
+        },
         lastPollAt: null,
-        changeMeta: {},
       },
     });
     const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
