@@ -36,6 +36,7 @@ function makeIssue(overrides: Partial<LinearIssue> = {}): LinearIssue {
     state: { name: "Todo", type: "unstarted" },
     assignee: { id: "u1", email: "dev@example.com", name: "Dev" },
     labels: ["frontend"],
+    priority: 3,
     ...overrides,
   };
 }

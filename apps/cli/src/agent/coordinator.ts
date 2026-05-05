@@ -105,6 +105,15 @@ export class AgentCoordinator {
       added += 1;
     }
 
+    if (added > 0) {
+      // Sort by priority: 1=Urgent first, then High/Medium/Low; 0=No priority last.
+      this.queue.sort((a, b) => {
+        const pa = a.priority === 0 ? Infinity : a.priority;
+        const pb = b.priority === 0 ? Infinity : b.priority;
+        return pa - pb;
+      });
+    }
+
     state.lastPollAt = new Date().toISOString();
     await this.deps.saveState(state);
 

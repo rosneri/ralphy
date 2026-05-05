@@ -11,6 +11,7 @@ const issue: LinearIssue = {
   state: { name: "Todo", type: "unstarted" },
   assignee: null,
   labels: [],
+  priority: 3,
 };
 
 interface ResponseSpec {
