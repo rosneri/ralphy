@@ -20,7 +20,7 @@ const RalphyConfigSchema = z
     // Forward --verbose to each worker.
     taskVerbose: z.boolean().default(false),
     // When true, every task runs in a per-issue git worktree under
-    // .ralph/worktrees/<change-name> on a fresh `ralph/<change-name>` branch.
+    // ~/.ralph/<project>/worktrees/<change-name> on a fresh `ralph/<change-name>` branch.
     useWorktree: z.boolean().default(false),
     // Whether to remove the worktree (and its branch is left intact) when
     // the task exits cleanly. Failed tasks always keep the worktree for

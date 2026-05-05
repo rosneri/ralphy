@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { homedir } from "node:os";
 
 interface WorktreeHandle {
   /** Absolute path to the new working tree. */
@@ -12,9 +13,19 @@ export interface GitRunner {
   run: (args: string[], cwd: string) => Promise<{ stdout: string; stderr: string }>;
 }
 
-/** Where worktrees live, relative to the project root. */
+/**
+ * Where worktrees live for a given project.
+ *
+ * Located at `~/.ralph/<project-basename>/worktrees`, OUTSIDE the project
+ * tree. The project tree is unsuitable because users typically gitignore
+ * `.ralph/`, and tools that walk up reading `.gitignore` (cspell with
+ * `useGitignore`, lint-staged, etc.) then treat anything under `.ralph/`
+ * as ignored — pre-push hooks running inside a worktree there find zero
+ * files and fail spuriously. Living in `~/.ralph/...` keeps worktrees
+ * out of any project-level gitignore reach.
+ */
 export function worktreesDir(projectRoot: string): string {
-  return join(projectRoot, ".ralph", "worktrees");
+  return join(homedir(), ".ralph", basename(projectRoot), "worktrees");
 }
 
 /** Branch name used for a given change-name slug. */
@@ -23,7 +34,7 @@ export function branchForChange(changeName: string): string {
 }
 
 /**
- * Create a new git worktree at `.ralph/worktrees/<changeName>` checked out
+ * Create a new git worktree at `~/.ralph/<project>/worktrees/<changeName>` checked out
  * onto a fresh branch `ralph/<changeName>` rooted at the current HEAD of
  * `projectRoot`. Returns the absolute worktree path and branch name.
  *
