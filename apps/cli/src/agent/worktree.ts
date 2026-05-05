@@ -72,3 +72,68 @@ export async function removeWorktree(
 ): Promise<void> {
   await runner.run(["worktree", "remove", "--force", cwd], projectRoot);
 }
+
+interface WorktreeCleanupCheck {
+  safe: boolean;
+  /** Why removal is unsafe (only set when safe=false). */
+  reason?: string;
+  /** `git status --porcelain` output (uncommitted/untracked entries). */
+  dirty: string;
+  /** `git log <base>..HEAD --oneline` output (commits not on base). */
+  unpushedCommits: string;
+}
+
+/**
+ * Decide whether a worktree is safe to delete. A worktree is only safe to
+ * remove when both:
+ *   - the working tree is fully clean (no uncommitted or untracked files),
+ *   - there are no commits ahead of `base` (so nothing was produced that
+ *     hasn't already been merged or PR'd).
+ *
+ * If either check fails, callers MUST preserve the worktree — `git worktree
+ * remove --force` would otherwise destroy unsaved work.
+ */
+export async function isWorktreeSafeToRemove(
+  cwd: string,
+  base: string,
+  runner: GitRunner,
+): Promise<WorktreeCleanupCheck> {
+  const status = await runner.run(["status", "--porcelain"], cwd);
+  const dirty = status.stdout.trim();
+
+  let unpushedCommits = "";
+  try {
+    const log = await runner.run(["log", "--oneline", `${base}..HEAD`, "--no-merges"], cwd);
+    unpushedCommits = log.stdout.trim();
+  } catch {
+    // base may not be reachable from HEAD (e.g. detached / unrelated histories).
+    // Treat as "has commits we don't understand" — i.e. unsafe to delete.
+    unpushedCommits = "<unknown: failed to compare against base>";
+  }
+
+  if (dirty && unpushedCommits) {
+    return {
+      safe: false,
+      reason: "uncommitted changes AND unpushed commits present",
+      dirty,
+      unpushedCommits,
+    };
+  }
+  if (dirty) {
+    return {
+      safe: false,
+      reason: "uncommitted or untracked files present",
+      dirty,
+      unpushedCommits,
+    };
+  }
+  if (unpushedCommits) {
+    return {
+      safe: false,
+      reason: `commits ahead of ${base} were not pushed/PR'd`,
+      dirty,
+      unpushedCommits,
+    };
+  }
+  return { safe: true, dirty, unpushedCommits };
+}
