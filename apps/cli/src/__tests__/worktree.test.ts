@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   createWorktree,
   removeWorktree,
+  isWorktreeSafeToRemove,
   branchForChange,
   worktreesDir,
   type GitRunner,
@@ -94,6 +95,61 @@ describe("worktree helpers", () => {
         cwd: "/proj",
       },
     ]);
+  });
+
+  describe("isWorktreeSafeToRemove", () => {
+    test("safe when working tree is clean and no commits ahead of base", async () => {
+      const { runner } = makeRunner({
+        "status --porcelain": { stdout: "" },
+        "log --oneline main..HEAD --no-merges": { stdout: "" },
+      });
+      const check = await isWorktreeSafeToRemove("/wt", "main", runner);
+      expect(check.safe).toBe(true);
+      expect(check.dirty).toBe("");
+      expect(check.unpushedCommits).toBe("");
+    });
+
+    test("unsafe when there are uncommitted changes (the silent-loss case)", async () => {
+      const { runner } = makeRunner({
+        "status --porcelain": { stdout: " M apps/cli/src/foo.ts\n?? scratch.md" },
+        "log --oneline main..HEAD --no-merges": { stdout: "" },
+      });
+      const check = await isWorktreeSafeToRemove("/wt", "main", runner);
+      expect(check.safe).toBe(false);
+      expect(check.reason).toMatch(/uncommitted/i);
+      expect(check.dirty).toContain("scratch.md");
+    });
+
+    test("unsafe when there are commits ahead of base but tree is clean", async () => {
+      const { runner } = makeRunner({
+        "status --porcelain": { stdout: "" },
+        "log --oneline main..HEAD --no-merges": { stdout: "abc1234 feat: thing" },
+      });
+      const check = await isWorktreeSafeToRemove("/wt", "main", runner);
+      expect(check.safe).toBe(false);
+      expect(check.reason).toMatch(/commits ahead/i);
+      expect(check.unpushedCommits).toContain("abc1234");
+    });
+
+    test("unsafe when both dirty and ahead of base", async () => {
+      const { runner } = makeRunner({
+        "status --porcelain": { stdout: " M foo" },
+        "log --oneline main..HEAD --no-merges": { stdout: "abc feat" },
+      });
+      const check = await isWorktreeSafeToRemove("/wt", "main", runner);
+      expect(check.safe).toBe(false);
+      expect(check.reason).toMatch(/uncommitted.*unpushed|both/i);
+    });
+
+    test("unsafe when git log fails (treat unknown as unsafe)", async () => {
+      const { runner } = makeRunner({
+        "status --porcelain": { stdout: "" },
+        "log --oneline main..HEAD --no-merges": { throw: true },
+      });
+      const check = await isWorktreeSafeToRemove("/wt", "main", runner);
+      expect(check.safe).toBe(false);
+      expect(check.unpushedCommits).toMatch(/unknown/i);
+    });
   });
 
   test("createWorktree path uses join (cross-platform)", async () => {

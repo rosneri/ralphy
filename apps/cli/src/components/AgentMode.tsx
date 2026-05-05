@@ -15,7 +15,12 @@ import { readAgentState, writeAgentState } from "../agent/state";
 import { scaffoldChangeForIssue } from "../agent/scaffold";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
-import { createWorktree, removeWorktree, type GitRunner } from "../agent/worktree";
+import {
+  createWorktree,
+  removeWorktree,
+  isWorktreeSafeToRemove,
+  type GitRunner,
+} from "../agent/worktree";
 import { createPullRequest, type CmdRunner } from "../agent/pr";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "../agent/ci";
 import { join } from "node:path";
@@ -413,9 +418,20 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       }
                     }
                   } catch (err) {
-                    const e = err as Error & { stderr?: string; code?: number };
+                    const e = err as Error & { stderr?: string; stdout?: string; code?: number };
                     const detail = e.stderr?.trim() || e.message;
-                    appendLog(`! PR create failed for ${changeName}: ${detail}`, "red");
+                    const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+                    const pushRejected =
+                      /failed to push some refs|pre-push hook|hook declined/i.test(combined);
+                    if (pushRejected) {
+                      appendLog(
+                        `! push rejected for ${changeName} (host repo pre-push hook failed) — worktree preserved at ${cwd}`,
+                        "red",
+                      );
+                      appendLog(`    detail: ${detail}`, "red");
+                    } else {
+                      appendLog(`! PR create failed for ${changeName}: ${detail}`, "red");
+                    }
                     effectiveCode = PR_FAILED_EXIT;
                   }
                 }
@@ -425,14 +441,39 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 // CI passing when fix-CI is on. Failed CI keeps the worktree
                 // and branch for human inspection on the existing PR.
                 if (effectiveCode === 0 && cfg.cleanupWorktreeOnSuccess) {
-                  try {
-                    await removeWorktree(projectRoot, cwd, bunGitRunner);
-                    appendLog(`  removed worktree ${cwd}`, "gray");
-                  } catch (err) {
-                    appendLog(
-                      `! worktree remove failed for ${changeName}: ${(err as Error).message}`,
-                      "yellow",
-                    );
+                  // Strict pre-removal guard: never `git worktree remove
+                  // --force` a worktree that still has uncommitted files or
+                  // commits not yet pushed/PR'd — `--force` would destroy
+                  // them silently.
+                  const check = await isWorktreeSafeToRemove(
+                    cwd,
+                    cfg.prBaseBranch,
+                    bunGitRunner,
+                  ).catch((err) => ({
+                    safe: false as const,
+                    reason: `safety check failed: ${(err as Error).message}`,
+                    dirty: "",
+                    unpushedCommits: "",
+                  }));
+                  if (!check.safe) {
+                    appendLog(`! preserving worktree for ${changeName}: ${check.reason}`, "yellow");
+                    if (check.dirty) {
+                      appendLog(`    uncommitted:\n${check.dirty}`, "yellow");
+                    }
+                    if (check.unpushedCommits) {
+                      appendLog(`    commits:\n${check.unpushedCommits}`, "yellow");
+                    }
+                    appendLog(`    path: ${cwd}`, "yellow");
+                  } else {
+                    try {
+                      await removeWorktree(projectRoot, cwd, bunGitRunner);
+                      appendLog(`  removed worktree ${cwd}`, "gray");
+                    } catch (err) {
+                      appendLog(
+                        `! worktree remove failed for ${changeName}: ${(err as Error).message}`,
+                        "yellow",
+                      );
+                    }
                   }
                 }
               }
