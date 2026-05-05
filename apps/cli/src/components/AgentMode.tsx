@@ -24,6 +24,41 @@ import {
 import { createPullRequest, type CmdRunner } from "../agent/pr";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "../agent/ci";
 import { join } from "node:path";
+import { exists } from "node:fs/promises";
+
+/**
+ * Seed the worktree's `.mcp.json` so engines spawned inside the worktree see
+ * the ralphy MCP server. The project's `.mcp.json` is gitignored and points
+ * at `.ralph/bin/mcp.js` (also gitignored), so a fresh worktree has neither.
+ *
+ * We copy the project's `.mcp.json` into the worktree and rewrite any
+ * relative `.ralph/bin/mcp.js` arg to an absolute path under `projectRoot`
+ * so the entry resolves regardless of whether `.ralph/` exists in the
+ * worktree. No-op if the project has no `.mcp.json`.
+ */
+async function seedWorktreeMcpConfig(projectRoot: string, worktreeCwd: string): Promise<void> {
+  const src = join(projectRoot, ".mcp.json");
+  if (!(await exists(src))) return;
+  const dst = join(worktreeCwd, ".mcp.json");
+  if (await exists(dst)) return;
+  let parsed: { mcpServers?: Record<string, { args?: unknown[] }> };
+  try {
+    parsed = await Bun.file(src).json();
+  } catch {
+    return;
+  }
+  const servers = parsed.mcpServers;
+  if (servers && typeof servers === "object") {
+    for (const cfg of Object.values(servers)) {
+      if (Array.isArray(cfg.args)) {
+        cfg.args = cfg.args.map((a) =>
+          typeof a === "string" && a.startsWith(".ralph/") ? join(projectRoot, a) : a,
+        );
+      }
+    }
+  }
+  await Bun.write(dst, JSON.stringify(parsed, null, 2) + "\n");
+}
 
 const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {
@@ -255,6 +290,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 scaffoldTasksDir = join(wt.cwd, "openspec", "changes");
                 scaffoldStatesDir = join(wt.cwd, ".ralph", "tasks");
                 appendLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
+                try {
+                  await seedWorktreeMcpConfig(projectRoot, wt.cwd);
+                } catch (err) {
+                  appendLog(
+                    `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,
+                    "yellow",
+                  );
+                }
               } catch (err) {
                 appendLog(
                   `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — falling back to project root`,
