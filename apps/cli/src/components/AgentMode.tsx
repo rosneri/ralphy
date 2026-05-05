@@ -92,6 +92,16 @@ interface WorkerMeta {
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+async function appendSteering(proposalPath: string, steering: string): Promise<void> {
+  const file = Bun.file(proposalPath);
+  const prev = (await file.exists()) ? await file.text() : "";
+  const stamped = `\n\n### Steering feedback (${new Date().toISOString()})\n\n${steering}\n`;
+  const next = prev.includes("## Steering")
+    ? prev.replace(/## Steering\n+([\s\S]*?)$/, (_m, rest) => `## Steering\n${stamped}\n${rest}`)
+    : prev + `\n## Steering\n${stamped}\n`;
+  await Bun.write(proposalPath, next);
+}
+
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -338,101 +348,226 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   );
                   effectiveCode = PR_FAILED_EXIT;
                 } else {
-                  try {
-                    const pr = await createPullRequest(
-                      { cwd, branch, issue: prIssue, base: cfg.prBaseBranch },
-                      bunCmdRunner,
-                    );
-                    if (!pr) {
-                      appendLog(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
-                    } else {
+                  const proposalPath = join(
+                    statesDirByChange.get(changeName) ?? statesDir,
+                    "..",
+                    "..",
+                    "openspec",
+                    "changes",
+                    changeName,
+                    "proposal.md",
+                  );
+                  const maxHookFixAttempts = cfg.maxCiFixAttempts;
+                  // Run a single steering+re-run iteration: append `steering`
+                  // text to proposal.md and re-spawn the `ralph task` worker.
+                  // Returns the worker's exit code (0 = success).
+                  const runWorkerWithSteering = async (steering: string): Promise<number> => {
+                    try {
+                      await appendSteering(proposalPath, steering);
+                    } catch (steerErr) {
                       appendLog(
-                        `  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`,
-                        "green",
-                      );
-
-                      const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
-                      if (wantFixCi) {
-                        appendLog(
-                          `  watching CI for ${pr.url} (max ${cfg.maxCiFixAttempts} fix attempts)`,
-                          "gray",
-                        );
-                        const proposalPath = join(
-                          statesDirByChange.get(changeName) ?? statesDir,
-                          "..",
-                          "..",
-                          "openspec",
-                          "changes",
-                          changeName,
-                          "proposal.md",
-                        );
-                        const result = await fixCiUntilGreen(
-                          {
-                            getStatus: () => getPrChecksStatus(pr.url, bunCmdRunner, cwd),
-                            getFailedLogs: (ids) => fetchFailedRunLogs(ids, bunCmdRunner, cwd),
-                            runTaskWithSteering: async (steering) => {
-                              try {
-                                const file = Bun.file(proposalPath);
-                                const prev = (await file.exists()) ? await file.text() : "";
-                                const stamped = `\n\n### CI feedback (${new Date().toISOString()})\n\n${steering}\n`;
-                                const next = prev.includes("## Steering")
-                                  ? prev.replace(
-                                      /## Steering\n+([\s\S]*?)$/,
-                                      (_m, rest) => `## Steering\n${stamped}\n${rest}`,
-                                    )
-                                  : prev + `\n## Steering\n${stamped}\n`;
-                                await Bun.write(proposalPath, next);
-                              } catch (err) {
-                                appendLog(
-                                  `! could not append steering: ${(err as Error).message}`,
-                                  "red",
-                                );
-                              }
-                              const p = Bun.spawn({
-                                cmd: buildTaskCmd(),
-                                cwd,
-                                stdout: "ignore",
-                                stderr: "ignore",
-                                stdin: "ignore",
-                              });
-                              return p.exited;
-                            },
-                            pushBranch: async () => {
-                              await bunCmdRunner.run(["git", "push", "origin", branch], cwd);
-                            },
-                            log: appendLog,
-                            sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-                          },
-                          {
-                            maxAttempts: cfg.maxCiFixAttempts,
-                            pollIntervalSeconds: cfg.ciPollIntervalSeconds,
-                          },
-                        );
-                        if (!result.success) {
-                          appendLog(
-                            `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
-                            "red",
-                          );
-                          effectiveCode = CI_FAILED_EXIT;
-                        }
-                      }
-                    }
-                  } catch (err) {
-                    const e = err as Error & { stderr?: string; stdout?: string; code?: number };
-                    const detail = e.stderr?.trim() || e.message;
-                    const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-                    const pushRejected =
-                      /failed to push some refs|pre-push hook|hook declined/i.test(combined);
-                    if (pushRejected) {
-                      appendLog(
-                        `! push rejected for ${changeName} (host repo pre-push hook failed) — worktree preserved at ${cwd}`,
+                        `! could not append steering: ${(steerErr as Error).message}`,
                         "red",
                       );
-                      appendLog(`    detail: ${detail}`, "red");
-                    } else {
-                      appendLog(`! PR create failed for ${changeName}: ${detail}`, "red");
+                      return 1;
                     }
-                    effectiveCode = PR_FAILED_EXIT;
+                    const rp = Bun.spawn({
+                      cmd: buildTaskCmd(),
+                      cwd,
+                      stdout: "ignore",
+                      stderr: "ignore",
+                      stdin: "ignore",
+                    });
+                    return rp.exited;
+                  };
+                  // Pre-commit retry: if the worker left uncommitted changes
+                  // (typically because the host's pre-commit hook rejected
+                  // ralphy's `docs(ralph): change finished` commit) we
+                  // attempt the commit ourselves and, on hook failure, feed
+                  // the hook output back to the worker as steering.
+                  let commitFixAttempt = 0;
+                  let commitGaveUp = false;
+                  while (true) {
+                    let dirty = "";
+                    try {
+                      const status = await bunCmdRunner.run(["git", "status", "--porcelain"], cwd);
+                      dirty = status.stdout.trim();
+                    } catch (err) {
+                      appendLog(
+                        `! git status failed for ${changeName}: ${(err as Error).message}`,
+                        "yellow",
+                      );
+                      break;
+                    }
+                    if (!dirty) break;
+                    try {
+                      await bunCmdRunner.run(["git", "add", "-A"], cwd);
+                      await bunCmdRunner.run(
+                        ["git", "commit", "-m", `ralph: residual changes for ${changeName}`],
+                        cwd,
+                      );
+                      appendLog(`  committed residual changes for ${changeName}`, "gray");
+                      break;
+                    } catch (err) {
+                      const e = err as Error & { stderr?: string; stdout?: string };
+                      const detail = e.stderr?.trim() || e.message;
+                      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+                      // If git complains there's nothing to commit (race vs.
+                      // a worker post-commit), accept and move on.
+                      if (/nothing to commit/i.test(combined)) break;
+                      if (commitFixAttempt >= maxHookFixAttempts) {
+                        appendLog(
+                          `! commit rejected for ${changeName} after ${commitFixAttempt} fix attempts (host pre-commit hook still failing) — worktree preserved at ${cwd}`,
+                          "red",
+                        );
+                        appendLog(`    detail: ${detail}`, "red");
+                        effectiveCode = PR_FAILED_EXIT;
+                        commitGaveUp = true;
+                        break;
+                      }
+                      commitFixAttempt += 1;
+                      appendLog(
+                        `! commit rejected for ${changeName} — feeding error back to worker (attempt ${commitFixAttempt}/${maxHookFixAttempts})`,
+                        "yellow",
+                      );
+                      appendLog(`    detail: ${detail}`, "yellow");
+                      const retryCode = await runWorkerWithSteering(
+                        `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
+                          `Fix the underlying problem reported below, then the commit will be retried.\n\n` +
+                          "```\n" +
+                          combined.trim() +
+                          "\n```",
+                      );
+                      if (retryCode !== 0) {
+                        appendLog(
+                          `! worker re-run after commit rejection exited code ${retryCode} — giving up`,
+                          "red",
+                        );
+                        effectiveCode = PR_FAILED_EXIT;
+                        commitGaveUp = true;
+                        break;
+                      }
+                    }
+                  }
+                  let pushFixAttempt = 0;
+                  let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
+                  let prGaveUp = commitGaveUp;
+                  // Retry loop: when the host's pre-push hook rejects the
+                  // push (e.g. lint/spellcheck failure) we feed the failure
+                  // output back to the worker as steering and re-run it so
+                  // the AI can fix the underlying issue, then retry the PR.
+                  while (!prGaveUp) {
+                    try {
+                      pr = await createPullRequest(
+                        { cwd, branch, issue: prIssue, base: cfg.prBaseBranch },
+                        bunCmdRunner,
+                      );
+                      break;
+                    } catch (err) {
+                      const e = err as Error & {
+                        stderr?: string;
+                        stdout?: string;
+                        code?: number;
+                      };
+                      const detail = e.stderr?.trim() || e.message;
+                      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+                      const pushRejected =
+                        /failed to push some refs|pre-push hook|hook declined/i.test(combined);
+                      if (!pushRejected || pushFixAttempt >= maxHookFixAttempts) {
+                        if (pushRejected) {
+                          appendLog(
+                            `! push rejected for ${changeName} after ${pushFixAttempt} fix attempts (host pre-push hook still failing) — worktree preserved at ${cwd}`,
+                            "red",
+                          );
+                          appendLog(`    detail: ${detail}`, "red");
+                        } else {
+                          appendLog(`! PR create failed for ${changeName}: ${detail}`, "red");
+                        }
+                        effectiveCode = PR_FAILED_EXIT;
+                        prGaveUp = true;
+                        break;
+                      }
+                      pushFixAttempt += 1;
+                      appendLog(
+                        `! push rejected for ${changeName} — feeding error back to worker (attempt ${pushFixAttempt}/${maxHookFixAttempts})`,
+                        "yellow",
+                      );
+                      appendLog(`    detail: ${detail}`, "yellow");
+                      const retryCode = await runWorkerWithSteering(
+                        `Push to origin/${branch} was rejected by the host repo's pre-push hook. ` +
+                          `Fix the underlying problem reported below, then the push will be retried.\n\n` +
+                          "```\n" +
+                          combined.trim() +
+                          "\n```",
+                      );
+                      if (retryCode !== 0) {
+                        appendLog(
+                          `! worker re-run after push rejection exited code ${retryCode} — giving up`,
+                          "red",
+                        );
+                        effectiveCode = PR_FAILED_EXIT;
+                        prGaveUp = true;
+                        break;
+                      }
+                    }
+                  }
+                  if (prGaveUp) {
+                    // already logged + effectiveCode set
+                  } else if (!pr) {
+                    appendLog(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
+                  } else {
+                    appendLog(
+                      `  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`,
+                      "green",
+                    );
+
+                    const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
+                    if (wantFixCi) {
+                      appendLog(
+                        `  watching CI for ${pr.url} (max ${cfg.maxCiFixAttempts} fix attempts)`,
+                        "gray",
+                      );
+                      const result = await fixCiUntilGreen(
+                        {
+                          getStatus: () => getPrChecksStatus(pr.url, bunCmdRunner, cwd),
+                          getFailedLogs: (ids) => fetchFailedRunLogs(ids, bunCmdRunner, cwd),
+                          runTaskWithSteering: async (steering) => {
+                            try {
+                              await appendSteering(proposalPath, `CI feedback:\n\n${steering}`);
+                            } catch (err) {
+                              appendLog(
+                                `! could not append steering: ${(err as Error).message}`,
+                                "red",
+                              );
+                            }
+                            const p = Bun.spawn({
+                              cmd: buildTaskCmd(),
+                              cwd,
+                              stdout: "ignore",
+                              stderr: "ignore",
+                              stdin: "ignore",
+                            });
+                            return p.exited;
+                          },
+                          pushBranch: async () => {
+                            await bunCmdRunner.run(["git", "push", "origin", branch], cwd);
+                          },
+                          log: appendLog,
+                          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+                        },
+                        {
+                          maxAttempts: cfg.maxCiFixAttempts,
+                          pollIntervalSeconds: cfg.ciPollIntervalSeconds,
+                        },
+                      );
+                      if (!result.success) {
+                        appendLog(
+                          `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
+                          "red",
+                        );
+                        effectiveCode = CI_FAILED_EXIT;
+                      }
+                    }
                   }
                 }
               }
