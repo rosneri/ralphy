@@ -3,7 +3,12 @@ import { AgentCoordinator, type CoordinatorDeps, type IssueUpdater } from "../ag
 import type { LinearIssue } from "../agent/linear";
 import type { AgentState } from "../agent/state";
 
-function issue(id: string, identifier: string, priority = 3): LinearIssue {
+function issue(
+  id: string,
+  identifier: string,
+  priority = 3,
+  blockedByIds: string[] = [],
+): LinearIssue {
   return {
     id,
     identifier,
@@ -14,6 +19,7 @@ function issue(id: string, identifier: string, priority = 3): LinearIssue {
     assignee: null,
     labels: [],
     priority,
+    blockedByIds,
   };
 }
 
@@ -264,6 +270,68 @@ describe("AgentCoordinator", () => {
     // pollOnce becomes a no-op
     const r = await coord.pollOnce();
     expect(r).toEqual({ found: 0, added: 0 });
+  });
+
+  test("blocked issue is skipped while blocker is unresolved", async () => {
+    const issues = [issue("blocker", "ENG-1"), issue("blocked", "ENG-2", 3, ["blocker"])];
+    const { deps, workers, logs } = makeDeps({ issues });
+    const coord = new AgentCoordinator(deps, { concurrency: 2, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+
+    // Only blocker spawned; blocked issue skipped
+    expect(coord.activeCount).toBe(1);
+    expect(workers.has("change-eng-1")).toBe(true);
+    expect(workers.has("change-eng-2")).toBe(false);
+    expect(logs.some((l) => l.text.includes("ENG-2") && l.text.includes("blocked"))).toBe(true);
+  });
+
+  test("blocked issue becomes eligible once blocker is processed", async () => {
+    const blocker = issue("blocker", "ENG-1");
+    const blocked = issue("blocked", "ENG-2", 3, ["blocker"]);
+    let poll2Issues: LinearIssue[] = [blocker, blocked];
+    const { deps, workers } = makeDeps({
+      fetchImpl: async () => poll2Issues,
+    });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+
+    // First poll: only blocker queued
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(workers.has("change-eng-1")).toBe(true);
+    expect(coord.queuedCount).toBe(0);
+
+    // Blocker completes
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+
+    // Second poll: blocked issue is now eligible (blocker is processed)
+    // Update the returned issues to reflect blocker is no longer blocking
+    poll2Issues = [blocked]; // blocker won't re-appear (or is already processed)
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(workers.has("change-eng-2")).toBe(true);
+  });
+
+  test("issue with all blockers processed is not skipped", async () => {
+    const issues = [issue("b", "ENG-2", 3, ["already-done"])];
+    const { deps, workers } = makeDeps({
+      issues,
+      state: {
+        processedIssueIds: ["already-done"],
+        startedIssueIds: [],
+        failedIssueIds: [],
+        lastPollAt: null,
+        changeMeta: {},
+      },
+    });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(workers.has("change-eng-2")).toBe(true);
   });
 
   test("activeWorkers exposes worker descriptors", async () => {

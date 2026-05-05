@@ -37,6 +37,7 @@ function makeIssue(overrides: Partial<LinearIssue> = {}): LinearIssue {
     assignee: { id: "u1", email: "dev@example.com", name: "Dev" },
     labels: ["frontend"],
     priority: 3,
+    blockedByIds: [],
     ...overrides,
   };
 }
