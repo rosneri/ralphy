@@ -1,6 +1,6 @@
 {
   "name": "@neriros/ralphy",
-  "version": "2.8.2",
+  "version": "2.9.0",
   "description": "An iterative AI task execution framework. Orchestrates multi-phase autonomous work using Claude or Codex engines.",
   "keywords": [
     "agent",
@@ -61,8 +61,8 @@
     "@commitlint/config-conventional": "^20.4.3",
     "@fission-ai/openspec": "latest",
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "@nx/devkit": "^22.6.5",
-    "@nx/js": "^22.5.3",
+    "@nx/devkit": "^22.7.1",
+    "@nx/js": "^22.7.1",
     "@secretlint/secretlint-rule-preset-recommend": "^11.3.1",
     "@swc-node/register": "^1.11.1",
     "@swc/core": "^1.15.18",
@@ -83,6 +83,7 @@
     "zod": "^3.24.0"
   },
   "overrides": {
+    "axios": "^1.15.1",
     "minimatch": "^10.2.3"
   },
   "engines": {

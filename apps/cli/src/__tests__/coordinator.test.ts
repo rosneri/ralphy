@@ -3,7 +3,7 @@ import { AgentCoordinator, type CoordinatorDeps, type IssueUpdater } from "../ag
 import type { LinearIssue } from "../agent/linear";
 import type { AgentState } from "../agent/state";
 
-function issue(id: string, identifier: string): LinearIssue {
+function issue(id: string, identifier: string, priority = 3): LinearIssue {
   return {
     id,
     identifier,
@@ -13,6 +13,7 @@ function issue(id: string, identifier: string): LinearIssue {
     state: { name: "Todo", type: "unstarted" },
     assignee: null,
     labels: [],
+    priority,
   };
 }
 
@@ -92,6 +93,43 @@ describe("AgentCoordinator", () => {
     expect(coord.activeCount).toBe(2);
     expect(coord.queuedCount).toBe(1);
     expect(workers.size).toBe(2);
+  });
+
+  test("queue is ordered by priority: urgent before medium before low before no-priority", async () => {
+    const issues = [
+      issue("low", "ENG-1", 4),
+      issue("urgent", "ENG-2", 1),
+      issue("none", "ENG-3", 0),
+      issue("medium", "ENG-4", 3),
+    ];
+    const { deps, workers } = makeDeps({ issues });
+    const coord = new AgentCoordinator(deps, { concurrency: 1, filter: {} });
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 5));
+
+    // First spawned: urgent (priority 1)
+    expect(workers.has("change-eng-2")).toBe(true);
+    expect(coord.queuedCount).toBe(3);
+
+    workers.get("change-eng-2")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+    // Second: medium (priority 3)
+    expect(workers.has("change-eng-4")).toBe(true);
+
+    workers.get("change-eng-4")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+    // Third: low (priority 4)
+    expect(workers.has("change-eng-1")).toBe(true);
+
+    workers.get("change-eng-1")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+    // Last: no priority (0 → sorted last)
+    expect(workers.has("change-eng-3")).toBe(true);
+
+    workers.get("change-eng-3")!.resolve(0);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(coord.activeCount).toBe(0);
   });
 
   test("queue drains as workers exit, marking only success as processed", async () => {

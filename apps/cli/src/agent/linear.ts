@@ -7,6 +7,8 @@ export interface LinearIssue {
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
   labels: string[];
+  /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
+  priority: number;
 }
 
 export interface LinearFilter {
@@ -30,6 +32,7 @@ interface LinearNode {
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
   labels: { nodes: { name: string }[] };
+  priority: number;
 }
 
 export async function fetchOpenIssues(
@@ -59,7 +62,7 @@ export async function fetchOpenIssues(
   const query = `query Issues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {
       nodes {
-        id identifier title description url
+        id identifier title description url priority
         state { name type }
         assignee { id email name }
         labels { nodes { name } }
@@ -80,6 +83,7 @@ export async function fetchOpenIssues(
     state: n.state,
     assignee: n.assignee,
     labels: n.labels.nodes.map((l) => l.name),
+    priority: n.priority,
   }));
 }
 
