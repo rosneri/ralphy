@@ -12,6 +12,7 @@ const issue: LinearIssue = {
   assignee: null,
   labels: [],
   priority: 3,
+  blockedByIds: [],
 };
 
 interface ResponseSpec {

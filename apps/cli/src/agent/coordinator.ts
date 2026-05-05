@@ -101,6 +101,14 @@ export class AgentCoordinator {
       if (queued.has(issue.id)) continue;
       if (active.has(issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
+      const blocker = issue.blockedByIds.find((bid) => !seen.has(bid));
+      if (blocker !== undefined) {
+        this.deps.onLog(
+          `  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`,
+          "yellow",
+        );
+        continue;
+      }
       this.queue.push(issue);
       added += 1;
     }

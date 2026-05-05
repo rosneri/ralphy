@@ -9,6 +9,11 @@ export interface LinearIssue {
   labels: string[];
   /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
+  /**
+   * IDs of issues that block this one and are not yet completed/cancelled.
+   * Populated from Linear's "blocked_by" relations.
+   */
+  blockedByIds: string[];
 }
 
 export interface LinearFilter {
@@ -33,6 +38,7 @@ interface LinearNode {
   assignee: { id: string; email: string | null; name: string } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
+  relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
 }
 
 export async function fetchOpenIssues(
@@ -66,6 +72,12 @@ export async function fetchOpenIssues(
         state { name type }
         assignee { id email name }
         labels { nodes { name } }
+        relations(first: 50) {
+          nodes {
+            type
+            relatedIssue { id state { type } }
+          }
+        }
       }
     }
   }`;
@@ -74,6 +86,7 @@ export async function fetchOpenIssues(
     filter: where,
   });
 
+  const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
   return data.issues.nodes.map((n) => ({
     id: n.id,
     identifier: n.identifier,
@@ -84,6 +97,9 @@ export async function fetchOpenIssues(
     assignee: n.assignee,
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
+    blockedByIds: (n.relations?.nodes ?? [])
+      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
+      .map((r) => r.relatedIssue.id),
   }));
 }
 
