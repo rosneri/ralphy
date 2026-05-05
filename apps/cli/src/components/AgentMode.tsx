@@ -92,14 +92,36 @@ interface WorkerMeta {
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-async function appendSteering(proposalPath: string, steering: string): Promise<void> {
-  const file = Bun.file(proposalPath);
-  const prev = (await file.exists()) ? await file.text() : "";
-  const stamped = `\n\n### Steering feedback (${new Date().toISOString()})\n\n${steering}\n`;
-  const next = prev.includes("## Steering")
-    ? prev.replace(/## Steering\n+([\s\S]*?)$/, (_m, rest) => `## Steering\n${stamped}\n${rest}`)
-    : prev + `\n## Steering\n${stamped}\n`;
-  await Bun.write(proposalPath, next);
+/**
+ * Inject a steering message + a concrete unchecked task into the worker's
+ * change directory so the next `ralph task` run picks them up.
+ *
+ * - `steering.md` is the file `buildTaskPrompt` actually prepends to the
+ *   prompt as "User Steering (READ FIRST)" — newest first.
+ * - A new `## ` section is appended to `tasks.md` so the worker (which
+ *   exits early when all tasks are checked off) has an unchecked item to
+ *   work on. Without this, re-running the worker after the original
+ *   tasks finished would no-op and the same hook failure would repeat.
+ */
+async function injectFixSteering(
+  changeDir: string,
+  heading: string,
+  steering: string,
+): Promise<void> {
+  const steeringFile = Bun.file(join(changeDir, "steering.md"));
+  const existing = (await steeringFile.exists()) ? await steeringFile.text() : "";
+  const stamped = `## ${heading} (${new Date().toISOString()})\n\n${steering}\n`;
+  const nextSteering = existing ? `${stamped}\n${existing.trimStart()}` : `${stamped}\n`;
+  await Bun.write(join(changeDir, "steering.md"), nextSteering);
+
+  const tasksFile = Bun.file(join(changeDir, "tasks.md"));
+  const tasks = (await tasksFile.exists()) ? await tasksFile.text() : "";
+  const taskSection =
+    `\n## ${heading} (${new Date().toISOString()})\n\n` +
+    `- [ ] ${heading}. The error output is recorded in steering.md — read it first, ` +
+    `then fix the underlying problem (do not just retry the failing command).\n`;
+  const nextTasks = tasks.endsWith("\n") ? tasks + taskSection : tasks + "\n" + taskSection;
+  await Bun.write(join(changeDir, "tasks.md"), nextTasks);
 }
 
 function fmtElapsed(ms: number): string {
@@ -348,25 +370,28 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   );
                   effectiveCode = PR_FAILED_EXIT;
                 } else {
-                  const proposalPath = join(
+                  const changeDir = join(
                     statesDirByChange.get(changeName) ?? statesDir,
                     "..",
                     "..",
                     "openspec",
                     "changes",
                     changeName,
-                    "proposal.md",
                   );
                   const maxHookFixAttempts = cfg.maxCiFixAttempts;
-                  // Run a single steering+re-run iteration: append `steering`
-                  // text to proposal.md and re-spawn the `ralph task` worker.
-                  // Returns the worker's exit code (0 = success).
-                  const runWorkerWithSteering = async (steering: string): Promise<number> => {
+                  // Inject a steering message + a fresh unchecked task into
+                  // the change dir, then re-spawn the worker. The worker
+                  // reads steering.md (prepended to its prompt) and picks
+                  // up the new tasks.md section as its next iteration.
+                  const runWorkerWithFixSteering = async (
+                    heading: string,
+                    steering: string,
+                  ): Promise<number> => {
                     try {
-                      await appendSteering(proposalPath, steering);
+                      await injectFixSteering(changeDir, heading, steering);
                     } catch (steerErr) {
                       appendLog(
-                        `! could not append steering: ${(steerErr as Error).message}`,
+                        `! could not inject steering: ${(steerErr as Error).message}`,
                         "red",
                       );
                       return 1;
@@ -431,7 +456,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         "yellow",
                       );
                       appendLog(`    detail: ${detail}`, "yellow");
-                      const retryCode = await runWorkerWithSteering(
+                      const retryCode = await runWorkerWithFixSteering(
+                        "Fix host pre-commit hook rejection",
                         `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
                           `Fix the underlying problem reported below, then the commit will be retried.\n\n` +
                           "```\n" +
@@ -493,7 +519,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         "yellow",
                       );
                       appendLog(`    detail: ${detail}`, "yellow");
-                      const retryCode = await runWorkerWithSteering(
+                      const retryCode = await runWorkerWithFixSteering(
+                        "Fix host pre-push hook rejection",
                         `Push to origin/${branch} was rejected by the host repo's pre-push hook. ` +
                           `Fix the underlying problem reported below, then the push will be retried.\n\n` +
                           "```\n" +
@@ -533,10 +560,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                           getFailedLogs: (ids) => fetchFailedRunLogs(ids, bunCmdRunner, cwd),
                           runTaskWithSteering: async (steering) => {
                             try {
-                              await appendSteering(proposalPath, `CI feedback:\n\n${steering}`);
+                              await injectFixSteering(
+                                changeDir,
+                                "Fix failing CI checks",
+                                `CI feedback:\n\n${steering}`,
+                              );
                             } catch (err) {
                               appendLog(
-                                `! could not append steering: ${(err as Error).message}`,
+                                `! could not inject steering: ${(err as Error).message}`,
                                 "red",
                               );
                             }

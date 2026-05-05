@@ -135,19 +135,19 @@ jobs:
         if: "!cancelled()"
         run: bun audit --audit-level=high
 
-      - name: Install Tauri system dependencies # local-ci: skip
-        if: "!cancelled() && runner.os == 'Linux'"
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libglib2.0-dev \
-            libgtk-3-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev
+      # - name: Install Tauri system dependencies # local-ci: skip
+      #   if: "!cancelled() && runner.os == 'Linux'"
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y \
+      #       libwebkit2gtk-4.1-dev \
+      #       libappindicator3-dev \
+      #       librsvg2-dev \
+      #       patchelf \
+      #       libglib2.0-dev \
+      #       libgtk-3-dev \
+      #       libsoup-3.0-dev \
+      #       libjavascriptcoregtk-4.1-dev
 
       - name: Build (affected)
         if: "!cancelled()"
