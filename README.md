@@ -1,5 +1,12 @@
 # Ralphy
 
+[![npm version](https://img.shields.io/npm/v/@neriros/ralphy.svg)](https://www.npmjs.com/package/@neriros/ralphy)
+[![npm downloads](https://img.shields.io/npm/dm/@neriros/ralphy.svg)](https://www.npmjs.com/package/@neriros/ralphy)
+[![license](https://img.shields.io/npm/l/@neriros/ralphy.svg)](https://github.com/NeriRos/ralphy/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/NeriRos/ralphy.svg?style=social)](https://github.com/NeriRos/ralphy)
+[![GitHub issues](https://img.shields.io/github/issues/NeriRos/ralphy.svg)](https://github.com/NeriRos/ralphy/issues)
+[![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
+
 An iterative AI task execution framework. Ralphy orchestrates multi-phase autonomous work using Claude or Codex engines, with built-in state management, progress tracking, and cost safeguards.
 
 ## How It Works
@@ -19,9 +26,9 @@ Each iteration reads the `## Steering` section of `proposal.md`, picks the first
 ### npm (global)
 
 ```bash
-npm install -g ralphy
+npm install -g @neriros/ralphy
 # or
-bunx ralphy
+bunx @neriros/ralphy
 ```
 
 Requires [Bun](https://bun.sh) as the runtime.
