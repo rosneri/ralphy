@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { homedir } from "node:os";
 import {
   createWorktree,
   removeWorktree,
@@ -8,6 +9,9 @@ import {
   worktreesDir,
   type GitRunner,
 } from "../agent/worktree";
+
+const expectedWtRoot = (project: string) =>
+  join(homedir(), ".ralph", basename(project), "worktrees");
 
 interface RecordedCall {
   args: string[];
@@ -33,8 +37,8 @@ function makeRunner(
 }
 
 describe("worktree helpers", () => {
-  test("worktreesDir is rooted under .ralph/worktrees", () => {
-    expect(worktreesDir("/proj")).toBe("/proj/.ralph/worktrees");
+  test("worktreesDir lives at ~/.ralph/<project>/worktrees, outside the project tree", () => {
+    expect(worktreesDir("/some/path/proj")).toBe(join(homedir(), ".ralph", "proj", "worktrees"));
   });
 
   test("branchForChange uses ralph/<name> convention", () => {
@@ -47,16 +51,11 @@ describe("worktree helpers", () => {
       "rev-parse --verify --quiet refs/heads/ralph/eng-1": { throw: true },
     });
     const handle = await createWorktree("/proj", "eng-1", runner);
-    expect(handle.cwd).toBe("/proj/.ralph/worktrees/eng-1");
+    const expected = join(expectedWtRoot("/proj"), "eng-1");
+    expect(handle.cwd).toBe(expected);
     expect(handle.branch).toBe("ralph/eng-1");
     const lastCall = calls[calls.length - 1]!;
-    expect(lastCall.args).toEqual([
-      "worktree",
-      "add",
-      "-b",
-      "ralph/eng-1",
-      "/proj/.ralph/worktrees/eng-1",
-    ]);
+    expect(lastCall.args).toEqual(["worktree", "add", "-b", "ralph/eng-1", expected]);
   });
 
   test("createWorktree reuses an existing branch (no -b)", async () => {
@@ -65,17 +64,13 @@ describe("worktree helpers", () => {
       "rev-parse --verify --quiet refs/heads/ralph/eng-2": { stdout: "abc123" },
     });
     await createWorktree("/proj", "eng-2", runner);
+    const expected = join(expectedWtRoot("/proj"), "eng-2");
     const addCall = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")!;
-    expect(addCall.args).toEqual([
-      "worktree",
-      "add",
-      "/proj/.ralph/worktrees/eng-2",
-      "ralph/eng-2",
-    ]);
+    expect(addCall.args).toEqual(["worktree", "add", expected, "ralph/eng-2"]);
   });
 
   test("createWorktree reuses an existing worktree (no add call)", async () => {
-    const path = "/proj/.ralph/worktrees/eng-3";
+    const path = join(expectedWtRoot("/proj"), "eng-3");
     const { runner, calls } = makeRunner({
       "worktree list --porcelain": { stdout: `worktree ${path}\nbranch refs/heads/ralph/eng-3\n` },
     });
@@ -88,10 +83,11 @@ describe("worktree helpers", () => {
 
   test("removeWorktree shells out to git worktree remove --force", async () => {
     const { runner, calls } = makeRunner();
-    await removeWorktree("/proj", "/proj/.ralph/worktrees/eng-4", runner);
+    const path = join(expectedWtRoot("/proj"), "eng-4");
+    await removeWorktree("/proj", path, runner);
     expect(calls).toEqual([
       {
-        args: ["worktree", "remove", "--force", "/proj/.ralph/worktrees/eng-4"],
+        args: ["worktree", "remove", "--force", path],
         cwd: "/proj",
       },
     ]);
@@ -158,6 +154,6 @@ describe("worktree helpers", () => {
       "rev-parse --verify --quiet refs/heads/ralph/x": { throw: true },
     });
     const handle = await createWorktree("/a/b", "x", runner);
-    expect(handle.cwd).toBe(join("/a/b", ".ralph", "worktrees", "x"));
+    expect(handle.cwd).toBe(join(homedir(), ".ralph", "b", "worktrees", "x"));
   });
 });

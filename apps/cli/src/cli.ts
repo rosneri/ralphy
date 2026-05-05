@@ -73,7 +73,7 @@ const HELP_TEXT = [
   "  --linear-label <name>   Filter by label name (repeatable, any-of)",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
-  "  --worktree              Run each task in its own git worktree (.ralph/worktrees/<name>)",
+  "  --worktree              Run each task in its own git worktree (~/.ralph/<project>/worktrees/<name>)",
   "  --in-progress-status <name>  Linear status to set when work starts on an issue",
   "  --done-status <name>    Linear status to set when work completes successfully",
   "  --done-label <name>     Linear label to add when work completes successfully",

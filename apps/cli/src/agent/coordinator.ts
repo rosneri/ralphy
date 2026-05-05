@@ -310,7 +310,7 @@ export class AgentCoordinator {
         ? `✅ Ralph completed work on this issue. Change: \`${changeName}\``
         : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
           `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
-          `Inspect the worktree at \`.ralph/worktrees/${changeName}\`, fix the underlying ` +
+          `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the underlying ` +
           `failure (e.g. lint/typecheck), then run \`ralph clean --name ${changeName}\` to ` +
           `clear the quarantine and let the next poll re-pick the issue.`;
       try {

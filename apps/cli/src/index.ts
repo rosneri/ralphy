@@ -16,6 +16,7 @@ import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
 import { readAgentState, writeAgentState } from "./agent/state";
+import { worktreesDir } from "./agent/worktree";
 import * as telemetry from "@ralphy/telemetry";
 
 /**
@@ -86,7 +87,7 @@ try {
       process.stderr.write("Error: --name is required for clean mode\n");
       process.exit(1);
     }
-    const worktreeDir = join(projectRoot, ".ralph", "worktrees", args.name);
+    const worktreeDir = join(worktreesDir(projectRoot), args.name);
     const changeDir = join(tasksDir, args.name);
     const stateDir = join(statesDir, args.name);
     const branch = `ralph/${args.name}`;
