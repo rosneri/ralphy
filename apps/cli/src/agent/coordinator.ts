@@ -1,6 +1,13 @@
 import type { LinearIssue, LinearFilter } from "./linear";
 import type { AgentStateStore, TaskEntry } from "./state";
 
+/** Subset of `AgentStateStore` the coordinator needs. Structural so tests
+ *  can supply a fake without going through the class's private members. */
+export type CoordinatorStore = Pick<
+  AgentStateStore,
+  "snapshot" | "upsertTask" | "setLastPollAt" | "removeByChangeName"
+>;
+
 export interface IssueUpdater {
   /** Resolve a status name to its workflow-state ID, scoped to the issue's team. */
   resolveStateId: (issue: LinearIssue, stateName: string) => Promise<string | null>;
@@ -21,7 +28,7 @@ export interface CoordinatorDeps {
   /** Single-writer store for `.ralph/agent-state.json`. The coordinator
    *  is the only mutator; callers construct it (and must call `load()`)
    *  before passing it in. */
-  store: AgentStateStore;
+  store: CoordinatorStore;
   onLog: (text: string, color?: string) => void;
   onWorkersChanged: () => void;
   /** Optional: when present, the coordinator updates the Linear issue on start/exit. */

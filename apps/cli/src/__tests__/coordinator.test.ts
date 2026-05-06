@@ -1,15 +1,16 @@
 import { describe, expect, test, mock } from "bun:test";
-import { AgentCoordinator, type CoordinatorDeps, type IssueUpdater } from "../agent/coordinator";
+import {
+  AgentCoordinator,
+  type CoordinatorDeps,
+  type CoordinatorStore,
+  type IssueUpdater,
+} from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
-import type { AgentState, AgentStateStore, TaskEntry } from "../agent/state";
+import type { AgentState, TaskEntry } from "../agent/state";
 
-class FakeStore implements Pick<
-  AgentStateStore,
-  "load" | "snapshot" | "upsertTask" | "setLastPollAt" | "removeByChangeName"
-> {
+class FakeStore implements CoordinatorStore {
   readonly saved: AgentState[] = [];
   constructor(private state: AgentState = { tasks: {}, lastPollAt: null }) {}
-  async load(): Promise<void> {}
   snapshot(): AgentState {
     return this.state;
   }
@@ -104,7 +105,7 @@ function makeDeps(
         },
       };
     }),
-    store: store as unknown as AgentStateStore,
+    store,
     onLog: (text, color) => {
       logs.push(color !== undefined ? { text, color } : { text });
     },

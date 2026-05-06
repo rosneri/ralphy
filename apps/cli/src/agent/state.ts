@@ -36,16 +36,14 @@ export type AgentState = z.infer<typeof AgentStateSchema>;
 
 // Schema-drift guard: the runtime zod schema and the structural type in
 // `@ralphy/types` describe the same shape. If you change one, change the
-// other — these two assignments will fail to typecheck if the shapes
-// diverge. Costs nothing at runtime.
-const _shapeCheck1: AgentSnapshot = null as unknown as AgentState;
-const _shapeCheck2: AgentState = null as unknown as AgentSnapshot;
-const _entryCheck1: AgentTaskEntry = null as unknown as TaskEntry;
-const _entryCheck2: TaskEntry = null as unknown as AgentTaskEntry;
-void _shapeCheck1;
-void _shapeCheck2;
-void _entryCheck1;
-void _entryCheck2;
+// other — these conditional types resolve to `true` only when the shapes
+// match in both directions, so a divergence produces a typecheck error on
+// the assignment. Pure type-level — no runtime footprint.
+type _AssertEqual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
+const _shapeCheck: _AssertEqual<AgentState, AgentSnapshot> = true;
+const _entryCheck: _AssertEqual<TaskEntry, AgentTaskEntry> = true;
+void _shapeCheck;
+void _entryCheck;
 
 function statePath(projectRoot: string): string {
   return join(projectRoot, ".ralph", "agent-state.json");

@@ -8,11 +8,11 @@ import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
 import { isWorktreeSafeToRemove, removeWorktree } from "./worktree";
 
 /** Worker exited 0 but the CI fix loop never reached green. */
-export const CI_FAILED_EXIT = 70;
+const CI_FAILED_EXIT = 70;
 /** Worker exited 0 but the residual-commit / push / PR-create path failed. */
-export const PR_FAILED_EXIT = 71;
+const PR_FAILED_EXIT = 71;
 
-export interface PostTaskInput {
+interface PostTaskInput {
   changeName: string;
   /** Worker's working dir — worktree path if useWorktree, else projectRoot. */
   cwd: string;
@@ -43,7 +43,7 @@ export interface PostTaskInput {
   respawnWorker: () => Promise<number>;
 }
 
-export interface PostTaskDeps {
+interface PostTaskDeps {
   cmd: CmdRunner;
   git: GitRunner;
   log: (text: string, color?: string) => void;

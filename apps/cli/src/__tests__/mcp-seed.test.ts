@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { seedWorktreeMcpConfig } from "../agent/wire";
+import { seedWorktreeMcpConfig } from "../agent/mcp-seed";
 
 let projectRoot: string;
 let worktree: string;
