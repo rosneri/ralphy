@@ -80,6 +80,52 @@ export type Usage = z.infer<typeof UsageSchema>;
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
 export type State = z.infer<typeof StateSchema>;
 
+// --- Agent state ---
+//
+// The orchestrator's view of which Linear issues Ralph has touched. Lives
+// at `<projectRoot>/.ralph/agent-state.json`. The runtime store + zod
+// schema live in `apps/cli/src/agent/state.ts` (single-writer enforcement);
+// these types are duplicated here so cross-cutting consumers (status
+// views, `ralph clean`, future telemetry) can refer to one shape.
+//
+// IMPORTANT: this declaration must stay in sync with `AgentStateSchema`
+// in `apps/cli/src/agent/state.ts`. A schema-drift test in that module
+// asserts the shapes match.
+
+export type AgentTaskState = "started" | "processed" | "failed";
+
+export interface AgentTaskEntry {
+  issueId: string;
+  identifier: string;
+  state: AgentTaskState;
+  changeName?: string | undefined;
+  startedAt?: string | undefined;
+  finishedAt?: string | undefined;
+  exitCode?: number | undefined;
+  commentPosted?: boolean | undefined;
+}
+
+export interface AgentSnapshot {
+  /** Map of Linear identifier (e.g. `ENG-42`) → task lifecycle entry. */
+  tasks: Record<string, AgentTaskEntry>;
+  /** ISO timestamp of the last poll, or null if never polled. */
+  lastPollAt: string | null;
+}
+
+/**
+ * Unified read-only view of every piece of state Ralph keeps about a
+ * project. The two backing files (`agent-state.json` and the per-change
+ * `.ralph-state.json`s) stay separate on disk for write-isolation
+ * reasons, but consumers that need to reason across both — `ralph clean`,
+ * status dashboards, future telemetry — should target this view.
+ */
+export interface RalphStateView {
+  /** Orchestrator state. `null` when agent mode has not touched this project. */
+  agent: AgentSnapshot | null;
+  /** Per-change loop state, keyed by `changeName`. */
+  changes: Record<string, State>;
+}
+
 // --- Phase config ---
 
 export const PhaseFrontmatterSchema = z.object({

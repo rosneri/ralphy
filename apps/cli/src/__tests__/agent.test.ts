@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadRalphyConfig, ensureRalphyConfig } from "../agent/config";
-import { readAgentState, writeAgentState } from "../agent/state";
+import { AgentStateStore } from "../agent/state";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../agent/scaffold";
 import {
   fetchOpenIssues,
@@ -88,47 +88,47 @@ describe("agent/config", () => {
 });
 
 describe("agent/state", () => {
-  test("readAgentState returns defaults when missing", async () => {
-    const s = await readAgentState(tempDir);
+  test("load returns defaults when file missing", async () => {
+    const store = new AgentStateStore(tempDir);
+    await store.load();
+    const s = store.snapshot();
     expect(s.tasks).toEqual({});
     expect(s.lastPollAt).toBeNull();
   });
 
-  test("write then read roundtrip", async () => {
-    await writeAgentState(tempDir, {
-      tasks: {
-        "ENG-1": { issueId: "uuid-a", identifier: "ENG-1", state: "processed" },
-        "ENG-2": { issueId: "uuid-b", identifier: "ENG-2", state: "processed" },
-      },
-      lastPollAt: "2026-05-04T00:00:00Z",
-    });
-    const s = await readAgentState(tempDir);
+  test("upsertTask persists across load cycles", async () => {
+    const a = new AgentStateStore(tempDir);
+    await a.load();
+    await a.upsertTask({ id: "uuid-a", identifier: "ENG-1" }, { state: "processed" });
+    await a.upsertTask({ id: "uuid-b", identifier: "ENG-2" }, { state: "processed" });
+    await a.setLastPollAt("2026-05-04T00:00:00Z");
+
+    const b = new AgentStateStore(tempDir);
+    await b.load();
+    const s = b.snapshot();
     expect(s.tasks["ENG-1"]?.state).toBe("processed");
     expect(s.tasks["ENG-2"]?.issueId).toBe("uuid-b");
     expect(s.lastPollAt).toBe("2026-05-04T00:00:00Z");
   });
 
-  test("migrates legacy schema (processed/started/failed arrays + changeMeta)", async () => {
-    await Bun.write(
-      `${tempDir}/.ralph/agent-state.json`,
-      JSON.stringify({
-        processedIssueIds: ["uuid-done"],
-        startedIssueIds: ["uuid-active"],
-        failedIssueIds: ["uuid-broken"],
-        lastPollAt: "2026-05-04T00:00:00Z",
-        changeMeta: {
-          "eng-1-done": { issueId: "uuid-done", identifier: "ENG-1" },
-          "eng-2-active": { issueId: "uuid-active", identifier: "ENG-2" },
-          "eng-3-broken": { issueId: "uuid-broken", identifier: "ENG-3" },
-        },
-      }),
+  test("removeByChangeName drops matching entry and returns its ids", async () => {
+    const store = new AgentStateStore(tempDir);
+    await store.load();
+    await store.upsertTask(
+      { id: "uuid-a", identifier: "ENG-1" },
+      { state: "failed", changeName: "eng-1-foo" },
     );
-    const s = await readAgentState(tempDir);
-    expect(s.tasks["ENG-1"]?.state).toBe("processed");
-    expect(s.tasks["ENG-1"]?.changeName).toBe("eng-1-done");
-    expect(s.tasks["ENG-2"]?.state).toBe("started");
-    expect(s.tasks["ENG-2"]?.commentPosted).toBe(true);
-    expect(s.tasks["ENG-3"]?.state).toBe("failed");
+    const removed = await store.removeByChangeName("eng-1-foo");
+    expect(removed).toEqual({ identifier: "ENG-1", issueId: "uuid-a" });
+    expect(store.snapshot().tasks["ENG-1"]).toBeUndefined();
+
+    const miss = await store.removeByChangeName("nope");
+    expect(miss).toBeNull();
+  });
+
+  test("snapshot before load throws", () => {
+    const store = new AgentStateStore(tempDir);
+    expect(() => store.snapshot()).toThrow(/load\(\) must be called/);
   });
 });
 

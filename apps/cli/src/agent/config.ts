@@ -93,7 +93,7 @@ const RalphyConfigSchema = z
     linear: { statuses: [], labels: [], postComments: true },
   });
 
-type RalphyConfig = z.infer<typeof RalphyConfigSchema>;
+export type RalphyConfig = z.infer<typeof RalphyConfigSchema>;
 
 export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfig> {
   const path = join(projectRoot, "ralphy.config.json");

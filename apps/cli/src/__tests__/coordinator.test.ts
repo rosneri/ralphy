@@ -1,7 +1,47 @@
 import { describe, expect, test, mock } from "bun:test";
-import { AgentCoordinator, type CoordinatorDeps, type IssueUpdater } from "../agent/coordinator";
+import {
+  AgentCoordinator,
+  type CoordinatorDeps,
+  type CoordinatorStore,
+  type IssueUpdater,
+} from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
-import type { AgentState } from "../agent/state";
+import type { AgentState, TaskEntry } from "../agent/state";
+
+class FakeStore implements CoordinatorStore {
+  readonly saved: AgentState[] = [];
+  constructor(private state: AgentState = { tasks: {}, lastPollAt: null }) {}
+  snapshot(): AgentState {
+    return this.state;
+  }
+  async upsertTask(
+    issue: { id: string; identifier: string },
+    patch: Partial<TaskEntry>,
+  ): Promise<void> {
+    const existing = this.state.tasks[issue.identifier];
+    this.state.tasks[issue.identifier] = {
+      issueId: issue.id,
+      identifier: issue.identifier,
+      state: existing?.state ?? "started",
+      ...existing,
+      ...patch,
+    };
+    this.saved.push(JSON.parse(JSON.stringify(this.state)));
+  }
+  async setLastPollAt(when: string | null): Promise<void> {
+    this.state.lastPollAt = when;
+    this.saved.push(JSON.parse(JSON.stringify(this.state)));
+  }
+  async removeByChangeName(
+    changeName: string,
+  ): Promise<{ identifier: string; issueId: string } | null> {
+    const entry = Object.values(this.state.tasks).find((t) => t.changeName === changeName);
+    if (!entry) return null;
+    delete this.state.tasks[entry.identifier];
+    this.saved.push(JSON.parse(JSON.stringify(this.state)));
+    return { identifier: entry.identifier, issueId: entry.issueId };
+  }
+}
 
 function issue(
   id: string,
@@ -43,11 +83,7 @@ function makeDeps(
 } {
   const workers = new Map<string, FakeWorker>();
   const logs: { text: string; color?: string }[] = [];
-  const saved: AgentState[] = [];
-  const state: AgentState = initial.state ?? {
-    tasks: {},
-    lastPollAt: null,
-  };
+  const store = new FakeStore(initial.state ?? { tasks: {}, lastPollAt: null });
 
   const deps: CoordinatorDeps = {
     fetchIssues: initial.fetchImpl ?? mock(async () => initial.issues ?? []),
@@ -69,16 +105,13 @@ function makeDeps(
         },
       };
     }),
-    loadState: async () => state,
-    saveState: async (s) => {
-      saved.push(JSON.parse(JSON.stringify(s)));
-    },
+    store,
     onLog: (text, color) => {
       logs.push(color !== undefined ? { text, color } : { text });
     },
     onWorkersChanged: () => {},
   };
-  return { deps, workers, logs, saved };
+  return { deps, workers, logs, saved: store.saved };
 }
 
 describe("AgentCoordinator", () => {

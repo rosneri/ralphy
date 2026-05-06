@@ -2,6 +2,15 @@ import { join } from "node:path";
 import type { State, IterationUsage } from "@ralphy/types";
 import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
+import { firstUnchecked } from "./tasks-md";
+
+// Re-export tasks.md helpers under their legacy names so existing
+// callers in @ralphy/core consumers keep working. New code should
+// import from `./tasks-md` directly.
+export { firstUnchecked as extractFirstUncheckedSection } from "./tasks-md";
+export { countUnchecked as countUncheckedTasks } from "./tasks-md";
+export { allCompleted as allTasksCompleted } from "./tasks-md";
+export { prependSection, prependFixTask } from "./tasks-md";
 
 /**
  * Minimal change-store operations required by the loop.
@@ -29,37 +38,6 @@ export interface LoopOptions {
 }
 
 const STEERING_MAX_LINES = 20;
-
-/**
- * Extract the first unchecked section from tasks.md.
- * A section starts with a `## ` heading and contains `- [ ]` items.
- * Returns the first such section that has at least one unchecked item.
- *
- * Falls back to the entire trimmed file when there are no `## ` headings
- * but unchecked items exist (e.g. a flat top-level checklist).
- */
-export function extractFirstUncheckedSection(tasksContent: string): string | null {
-  const sections = tasksContent.split(/(?=^## )/m);
-  for (const section of sections) {
-    if (/^## /m.test(section) && /^- \[ \]/m.test(section)) return section.trim();
-  }
-  if (/^- \[ \]/m.test(tasksContent)) return tasksContent.trim();
-  return null;
-}
-
-/**
- * Count unchecked `- [ ]` items in a tasks.md content string.
- */
-export function countUncheckedTasks(tasksContent: string): number {
-  return (tasksContent.match(/^- \[ \]/gm) ?? []).length;
-}
-
-/**
- * Check whether all tasks in tasks.md are completed (no unchecked items).
- */
-export function allTasksCompleted(tasksContent: string): boolean {
-  return !/^- \[ \]/m.test(tasksContent);
-}
 
 /**
  * Build the full prompt for a change iteration by concatenating:
@@ -90,7 +68,7 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
   // 2. First unchecked section from tasks.md, or initial prompt if no tasks yet
   const tasksContent = storage.read(join(taskDir, "tasks.md"));
   if (tasksContent !== null) {
-    const section = extractFirstUncheckedSection(tasksContent);
+    const section = firstUnchecked(tasksContent);
     if (section) {
       prompt += "---\n\n## Current Task Section\n\n";
       prompt += section + "\n\n";
