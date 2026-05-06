@@ -15,7 +15,8 @@ import { createElement } from "react";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
-import { readAgentState, writeAgentState } from "./agent/state";
+import { AgentStateStore } from "./agent/state";
+import { projectLayout } from "@ralphy/core/layout";
 import { worktreesDir } from "./agent/worktree";
 import * as telemetry from "@ralphy/telemetry";
 
@@ -65,8 +66,9 @@ telemetry.capture("command_run", { mode: args.mode, engine: args.engine, model: 
 
 try {
   const projectRoot = await findProjectRoot();
-  const statesDir = join(projectRoot, ".ralph", "tasks");
-  const tasksDir = join(projectRoot, "openspec", "changes");
+  const layout = projectLayout(projectRoot);
+  const statesDir = layout.statesDir;
+  const tasksDir = layout.tasksDir;
 
   if (args.mode === "init") {
     await mkdir(statesDir, { recursive: true });
@@ -134,12 +136,11 @@ try {
     // picked up cleanly on the next agent poll. The map is keyed by Linear
     // identifier; we look up by changeName.
     try {
-      const agentState = await readAgentState(projectRoot);
-      const entry = Object.values(agentState.tasks).find((t) => t.changeName === args.name);
-      if (entry) {
-        delete agentState.tasks[entry.identifier];
-        await writeAgentState(projectRoot, agentState);
-        removed.push(`agent-state entry for ${entry.identifier} (${entry.issueId})`);
+      const store = new AgentStateStore(projectRoot);
+      await store.load();
+      const removedEntry = await store.removeByChangeName(args.name);
+      if (removedEntry) {
+        removed.push(`agent-state entry for ${removedEntry.identifier} (${removedEntry.issueId})`);
       }
     } catch {
       /* agent-state.json may not exist; nothing to scrub */

@@ -1,5 +1,5 @@
 import type { LinearIssue, LinearFilter } from "./linear";
-import type { AgentState, TaskEntry } from "./state";
+import type { AgentStateStore, TaskEntry } from "./state";
 
 export interface IssueUpdater {
   /** Resolve a status name to its workflow-state ID, scoped to the issue's team. */
@@ -18,8 +18,10 @@ export interface CoordinatorDeps {
     changeName: string,
     issue: LinearIssue,
   ) => { exited: Promise<number>; kill: () => void };
-  loadState: () => Promise<AgentState>;
-  saveState: (state: AgentState) => Promise<void>;
+  /** Single-writer store for `.ralph/agent-state.json`. The coordinator
+   *  is the only mutator; callers construct it (and must call `load()`)
+   *  before passing it in. */
+  store: AgentStateStore;
   onLog: (text: string, color?: string) => void;
   onWorkersChanged: () => void;
   /** Optional: when present, the coordinator updates the Linear issue on start/exit. */
@@ -55,7 +57,6 @@ export class AgentCoordinator {
   private workers: ActiveWorker[] = [];
   private pendingIds = new Set<string>();
   private queue: LinearIssue[] = [];
-  private state: AgentState | null = null;
   private stopped = false;
 
   constructor(
@@ -74,7 +75,8 @@ export class AgentCoordinator {
   }
 
   async init(): Promise<void> {
-    this.state = await this.deps.loadState();
+    // Store is loaded by the caller before construction; this is a hook
+    // for future async setup (currently a no-op).
   }
 
   async pollOnce(): Promise<{ found: number; added: number }> {
@@ -88,7 +90,7 @@ export class AgentCoordinator {
       return { found: 0, added: 0 };
     }
 
-    const state = this.state!;
+    const state = this.deps.store.snapshot();
     const tasksByIssueId = new Map<string, TaskEntry>();
     for (const entry of Object.values(state.tasks)) {
       tasksByIssueId.set(entry.issueId, entry);
@@ -126,8 +128,7 @@ export class AgentCoordinator {
       });
     }
 
-    state.lastPollAt = new Date().toISOString();
-    await this.deps.saveState(state);
+    await this.deps.store.setLastPollAt(new Date().toISOString());
 
     this.spawnNext();
     await this.reportProgress();
@@ -176,7 +177,7 @@ export class AgentCoordinator {
   }
 
   spawnNext(): void {
-    if (this.stopped || !this.state) return;
+    if (this.stopped) return;
     while (
       this.workers.length + this.pendingIds.size < this.opts.concurrency &&
       this.queue.length > 0
@@ -185,18 +186,6 @@ export class AgentCoordinator {
       this.pendingIds.add(issue.id);
       void this.launchWorker(issue);
     }
-  }
-
-  private upsertTask(issue: LinearIssue, patch: Partial<TaskEntry>): void {
-    if (!this.state) return;
-    const existing = this.state.tasks[issue.identifier];
-    this.state.tasks[issue.identifier] = {
-      issueId: issue.id,
-      identifier: issue.identifier,
-      state: existing?.state ?? "started",
-      ...existing,
-      ...patch,
-    };
   }
 
   private async launchWorker(issue: LinearIssue): Promise<void> {
@@ -218,16 +207,15 @@ export class AgentCoordinator {
       return;
     }
 
-    if (this.state) {
-      // Single-writer rule: scaffold callbacks no longer touch
-      // agent-state.json directly. The coordinator owns `this.state` and
-      // every persist goes through `saveState`.
-      this.upsertTask(issue, {
+    {
+      // Single-writer rule: scaffold callbacks never touch agent-state.json
+      // directly. Every mutation goes through the store.
+      const existing = this.deps.store.snapshot().tasks[issue.identifier];
+      void this.deps.store.upsertTask(issue, {
         state: "started",
         changeName,
-        startedAt: this.state.tasks[issue.identifier]?.startedAt ?? new Date().toISOString(),
+        startedAt: existing?.startedAt ?? new Date().toISOString(),
       });
-      void this.deps.saveState(this.state);
     }
 
     this.deps.onLog(`▶ ${issue.identifier} → ${changeName} (worker started)`, "cyan");
@@ -254,18 +242,15 @@ export class AgentCoordinator {
         `${ok ? "✓" : "✗"} ${issue.identifier} → ${changeName} exited (code ${code})`,
         ok ? "green" : "red",
       );
-      if (this.state) {
-        // ok → "processed". non-ok → "failed", which quarantines the
-        // issue so the next poll doesn't immediately re-pick it and
-        // infinite-loop on the same failure. Clear via
-        // `ralph clean --name <change>`.
-        this.upsertTask(issue, {
-          state: ok ? "processed" : "failed",
-          finishedAt: new Date().toISOString(),
-          exitCode: code,
-        });
-        void this.deps.saveState(this.state);
-      }
+      // ok → "processed". non-ok → "failed", which quarantines the
+      // issue so the next poll doesn't immediately re-pick it and
+      // infinite-loop on the same failure. Clear via
+      // `ralph clean --name <change>`.
+      void this.deps.store.upsertTask(issue, {
+        state: ok ? "processed" : "failed",
+        finishedAt: new Date().toISOString(),
+        exitCode: code,
+      });
       void this.notifyExited(issue, changeName, code);
       this.deps.onWorkersChanged();
       this.spawnNext();
@@ -278,17 +263,15 @@ export class AgentCoordinator {
     // Whether we've already posted the "Ralph started…" comment.
     // Recorded by `commentPosted: true` on the task entry once the post
     // succeeds. Survives restarts so we don't double-comment on resumes.
-    const alreadyCommented = this.state?.tasks[issue.identifier]?.commentPosted === true;
+    const alreadyCommented =
+      this.deps.store.snapshot().tasks[issue.identifier]?.commentPosted === true;
     if (this.opts.postComments !== false && !alreadyCommented) {
       try {
         await updater.postComment(
           issue,
           `🤖 Ralph started working on this issue. Tracking change: \`${changeName}\``,
         );
-        if (this.state) {
-          this.upsertTask(issue, { commentPosted: true });
-          await this.deps.saveState(this.state);
-        }
+        await this.deps.store.upsertTask(issue, { commentPosted: true });
       } catch (err) {
         this.deps.onLog(
           `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
