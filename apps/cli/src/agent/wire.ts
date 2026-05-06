@@ -72,7 +72,10 @@ const bunCmdRunner: CmdRunner = {
  * relative `.ralph/...` args to absolute paths under `projectRoot`, and
  * write the result into the worktree. No-op if neither exists.
  */
-async function seedWorktreeMcpConfig(projectRoot: string, worktreeCwd: string): Promise<void> {
+export async function seedWorktreeMcpConfig(
+  projectRoot: string,
+  worktreeCwd: string,
+): Promise<void> {
   const dst = join(worktreeCwd, ".mcp.json");
   const src = join(projectRoot, ".mcp.json");
   const source = (await exists(dst)) ? dst : (await exists(src)) ? src : null;
