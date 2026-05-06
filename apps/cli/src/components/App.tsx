@@ -100,6 +100,7 @@ export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
             delay: args.delay,
             log: args.log,
             verbose: args.verbose,
+            manualTest: args.manualTest,
             statesDir,
             tasksDir,
             changeStore: new OpenSpecChangeStore(),

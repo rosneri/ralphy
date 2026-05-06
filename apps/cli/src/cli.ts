@@ -18,6 +18,7 @@ export interface ParsedArgs {
   delay: number;
   log: boolean;
   verbose: boolean;
+  manualTest: boolean;
   // agent mode
   linearTeam: string;
   linearAssignee: string;
@@ -75,6 +76,7 @@ const HELP_TEXT = [
   "  --max-runtime <n>       Stop after N minutes of wall-clock time (0 = no limit)",
   "  --max-failures <n>      Stop after N consecutive failures (default: 5, 0 = disable)",
   "  --unlimited             No iteration limit (default)",
+  "  --manual-test           Enable manual testing phase (create test tasks in tasks.md)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
   "",
@@ -177,6 +179,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     delay: 0,
     log: false,
     verbose: false,
+    manualTest: false,
     linearTeam: "",
     linearAssignee: "",
     pollInterval: 60,
@@ -373,6 +376,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--fix-ci":
         result.fixCi = true;
+        break;
+      case "--manual-test":
+        result.manualTest = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

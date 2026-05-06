@@ -69,6 +69,7 @@ export const StateSchema = z.object({
   lastModified: z.string(),
   engine: z.enum(["claude", "codex"]).default("claude"),
   model: z.string().default("opus"),
+  manualTest: z.boolean().default(false),
   usage: UsageSchema.default({}),
   history: z.array(HistoryEntrySchema).default([]),
   metadata: z.object({ branch: z.string().optional() }).default({}),

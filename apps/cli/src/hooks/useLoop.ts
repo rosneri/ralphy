@@ -106,6 +106,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           prompt: opts.prompt,
           engine: opts.engine,
           model: opts.model,
+          manualTest: opts.manualTest,
         });
         writeState(stateDir, currentState);
       }
