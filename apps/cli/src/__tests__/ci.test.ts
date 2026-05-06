@@ -94,6 +94,60 @@ describe("getPrChecksStatus", () => {
   });
 });
 
+describe("getPrChecksStatus retry on transient failure", () => {
+  test("retries on HTTP 504 and eventually succeeds", async () => {
+    let calls = 0;
+    const runner: CmdRunner = {
+      run: async () => {
+        calls += 1;
+        if (calls < 3) {
+          const err = new Error(
+            "`gh pr checks 123` exited 1: HTTP 504: 504 Gateway Timeout",
+          ) as Error & { stderr?: string; code?: number };
+          err.stderr = "HTTP 504: 504 Gateway Timeout (https://api.github.com/graphql)\n";
+          err.code = 1;
+          throw err;
+        }
+        return { stdout: JSON.stringify([{ name: "t", bucket: "pass" }]), stderr: "" };
+      },
+    };
+    // Stub setTimeout via a fake delay through onTransientRetry side-effect:
+    // we can't intercept the internal sleep, so just rely on the test
+    // running fast — three retries with 5/15/45s would time out the test
+    // suite. Instead, patch global setTimeout for this case.
+    const realSetTimeout = globalThis.setTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) =>
+      realSetTimeout(fn, 0)) as unknown as typeof setTimeout;
+    try {
+      const retries: number[] = [];
+      const status = await getPrChecksStatus("123", runner, "/wt", (n) => {
+        retries.push(n);
+      });
+      expect(status.bucket).toBe("pass");
+      expect(calls).toBe(3);
+      expect(retries).toEqual([1, 2]);
+    } finally {
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = realSetTimeout;
+    }
+  });
+
+  test("does not retry on non-transient failure", async () => {
+    let calls = 0;
+    const runner: CmdRunner = {
+      run: async () => {
+        calls += 1;
+        const err = new Error("`gh pr checks 123` exited 1: not authenticated") as Error & {
+          stderr?: string;
+        };
+        err.stderr = "gh: not authenticated\n";
+        throw err;
+      },
+    };
+    await expect(getPrChecksStatus("123", runner, "/wt")).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+});
+
 describe("fetchFailedRunLogs", () => {
   test("concatenates per-run logs and truncates long output", async () => {
     const longLog = "x".repeat(5000);

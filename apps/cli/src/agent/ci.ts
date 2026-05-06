@@ -8,6 +8,38 @@ export interface CiStatus {
 
 const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
 
+const TRANSIENT_GH_RE =
+  /HTTP 5\d\d|Gateway Timeout|Bad Gateway|Service Unavailable|connection reset|ECONNRESET|ETIMEDOUT|getaddrinfo|EAI_AGAIN|could not resolve host/i;
+
+/** Backoff schedule for transient `gh` failures (ms). 5s / 15s / 45s. */
+const GH_RETRY_DELAYS = [5_000, 15_000, 45_000];
+
+/** Internal: run gh with retry on transient HTTP/network errors. */
+async function runGhWithRetry(
+  cmd: string[],
+  runner: CmdRunner,
+  cwd: string,
+  onRetry?: (attempt: number, delayMs: number, reason: string) => void,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<{ stdout: string; stderr: string }> {
+  let lastErr: unknown;
+  for (let i = 0; i <= GH_RETRY_DELAYS.length; i++) {
+    try {
+      return await runner.run(cmd, cwd);
+    } catch (err) {
+      const e = err as Error & { stderr?: string; stdout?: string };
+      const blob = `${e.message}\n${e.stderr ?? ""}\n${e.stdout ?? ""}`;
+      if (!TRANSIENT_GH_RE.test(blob) || i === GH_RETRY_DELAYS.length) throw err;
+      const delay = GH_RETRY_DELAYS[i]!;
+      const firstLine = (e.stderr?.trim().split("\n")[0] ?? e.message).slice(0, 120);
+      onRetry?.(i + 1, delay, firstLine);
+      await sleep(delay);
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * Resolve the status of a PR's CI checks.
  *
@@ -17,13 +49,23 @@ const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
  *
  * `failedRunIds` extracts numeric workflow-run IDs from each failing
  * check's `link` field (e.g. ".../actions/runs/12345/job/9876" → "12345").
+ *
+ * Transient HTTP 5xx / network failures from `gh` are retried with
+ * backoff (5s/15s/45s) — a single GitHub blip should not abort the
+ * watch loop.
  */
 export async function getPrChecksStatus(
   prRef: string,
   runner: CmdRunner,
   cwd: string,
+  onTransientRetry?: (attempt: number, delayMs: number, reason: string) => void,
 ): Promise<CiStatus> {
-  const out = await runner.run(["gh", "pr", "checks", prRef, "--json", PR_CHECKS_FIELDS], cwd);
+  const out = await runGhWithRetry(
+    ["gh", "pr", "checks", prRef, "--json", PR_CHECKS_FIELDS],
+    runner,
+    cwd,
+    onTransientRetry,
+  );
   const checks = (
     JSON.parse(out.stdout || "[]") as {
       name: string;
@@ -83,6 +125,8 @@ export interface CiFixDeps {
   sleep: (ms: number) => Promise<void>;
   /** Returns true if the loop should bail early (e.g. SIGINT). */
   cancelled?: () => boolean;
+  /** Optional phase emitter — caller may surface "ci-poll" / "ci-fix" / etc. */
+  onPhase?: (phase: string, detail?: string) => void;
 }
 
 interface CiFixOptions {
@@ -103,10 +147,22 @@ interface CiFixResult {
  */
 export async function fixCiUntilGreen(deps: CiFixDeps, opts: CiFixOptions): Promise<CiFixResult> {
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
+    let pollN = 0;
     // Wait until checks have settled (pass or fail).
     while (true) {
       if (deps.cancelled?.()) return { success: false, attempts: attempt - 1, reason: "cancelled" };
-      const s = await deps.getStatus();
+      pollN += 1;
+      deps.onPhase?.("ci-poll", `attempt ${attempt}/${opts.maxAttempts} · poll ${pollN}`);
+      let s: CiStatus;
+      try {
+        s = await deps.getStatus();
+      } catch (err) {
+        deps.log(
+          `! gh pr checks failed permanently: ${(err as Error).message} — giving up CI watch`,
+          "red",
+        );
+        return { success: false, attempts: attempt - 1, reason: "gh-failed" };
+      }
       if (s.bucket === "pass") {
         deps.log(`✓ CI green for PR (after ${attempt - 1} fix attempts)`, "green");
         return { success: true, attempts: attempt - 1 };
@@ -116,13 +172,16 @@ export async function fixCiUntilGreen(deps: CiFixDeps, opts: CiFixOptions): Prom
           `✗ CI failing (attempt ${attempt}/${opts.maxAttempts}) — fetching logs and re-running task`,
           "yellow",
         );
+        deps.onPhase?.("ci-fix", `attempt ${attempt}/${opts.maxAttempts} · fetching logs`);
         const logs = await deps.getFailedLogs(s.failedRunIds);
+        deps.onPhase?.("ci-fix", `attempt ${attempt}/${opts.maxAttempts} · re-running worker`);
         const steering = `CI is failing on this PR. Investigate and fix:\n\n\`\`\`\n${logs}\n\`\`\``;
         const code = await deps.runTaskWithSteering(steering);
         if (code !== 0) {
           deps.log(`! task loop exited code ${code} during CI fix attempt ${attempt}`, "red");
         }
         try {
+          deps.onPhase?.("ci-fix", `attempt ${attempt}/${opts.maxAttempts} · pushing fix`);
           await deps.pushBranch();
         } catch (err) {
           deps.log(`! push failed during CI fix: ${(err as Error).message}`, "red");
@@ -133,6 +192,7 @@ export async function fixCiUntilGreen(deps: CiFixDeps, opts: CiFixOptions): Prom
         break;
       }
       // pending — wait and re-check
+      deps.onPhase?.("ci-poll", `attempt ${attempt}/${opts.maxAttempts} · pending, waiting`);
       await deps.sleep(opts.pollIntervalSeconds * 1000);
     }
   }
