@@ -129,35 +129,35 @@ interface WorkerMeta {
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /**
- * Inject a steering message + a concrete unchecked task into the worker's
- * change directory so the next `ralph task` run picks them up.
+ * Prepend a fix task to `tasks.md` with the failure output inlined.
  *
- * - `steering.md` is the file `buildTaskPrompt` actually prepends to the
- *   prompt as "User Steering (READ FIRST)" — newest first.
- * - A new `## ` section is appended to `tasks.md` so the worker (which
- *   exits early when all tasks are checked off) has an unchecked item to
- *   work on. Without this, re-running the worker after the original
- *   tasks finished would no-op and the same hook failure would repeat.
+ * The worker's loop reads the *first* `## ` section in `tasks.md` that has
+ * unchecked items (see `extractFirstUncheckedSection`), so the new section
+ * MUST go above any existing ones — otherwise the loop chews on stale
+ * tasks and never sees this fix.
  */
-async function injectFixSteering(
+async function prependFixTask(
   changeDir: string,
   heading: string,
-  steering: string,
+  failureOutput: string,
 ): Promise<void> {
-  const steeringFile = Bun.file(join(changeDir, "steering.md"));
-  const existing = (await steeringFile.exists()) ? await steeringFile.text() : "";
-  const stamped = `## ${heading} (${new Date().toISOString()})\n\n${steering}\n`;
-  const nextSteering = existing ? `${stamped}\n${existing.trimStart()}` : `${stamped}\n`;
-  await Bun.write(join(changeDir, "steering.md"), nextSteering);
-
-  const tasksFile = Bun.file(join(changeDir, "tasks.md"));
-  const tasks = (await tasksFile.exists()) ? await tasksFile.text() : "";
-  const taskSection =
-    `\n## ${heading} (${new Date().toISOString()})\n\n` +
-    `- [ ] ${heading}. The error output is recorded in steering.md — read it first, ` +
-    `then fix the underlying problem (do not just retry the failing command).\n`;
-  const nextTasks = tasks.endsWith("\n") ? tasks + taskSection : tasks + "\n" + taskSection;
-  await Bun.write(join(changeDir, "tasks.md"), nextTasks);
+  const tasksPath = join(changeDir, "tasks.md");
+  const tasksFile = Bun.file(tasksPath);
+  const existing = (await tasksFile.exists()) ? await tasksFile.text() : "";
+  const fence = "```";
+  const section =
+    `## ${heading} (${new Date().toISOString()})\n\n` +
+    `- [ ] ${heading}. Read the error block below, fix the underlying ` +
+    `problem (do not just retry the failing command), then check this box.\n\n` +
+    `${fence}\n${failureOutput.trim()}\n${fence}\n\n`;
+  // Preserve the original file's leading content (e.g. "# Tasks for X")
+  // by inserting the new section before the first existing `## ` heading.
+  const headingIdx = existing.search(/^## /m);
+  const next =
+    headingIdx === -1
+      ? (existing.trimEnd() + (existing ? "\n\n" : "") + section)
+      : (existing.slice(0, headingIdx) + section + existing.slice(headingIdx));
+  await Bun.write(tasksPath, next);
 }
 
 function fmtElapsed(ms: number): string {
@@ -414,23 +414,54 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     changeName,
                   );
                   const maxHookFixAttempts = cfg.maxCiFixAttempts;
-                  // Inject a steering message + a fresh unchecked task into
-                  // the change dir, then re-spawn the worker. The worker
-                  // reads steering.md (prepended to its prompt) and picks
-                  // up the new tasks.md section as its next iteration.
-                  const runWorkerWithFixSteering = async (
+                  // Prepend a fresh unchecked task (with the failure output
+                  // inlined) to the change's tasks.md, then re-spawn the
+                  // worker. The loop's "first unchecked section" rule then
+                  // routes the worker straight at the fix.
+                  const stateFilePath = join(
+                    statesDirByChange.get(changeName) ?? statesDir,
+                    changeName,
+                    ".ralph-state.json",
+                  );
+                  // The loop sets state.status="completed" once tasks.md
+                  // has no unchecked items. A re-spawned worker would then
+                  // exit immediately via checkStopCondition without ever
+                  // reading the freshly-prepended fix task. Reset to
+                  // "active" so the new section gets picked up.
+                  const reactivateState = async (): Promise<void> => {
+                    const file = Bun.file(stateFilePath);
+                    if (!(await file.exists())) return;
+                    try {
+                      const stateObj = JSON.parse(await file.text()) as {
+                        status?: string;
+                        lastModified?: string;
+                      };
+                      if (stateObj.status !== "active") {
+                        stateObj.status = "active";
+                        stateObj.lastModified = new Date().toISOString();
+                        await Bun.write(stateFilePath, JSON.stringify(stateObj, null, 2) + "\n");
+                      }
+                    } catch (err) {
+                      appendLog(
+                        `! could not reactivate state for ${changeName}: ${(err as Error).message}`,
+                        "yellow",
+                      );
+                    }
+                  };
+                  const runWorkerWithFixTask = async (
                     heading: string,
-                    steering: string,
+                    failureOutput: string,
                   ): Promise<number> => {
                     try {
-                      await injectFixSteering(changeDir, heading, steering);
-                    } catch (steerErr) {
+                      await prependFixTask(changeDir, heading, failureOutput);
+                    } catch (err) {
                       appendLog(
-                        `! could not inject steering: ${(steerErr as Error).message}`,
+                        `! could not prepend fix task: ${(err as Error).message}`,
                         "red",
                       );
                       return 1;
                     }
+                    await reactivateState();
                     const rp = Bun.spawn({
                       cmd: buildTaskCmd(),
                       cwd,
@@ -440,12 +471,15 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     });
                     return rp.exited;
                   };
+                  // Single retry budget shared across commit + push hook
+                  // failures. Both flow through the same prepend-task →
+                  // re-run-loop → retry-action mechanism.
+                  let hookFixAttempt = 0;
                   // Pre-commit retry: if the worker left uncommitted changes
                   // (typically because the host's pre-commit hook rejected
                   // ralphy's `docs(ralph): change finished` commit) we
                   // attempt the commit ourselves and, on hook failure, feed
-                  // the hook output back to the worker as steering.
-                  let commitFixAttempt = 0;
+                  // the hook output back into the loop as a new fix task.
                   let commitGaveUp = false;
                   while (true) {
                     let dirty = "";
@@ -463,7 +497,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     try {
                       await bunCmdRunner.run(["git", "add", "-A"], cwd);
                       await bunCmdRunner.run(
-                        ["git", "commit", "-m", `ralph: residual changes for ${changeName}`],
+                        ["git", "commit", "-m", `chore(ralph): residual changes for ${changeName}`],
                         cwd,
                       );
                       appendLog(`  committed residual changes for ${changeName}`, "gray");
@@ -475,9 +509,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       // If git complains there's nothing to commit (race vs.
                       // a worker post-commit), accept and move on.
                       if (/nothing to commit/i.test(combined)) break;
-                      if (commitFixAttempt >= maxHookFixAttempts) {
+                      if (hookFixAttempt >= maxHookFixAttempts) {
                         appendLog(
-                          `! commit rejected for ${changeName} after ${commitFixAttempt} fix attempts (host pre-commit hook still failing) — worktree preserved at ${cwd}`,
+                          `! commit rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-commit hook still failing) — worktree preserved at ${cwd}`,
                           "red",
                         );
                         appendLog(`    detail: ${detail}`, "red");
@@ -485,19 +519,17 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         commitGaveUp = true;
                         break;
                       }
-                      commitFixAttempt += 1;
+                      hookFixAttempt += 1;
                       appendLog(
-                        `! commit rejected for ${changeName} — feeding error back to worker (attempt ${commitFixAttempt}/${maxHookFixAttempts})`,
+                        `! commit rejected for ${changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
                         "yellow",
                       );
                       appendLog(`    detail: ${detail}`, "yellow");
-                      const retryCode = await runWorkerWithFixSteering(
+                      const retryCode = await runWorkerWithFixTask(
                         "Fix host pre-commit hook rejection",
                         `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
-                          `Fix the underlying problem reported below, then the commit will be retried.\n\n` +
-                          "```\n" +
-                          combined.trim() +
-                          "\n```",
+                          `Fix the underlying problem, then the commit will be retried.\n\n` +
+                          combined.trim(),
                       );
                       if (retryCode !== 0) {
                         appendLog(
@@ -510,13 +542,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       }
                     }
                   }
-                  let pushFixAttempt = 0;
                   let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
                   let prGaveUp = commitGaveUp;
                   // Retry loop: when the host's pre-push hook rejects the
-                  // push (e.g. lint/spellcheck failure) we feed the failure
-                  // output back to the worker as steering and re-run it so
-                  // the AI can fix the underlying issue, then retry the PR.
+                  // push (e.g. lint/spellcheck failure) we prepend a fix
+                  // task with the failure output and re-run the worker
+                  // loop so the AI fixes the underlying issue, then retry
+                  // the PR. Shares the hookFixAttempt budget with commit.
                   while (!prGaveUp) {
                     try {
                       pr = await createPullRequest(
@@ -534,10 +566,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
                       const pushRejected =
                         /failed to push some refs|pre-push hook|hook declined/i.test(combined);
-                      if (!pushRejected || pushFixAttempt >= maxHookFixAttempts) {
+                      if (!pushRejected || hookFixAttempt >= maxHookFixAttempts) {
                         if (pushRejected) {
                           appendLog(
-                            `! push rejected for ${changeName} after ${pushFixAttempt} fix attempts (host pre-push hook still failing) — worktree preserved at ${cwd}`,
+                            `! push rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-push hook still failing) — worktree preserved at ${cwd}`,
                             "red",
                           );
                           appendLog(`    detail: ${detail}`, "red");
@@ -548,19 +580,17 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         prGaveUp = true;
                         break;
                       }
-                      pushFixAttempt += 1;
+                      hookFixAttempt += 1;
                       appendLog(
-                        `! push rejected for ${changeName} — feeding error back to worker (attempt ${pushFixAttempt}/${maxHookFixAttempts})`,
+                        `! push rejected for ${changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
                         "yellow",
                       );
                       appendLog(`    detail: ${detail}`, "yellow");
-                      const retryCode = await runWorkerWithFixSteering(
+                      const retryCode = await runWorkerWithFixTask(
                         "Fix host pre-push hook rejection",
                         `Push to origin/${branch} was rejected by the host repo's pre-push hook. ` +
-                          `Fix the underlying problem reported below, then the push will be retried.\n\n` +
-                          "```\n" +
-                          combined.trim() +
-                          "\n```",
+                          `Fix the underlying problem, then the push will be retried.\n\n` +
+                          combined.trim(),
                       );
                       if (retryCode !== 0) {
                         appendLog(
@@ -595,14 +625,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                           getFailedLogs: (ids) => fetchFailedRunLogs(ids, bunCmdRunner, cwd),
                           runTaskWithSteering: async (steering) => {
                             try {
-                              await injectFixSteering(
+                              await prependFixTask(
                                 changeDir,
                                 "Fix failing CI checks",
-                                `CI feedback:\n\n${steering}`,
+                                steering,
                               );
                             } catch (err) {
                               appendLog(
-                                `! could not inject steering: ${(err as Error).message}`,
+                                `! could not prepend fix task: ${(err as Error).message}`,
                                 "red",
                               );
                             }
