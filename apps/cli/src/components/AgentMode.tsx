@@ -11,18 +11,14 @@ import {
   addLabelToIssue,
   type LinearIssue,
 } from "../agent/linear";
-import { readAgentState, writeAgentState } from "../agent/state";
+import { AgentStateStore } from "../agent/state";
 import { scaffoldChangeForIssue } from "../agent/scaffold";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
-import {
-  createWorktree,
-  removeWorktree,
-  isWorktreeSafeToRemove,
-  type GitRunner,
-} from "../agent/worktree";
-import { createPullRequest, type CmdRunner } from "../agent/pr";
-import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "../agent/ci";
+import { createWorktree, type GitRunner } from "../agent/worktree";
+import { type CmdRunner } from "../agent/pr";
+import { runPostTask } from "../agent/post-task";
+import { projectLayout } from "@ralphy/core/layout";
 import { join } from "node:path";
 import { exists } from "node:fs/promises";
 
@@ -128,38 +124,6 @@ interface WorkerMeta {
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/**
- * Prepend a fix task to `tasks.md` with the failure output inlined.
- *
- * The worker's loop reads the *first* `## ` section in `tasks.md` that has
- * unchecked items (see `extractFirstUncheckedSection`), so the new section
- * MUST go above any existing ones — otherwise the loop chews on stale
- * tasks and never sees this fix.
- */
-async function prependFixTask(
-  changeDir: string,
-  heading: string,
-  failureOutput: string,
-): Promise<void> {
-  const tasksPath = join(changeDir, "tasks.md");
-  const tasksFile = Bun.file(tasksPath);
-  const existing = (await tasksFile.exists()) ? await tasksFile.text() : "";
-  const fence = "```";
-  const section =
-    `## ${heading} (${new Date().toISOString()})\n\n` +
-    `- [ ] ${heading}. Read the error block below, fix the underlying ` +
-    `problem (do not just retry the failing command), then check this box.\n\n` +
-    `${fence}\n${failureOutput.trim()}\n${fence}\n\n`;
-  // Preserve the original file's leading content (e.g. "# Tasks for X")
-  // by inserting the new section before the first existing `## ` heading.
-  const headingIdx = existing.search(/^## /m);
-  const next =
-    headingIdx === -1
-      ? (existing.trimEnd() + (existing ? "\n\n" : "") + section)
-      : (existing.slice(0, headingIdx) + section + existing.slice(headingIdx));
-  await Bun.write(tasksPath, next);
-}
-
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -235,6 +199,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
 
       const useWorktree = args.worktree || cfg.useWorktree;
+
+      const store = new AgentStateStore(projectRoot);
+      await store.load();
       // Per-changeName: cwd to spawn the worker in (worktree path if enabled,
       // else projectRoot).
       const cwdByChange = new Map<string, string>();
@@ -288,8 +255,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 const wt = await createWorktree(projectRoot, probeName, bunGitRunner);
                 workerCwd = wt.cwd;
                 workerBranch = wt.branch;
-                scaffoldTasksDir = join(wt.cwd, "openspec", "changes");
-                scaffoldStatesDir = join(wt.cwd, ".ralph", "tasks");
+                const wtLayout = projectLayout(wt.cwd);
+                scaffoldTasksDir = wtLayout.tasksDir;
+                scaffoldStatesDir = wtLayout.statesDir;
                 appendLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
                 try {
                   await seedWorktreeMcpConfig(projectRoot, wt.cwd);
@@ -362,6 +330,16 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             };
 
             const cwd = cwdByChange.get(changeName) ?? projectRoot;
+            const respawn = (): Promise<number> => {
+              const rp = Bun.spawn({
+                cmd: buildTaskCmd(),
+                cwd,
+                stdout: "ignore",
+                stderr: "ignore",
+                stdin: "ignore",
+              });
+              return rp.exited;
+            };
             const proc = Bun.spawn({
               cmd: buildTaskCmd(),
               cwd,
@@ -375,339 +353,34 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               iter: 0,
             });
 
-            // Wrap exited so we can run teardown + worktree cleanup before
-            // the coordinator sees the exit code.
             const wantPr = args.createPr || cfg.createPrOnSuccess;
-            // CI-fix exit code: when fix-CI is enabled and CI never goes
-            // green, we override the worker's exit code to non-zero so the
-            // coordinator skips doneStatus/doneLabel and won't mark the
-            // issue as processed. Picked-up again on the next poll (the
-            // resume-in-progress logic ensures it's still in the filter).
-            const CI_FAILED_EXIT = 70;
-            const PR_FAILED_EXIT = 71;
+            const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
             const wrapped = proc.exited.then(async (code) => {
-              if (cfg.teardownScript) {
-                try {
-                  await runScript("teardown", cfg.teardownScript, cwd);
-                } catch {
-                  /* runScript already logs */
-                }
-              }
-              let effectiveCode = code;
-              const ok = code === 0;
-              if (ok && wantPr) {
-                const branch = branchByChange.get(changeName);
-                const prIssue = issueByChange.get(changeName);
-                if (!branch || !prIssue) {
-                  appendLog(
-                    `! createPr requested but no worktree branch is tracked for ${changeName} (use --worktree)`,
-                    "yellow",
-                  );
-                  effectiveCode = PR_FAILED_EXIT;
-                } else {
-                  const changeDir = join(
-                    statesDirByChange.get(changeName) ?? statesDir,
-                    "..",
-                    "..",
-                    "openspec",
-                    "changes",
-                    changeName,
-                  );
-                  const maxHookFixAttempts = cfg.maxCiFixAttempts;
-                  // Prepend a fresh unchecked task (with the failure output
-                  // inlined) to the change's tasks.md, then re-spawn the
-                  // worker. The loop's "first unchecked section" rule then
-                  // routes the worker straight at the fix.
-                  const stateFilePath = join(
-                    statesDirByChange.get(changeName) ?? statesDir,
-                    changeName,
-                    ".ralph-state.json",
-                  );
-                  // The loop sets state.status="completed" once tasks.md
-                  // has no unchecked items. A re-spawned worker would then
-                  // exit immediately via checkStopCondition without ever
-                  // reading the freshly-prepended fix task. Reset to
-                  // "active" so the new section gets picked up.
-                  const reactivateState = async (): Promise<void> => {
-                    const file = Bun.file(stateFilePath);
-                    if (!(await file.exists())) return;
-                    try {
-                      const stateObj = JSON.parse(await file.text()) as {
-                        status?: string;
-                        lastModified?: string;
-                      };
-                      if (stateObj.status !== "active") {
-                        stateObj.status = "active";
-                        stateObj.lastModified = new Date().toISOString();
-                        await Bun.write(stateFilePath, JSON.stringify(stateObj, null, 2) + "\n");
-                      }
-                    } catch (err) {
-                      appendLog(
-                        `! could not reactivate state for ${changeName}: ${(err as Error).message}`,
-                        "yellow",
-                      );
-                    }
-                  };
-                  const runWorkerWithFixTask = async (
-                    heading: string,
-                    failureOutput: string,
-                  ): Promise<number> => {
-                    try {
-                      await prependFixTask(changeDir, heading, failureOutput);
-                    } catch (err) {
-                      appendLog(
-                        `! could not prepend fix task: ${(err as Error).message}`,
-                        "red",
-                      );
-                      return 1;
-                    }
-                    await reactivateState();
-                    const rp = Bun.spawn({
-                      cmd: buildTaskCmd(),
-                      cwd,
-                      stdout: "ignore",
-                      stderr: "ignore",
-                      stdin: "ignore",
-                    });
-                    return rp.exited;
-                  };
-                  // Single retry budget shared across commit + push hook
-                  // failures. Both flow through the same prepend-task →
-                  // re-run-loop → retry-action mechanism.
-                  let hookFixAttempt = 0;
-                  // Pre-commit retry: if the worker left uncommitted changes
-                  // (typically because the host's pre-commit hook rejected
-                  // ralphy's `docs(ralph): change finished` commit) we
-                  // attempt the commit ourselves and, on hook failure, feed
-                  // the hook output back into the loop as a new fix task.
-                  let commitGaveUp = false;
-                  while (true) {
-                    let dirty = "";
-                    try {
-                      const status = await bunCmdRunner.run(["git", "status", "--porcelain"], cwd);
-                      dirty = status.stdout.trim();
-                    } catch (err) {
-                      appendLog(
-                        `! git status failed for ${changeName}: ${(err as Error).message}`,
-                        "yellow",
-                      );
-                      break;
-                    }
-                    if (!dirty) break;
-                    try {
-                      await bunCmdRunner.run(["git", "add", "-A"], cwd);
-                      await bunCmdRunner.run(
-                        ["git", "commit", "-m", `chore(ralph): residual changes for ${changeName}`],
-                        cwd,
-                      );
-                      appendLog(`  committed residual changes for ${changeName}`, "gray");
-                      break;
-                    } catch (err) {
-                      const e = err as Error & { stderr?: string; stdout?: string };
-                      const detail = e.stderr?.trim() || e.message;
-                      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-                      // If git complains there's nothing to commit (race vs.
-                      // a worker post-commit), accept and move on.
-                      if (/nothing to commit/i.test(combined)) break;
-                      if (hookFixAttempt >= maxHookFixAttempts) {
-                        appendLog(
-                          `! commit rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-commit hook still failing) — worktree preserved at ${cwd}`,
-                          "red",
-                        );
-                        appendLog(`    detail: ${detail}`, "red");
-                        effectiveCode = PR_FAILED_EXIT;
-                        commitGaveUp = true;
-                        break;
-                      }
-                      hookFixAttempt += 1;
-                      appendLog(
-                        `! commit rejected for ${changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
-                        "yellow",
-                      );
-                      appendLog(`    detail: ${detail}`, "yellow");
-                      const retryCode = await runWorkerWithFixTask(
-                        "Fix host pre-commit hook rejection",
-                        `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
-                          `Fix the underlying problem, then the commit will be retried.\n\n` +
-                          combined.trim(),
-                      );
-                      if (retryCode !== 0) {
-                        appendLog(
-                          `! worker re-run after commit rejection exited code ${retryCode} — giving up`,
-                          "red",
-                        );
-                        effectiveCode = PR_FAILED_EXIT;
-                        commitGaveUp = true;
-                        break;
-                      }
-                    }
-                  }
-                  let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
-                  let prGaveUp = commitGaveUp;
-                  // Retry loop: when the host's pre-push hook rejects the
-                  // push (e.g. lint/spellcheck failure) we prepend a fix
-                  // task with the failure output and re-run the worker
-                  // loop so the AI fixes the underlying issue, then retry
-                  // the PR. Shares the hookFixAttempt budget with commit.
-                  while (!prGaveUp) {
-                    try {
-                      pr = await createPullRequest(
-                        { cwd, branch, issue: prIssue, base: cfg.prBaseBranch },
-                        bunCmdRunner,
-                      );
-                      break;
-                    } catch (err) {
-                      const e = err as Error & {
-                        stderr?: string;
-                        stdout?: string;
-                        code?: number;
-                      };
-                      const detail = e.stderr?.trim() || e.message;
-                      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-                      const pushRejected =
-                        /failed to push some refs|pre-push hook|hook declined/i.test(combined);
-                      if (!pushRejected || hookFixAttempt >= maxHookFixAttempts) {
-                        if (pushRejected) {
-                          appendLog(
-                            `! push rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-push hook still failing) — worktree preserved at ${cwd}`,
-                            "red",
-                          );
-                          appendLog(`    detail: ${detail}`, "red");
-                        } else {
-                          appendLog(`! PR create failed for ${changeName}: ${detail}`, "red");
-                        }
-                        effectiveCode = PR_FAILED_EXIT;
-                        prGaveUp = true;
-                        break;
-                      }
-                      hookFixAttempt += 1;
-                      appendLog(
-                        `! push rejected for ${changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
-                        "yellow",
-                      );
-                      appendLog(`    detail: ${detail}`, "yellow");
-                      const retryCode = await runWorkerWithFixTask(
-                        "Fix host pre-push hook rejection",
-                        `Push to origin/${branch} was rejected by the host repo's pre-push hook. ` +
-                          `Fix the underlying problem, then the push will be retried.\n\n` +
-                          combined.trim(),
-                      );
-                      if (retryCode !== 0) {
-                        appendLog(
-                          `! worker re-run after push rejection exited code ${retryCode} — giving up`,
-                          "red",
-                        );
-                        effectiveCode = PR_FAILED_EXIT;
-                        prGaveUp = true;
-                        break;
-                      }
-                    }
-                  }
-                  if (prGaveUp) {
-                    // already logged + effectiveCode set
-                  } else if (!pr) {
-                    appendLog(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
-                  } else {
-                    appendLog(
-                      `  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`,
-                      "green",
-                    );
-
-                    const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
-                    if (wantFixCi) {
-                      appendLog(
-                        `  watching CI for ${pr.url} (max ${cfg.maxCiFixAttempts} fix attempts)`,
-                        "gray",
-                      );
-                      const result = await fixCiUntilGreen(
-                        {
-                          getStatus: () => getPrChecksStatus(pr.url, bunCmdRunner, cwd),
-                          getFailedLogs: (ids) => fetchFailedRunLogs(ids, bunCmdRunner, cwd),
-                          runTaskWithSteering: async (steering) => {
-                            try {
-                              await prependFixTask(
-                                changeDir,
-                                "Fix failing CI checks",
-                                steering,
-                              );
-                            } catch (err) {
-                              appendLog(
-                                `! could not prepend fix task: ${(err as Error).message}`,
-                                "red",
-                              );
-                            }
-                            const p = Bun.spawn({
-                              cmd: buildTaskCmd(),
-                              cwd,
-                              stdout: "ignore",
-                              stderr: "ignore",
-                              stdin: "ignore",
-                            });
-                            return p.exited;
-                          },
-                          pushBranch: async () => {
-                            await bunCmdRunner.run(["git", "push", "origin", branch], cwd);
-                          },
-                          log: appendLog,
-                          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-                        },
-                        {
-                          maxAttempts: cfg.maxCiFixAttempts,
-                          pollIntervalSeconds: cfg.ciPollIntervalSeconds,
-                        },
-                      );
-                      if (!result.success) {
-                        appendLog(
-                          `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
-                          "red",
-                        );
-                        effectiveCode = CI_FAILED_EXIT;
-                      }
-                    }
-                  }
-                }
-              }
-              if (useWorktree && cwd !== projectRoot) {
-                // Only clean up the worktree on full success — that includes
-                // CI passing when fix-CI is on. Failed CI keeps the worktree
-                // and branch for human inspection on the existing PR.
-                if (effectiveCode === 0 && cfg.cleanupWorktreeOnSuccess) {
-                  // Strict pre-removal guard: never `git worktree remove
-                  // --force` a worktree that still has uncommitted files or
-                  // commits not yet pushed/PR'd — `--force` would destroy
-                  // them silently.
-                  const check = await isWorktreeSafeToRemove(
-                    cwd,
-                    cfg.prBaseBranch,
-                    bunGitRunner,
-                  ).catch((err) => ({
-                    safe: false as const,
-                    reason: `safety check failed: ${(err as Error).message}`,
-                    dirty: "",
-                    unpushedCommits: "",
-                  }));
-                  if (!check.safe) {
-                    appendLog(`! preserving worktree for ${changeName}: ${check.reason}`, "yellow");
-                    if (check.dirty) {
-                      appendLog(`    uncommitted:\n${check.dirty}`, "yellow");
-                    }
-                    if (check.unpushedCommits) {
-                      appendLog(`    commits:\n${check.unpushedCommits}`, "yellow");
-                    }
-                    appendLog(`    path: ${cwd}`, "yellow");
-                  } else {
-                    try {
-                      await removeWorktree(projectRoot, cwd, bunGitRunner);
-                      appendLog(`  removed worktree ${cwd}`, "gray");
-                    } catch (err) {
-                      appendLog(
-                        `! worktree remove failed for ${changeName}: ${(err as Error).message}`,
-                        "yellow",
-                      );
-                    }
-                  }
-                }
-              }
+              const workerLayout = projectLayout(cwd);
+              const effectiveCode = await runPostTask(
+                {
+                  changeName,
+                  cwd,
+                  projectRoot,
+                  changeDir: workerLayout.changeDir(changeName),
+                  stateFilePath: workerLayout.stateFile(changeName),
+                  branch: branchByChange.get(changeName) ?? null,
+                  issue: issueByChange.get(changeName) ?? null,
+                  exitCode: code,
+                  useWorktree,
+                  wantPr,
+                  wantFixCi,
+                  cfg: {
+                    teardownScript: cfg.teardownScript ?? null,
+                    prBaseBranch: cfg.prBaseBranch,
+                    maxCiFixAttempts: cfg.maxCiFixAttempts,
+                    ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
+                    cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
+                  },
+                  respawnWorker: respawn,
+                },
+                { cmd: bunCmdRunner, git: bunGitRunner, log: appendLog, runScript },
+              );
               cwdByChange.delete(changeName);
               statesDirByChange.delete(changeName);
               branchByChange.delete(changeName);
@@ -718,13 +391,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
             return { exited: wrapped, kill: () => proc.kill() };
           },
-          loadState: () => readAgentState(projectRoot),
-          saveState: (s) => writeAgentState(projectRoot, s),
+          store,
           onLog: appendLog,
           onWorkersChanged: () => setTick((t) => t + 1),
           getIterationCount: async (changeName) => {
-            const dir = statesDirByChange.get(changeName) ?? statesDir;
-            const file = Bun.file(join(dir, changeName, ".ralph-state.json"));
+            const root = cwdByChange.get(changeName) ?? projectRoot;
+            const file = Bun.file(projectLayout(root).stateFile(changeName));
             if (!(await file.exists())) return 0;
             const json = (await file.json()) as { iteration?: number };
             return json.iteration ?? 0;
