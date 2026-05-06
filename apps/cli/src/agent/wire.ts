@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
 import type { ParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
@@ -16,8 +17,12 @@ import { AgentCoordinator } from "./coordinator";
 import { scaffoldChangeForIssue } from "./scaffold";
 import { createWorktree, seedWorktreeMcpConfig, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
-import { runPostTask } from "./post-task";
+import { runPostTask, type PostTaskPhase } from "./post-task";
 import type { AgentStateStore } from "./state";
+
+/** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
+ *  plus the worker-subprocess "working" phase. */
+type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
 const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {
@@ -59,6 +64,32 @@ const bunCmdRunner: CmdRunner = {
   },
 };
 
+/**
+ * Wrap a CmdRunner so each call emits start/end events. The dashboard
+ * uses these to surface "currently running `gh pr checks`…" so a hung
+ * external command is immediately visible (e.g. GitHub 504 hangs).
+ */
+function traceCmdRunner(
+  base: CmdRunner,
+  onStart: (cmd: string[]) => void,
+  onEnd: (cmd: string[], durationMs: number, ok: boolean) => void,
+): CmdRunner {
+  return {
+    run: async (cmd, cwd) => {
+      const t0 = Date.now();
+      onStart(cmd);
+      try {
+        const r = await base.run(cmd, cwd);
+        onEnd(cmd, Date.now() - t0, true);
+        return r;
+      } catch (err) {
+        onEnd(cmd, Date.now() - t0, false);
+        throw err;
+      }
+    },
+  };
+}
+
 interface BuildAgentCoordinatorInput {
   args: ParsedArgs;
   cfg: RalphyConfig;
@@ -74,9 +105,25 @@ interface BuildAgentCoordinatorInput {
   onWorkersChanged: () => void;
   /** Called when a new worker subprocess starts. The UI uses `statesDir`
    *  to poll `<statesDir>/<changeName>/.ralph-state.json` for iter count. */
-  onWorkerStarted: (changeName: string, statesDir: string) => void;
+  onWorkerStarted: (changeName: string, statesDir: string, logFile: string) => void;
   /** Called after the post-task block resolves; UI drops the worker row. */
   onWorkerExited: (changeName: string) => void;
+  /** Phase transition for a worker — dashboard renders alongside iter+elapsed. */
+  onWorkerPhase?: (changeName: string, phase: WorkerPhase, detail?: string) => void;
+  /** A line of stdout/stderr captured from the worker subprocess. The UI
+   *  keeps a small ring buffer for display; the full stream is teed to a
+   *  per-change log file at `<projectRoot>/.ralph/logs/<changeName>.log`. */
+  onWorkerOutput?: (changeName: string, line: string) => void;
+  /** Live shell-command tracer — fires on every `cmd.run(...)` start/end
+   *  inside post-task. The dashboard uses this to show "running `gh pr
+   *  checks` (12s)…" so hung externals are obvious. */
+  onWorkerCmd?: (
+    changeName: string,
+    cmd: string[],
+    state: "start" | "end",
+    durationMs?: number,
+    ok?: boolean,
+  ) => void;
 }
 
 interface BuildAgentCoordinatorResult {
@@ -113,7 +160,12 @@ export function buildAgentCoordinator(
     onWorkersChanged,
     onWorkerStarted,
     onWorkerExited,
+    onWorkerPhase,
+    onWorkerOutput,
+    onWorkerCmd,
   } = input;
+
+  const logsDir = join(projectRoot, ".ralph", "logs");
 
   const concurrency = args.concurrency || cfg.concurrency;
   const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
@@ -169,6 +221,10 @@ export function buildAgentCoordinator(
   }
 
   async function scaffoldCallback(issue: LinearIssue): Promise<string> {
+    // The coordinator hasn't created an "active worker" entry yet (it
+    // only does so once spawnWorker returns), so we can't emit phases
+    // keyed by changeName here. The "▶ <id> → <change>" log line
+    // already covers this transition.
     let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
     try {
       comments = await fetchIssueComments(apiKey, issue.id);
@@ -264,24 +320,90 @@ export function buildAgentCoordinator(
 
   function spawnWorker(changeName: string): { exited: Promise<number>; kill: () => void } {
     const cwd = cwdByChange.get(changeName) ?? projectRoot;
-    const respawn = (): Promise<number> => {
-      const rp = Bun.spawn({
+    const logFilePath = join(logsDir, `${changeName}.log`);
+
+    // Pipe stdout/stderr through a line-buffered splitter that:
+    //  1. emits each line via onWorkerOutput (UI ring buffer)
+    //  2. appends to <projectRoot>/.ralph/logs/<changeName>.log
+    // so users have both a live tail and a `tail -f`-able file.
+    let logWriter: ReturnType<ReturnType<typeof Bun.file>["writer"]> | null = null;
+    const ensureLogWriter = async () => {
+      if (logWriter) return logWriter;
+      try {
+        await Bun.write(logFilePath, "");
+        logWriter = Bun.file(logFilePath).writer();
+        return logWriter;
+      } catch (err) {
+        onLog(`! could not open worker log ${logFilePath}: ${(err as Error).message}`, "yellow");
+        return null;
+      }
+    };
+
+    async function pump(stream: ReadableStream<Uint8Array> | null, label: string): Promise<void> {
+      if (!stream) return;
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      const writer = await ensureLogWriter();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          buf += chunk;
+          let nl: number;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            if (writer) writer.write(line + "\n");
+            if (line) onWorkerOutput?.(changeName, label === "err" ? `! ${line}` : line);
+          }
+        }
+        if (buf) {
+          if (writer) writer.write(buf + "\n");
+          onWorkerOutput?.(changeName, label === "err" ? `! ${buf}` : buf);
+        }
+      } catch {
+        /* stream errors are non-fatal — the subprocess exit drives control flow */
+      } finally {
+        try {
+          writer?.flush();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    const launch = (note?: string) => {
+      const p = Bun.spawn({
         cmd: buildTaskCmdFor(changeName),
         cwd,
-        stdout: "ignore",
-        stderr: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
         stdin: "ignore",
       });
+      if (note && logWriter) logWriter.write(`\n--- ${note} ---\n`);
+      void pump(p.stdout as ReadableStream<Uint8Array>, "out");
+      void pump(p.stderr as ReadableStream<Uint8Array>, "err");
+      return p;
+    };
+
+    const respawn = (): Promise<number> => {
+      onWorkerPhase?.(changeName, "working", "respawn");
+      const rp = launch(`respawn at ${new Date().toISOString()}`);
       return rp.exited;
     };
-    const proc = Bun.spawn({
-      cmd: buildTaskCmdFor(changeName),
-      cwd,
-      stdout: "ignore",
-      stderr: "ignore",
-      stdin: "ignore",
-    });
-    onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir);
+    const proc = launch(`spawn at ${new Date().toISOString()}`);
+    onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir, logFilePath);
+    onWorkerPhase?.(changeName, "working");
+
+    const tracedCmd = onWorkerCmd
+      ? traceCmdRunner(
+          bunCmdRunner,
+          (cmd) => onWorkerCmd(changeName, cmd, "start"),
+          (cmd, ms, ok) => onWorkerCmd(changeName, cmd, "end", ms, ok),
+        )
+      : bunCmdRunner;
 
     const wantPr = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
@@ -309,8 +431,23 @@ export function buildAgentCoordinator(
           },
           respawnWorker: respawn,
         },
-        { cmd: bunCmdRunner, git: bunGitRunner, log: onLog, runScript },
+        {
+          cmd: tracedCmd,
+          git: bunGitRunner,
+          log: onLog,
+          runScript,
+          ...(onWorkerPhase && {
+            onPhase: (phase: PostTaskPhase, detail?: string) =>
+              onWorkerPhase(changeName, phase, detail),
+          }),
+        },
       );
+      try {
+        logWriter?.flush();
+        await logWriter?.end();
+      } catch {
+        /* ignore */
+      }
       cwdByChange.delete(changeName);
       statesDirByChange.delete(changeName);
       branchByChange.delete(changeName);
