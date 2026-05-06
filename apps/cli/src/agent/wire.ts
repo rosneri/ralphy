@@ -1,5 +1,4 @@
 import { projectLayout } from "@ralphy/core/layout";
-import { seedWorktreeMcpConfig } from "./mcp-seed";
 import type { ParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import {
@@ -15,7 +14,7 @@ import {
 } from "./linear";
 import { AgentCoordinator } from "./coordinator";
 import { scaffoldChangeForIssue } from "./scaffold";
-import { createWorktree, type GitRunner } from "./worktree";
+import { createWorktree, seedWorktreeMcpConfig, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
 import { runPostTask } from "./post-task";
 import type { AgentStateStore } from "./state";

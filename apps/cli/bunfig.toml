@@ -1,14 +1,14 @@
 [test]
 coverageThreshold = { lines = 0.9, functions = 0.9 }
-# AgentMode.tsx and agent/wire.ts are thin adapters that wire the
-# AgentCoordinator to real fetch / Bun.spawn / Linear API / signal handlers.
-# All orchestration logic lives in src/agent/coordinator.ts (100% covered) and
-# the focused helpers each get their own unit tests (seedWorktreeMcpConfig in
-# wire.test.ts, etc.). The adapters themselves are exercised by live smoke
-# tests, not unit tests.
+# Thin adapters that wire the AgentCoordinator to real Bun.spawn / git /
+# Linear API / signal handlers. All orchestration logic lives in
+# src/agent/coordinator.ts (100% covered); focused helpers (e.g.
+# seedWorktreeMcpConfig in worktree.ts) get their own unit tests. The
+# adapters themselves are exercised by live smoke tests, not unit tests.
 coveragePathIgnorePatterns = [
   "../**",
   "**/dist/**",
   "**/components/AgentMode.tsx",
   "**/agent/wire.ts",
+  "**/agent/post-task.ts",
 ]
