@@ -208,12 +208,22 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
   });
 
+  // Track whether *we* killed the process. Set at every kill site below,
+  // checked at exit-code normalization time. A SIGTERM/SIGKILL exit only
+  // normalizes to success when *we* asked for it — never because the OS
+  // or some external signal handler killed the process.
+  let intentionalKill = false;
+  const killProc = (): void => {
+    intentionalKill = true;
+    proc.kill();
+  };
+
   // Kill the process if the abort signal fires
   if (opts.signal) {
     if (opts.signal.aborted) {
-      proc.kill();
+      killProc();
     } else {
-      opts.signal.addEventListener("abort", () => proc.kill(), { once: true }); // v8 ignore
+      opts.signal.addEventListener("abort", killProc, { once: true }); // v8 ignore
     }
   }
 
@@ -255,7 +265,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
   if (opts.signal) {
     const onAbort = () => {
       aborted = true;
-      proc.kill();
+      killProc();
     };
     if (opts.signal.aborted) {
       onAbort();
@@ -303,7 +313,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
       // Without this, the CLI keeps the session alive and the agent wastes
       // tokens responding to system reminders with idle "standing by" messages.
       if (claudeState.gotResult) {
-        proc.kill();
+        killProc();
         break;
       }
     }
@@ -339,9 +349,16 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
 
   const exitCode = await proc.exited;
 
-  // Normalize exit code: treat kills as success when we have a result or aborted intentionally
-  const wasIntentionalKill = (exitCode === 143 || exitCode === 137) && (usage !== null || aborted);
+  // Normalize exit code: a SIGTERM/SIGKILL exit is only treated as success
+  // when *we* killed the process (gotResult or abort). If the parser
+  // missed the result event, `intentionalKill` stays false and the
+  // process's natural exit code is preserved as a real failure signal.
+  // `aborted` is implied by `intentionalKill` (every aborted run goes
+  // through `killProc`); kept in the result type for callers.
+  const wasIntentionalKill = intentionalKill && (exitCode === 143 || exitCode === 137);
   const normalizedExitCode = wasIntentionalKill ? 0 : exitCode;
+
+  void aborted; // surfaced via opts.signal; retained for future telemetry
 
   return { exitCode: normalizedExitCode, usage, sessionId, rateLimited: detectedRateLimit };
 }
