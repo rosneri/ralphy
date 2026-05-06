@@ -34,13 +34,24 @@ const STEERING_MAX_LINES = 20;
  * Extract the first unchecked section from tasks.md.
  * A section starts with a `## ` heading and contains `- [ ]` items.
  * Returns the first such section that has at least one unchecked item.
+ *
+ * Falls back to the entire trimmed file when there are no `## ` headings
+ * but unchecked items exist (e.g. a flat top-level checklist).
  */
 export function extractFirstUncheckedSection(tasksContent: string): string | null {
   const sections = tasksContent.split(/(?=^## )/m);
   for (const section of sections) {
-    if (/^- \[ \]/m.test(section)) return section.trim();
+    if (/^## /m.test(section) && /^- \[ \]/m.test(section)) return section.trim();
   }
+  if (/^- \[ \]/m.test(tasksContent)) return tasksContent.trim();
   return null;
+}
+
+/**
+ * Count unchecked `- [ ]` items in a tasks.md content string.
+ */
+export function countUncheckedTasks(tasksContent: string): number {
+  return (tasksContent.match(/^- \[ \]/gm) ?? []).length;
 }
 
 /**
@@ -84,6 +95,12 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
       prompt += "---\n\n## Current Task Section\n\n";
       prompt += section + "\n\n";
       prompt += "---\n\n";
+      prompt +=
+        `**Tracking progress**: as you finish each item above, edit ` +
+        `\`${join(taskDir, "tasks.md")}\` and change its \`- [ ]\` to ` +
+        `\`- [x]\` in the same commit. The loop reads this file between ` +
+        `iterations and stops when no \`- [ ]\` items remain — if you do ` +
+        `not tick the box, the next iteration will repeat this task.\n\n`;
     }
   } else if (state.prompt) {
     prompt += "---\n\n## Initial Prompt\n\n";

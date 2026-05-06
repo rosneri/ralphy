@@ -28,22 +28,23 @@ import { exists } from "node:fs/promises";
 
 /**
  * Seed the worktree's `.mcp.json` so engines spawned inside the worktree see
- * the ralphy MCP server. The project's `.mcp.json` is gitignored and points
- * at `.ralph/bin/mcp.js` (also gitignored), so a fresh worktree has neither.
+ * the ralphy MCP server. `.ralph/bin/mcp.js` is gitignored, so any relative
+ * `.ralph/...` arg in the worktree's `.mcp.json` won't resolve from inside
+ * the worktree.
  *
- * We copy the project's `.mcp.json` into the worktree and rewrite any
- * relative `.ralph/bin/mcp.js` arg to an absolute path under `projectRoot`
- * so the entry resolves regardless of whether `.ralph/` exists in the
- * worktree. No-op if the project has no `.mcp.json`.
+ * Read whichever `.mcp.json` is available (preferring the worktree's own
+ * checked-in copy, falling back to the project root's), rewrite any
+ * relative `.ralph/...` args to absolute paths under `projectRoot`, and
+ * write the result into the worktree. No-op if neither exists.
  */
 async function seedWorktreeMcpConfig(projectRoot: string, worktreeCwd: string): Promise<void> {
-  const src = join(projectRoot, ".mcp.json");
-  if (!(await exists(src))) return;
   const dst = join(worktreeCwd, ".mcp.json");
-  if (await exists(dst)) return;
+  const src = join(projectRoot, ".mcp.json");
+  const source = (await exists(dst)) ? dst : (await exists(src)) ? src : null;
+  if (!source) return;
   let parsed: { mcpServers?: Record<string, { args?: unknown[] }> };
   try {
-    parsed = await Bun.file(src).json();
+    parsed = await Bun.file(source).json();
   } catch {
     return;
   }
