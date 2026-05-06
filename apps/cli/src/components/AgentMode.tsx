@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, useApp } from "ink";
 import { join } from "node:path";
-import type { ParsedArgs } from "../cli";
+import { VERSION, type ParsedArgs } from "../cli";
 import { AgentStateStore } from "../agent/state";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
@@ -71,7 +71,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     async function init() {
       const cfgPath = await ensureRalphyConfig(projectRoot);
       const cfg = await loadRalphyConfig(projectRoot);
-      appendLog(`agent mode — config: ${cfgPath}`, "gray");
+      appendLog(`agent mode v${VERSION} — config: ${cfgPath}`, "gray");
 
       const apiKey = process.env["LINEAR_API_KEY"];
       if (!apiKey) {
