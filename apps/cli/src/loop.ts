@@ -10,4 +10,5 @@ export {
   buildSteeringPrompt,
   mergeUsage,
   allTasksCompleted,
+  countUncheckedTasks,
 } from "@ralphy/core/loop";

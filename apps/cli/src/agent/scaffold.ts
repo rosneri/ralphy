@@ -66,6 +66,8 @@ export async function scaffoldChangeForIssue(
   const tasks = [
     `# Tasks for ${issue.identifier}`,
     "",
+    "## Subtasks",
+    "",
     `- [ ] Read the Linear issue at ${issue.url} and break it into concrete subtasks`,
     `- [ ] Implement the changes described in proposal.md`,
     `- [ ] Add or update tests covering the new behavior`,

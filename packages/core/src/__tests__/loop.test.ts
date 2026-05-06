@@ -6,6 +6,7 @@ import {
   buildTaskPrompt,
   extractFirstUncheckedSection,
   allTasksCompleted,
+  countUncheckedTasks,
   checkStopSignal,
   checkStopCondition,
   updateStateIteration,
@@ -295,4 +296,34 @@ describe("extractFirstUncheckedSection", () => {
     expect(section).toContain("## Beta");
     expect(section).not.toContain("## Gamma");
   });
+
+  test("falls back to whole file when no `## ` heading exists", () => {
+    const content = "# Tasks\n\n- [ ] one\n- [x] two\n";
+    const section = extractFirstUncheckedSection(content);
+    expect(section).not.toBeNull();
+    expect(section).toContain("- [ ] one");
+  });
+});
+
+describe("countUncheckedTasks", () => {
+  test("counts top-level unchecked items only", () => {
+    expect(countUncheckedTasks("- [ ] a\n- [x] b\n- [ ] c\n")).toBe(2);
+  });
+
+  test("returns 0 when nothing is unchecked", () => {
+    expect(countUncheckedTasks("- [x] done\n")).toBe(0);
+  });
+});
+
+describe("buildTaskPrompt — tracking instruction", () => {
+  test("instructs the agent to tick boxes when an unchecked section is included", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Subtasks\n- [ ] do thing\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("Tracking progress");
+      expect(prompt).toContain("- [x]");
+      expect(prompt).toContain(join(tempDir, "tasks.md"));
+    }));
 });

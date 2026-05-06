@@ -1,5 +1,7 @@
 import { spawn } from "./spawn";
-import { mkdtemp, unlink } from "node:fs/promises";
+import { createWriteStream, type WriteStream } from "node:fs";
+import { mkdtemp, unlink, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { type Engine, type IterationUsage } from "@ralphy/types";
@@ -12,6 +14,9 @@ export interface RunEngineOptions {
   model: string;
   prompt: string;
   logFlag?: boolean;
+  /** When `logFlag` is true, append the raw engine stdout (and stderr for codex)
+   *  as newline-delimited JSON to this file. Caller picks the path. */
+  logFile?: string;
   taskDir?: string;
   interactive?: boolean;
   cwd?: string;
@@ -218,6 +223,20 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
   await stdin.flush();
   stdin.end();
 
+  let rawWriter: WriteStream | null = null;
+  if (opts.logFlag && opts.logFile) {
+    await mkdir(dirname(opts.logFile), { recursive: true });
+    rawWriter = createWriteStream(opts.logFile, { flags: "a" });
+  }
+  const writeRaw = (line: string) => {
+    if (rawWriter) rawWriter.write(line + "\n");
+  };
+  const closeRaw = () =>
+    new Promise<void>((resolve) => {
+      if (!rawWriter) return resolve();
+      rawWriter.end(resolve);
+    });
+
   const emit = opts.onFeedEvent;
 
   // Emit a FeedEvent: either via structured callback or fall back to chalk string
@@ -260,6 +279,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     };
 
     for await (const line of streamLines(stdout)) {
+      writeRaw(line);
       // Capture full session_id from init event
       if (sessionId === null) {
         try {
@@ -297,6 +317,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     };
 
     for await (const line of streamLines(stdout)) {
+      writeRaw(line);
       for (const event of parseCodexLine(line, codexState)) {
         emitEvent(event);
       }
@@ -306,12 +327,15 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     if (proc.stderr) {
       const stderr = proc.stderr as ReadableStream<Uint8Array>;
       for await (const line of streamLines(stderr)) {
+        writeRaw(line);
         for (const event of parseCodexLine(line, codexState)) {
           emitEvent(event);
         }
       }
     }
   }
+
+  await closeRaw();
 
   const exitCode = await proc.exited;
 
