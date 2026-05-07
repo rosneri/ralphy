@@ -1,8 +1,23 @@
 import { log } from "@ralphy/output";
 import type { Engine, Indicators, Marker, Mode, SetIndicator, GetIndicator } from "@ralphy/types";
-import pkg from "../../../package.json" with { type: "json" };
+import { readFileSync } from "node:fs";
 
-export const VERSION: string = pkg.version;
+// Load package.json at runtime from the project root to work correctly from any location (source or compiled)
+function getVersion(): string {
+  try {
+    // Use import.meta.resolve to get the absolute path to package.json
+    const pkgUrl = import.meta.resolve("../../../package.json");
+    // Convert file:// URL to filesystem path
+    const pkgPath = pkgUrl.startsWith("file://") ? pkgUrl.slice(7) : pkgUrl;
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    return pkg.version || "unknown";
+  } catch (e) {
+    // Silently return unknown on error (don't log to avoid side effects in tests)
+    return "unknown";
+  }
+}
+
+export const VERSION: string = getVersion();
 
 export interface ParsedArgs {
   mode: Mode;
