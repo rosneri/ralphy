@@ -11,7 +11,11 @@ import {
   buildSteeringPrompt,
   mergeUsage,
 } from "../loop";
-import { firstUnchecked as extractFirstUncheckedSection, allCompleted as allTasksCompleted, countUnchecked as countUncheckedTasks } from "../tasks-md";
+import {
+  firstUnchecked as extractFirstUncheckedSection,
+  allCompleted as allTasksCompleted,
+  countUnchecked as countUncheckedTasks,
+} from "../tasks-md";
 import { buildInitialState, writeState, readState } from "../state";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import type { State } from "@ralphy/types";

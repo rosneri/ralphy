@@ -4,7 +4,6 @@ import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked } from "./tasks-md";
 
-
 /**
  * Minimal change-store operations required by the loop.
  * Satisfied structurally by ChangeStore from @ralphy/change-store.
