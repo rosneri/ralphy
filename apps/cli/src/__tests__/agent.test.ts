@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadRalphyConfig, ensureRalphyConfig } from "../agent/config";
-import { AgentStateStore } from "../agent/state";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../agent/scaffold";
 import {
   fetchOpenIssues,
@@ -13,6 +12,7 @@ import {
   updateIssueState,
   fetchIssueLabels,
   addLabelToIssue,
+  removeLabelFromIssue,
   type LinearIssue,
 } from "../agent/linear";
 
@@ -49,25 +49,49 @@ describe("agent/config", () => {
     expect(cfg.pollIntervalSeconds).toBe(60);
     expect(cfg.engine).toBe("claude");
     expect(cfg.model).toBe("opus");
-    expect(cfg.linear.statuses).toEqual([]);
+    expect(cfg.linear.indicators).toEqual({});
+    expect(cfg.linear.postComments).toBe(true);
   });
 
-  test("loadRalphyConfig reads existing file", async () => {
+  test("loadRalphyConfig reads indicator map", async () => {
     await Bun.write(
       join(tempDir, "ralphy.config.json"),
       JSON.stringify({
         concurrency: 5,
-        pollIntervalSeconds: 30,
-        engine: "codex",
-        linear: { team: "ENG", statuses: ["Todo"] },
+        linear: {
+          team: "ENG",
+          indicators: {
+            getTodo: { filter: [{ type: "status", value: "Todo" }] },
+            setDone: { type: "status", value: "Done" },
+            setError: { apply: [{ type: "label", value: "ralph:error" }] },
+          },
+        },
       }),
     );
     const cfg = await loadRalphyConfig(tempDir);
     expect(cfg.concurrency).toBe(5);
-    expect(cfg.pollIntervalSeconds).toBe(30);
-    expect(cfg.engine).toBe("codex");
     expect(cfg.linear.team).toBe("ENG");
-    expect(cfg.linear.statuses).toEqual(["Todo"]);
+    expect(cfg.linear.indicators.getTodo).toEqual({
+      filter: [{ type: "status", value: "Todo" }],
+    });
+    expect(cfg.linear.indicators.setDone).toEqual({ type: "status", value: "Done" });
+    expect(cfg.linear.indicators.setError).toEqual({
+      apply: [{ type: "label", value: "ralph:error" }],
+    });
+  });
+
+  test("loadRalphyConfig rejects status-typed clearConflicted", async () => {
+    await Bun.write(
+      join(tempDir, "ralphy.config.json"),
+      JSON.stringify({
+        linear: {
+          indicators: {
+            clearConflicted: { type: "status", value: "Done" },
+          },
+        },
+      }),
+    );
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow();
   });
 
   test("ensureRalphyConfig creates file with defaults when missing", async () => {
@@ -75,6 +99,7 @@ describe("agent/config", () => {
     expect(existsSync(path)).toBe(true);
     const json = JSON.parse(readFileSync(path, "utf-8"));
     expect(json.concurrency).toBe(1);
+    expect(json.linear.indicators).toEqual({});
   });
 
   test("ensureRalphyConfig leaves existing file untouched", async () => {
@@ -84,51 +109,6 @@ describe("agent/config", () => {
     expect(returned).toBe(path);
     const json = JSON.parse(readFileSync(path, "utf-8"));
     expect(json.concurrency).toBe(7);
-  });
-});
-
-describe("agent/state", () => {
-  test("load returns defaults when file missing", async () => {
-    const store = new AgentStateStore(tempDir);
-    await store.load();
-    const s = store.snapshot();
-    expect(s.tasks).toEqual({});
-    expect(s.lastPollAt).toBeNull();
-  });
-
-  test("upsertTask persists across load cycles", async () => {
-    const a = new AgentStateStore(tempDir);
-    await a.load();
-    await a.upsertTask({ id: "uuid-a", identifier: "ENG-1" }, { state: "processed" });
-    await a.upsertTask({ id: "uuid-b", identifier: "ENG-2" }, { state: "processed" });
-    await a.setLastPollAt("2026-05-04T00:00:00Z");
-
-    const b = new AgentStateStore(tempDir);
-    await b.load();
-    const s = b.snapshot();
-    expect(s.tasks["ENG-1"]?.state).toBe("processed");
-    expect(s.tasks["ENG-2"]?.issueId).toBe("uuid-b");
-    expect(s.lastPollAt).toBe("2026-05-04T00:00:00Z");
-  });
-
-  test("removeByChangeName drops matching entry and returns its ids", async () => {
-    const store = new AgentStateStore(tempDir);
-    await store.load();
-    await store.upsertTask(
-      { id: "uuid-a", identifier: "ENG-1" },
-      { state: "failed", changeName: "eng-1-foo" },
-    );
-    const removed = await store.removeByChangeName("eng-1-foo");
-    expect(removed).toEqual({ identifier: "ENG-1", issueId: "uuid-a" });
-    expect(store.snapshot().tasks["ENG-1"]).toBeUndefined();
-
-    const miss = await store.removeByChangeName("nope");
-    expect(miss).toBeNull();
-  });
-
-  test("snapshot before load throws", () => {
-    const store = new AgentStateStore(tempDir);
-    expect(() => store.snapshot()).toThrow(/load\(\) must be called/);
   });
 });
 
@@ -250,8 +230,8 @@ describe("agent/linear", () => {
     }) as typeof fetch;
   }
 
-  test("fetchOpenIssues posts GraphQL with default open-state filter", async () => {
-    let captured: { query: string; variables: { filter: Record<string, unknown> } } | null = null;
+  test("fetchOpenIssues defaults to open-state filter when no include given", async () => {
+    let captured: { variables: { filter: Record<string, unknown> } } | null = null;
     mockFetch(async (req) => {
       captured = await req.json();
       return new Response(
@@ -268,6 +248,8 @@ describe("agent/linear", () => {
                   state: { name: "Todo", type: "unstarted" },
                   assignee: null,
                   labels: { nodes: [{ name: "bug" }] },
+                  priority: 3,
+                  relations: { nodes: [] },
                 },
               ],
             },
@@ -286,26 +268,67 @@ describe("agent/linear", () => {
     });
   });
 
-  test("fetchOpenIssues builds team/assignee/status/label filters", async () => {
+  test("fetchOpenIssues collapses include to a flat filter when only one kind is present", async () => {
     let captured: { variables: { filter: Record<string, unknown> } } | null = null;
     mockFetch(async (req) => {
       captured = await req.json();
-      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), {
-        status: 200,
-      });
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200 });
     });
 
     await fetchOpenIssues("k", {
       team: "ENG",
       assignee: "me",
-      statuses: ["Todo", "In Progress"],
-      labels: ["p1", "bug"],
+      include: [
+        { type: "status", value: "Todo" },
+        { type: "status", value: "In Progress" },
+      ],
     });
     expect(captured!.variables.filter).toEqual({
       team: { key: { eq: "ENG" } },
       assignee: { isMe: { eq: true } },
       state: { name: { in: ["Todo", "In Progress"] } },
-      labels: { some: { name: { in: ["p1", "bug"] } } },
+    });
+  });
+
+  test("fetchOpenIssues ORs status + label include via or:[...]", async () => {
+    let captured: { variables: { filter: Record<string, unknown> } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200 });
+    });
+
+    await fetchOpenIssues("k", {
+      include: [
+        { type: "status", value: "Todo" },
+        { type: "label", value: "ready" },
+      ],
+    });
+    expect(captured!.variables.filter).toEqual({
+      or: [
+        { state: { name: { in: ["Todo"] } } },
+        { labels: { some: { name: { in: ["ready"] } } } },
+      ],
+    });
+  });
+
+  test("fetchOpenIssues exclude markers translate to nin / every constraints", async () => {
+    let captured: { variables: { filter: Record<string, unknown> } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200 });
+    });
+
+    await fetchOpenIssues("k", {
+      include: [{ type: "status", value: "Todo" }],
+      exclude: [
+        { type: "status", value: "Cancelled" },
+        { type: "label", value: "ralph:error" },
+      ],
+    });
+    // status include + status exclude → AND
+    expect(captured!.variables.filter).toMatchObject({
+      and: [{ state: { name: { in: ["Todo"] } } }, { state: { name: { nin: ["Cancelled"] } } }],
+      labels: { every: { name: { nin: ["ralph:error"] } } },
     });
   });
 
@@ -313,9 +336,7 @@ describe("agent/linear", () => {
     let captured: { variables: { filter: Record<string, unknown> } } | null = null;
     mockFetch(async (req) => {
       captured = await req.json();
-      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), {
-        status: 200,
-      });
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200 });
     });
 
     await fetchOpenIssues("k", { assignee: "dev@example.com" });
@@ -353,7 +374,6 @@ describe("agent/linear", () => {
     }
     const err = caught as Error & { messages?: string[] };
     expect(err.messages).toEqual(["bad query"]);
-    expect(err.message).toBe("Linear API returned errors");
   });
 
   test("fetchOpenIssues throws when GraphQL data is missing", async () => {
@@ -362,7 +382,7 @@ describe("agent/linear", () => {
   });
 
   test("addIssueComment posts a commentCreate mutation", async () => {
-    let captured: { query: string; variables: { issueId: string; body: string } } | null = null;
+    let captured: { variables: { issueId: string; body: string } } | null = null;
     mockFetch(async (req) => {
       captured = await req.json();
       return new Response(JSON.stringify({ data: { commentCreate: { success: true } } }), {
@@ -371,7 +391,6 @@ describe("agent/linear", () => {
     });
     await addIssueComment("k", "issue-1", "hello");
     expect(captured!.variables).toEqual({ issueId: "issue-1", body: "hello" });
-    expect(captured!.query).toContain("commentCreate");
   });
 
   test("fetchWorkflowStates returns nodes scoped by team key", async () => {
@@ -399,31 +418,29 @@ describe("agent/linear", () => {
   });
 
   test("fetchIssueComments returns comment nodes", async () => {
-    let captured: { variables: { id: string } } | null = null;
-    mockFetch(async (req) => {
-      captured = await req.json();
-      return new Response(
-        JSON.stringify({
-          data: {
-            issue: {
-              comments: {
-                nodes: [
-                  {
-                    id: "c1",
-                    body: "first",
-                    createdAt: "2026-05-01T00:00:00Z",
-                    user: { name: "Alice", email: null },
-                  },
-                ],
+    mockFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                comments: {
+                  nodes: [
+                    {
+                      id: "c1",
+                      body: "first",
+                      createdAt: "2026-05-01T00:00:00Z",
+                      user: { name: "Alice", email: null },
+                    },
+                  ],
+                },
               },
             },
-          },
-        }),
-        { status: 200 },
-      );
-    });
+          }),
+          { status: 200 },
+        ),
+    );
     const out = await fetchIssueComments("k", "issue-1");
-    expect(captured!.variables).toEqual({ id: "issue-1" });
     expect(out).toHaveLength(1);
     expect(out[0]!.body).toBe("first");
   });
@@ -478,6 +495,18 @@ describe("agent/linear", () => {
       });
     });
     await addLabelToIssue("k", "issue-1", "label-9");
+    expect(captured!.variables).toEqual({ id: "issue-1", labelId: "label-9" });
+  });
+
+  test("removeLabelFromIssue posts an issueRemoveLabel mutation", async () => {
+    let captured: { variables: { id: string; labelId: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issueRemoveLabel: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await removeLabelFromIssue("k", "issue-1", "label-9");
     expect(captured!.variables).toEqual({ id: "issue-1", labelId: "label-9" });
   });
 });

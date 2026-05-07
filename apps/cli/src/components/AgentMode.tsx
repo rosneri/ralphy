@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, useApp } from "ink";
 import { join } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
-import { AgentStateStore } from "../agent/state";
 import { ensureRalphyConfig, loadRalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
@@ -80,9 +79,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         return;
       }
 
-      const store = new AgentStateStore(projectRoot);
-      await store.load();
-
       const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
         args,
         cfg,
@@ -90,7 +86,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         statesDir,
         tasksDir,
         apiKey,
-        store,
         onLog: appendLog,
         onWorkersChanged: () => setTick((t) => t + 1),
         onWorkerStarted: (changeName, dir) => {

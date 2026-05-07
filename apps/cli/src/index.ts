@@ -15,7 +15,6 @@ import { createElement } from "react";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
-import { AgentStateStore } from "./agent/state";
 import { projectLayout } from "@ralphy/core/layout";
 import { worktreesDir } from "./agent/worktree";
 import * as telemetry from "@ralphy/telemetry";
@@ -132,19 +131,9 @@ try {
       removed.push(`task state ${stateDir}`);
     }
 
-    // Drop the corresponding agent-state.json entry so the ticket can be
-    // picked up cleanly on the next agent poll. The map is keyed by Linear
-    // identifier; we look up by changeName.
-    try {
-      const store = new AgentStateStore(projectRoot);
-      await store.load();
-      const removedEntry = await store.removeByChangeName(args.name);
-      if (removedEntry) {
-        removed.push(`agent-state entry for ${removedEntry.identifier} (${removedEntry.issueId})`);
-      }
-    } catch {
-      /* agent-state.json may not exist; nothing to scrub */
-    }
+    // Linear is the single source of truth: error / conflict markers on the
+    // matching issue need to be cleared by hand (or via --indicator with a
+    // future `clearError` action). `ralph clean` only touches local files.
 
     if (removed.length === 0) {
       process.stdout.write(`Nothing to clean for '${args.name}'\n`);

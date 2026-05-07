@@ -1,59 +1,84 @@
 import { join } from "node:path";
 import { z } from "zod";
 
+const MarkerSchema = z.object({
+  type: z.enum(["label", "status"]),
+  value: z.string().min(1),
+});
+
+const GetIndicatorSchema = z.object({
+  filter: z.array(MarkerSchema).default([]),
+});
+
+const SetIndicatorSchema = z.union([
+  MarkerSchema,
+  z.object({ apply: z.array(MarkerSchema).min(1) }),
+]);
+
+/**
+ * Linear is the single source of truth for which issues Ralph has touched.
+ * Every action ralph performs against an issue is named here:
+ *
+ *   - `getTodo` — issues to pick up.
+ *   - `getInProgress` — issues to resume after restart.
+ *   - `getConflicted` — issues whose PR has merge conflicts.
+ *   - `setInProgress` — applied when worker spawns.
+ *   - `setDone` — applied on clean success.
+ *   - `setError` — applied on non-zero exit (quarantine).
+ *   - `setConflicted` — applied when a PR conflict is detected.
+ *   - `clearConflicted` — label-only marker(s) removed once conflict is fixed.
+ */
+const IndicatorsSchema = z
+  .object({
+    getTodo: GetIndicatorSchema.optional(),
+    getInProgress: GetIndicatorSchema.optional(),
+    getConflicted: GetIndicatorSchema.optional(),
+    setInProgress: SetIndicatorSchema.optional(),
+    setDone: SetIndicatorSchema.optional(),
+    setError: SetIndicatorSchema.optional(),
+    setConflicted: SetIndicatorSchema.optional(),
+    clearConflicted: SetIndicatorSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    // clearConflicted only meaningfully removes labels — Linear statuses
+    // are mutually exclusive (you set one to leave another), so removing a
+    // status marker is nonsensical. Validate at parse time so misconfigs
+    // surface immediately.
+    const clear = value.clearConflicted;
+    if (!clear) return;
+    const markers = "apply" in clear ? clear.apply : [clear];
+    for (const m of markers) {
+      if (m.type !== "label") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["clearConflicted"],
+          message: "clearConflicted markers must be label-typed (status removal is not supported)",
+        });
+        return;
+      }
+    }
+  });
+
 const RalphyConfigSchema = z
   .object({
     concurrency: z.number().int().positive().default(1),
     pollIntervalSeconds: z.number().int().positive().default(60),
     maxIterationsPerTask: z.number().int().nonnegative().default(0),
     maxCostUsdPerTask: z.number().nonnegative().default(0),
-    // Wall-clock minutes a single task may run before being stopped
-    // (0 = no limit). Forwarded as `--max-runtime` to each worker.
     maxRuntimeMinutesPerTask: z.number().nonnegative().default(0),
-    // Stop a task after N consecutive identical failures (0 = disable).
-    // Forwarded as `--max-failures` to each worker.
     maxConsecutiveFailuresPerTask: z.number().int().nonnegative().default(5),
-    // Seconds the worker waits between iterations (forwarded as --delay).
     iterationDelaySeconds: z.number().int().nonnegative().default(0),
-    // Forward --log to each worker (raw engine stream output).
     logRawStream: z.boolean().default(false),
-    // Forward --verbose to each worker.
     taskVerbose: z.boolean().default(false),
-    // When true, every task runs in a per-issue git worktree under
-    // ~/.ralph/<project>/worktrees/<change-name> on a fresh `ralph/<change-name>` branch.
     useWorktree: z.boolean().default(false),
-    // Whether to remove the worktree (and its branch is left intact) when
-    // the task exits cleanly. Failed tasks always keep the worktree for
-    // human inspection. Ignored when useWorktree is false.
     cleanupWorktreeOnSuccess: z.boolean().default(false),
-    // Shell command to run after a worktree is created and the change is
-    // scaffolded, but before the task loop starts. Runs in the worktree
-    // (or project root if useWorktree is false). Use this to install
-    // dependencies, copy .env files, etc.
     setupScript: z.string().optional(),
-    // Shell command to run after the task loop exits, before any worktree
-    // teardown. Runs in the same cwd as setupScript. Failures are logged
-    // but never block.
     teardownScript: z.string().optional(),
-    // Text appended to every scaffolded proposal.md under an "Additional
-    // instructions" section. Use for cross-cutting guidance you want every
-    // task to see (e.g. "Always run lint before committing").
     appendPrompt: z.string().optional(),
-    // When true, push the worker's branch and open a GitHub PR via `gh`
-    // after the task loop exits cleanly. Requires useWorktree (the PR
-    // needs a branch to point at) and a configured GitHub remote. The
-    // PR URL is then included in the Linear completion comment.
     createPrOnSuccess: z.boolean().default(false),
-    // Base branch for the PR (default "main").
     prBaseBranch: z.string().default("main"),
-    // After opening the PR, watch its CI checks and re-run the task with
-    // failure logs as steering until checks go green or maxCiFixAttempts
-    // is hit. Requires createPrOnSuccess (or --create-pr) and the `gh`
-    // CLI authenticated.
     fixCiOnFailure: z.boolean().default(false),
-    // Max number of "fix CI" attempts before giving up.
     maxCiFixAttempts: z.number().int().positive().default(5),
-    // Seconds between poll attempts when waiting for CI to settle.
     ciPollIntervalSeconds: z.number().int().positive().default(30),
     engine: z.enum(["claude", "codex"]).default("claude"),
     model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
@@ -61,27 +86,18 @@ const RalphyConfigSchema = z
       .object({
         team: z.string().optional(),
         assignee: z.string().optional(),
-        statuses: z.array(z.string()).default([]),
-        // Match any-of these label names. Single string in old configs is
-        // accepted and coerced to a 1-element array.
-        labels: z
-          .union([z.array(z.string()), z.string()])
-          .transform((v) => (typeof v === "string" ? [v] : v))
-          .default([]),
-        // Status name to move issues to when ralph starts working on them.
-        inProgressStatus: z.string().optional(),
-        // Status name to move issues to after a successful run.
-        doneStatus: z.string().optional(),
-        // Label name to add to the issue after a successful run.
-        // Useful when your team marks done via a label rather than a state.
-        doneLabel: z.string().optional(),
         // Whether to post progress comments on the Linear issue.
         postComments: z.boolean().default(true),
         // Post a progress update on the Linear issue every N task
         // iterations. 0 disables. Requires postComments to be true.
         updateEveryIterations: z.number().int().nonnegative().default(10),
+        /**
+         * Action map. Keys name the lifecycle event; values are typed
+         * markers (label/status) to query or apply. See {@link IndicatorsSchema}.
+         */
+        indicators: IndicatorsSchema.default({}),
       })
-      .default({ statuses: [], labels: [], postComments: true }),
+      .default({ postComments: true, updateEveryIterations: 10, indicators: {} }),
   })
   .default({
     concurrency: 1,
@@ -90,7 +106,7 @@ const RalphyConfigSchema = z
     maxCostUsdPerTask: 0,
     engine: "claude",
     model: "opus",
-    linear: { statuses: [], labels: [], postComments: true },
+    linear: { postComments: true, updateEveryIterations: 10, indicators: {} },
   });
 
 export type RalphyConfig = z.infer<typeof RalphyConfigSchema>;

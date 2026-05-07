@@ -197,14 +197,6 @@ describe("parseArgs", () => {
       "ENG",
       "--linear-assignee",
       "me",
-      "--linear-status",
-      "Todo",
-      "--linear-status",
-      "In Progress",
-      "--linear-label",
-      "p1",
-      "--linear-label",
-      "bug",
       "--poll-interval",
       "30",
       "--concurrency",
@@ -213,8 +205,6 @@ describe("parseArgs", () => {
     expect(result.mode).toBe("agent");
     expect(result.linearTeam).toBe("ENG");
     expect(result.linearAssignee).toBe("me");
-    expect(result.linearStatus).toEqual(["Todo", "In Progress"]);
-    expect(result.linearLabel).toEqual(["p1", "bug"]);
     expect(result.pollInterval).toBe(30);
     expect(result.concurrency).toBe(4);
   });
@@ -229,26 +219,50 @@ describe("parseArgs", () => {
     expect(result.worktree).toBe(false);
   });
 
-  test("parses --in-progress-status / --done-status / --done-label", async () => {
+  test("--indicator builds get / set entries; multiple set flags merge into apply[]", async () => {
     const result = await parseArgs([
       "agent",
-      "--in-progress-status",
-      "In Progress",
-      "--done-status",
-      "In Review",
-      "--done-label",
-      "ralphy-done",
+      "--indicator",
+      "getTodo:status:Todo",
+      "--indicator",
+      "getTodo:label:ready",
+      "--indicator",
+      "setDone:status:Done",
+      "--indicator",
+      "setDone:label:shipped",
     ]);
-    expect(result.inProgressStatus).toBe("In Progress");
-    expect(result.doneStatus).toBe("In Review");
-    expect(result.doneLabel).toBe("ralphy-done");
+    expect(result.indicators.getTodo).toEqual({
+      filter: [
+        { type: "status", value: "Todo" },
+        { type: "label", value: "ready" },
+      ],
+    });
+    expect(result.indicators.setDone).toEqual({
+      apply: [
+        { type: "status", value: "Done" },
+        { type: "label", value: "shipped" },
+      ],
+    });
   });
 
-  test("status/label flags default to empty strings", async () => {
+  test("--indicator rejects unknown key / type / empty value", async () => {
+    await expect(parseArgs(["agent", "--indicator", "bogus:label:x"])).rejects.toThrow(
+      "unknown indicator key",
+    );
+    await expect(parseArgs(["agent", "--indicator", "setDone:badtype:x"])).rejects.toThrow(
+      "indicator type must be",
+    );
+    await expect(parseArgs(["agent", "--indicator", "setDone:label:"])).rejects.toThrow(
+      "value cannot be empty",
+    );
+    await expect(parseArgs(["agent", "--indicator", "no-colons"])).rejects.toThrow(
+      "expects key:type:value",
+    );
+  });
+
+  test("indicators default to empty object", async () => {
     const result = await parseArgs(["agent"]);
-    expect(result.inProgressStatus).toBe("");
-    expect(result.doneStatus).toBe("");
-    expect(result.doneLabel).toBe("");
+    expect(result.indicators).toEqual({});
   });
 
   test("parses --create-pr flag", async () => {

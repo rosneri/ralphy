@@ -49,6 +49,10 @@ interface PostTaskDeps {
   log: (text: string, color?: string) => void;
   /** Run a shell command and surface non-zero exit via `log`, never throw. */
   runScript: (label: string, cmd: string, cwd: string) => Promise<void>;
+  /** Optional: record the URL of the PR opened (or surfaced) for this
+   *  changeName. Used by the agent coordinator's conflict-scan to know
+   *  which changes to check for merge conflicts on subsequent polls. */
+  registerPr?: (changeName: string, prUrl: string) => void;
 }
 
 /**
@@ -279,6 +283,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         log(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
       } else {
         log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
+        deps.registerPr?.(changeName, pr.url);
 
         if (wantFixCi) {
           log(`  watching CI for ${pr.url} (max ${cfg.maxCiFixAttempts} fix attempts)`, "gray");

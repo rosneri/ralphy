@@ -1,52 +1,72 @@
-import type { LinearIssue, LinearFilter } from "./linear";
-import type { AgentStateStore, TaskEntry } from "./state";
+import type { SetIndicator } from "@ralphy/types";
+import type { LinearIssue } from "./linear";
 
-/** Subset of `AgentStateStore` the coordinator needs. Structural so tests
- *  can supply a fake without going through the class's private members. */
-export type CoordinatorStore = Pick<
-  AgentStateStore,
-  "snapshot" | "upsertTask" | "setLastPollAt" | "removeByChangeName"
->;
+/** "Started" comment marker — used for idempotency on resume. */
+const STARTED_COMMENT_PREFIX = "🤖 Ralph started working";
+const PROGRESS_COMMENT_PREFIX = "🔄 Ralph progress update";
+const CONFLICT_COMMENT_PREFIX = "⚠ Ralph detected merge conflicts";
 
-export interface IssueUpdater {
-  /** Resolve a status name to its workflow-state ID, scoped to the issue's team. */
-  resolveStateId: (issue: LinearIssue, stateName: string) => Promise<string | null>;
-  postComment: (issue: LinearIssue, body: string) => Promise<void>;
-  setState: (issue: LinearIssue, stateId: string) => Promise<void>;
-  /** Resolve a label name to its label ID, scoped to the issue's team. */
-  resolveLabelId?: (issue: LinearIssue, labelName: string) => Promise<string | null>;
-  addLabel?: (issue: LinearIssue, labelId: string) => Promise<void>;
+/** Spawn shape — same as before. */
+interface WorkerHandle {
+  exited: Promise<number>;
+  kill: () => void;
 }
 
+/** Result of a `prepare` step. The wire layer is responsible for the side
+ *  effects (scaffold, worktree create-or-resume, fix-task prepend, state
+ *  reactivation) — the coordinator only sees the change name back. */
+export interface PrepareResult {
+  changeName: string;
+  /** Optional: PR URL the spawn should reference (used for conflict-fix runs). */
+  prUrl?: string;
+}
+
+export type SpawnMode = "fresh" | "resume" | "conflict-fix";
+
 export interface CoordinatorDeps {
-  fetchIssues: (filter: LinearFilter) => Promise<LinearIssue[]>;
-  scaffold: (issue: LinearIssue) => Promise<string>;
-  spawnWorker: (
-    changeName: string,
-    issue: LinearIssue,
-  ) => { exited: Promise<number>; kill: () => void };
-  /** Single-writer store for `.ralph/agent-state.json`. The coordinator
-   *  is the only mutator; callers construct it (and must call `load()`)
-   *  before passing it in. */
-  store: CoordinatorStore;
+  /** Issues to pick up. Empty array if `getTodo` isn't configured. */
+  fetchTodo: () => Promise<LinearIssue[]>;
+  /** Issues to resume after restart. Empty array if `getInProgress` isn't configured. */
+  fetchInProgress: () => Promise<LinearIssue[]>;
+  /** Issues already labeled conflicted (re-fix). Empty array if not configured. */
+  fetchConflicted: () => Promise<LinearIssue[]>;
+  /** Issues with `setDone` applied that ralph should scan for PR conflicts.
+   *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
+  fetchDoneCandidates: () => Promise<LinearIssue[]>;
+  /**
+   * Side-effect: scaffold (fresh), resume worktree (resume), or prepend
+   * conflict-fix task + reactivate state (conflict-fix). Returns the
+   * change name and (for conflict-fix) the PR URL.
+   */
+  prepare: (issue: LinearIssue, mode: SpawnMode) => Promise<PrepareResult>;
+  /** Spawn the worker subprocess for `changeName`. */
+  spawnWorker: (changeName: string, issue: LinearIssue) => WorkerHandle;
+  /** Apply a SetIndicator (label add and/or status set) to the issue. */
+  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  /** Remove a SetIndicator's labels from the issue. Status removal is a no-op. */
+  removeIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  /** Post a comment to the Linear issue. */
+  postComment: (issue: LinearIssue, body: string) => Promise<void>;
+  /** Fetch existing Linear comments — used for "started" idempotency. */
+  fetchComments: (issueId: string) => Promise<{ body: string }[]>;
+  /** Check if a known PR has merge conflicts. Returns null if no PR is
+   *  known for this issue (e.g. branch deleted, never created). */
+  checkPrConflict: (issue: LinearIssue) => Promise<{ url: string; conflicting: boolean } | null>;
   onLog: (text: string, color?: string) => void;
   onWorkersChanged: () => void;
-  /** Optional: when present, the coordinator updates the Linear issue on start/exit. */
-  updater?: IssueUpdater;
-  /** Optional: returns the current iteration count for an active worker.
-   *  Used to drive periodic progress comments on the Linear issue. */
+  /** Returns the current iteration count for an active worker (for
+   *  periodic progress comments). */
   getIterationCount?: (changeName: string) => Promise<number>;
 }
 
-interface CoordinatorOptions {
+export interface CoordinatorOptions {
   concurrency: number;
-  filter: LinearFilter;
-  inProgressStatus?: string | undefined;
-  doneStatus?: string | undefined;
-  /** Label to add to the issue on successful completion. */
-  doneLabel?: string | undefined;
+  setInProgress?: SetIndicator | undefined;
+  setDone?: SetIndicator | undefined;
+  setError?: SetIndicator | undefined;
+  setConflicted?: SetIndicator | undefined;
+  clearConflicted?: SetIndicator | undefined;
   postComments?: boolean | undefined;
-  /** Post a progress comment every N task iterations (0 disables). */
   commentEveryIterations?: number | undefined;
 }
 
@@ -55,6 +75,7 @@ interface ActiveWorker {
   issueId: string;
   issueIdentifier: string;
   issue: LinearIssue;
+  mode: SpawnMode;
   kill: () => void;
   /** Highest iteration count we've already posted a progress comment for. */
   lastReportedIteration: number;
@@ -62,9 +83,16 @@ interface ActiveWorker {
 
 export class AgentCoordinator {
   private workers: ActiveWorker[] = [];
+  /** Issues whose prepare step is in flight (between dequeue and spawn). */
   private pendingIds = new Set<string>();
-  private queue: LinearIssue[] = [];
+  /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
+  private queue: { issue: LinearIssue; mode: SpawnMode }[] = [];
   private stopped = false;
+  /** Issues we've already detected as conflicted in this process — guards
+   *  against re-posting the conflict comment every poll. Cleared once
+   *  the worker exits successfully (clearConflicted is applied). */
+  private conflictNotified = new Set<string>();
+  private lastPollAt: string | null = null;
 
   constructor(
     private readonly deps: CoordinatorDeps,
@@ -80,77 +108,130 @@ export class AgentCoordinator {
   get activeWorkers(): readonly ActiveWorker[] {
     return this.workers;
   }
-
-  async init(): Promise<void> {
-    // Store is loaded by the caller before construction; this is a hook
-    // for future async setup (currently a no-op).
+  get lastPollAtIso(): string | null {
+    return this.lastPollAt;
   }
 
+  async init(): Promise<void> {
+    // No-op — coordinator state is fully derived from Linear at poll time.
+  }
+
+  /**
+   * One poll cycle:
+   *  1. Fetch todo + in-progress + conflicted issues from Linear.
+   *  2. Enqueue ones we aren't already handling, with the right spawn mode.
+   *  3. Sort the queue by priority and spawn up to `concurrency`.
+   *  4. Scan `setDone` PRs for merge conflicts (independent path).
+   *  5. Post any due progress comments.
+   *
+   *  Returns counts for status display.
+   */
   async pollOnce(): Promise<{ found: number; added: number }> {
     if (this.stopped) return { found: 0, added: 0 };
 
-    let issues: LinearIssue[];
+    let todo: LinearIssue[] = [];
+    let inProgress: LinearIssue[] = [];
+    let conflicted: LinearIssue[] = [];
     try {
-      issues = await this.deps.fetchIssues(this.opts.filter);
+      [todo, inProgress, conflicted] = await Promise.all([
+        this.deps.fetchTodo(),
+        this.deps.fetchInProgress(),
+        this.deps.fetchConflicted(),
+      ]);
     } catch (err) {
       this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
       return { found: 0, added: 0 };
     }
 
-    const state = this.deps.store.snapshot();
-    const tasksByIssueId = new Map<string, TaskEntry>();
-    for (const entry of Object.values(state.tasks)) {
-      tasksByIssueId.set(entry.issueId, entry);
-    }
-    const isProcessed = (id: string): boolean => tasksByIssueId.get(id)?.state === "processed";
-    const isFailed = (id: string): boolean => tasksByIssueId.get(id)?.state === "failed";
-    const queued = new Set(this.queue.map((i) => i.id));
-    const active = new Set(this.workers.map((w) => w.issueId));
+    const queuedIds = new Set(this.queue.map((q) => q.issue.id));
+    const activeIds = new Set(this.workers.map((w) => w.issueId));
+    const eligible = (id: string): boolean =>
+      !queuedIds.has(id) && !activeIds.has(id) && !this.pendingIds.has(id);
 
     let added = 0;
-    for (const issue of issues) {
-      if (isProcessed(issue.id)) continue;
-      if (isFailed(issue.id)) continue;
-      if (queued.has(issue.id)) continue;
-      if (active.has(issue.id)) continue;
-      if (this.pendingIds.has(issue.id)) continue;
-      const blocker = issue.blockedByIds.find((bid) => !isProcessed(bid));
-      if (blocker !== undefined) {
-        this.deps.onLog(
-          `  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`,
-          "yellow",
-        );
-        continue;
-      }
-      this.queue.push(issue);
+
+    // 1. In-progress issues take precedence on restart — re-attach first
+    //    so concurrency budget is honored.
+    for (const issue of inProgress) {
+      if (!eligible(issue.id)) continue;
+      if (!this.dependenciesResolved(issue)) continue;
+      this.queue.push({ issue, mode: "resume" });
+      queuedIds.add(issue.id);
+      added += 1;
+    }
+
+    // 2. Conflicted issues: re-fix runs.
+    for (const issue of conflicted) {
+      if (!eligible(issue.id)) continue;
+      this.queue.push({ issue, mode: "conflict-fix" });
+      queuedIds.add(issue.id);
+      added += 1;
+    }
+
+    // 3. Fresh todo.
+    for (const issue of todo) {
+      if (!eligible(issue.id)) continue;
+      if (!this.dependenciesResolved(issue)) continue;
+      this.queue.push({ issue, mode: "fresh" });
+      queuedIds.add(issue.id);
       added += 1;
     }
 
     if (added > 0) {
-      // Sort by priority: 1=Urgent first, then High/Medium/Low; 0=No priority last.
+      // Stable sort by priority (1=Urgent first; 0=No-priority last). Mode
+      // preference is preserved when priority ties: resume < conflict-fix
+      // < fresh, because resumes shouldn't wait behind a fresh queue.
+      const modeRank: Record<SpawnMode, number> = {
+        resume: 0,
+        "conflict-fix": 1,
+        fresh: 2,
+      };
       this.queue.sort((a, b) => {
-        const pa = a.priority === 0 ? Infinity : a.priority;
-        const pb = b.priority === 0 ? Infinity : b.priority;
-        return pa - pb;
+        const pa = a.issue.priority === 0 ? Infinity : a.issue.priority;
+        const pb = b.issue.priority === 0 ? Infinity : b.issue.priority;
+        if (pa !== pb) return pa - pb;
+        return modeRank[a.mode] - modeRank[b.mode];
       });
     }
 
-    await this.deps.store.setLastPollAt(new Date().toISOString());
+    this.lastPollAt = new Date().toISOString();
 
     this.spawnNext();
+    await this.scanDoneForConflicts();
     await this.reportProgress();
-    return { found: issues.length, added };
+
+    const found = todo.length + inProgress.length + conflicted.length;
+    return { found, added };
+  }
+
+  /** Returns true if all `blockedByIds` are not present in `inProgress`/
+   *  `todo` view — i.e. they're either completed or external. The Linear
+   *  fetch already filters out blockers in completed/cancelled states, so
+   *  any remaining blocker is genuinely open. */
+  private dependenciesResolved(issue: LinearIssue): boolean {
+    if (issue.blockedByIds.length === 0) return true;
+    const openIds = new Set([
+      ...this.queue.map((q) => q.issue.id),
+      ...this.workers.map((w) => w.issueId),
+    ]);
+    const blocker = issue.blockedByIds.find((bid) => openIds.has(bid));
+    if (blocker !== undefined) {
+      this.deps.onLog(
+        `  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`,
+        "yellow",
+      );
+      return false;
+    }
+    // Blockers that aren't in our open view: trust Linear's `blocked_by`
+    // pruning (only unresolved blockers are returned). They might still be
+    // genuinely open elsewhere — log and skip.
+    this.deps.onLog(`  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`, "yellow");
+    return false;
   }
 
   private async reportProgress(): Promise<void> {
-    const updater = this.deps.updater;
     const everyN = this.opts.commentEveryIterations ?? 0;
-    if (
-      everyN <= 0 ||
-      !updater ||
-      this.opts.postComments === false ||
-      !this.deps.getIterationCount
-    ) {
+    if (everyN <= 0 || this.opts.postComments === false || !this.deps.getIterationCount) {
       return;
     }
     for (const w of this.workers) {
@@ -169,9 +250,9 @@ export class AgentCoordinator {
       const lastMilestone = Math.floor(w.lastReportedIteration / everyN);
       if (currMilestone <= lastMilestone) continue;
       try {
-        await updater.postComment(
+        await this.deps.postComment(
           w.issue,
-          `🔄 Ralph progress update: iteration ${count} on \`${w.changeName}\``,
+          `${PROGRESS_COMMENT_PREFIX}: iteration ${count} on \`${w.changeName}\``,
         );
         w.lastReportedIteration = count;
       } catch (err) {
@@ -183,26 +264,90 @@ export class AgentCoordinator {
     }
   }
 
+  /**
+   * For every issue we believe is "done" but we tracked a PR for, check
+   * whether the PR has merge conflicts. If yes, apply `setConflicted`,
+   * post a Linear comment (once per detection), and enqueue the issue
+   * for a conflict-fix run.
+   */
+  private async scanDoneForConflicts(): Promise<void> {
+    if (!this.opts.setConflicted) return; // can't mark conflicted → can't act
+    let candidates: LinearIssue[] = [];
+    try {
+      candidates = await this.deps.fetchDoneCandidates();
+    } catch (err) {
+      this.deps.onLog(`! conflict scan fetch failed: ${(err as Error).message}`, "yellow");
+      return;
+    }
+    if (candidates.length === 0) return;
+
+    for (const issue of candidates) {
+      if (this.workers.some((w) => w.issueId === issue.id)) continue;
+      if (this.pendingIds.has(issue.id)) continue;
+      if (this.queue.some((q) => q.issue.id === issue.id)) continue;
+      let pr: { url: string; conflicting: boolean } | null;
+      try {
+        pr = await this.deps.checkPrConflict(issue);
+      } catch (err) {
+        this.deps.onLog(
+          `! PR conflict check failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        continue;
+      }
+      if (!pr || !pr.conflicting) continue;
+      const alreadyNotified = this.conflictNotified.has(issue.id);
+      if (alreadyNotified) continue;
+
+      try {
+        await this.deps.applyIndicator(issue, this.opts.setConflicted);
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
+          "red",
+        );
+        continue;
+      }
+      this.conflictNotified.add(issue.id);
+      if (this.opts.postComments !== false) {
+        try {
+          await this.deps.postComment(
+            issue,
+            `${CONFLICT_COMMENT_PREFIX} on this PR (${pr.url}) — re-running to resolve`,
+          );
+        } catch (err) {
+          this.deps.onLog(
+            `! Linear conflict comment failed for ${issue.identifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
+      this.queue.push({ issue, mode: "conflict-fix" });
+    }
+
+    this.spawnNext();
+  }
+
   spawnNext(): void {
     if (this.stopped) return;
     while (
       this.workers.length + this.pendingIds.size < this.opts.concurrency &&
       this.queue.length > 0
     ) {
-      const issue = this.queue.shift()!;
-      this.pendingIds.add(issue.id);
-      void this.launchWorker(issue);
+      const next = this.queue.shift()!;
+      this.pendingIds.add(next.issue.id);
+      void this.launchWorker(next.issue, next.mode);
     }
   }
 
-  private async launchWorker(issue: LinearIssue): Promise<void> {
-    let changeName: string;
+  private async launchWorker(issue: LinearIssue, mode: SpawnMode): Promise<void> {
+    let prep: PrepareResult;
     try {
-      changeName = await this.deps.scaffold(issue);
+      prep = await this.deps.prepare(issue, mode);
     } catch (err) {
       this.pendingIds.delete(issue.id);
       this.deps.onLog(
-        `! scaffold failed for ${issue.identifier}: ${(err as Error).message}`,
+        `! prepare(${mode}) failed for ${issue.identifier}: ${(err as Error).message}`,
         "red",
       );
       this.spawnNext();
@@ -214,24 +359,59 @@ export class AgentCoordinator {
       return;
     }
 
-    {
-      // Single-writer rule: scaffold callbacks never touch agent-state.json
-      // directly. Every mutation goes through the store.
-      const existing = this.deps.store.snapshot().tasks[issue.identifier];
-      void this.deps.store.upsertTask(issue, {
-        state: "started",
-        changeName,
-        startedAt: existing?.startedAt ?? new Date().toISOString(),
-      });
+    // Apply setInProgress BEFORE spawning so a same-second re-poll doesn't
+    // see the issue as still-todo. Skip for resume (already in progress)
+    // and conflict-fix (don't flip away from setDone).
+    if (mode === "fresh" && this.opts.setInProgress) {
+      try {
+        await this.deps.applyIndicator(issue, this.opts.setInProgress);
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear setInProgress failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
     }
 
-    this.deps.onLog(`▶ ${issue.identifier} → ${changeName} (worker started)`, "cyan");
-    const handle = this.deps.spawnWorker(changeName, issue);
+    // Post the "started" comment idempotently — only on fresh, and only if
+    // we haven't already posted one (resume-detection via comment scan).
+    if (mode === "fresh" && this.opts.postComments !== false) {
+      let alreadyPosted = false;
+      try {
+        const comments = await this.deps.fetchComments(issue.id);
+        alreadyPosted = comments.some((c) => c.body.startsWith(STARTED_COMMENT_PREFIX));
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+      if (!alreadyPosted) {
+        try {
+          await this.deps.postComment(
+            issue,
+            `${STARTED_COMMENT_PREFIX} on this issue. Tracking change: \`${prep.changeName}\``,
+          );
+        } catch (err) {
+          this.deps.onLog(
+            `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
+            "red",
+          );
+        }
+      }
+    }
+
+    this.deps.onLog(
+      `▶ ${issue.identifier} → ${prep.changeName} (${mode})`,
+      mode === "conflict-fix" ? "yellow" : "cyan",
+    );
+    const handle = this.deps.spawnWorker(prep.changeName, issue);
     const worker: ActiveWorker = {
-      changeName,
+      changeName: prep.changeName,
       issueId: issue.id,
       issueIdentifier: issue.identifier,
       issue,
+      mode,
       kill: handle.kill,
       lastReportedIteration: 0,
     };
@@ -239,72 +419,39 @@ export class AgentCoordinator {
     this.pendingIds.delete(issue.id);
     this.deps.onWorkersChanged();
 
-    void this.notifyStarted(issue, changeName);
-
-    void handle.exited.then((code) => {
+    void handle.exited.then(async (code) => {
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
       const ok = code === 0;
       this.deps.onLog(
-        `${ok ? "✓" : "✗"} ${issue.identifier} → ${changeName} exited (code ${code})`,
+        `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
         ok ? "green" : "red",
       );
-      // ok → "processed". non-ok → "failed", which quarantines the
-      // issue so the next poll doesn't immediately re-pick it and
-      // infinite-loop on the same failure. Clear via
-      // `ralph clean --name <change>`.
-      void this.deps.store.upsertTask(issue, {
-        state: ok ? "processed" : "failed",
-        finishedAt: new Date().toISOString(),
-        exitCode: code,
-      });
-      void this.notifyExited(issue, changeName, code);
+      await this.notifyExited(issue, prep.changeName, code, mode);
       this.deps.onWorkersChanged();
       this.spawnNext();
     });
   }
 
-  private async notifyStarted(issue: LinearIssue, changeName: string): Promise<void> {
-    const updater = this.deps.updater;
-    if (!updater) return;
-    // Whether we've already posted the "Ralph started…" comment.
-    // Recorded by `commentPosted: true` on the task entry once the post
-    // succeeds. Survives restarts so we don't double-comment on resumes.
-    const alreadyCommented =
-      this.deps.store.snapshot().tasks[issue.identifier]?.commentPosted === true;
-    if (this.opts.postComments !== false && !alreadyCommented) {
-      try {
-        await updater.postComment(
-          issue,
-          `🤖 Ralph started working on this issue. Tracking change: \`${changeName}\``,
-        );
-        await this.deps.store.upsertTask(issue, { commentPosted: true });
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
-          "red",
-        );
-      }
-    }
-    if (this.opts.inProgressStatus) {
-      await this.moveIssue(issue, this.opts.inProgressStatus);
-    }
-  }
-
-  private async notifyExited(issue: LinearIssue, changeName: string, code: number): Promise<void> {
-    const updater = this.deps.updater;
-    if (!updater) return;
+  private async notifyExited(
+    issue: LinearIssue,
+    changeName: string,
+    code: number,
+    mode: SpawnMode,
+  ): Promise<void> {
     const ok = code === 0;
     if (this.opts.postComments !== false) {
       const body = ok
-        ? `✅ Ralph completed work on this issue. Change: \`${changeName}\``
+        ? mode === "conflict-fix"
+          ? `✅ Ralph resolved merge conflicts on this issue. Change: \`${changeName}\``
+          : `✅ Ralph completed work on this issue. Change: \`${changeName}\``
         : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
           `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
-          `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the underlying ` +
-          `failure (e.g. lint/typecheck), then run \`ralph clean --name ${changeName}\` to ` +
-          `clear the quarantine and let the next poll re-pick the issue.`;
+          `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the ` +
+          `underlying failure, then remove the error marker on this Linear issue (or run ` +
+          `\`ralph clean --name ${changeName}\`) to clear the quarantine.`;
       try {
-        await updater.postComment(issue, body);
+        await this.deps.postComment(issue, body);
       } catch (err) {
         this.deps.onLog(
           `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -312,60 +459,40 @@ export class AgentCoordinator {
         );
       }
     }
-    if (ok && this.opts.doneStatus) {
-      await this.moveIssue(issue, this.opts.doneStatus);
-    }
-    if (ok && this.opts.doneLabel) {
-      await this.tagIssue(issue, this.opts.doneLabel);
-    }
-  }
 
-  private async tagIssue(issue: LinearIssue, labelName: string): Promise<void> {
-    const updater = this.deps.updater!;
-    if (!updater.resolveLabelId || !updater.addLabel) {
-      this.deps.onLog(
-        `! Linear updater does not support labels (cannot tag ${issue.identifier} with '${labelName}')`,
-        "yellow",
-      );
-      return;
-    }
-    try {
-      const labelId = await updater.resolveLabelId(issue, labelName);
-      if (!labelId) {
-        this.deps.onLog(
-          `! Linear label '${labelName}' not found for ${issue.identifier}`,
-          "yellow",
-        );
-        return;
+    if (ok) {
+      // Conflict-fix success: clear the conflicted marker, leave setDone alone.
+      if (mode === "conflict-fix") {
+        if (this.opts.clearConflicted) {
+          try {
+            await this.deps.removeIndicator(issue, this.opts.clearConflicted);
+          } catch (err) {
+            this.deps.onLog(
+              `! Linear clearConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
+              "red",
+            );
+          }
+        }
+        this.conflictNotified.delete(issue.id);
+      } else if (this.opts.setDone) {
+        try {
+          await this.deps.applyIndicator(issue, this.opts.setDone);
+        } catch (err) {
+          this.deps.onLog(
+            `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
+            "red",
+          );
+        }
       }
-      await updater.addLabel(issue, labelId);
-      this.deps.onLog(`  → ${issue.identifier} tagged with '${labelName}'`, "gray");
-    } catch (err) {
-      this.deps.onLog(
-        `! Linear label add failed for ${issue.identifier}: ${(err as Error).message}`,
-        "red",
-      );
-    }
-  }
-
-  private async moveIssue(issue: LinearIssue, stateName: string): Promise<void> {
-    const updater = this.deps.updater!;
-    try {
-      const stateId = await updater.resolveStateId(issue, stateName);
-      if (!stateId) {
+    } else if (this.opts.setError) {
+      try {
+        await this.deps.applyIndicator(issue, this.opts.setError);
+      } catch (err) {
         this.deps.onLog(
-          `! Linear state '${stateName}' not found for ${issue.identifier}`,
-          "yellow",
+          `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
+          "red",
         );
-        return;
       }
-      await updater.setState(issue, stateId);
-      this.deps.onLog(`  → ${issue.identifier} moved to '${stateName}'`, "gray");
-    } catch (err) {
-      this.deps.onLog(
-        `! Linear state move failed for ${issue.identifier}: ${(err as Error).message}`,
-        "red",
-      );
     }
   }
 
