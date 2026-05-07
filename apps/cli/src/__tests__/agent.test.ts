@@ -80,26 +80,12 @@ describe("agent/config", () => {
     });
   });
 
-  test("loadRalphyConfig rejects legacy linear keys with a migration hint", async () => {
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({
-        linear: {
-          team: "ENG",
-          doneStatus: "Done",
-          indicators: { setDone: { type: "status", value: "Done" } },
-        },
-      }),
-    );
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow(/legacy linear keys/);
-  });
-
-  test("loadRalphyConfig rejects legacy keys even without an indicators map", async () => {
+  test("loadRalphyConfig rejects unknown linear keys", async () => {
     await Bun.write(
       join(tempDir, "ralphy.config.json"),
       JSON.stringify({ linear: { statuses: ["Todo"], doneLabel: "shipped" } }),
     );
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow(/statuses, doneLabel/);
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow();
   });
 
   test("loadRalphyConfig rejects status-typed clearConflicted", async () => {

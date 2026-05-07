@@ -97,33 +97,7 @@ const RalphyConfigSchema = z
          */
         indicators: IndicatorsSchema.default({}),
       })
-      .passthrough()
-      .superRefine((value, ctx) => {
-        // Legacy keys (pre-indicators schema). Reject loudly with a
-        // migration hint instead of silently stripping — a config with
-        // both shapes is ambiguous and a config with only the legacy
-        // shape would silently stop working otherwise.
-        const LEGACY_KEYS = [
-          "statuses",
-          "labels",
-          "inProgressStatus",
-          "doneStatus",
-          "doneLabel",
-        ] as const;
-        const found = LEGACY_KEYS.filter((k) => k in (value as Record<string, unknown>));
-        if (found.length === 0) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["linear"],
-          message:
-            `legacy linear keys [${found.join(", ")}] cannot be used together with the new ` +
-            `\`linear.indicators\` map — they describe the same lifecycle and combining them is ` +
-            `not possible. Migrate by moving each legacy key into linear.indicators (e.g. ` +
-            `doneStatus: "Done" → indicators.setDone: {type: "status", value: "Done"}; ` +
-            `statuses/labels → indicators.getTodo.filter; inProgressStatus → indicators.setInProgress; ` +
-            `doneLabel → indicators.setDone {type: "label", ...}).`,
-        });
-      })
+      .strict()
       .default({ postComments: true, updateEveryIterations: 10, indicators: {} }),
   })
   .default({

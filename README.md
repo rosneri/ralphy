@@ -89,10 +89,10 @@ What it does on each tick:
 1. Polls Linear for open issues matching the filter (team / assignee / status / labels)
 2. Dedupes against `.ralph/agent-state.json` (already processed) plus any in-flight workers
 3. For each new issue: fetches existing comments, scaffolds `openspec/changes/<id-slug>/{proposal.md,tasks.md,design.md}` (with the comments embedded so the worker sees prior discussion), then spawns `ralph task --name <id-slug>` up to the concurrency cap
-4. Posts a "🤖 started" comment on the Linear issue and (optionally) moves it to `inProgressStatus`
-5. On worker exit, posts a success/failure comment and (on success) moves the issue to `doneStatus` and/or applies `doneLabel`
+4. Posts a "🤖 started" comment on the Linear issue and applies the `setInProgress` indicator (if configured)
+5. On worker exit, posts a success/failure comment and applies the `setDone` indicator on success or `setError` on failure (if configured)
 
-Defaults are written to `ralphy.config.json` on first run; CLI flags override config values per invocation.
+A default `ralphy.config.json` is written on first run with every defaulted setting filled in; CLI flags override config values per invocation.
 
 ```jsonc
 {
@@ -105,13 +105,23 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
   "linear": {
     "team": "ENG",
     "assignee": "me",
-    "statuses": ["Todo", "In Progress"],
-    "labels": ["ralph", "automation"],
-    "inProgressStatus": "In Progress",
-    "doneStatus": "In Review",
-    "doneLabel": "ralphy-done",
     "postComments": true,
     "updateEveryIterations": 10,
+    "indicators": {
+      "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
+      "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
+      "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflicted" }] },
+      "setInProgress": { "type": "status", "value": "In Progress" },
+      "setDone": {
+        "apply": [
+          { "type": "status", "value": "In Review" },
+          { "type": "label", "value": "ralphy-done" },
+        ],
+      },
+      "setError": { "type": "label", "value": "ralph:error" },
+      "setConflicted": { "type": "label", "value": "ralph:conflicted" },
+      "clearConflicted": { "type": "label", "value": "ralph:conflicted" },
+    },
   },
   "useWorktree": true,
   "cleanupWorktreeOnSuccess": false,
@@ -131,7 +141,13 @@ Defaults are written to `ralphy.config.json` on first run; CLI flags override co
 }
 ```
 
-`doneStatus` and `doneLabel` are independent — set either, both, or neither. Use `doneLabel` if your team marks completion via a label rather than a workflow state.
+Linear is the source of truth for which issues Ralph has touched. Each `linear.indicators` key names a lifecycle event:
+
+- `getTodo` / `getInProgress` / `getConflicted` — `{ filter: [...] }` selectors used to find issues to pick up, resume, or repair.
+- `setInProgress` / `setDone` / `setError` / `setConflicted` — single marker `{ type, value }` or `{ apply: [...] }` for multi-marker.
+- `clearConflicted` — labels to remove once a conflicted PR is fixed (status removal is not supported).
+
+Marker types are `"label"` or `"status"`. Combine markers under `apply` when one event needs to set multiple — e.g. `setDone` flipping a status _and_ adding a "shipped" label.
 
 #### Per-task git worktrees
 
@@ -147,7 +163,7 @@ Use `setupScript` (run inside the worktree right after scaffolding) to install d
 
 **`fixCiOnFailure`** (or `--fix-ci`) watches the PR's checks via `gh pr checks` and, on failure, fetches the failed-run logs (`gh run view --log-failed`), appends them to `proposal.md` under `## Steering`, re-spawns the task loop in the worktree, and pushes the new commits — repeating until checks go green or `maxCiFixAttempts` is hit (default 5, polling interval `ciPollIntervalSeconds` defaults to 30s). Requires `--create-pr`.
 
-When `fixCiOnFailure` is enabled, the issue is **not** moved to `doneStatus` (and `doneLabel` is not applied, and the issue is not marked processed in `.ralph/agent-state.json`) until CI actually goes green. If the fix loop exhausts its attempts the worker is treated as failed for completion-marking purposes and the issue will be re-picked-up on the next poll (the resume-in-progress filter ensures that).
+When `fixCiOnFailure` is enabled, the `setDone` indicator is **not** applied (and the issue is not marked processed in `.ralph/agent-state.json`) until CI actually goes green. If the fix loop exhausts its attempts the worker is treated as failed for completion-marking purposes and the issue will be re-picked-up on the next poll (the `getInProgress` filter ensures that).
 
 Every CLI flag is also configurable in `ralphy.config.json`; CLI values override config when both are set. The agent forwards `maxRuntimeMinutesPerTask` / `maxConsecutiveFailuresPerTask` / `iterationDelaySeconds` / `logRawStream` / `taskVerbose` to each spawned `ralph task` worker.
 
@@ -174,20 +190,16 @@ Failed workers (non-zero exit) are not marked processed, so they'll be retried o
 
 ### Agent mode flags
 
-| Option                        | Description                                                                  |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| `--linear-team <key>`         | Linear team key (e.g. `ENG`)                                                 |
-| `--linear-assignee <id>`      | Filter by assignee (user id, email, or `me`)                                 |
-| `--linear-status <name>`      | Filter by status name (repeatable)                                           |
-| `--linear-label <name>`       | Filter by label name (repeatable, any-of)                                    |
-| `--poll-interval <s>`         | Seconds between Linear polls (default: 60)                                   |
-| `--concurrency <n>`           | Max concurrent task loops (default: 1)                                       |
-| `--worktree`                  | Run each task in its own git worktree                                        |
-| `--in-progress-status <name>` | Linear status to set when work starts                                        |
-| `--done-status <name>`        | Linear status to set on successful completion                                |
-| `--done-label <name>`         | Linear label to add on successful completion                                 |
-| `--create-pr`                 | Push worker branch + open a GitHub PR on success (needs `--worktree`)        |
-| `--fix-ci`                    | After PR opens, re-run task on CI failures until green (needs `--create-pr`) |
+| Option                    | Description                                                                   |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                  |
+| `--linear-assignee <id>`  | Filter by assignee (user id, email, or `me`)                                  |
+| `--poll-interval <s>`     | Seconds between Linear polls (default: 60)                                    |
+| `--concurrency <n>`       | Max concurrent task loops (default: 1)                                        |
+| `--worktree`              | Run each task in its own git worktree                                         |
+| `--indicator <k>:<t>:<v>` | Override a `linear.indicators` entry; repeatable (e.g. `setDone:status:Done`) |
+| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)         |
+| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)  |
 
 ## OpenSpec Flow
 
