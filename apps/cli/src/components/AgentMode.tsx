@@ -78,23 +78,36 @@ const HYPERLINKS_SUPPORTED = !process.env["TMUX"];
 /** Box with a centered label embedded in the top border: ╭─── LABEL ───╮ */
 function LabeledBox({
   label,
+  labelNode,
+  labelVisualWidth,
   borderColor = "gray",
   width,
   children,
   ...rest
-}: { label: string; borderColor?: string; width: number; children: React.ReactNode } & Omit<
-  React.ComponentProps<typeof Box>,
-  "borderStyle" | "borderTop" | "borderColor" | "width"
->) {
+}: {
+  label?: string;
+  labelNode?: React.ReactNode;
+  labelVisualWidth?: number;
+  borderColor?: string;
+  width: number;
+  children: React.ReactNode;
+} & Omit<React.ComponentProps<typeof Box>, "borderStyle" | "borderTop" | "borderColor" | "width">) {
   const innerWidth = Math.max(0, width - 2);
-  const labelStr = ` ${label} `;
-  const dashes = Math.max(0, innerWidth - labelStr.length);
+  const visualLen = labelVisualWidth ?? (label ? label.length + 2 : 0);
+  const dashes = Math.max(0, innerWidth - visualLen);
   const left = Math.floor(dashes / 2);
   const right = dashes - left;
-  const top = `╭${"─".repeat(left)}${labelStr}${"─".repeat(right)}╮`;
   return (
     <Box flexDirection="column" width={width}>
-      <Text color={borderColor}>{top}</Text>
+      {labelNode ? (
+        <Box flexDirection="row">
+          <Text color={borderColor}>{`╭${"─".repeat(left)}`}</Text>
+          {labelNode}
+          <Text color={borderColor}>{`${"─".repeat(right)}╮`}</Text>
+        </Box>
+      ) : (
+        <Text color={borderColor}>{`╭${"─".repeat(left)} ${label ?? ""} ${"─".repeat(right)}╮`}</Text>
+      )}
       <Box borderStyle="round" borderTop={false} borderColor={borderColor} width={width} {...rest}>
         {children}
       </Box>
@@ -647,10 +660,22 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
           /* Compact row for non-focused workers */
           if (!isFocused && activeCount > 1) {
+            const cardLabelWidth =
+              (prUrl ? prLabel(prUrl).length + 3 : 0) + w.issueIdentifier.length + 2;
+            const cardLabelNode = (
+              <>
+                <Text color="gray"> </Text>
+                {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
+                {prUrl && <Text color="gray"> · </Text>}
+                <Link url={w.issue.url} label={w.issueIdentifier} color="cyan" />
+                <Text color="gray"> </Text>
+              </>
+            );
             return (
               <LabeledBox
                 key={w.changeName}
-                label={w.issueIdentifier}
+                labelNode={cardLabelNode}
+                labelVisualWidth={cardLabelWidth}
                 borderColor="gray"
                 paddingX={1}
                 gap={2}
@@ -681,10 +706,22 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           }
 
           /* Full card for the focused worker */
+          const cardLabelWidth =
+            (prUrl ? prLabel(prUrl).length + 3 : 0) + w.issueIdentifier.length + 2;
+          const cardLabelNode = (
+            <>
+              <Text color={bColor}> </Text>
+              {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
+              {prUrl && <Text color={bColor}> · </Text>}
+              <Link url={w.issue.url} label={w.issueIdentifier} color="cyan" />
+              <Text color={bColor}> </Text>
+            </>
+          );
           return (
             <LabeledBox
               key={w.changeName}
-              label={w.issueIdentifier}
+              labelNode={cardLabelNode}
+              labelVisualWidth={cardLabelWidth}
               borderColor={bColor}
               flexDirection="column"
               paddingX={1}
@@ -693,10 +730,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               {/* ── Card header ─────────────────────────────── */}
               <Box gap={2}>
                 <Text>{spinnerFrame}</Text>
-                {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
-                <Link url={w.issue.url} label={w.issueIdentifier} color="cyan" />
                 <Text color="white" bold>
-                  {trunc(w.issue.title, Math.max(20, termWidth - 68))}
+                  {trunc(w.issue.title, Math.max(20, termWidth - 55))}
                 </Text>
                 <Text color={mBadge.color} bold>
                   [{mBadge.text}]
