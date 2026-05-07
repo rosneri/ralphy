@@ -302,7 +302,8 @@ export function buildAgentCoordinator(
       map.set(name.toLowerCase(), newId);
       onLog(`  created Linear label '${name}' for team ${t}`, "gray");
       return newId;
-    } catch {
+    } catch (err) {
+      onLog(`! Linear label '${name}' creation threw: ${(err as Error).message}`, "yellow");
       return null;
     }
   }

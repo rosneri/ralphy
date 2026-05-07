@@ -382,9 +382,10 @@ export class AgentCoordinator {
     }
 
     // Apply setInProgress BEFORE spawning so a same-second re-poll doesn't
-    // see the issue as still-todo. Skip for resume (already in progress)
-    // and conflict-fix (don't flip away from setDone).
-    if (mode === "fresh" && this.opts.setInProgress) {
+    // see the issue as still-todo. Skip for resume (already in progress).
+    // Conflict-fix mode also applies it so the issue stays tracked if the
+    // agent restarts mid-fix (setConflicted label may have failed to apply).
+    if (mode !== "resume" && this.opts.setInProgress) {
       try {
         await this.deps.applyIndicator(issue, this.opts.setInProgress);
       } catch (err) {
