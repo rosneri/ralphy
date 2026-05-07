@@ -29,6 +29,15 @@ describe("telemetry", () => {
     if (original !== undefined) process.env["RALPH_POSTHOG_KEY"] = original;
   });
 
+  test("setDefaultProperties and capture do not throw", async () => {
+    const { setDefaultProperties, capture } = await import("../index");
+    // client is null here (init not called), so capture is a no-op — but
+    // setDefaultProperties must not throw and the merged-props path must be safe.
+    setDefaultProperties({ mode: "agent", engine: "claude" });
+    expect(() => capture("test_event", { extra: "val" })).not.toThrow();
+    expect(mockCapture).not.toHaveBeenCalled();
+  });
+
   test("capture is a no-op when RALPH_TELEMETRY=0", async () => {
     const origKey = process.env["RALPH_POSTHOG_KEY"];
     const origTel = process.env["RALPH_TELEMETRY"];

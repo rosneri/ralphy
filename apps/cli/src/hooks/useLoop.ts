@@ -246,10 +246,17 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
 
             // Stop immediately on rate limits or fatal engine errors
             if (failure.shouldStop || engineResult.rateLimited) {
+              capture("engine_rate_limited", { exit_code: engineResult.exitCode, iteration: iter });
               finalStopReason = "rateLimited";
               setStopReason("rateLimited");
               break;
             }
+
+            capture("iteration_failed", {
+              exit_code: engineResult.exitCode,
+              iteration: iter,
+              consecutive_failures: consFailures + 1,
+            });
 
             if (result === lastResult) {
               consFailures++;
@@ -299,7 +306,9 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             await sleep(opts.delay);
           }
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           addInfo(`Engine error: ${err}`);
+          capture("engine_error", { iteration: iter, error: message });
           break;
         }
       }

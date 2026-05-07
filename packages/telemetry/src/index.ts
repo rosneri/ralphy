@@ -13,6 +13,12 @@ const enabled = process.env["RALPH_TELEMETRY"] !== "0";
 
 let client: PostHog | null = null;
 let distinctId = "anonymous";
+let defaultProps: Record<string, unknown> = {};
+
+/** Merge properties that will be included on every subsequent capture() call. */
+export function setDefaultProperties(props: Record<string, unknown>): void {
+  defaultProps = { ...defaultProps, ...props };
+}
 
 export async function init(): Promise<void> {
   if (!enabled) return;
@@ -35,7 +41,8 @@ export async function init(): Promise<void> {
 }
 
 export function capture(event: string, properties?: Record<string, unknown>): void {
-  client?.capture({ distinctId, event, ...(properties !== undefined && { properties }) });
+  const merged = { ...defaultProps, ...properties };
+  client?.capture({ distinctId, event, properties: merged });
 }
 
 export async function shutdown(): Promise<void> {

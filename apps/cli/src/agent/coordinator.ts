@@ -1,5 +1,6 @@
 import type { SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
+import { capture } from "@ralphy/telemetry";
 
 /** Spawn shape — same as before. */
 interface WorkerHandle {
@@ -131,6 +132,7 @@ export class AgentCoordinator {
       ]);
     } catch (err) {
       this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
+      capture("agent_linear_poll_failed", { error: (err as Error).message });
       return { found: 0, added: 0 };
     }
 
@@ -287,6 +289,7 @@ export class AgentCoordinator {
       if (!pr || !pr.conflicting) continue;
       const alreadyNotified = this.conflictNotified.has(issue.id);
       if (alreadyNotified) continue;
+      capture("agent_conflict_detected", { issue_identifier: issue.identifier });
 
       try {
         await this.deps.applyIndicator(issue, this.opts.setConflicted);
@@ -295,6 +298,11 @@ export class AgentCoordinator {
           `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
           "red",
         );
+        capture("agent_indicator_failed", {
+          indicator: "setConflicted",
+          issue_identifier: issue.identifier,
+          error: (err as Error).message,
+        });
         continue;
       }
       this.conflictNotified.add(issue.id);
@@ -339,6 +347,11 @@ export class AgentCoordinator {
         `! prepare(${mode}) failed for ${issue.identifier}: ${(err as Error).message}`,
         "red",
       );
+      capture("agent_prepare_failed", {
+        spawn_mode: mode,
+        issue_identifier: issue.identifier,
+        error: (err as Error).message,
+      });
       this.spawnNext();
       return;
     }
@@ -359,6 +372,11 @@ export class AgentCoordinator {
           `! Linear setInProgress failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
+        capture("agent_indicator_failed", {
+          indicator: "setInProgress",
+          issue_identifier: issue.identifier,
+          error: (err as Error).message,
+        });
       }
     }
 
@@ -406,6 +424,10 @@ export class AgentCoordinator {
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
+    capture("agent_worker_spawned", {
+      spawn_mode: mode,
+      issue_identifier: issue.identifier,
+    });
     this.deps.onWorkersChanged();
 
     void handle.exited.then(async (code) => {
@@ -416,6 +438,12 @@ export class AgentCoordinator {
         `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
         ok ? "green" : "red",
       );
+      capture("agent_worker_exited", {
+        spawn_mode: mode,
+        issue_identifier: issue.identifier,
+        exit_code: code,
+        ok,
+      });
       await this.notifyExited(issue, prep.changeName, code, mode);
       this.deps.onWorkersChanged();
       this.spawnNext();
@@ -460,6 +488,11 @@ export class AgentCoordinator {
               `! Linear clearConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
               "red",
             );
+            capture("agent_indicator_failed", {
+              indicator: "clearConflicted",
+              issue_identifier: issue.identifier,
+              error: (err as Error).message,
+            });
           }
         }
         this.conflictNotified.delete(issue.id);
@@ -471,6 +504,11 @@ export class AgentCoordinator {
             `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
             "red",
           );
+          capture("agent_indicator_failed", {
+            indicator: "setDone",
+            issue_identifier: issue.identifier,
+            error: (err as Error).message,
+          });
         }
       }
     } else if (this.opts.setError) {
@@ -481,6 +519,11 @@ export class AgentCoordinator {
           `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
           "red",
         );
+        capture("agent_indicator_failed", {
+          indicator: "setError",
+          issue_identifier: issue.identifier,
+          error: (err as Error).message,
+        });
       }
     }
   }
