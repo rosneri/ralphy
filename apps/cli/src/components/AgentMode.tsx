@@ -64,6 +64,31 @@ function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
+/** Extract a short label from a GitHub PR URL, e.g. "#123". */
+function prLabel(prUrl: string): string {
+  const m = prUrl.match(/\/pull\/(\d+)/);
+  return m ? `#${m[1]}` : "PR";
+}
+
+// Strip ANSI escape codes (CSI, OSC, and 2-char sequences).
+const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
+// Lines that are only box-drawing chars + spaces: Ink render artifacts.
+const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
+// Status bar tick line: braille-spinner "iter N │ $X │ Ns │ model" from TaskLoop's StatusBar.
+const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
+// Iteration header from IterationHeader component (starts with ──).
+const ITER_HEADER_LINE_RE = /^──/;
+
+/** Strip ANSI codes; return null if the line is a subprocess UI rendering artifact. */
+function cleanOutputLine(raw: string): string | null {
+  const clean = raw.replace(ANSI_STRIP_RE, "").trim();
+  if (!clean) return null;
+  if (BOX_ONLY_RE.test(clean)) return null;
+  if (STATUS_BAR_LINE_RE.test(clean)) return null;
+  if (ITER_HEADER_LINE_RE.test(clean)) return null;
+  return clean;
+}
+
 function priorityBadge(p: number): { text: string; color: string; label: string } {
   switch (p) {
     case 1:
@@ -231,7 +256,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         onWorkerOutput: (changeName, line) => {
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
-          m.tail.push(line);
+          const clean = cleanOutputLine(line);
+          if (!clean) return;
+          m.tail.push(clean);
           if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
         },
         onWorkerCmd: (changeName, cmd, state) => {
@@ -641,12 +668,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue">{w.issue.url}</Text>
+                  <Text color="blue">{w.issueIdentifier}</Text>
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green">{prUrl}</Text>
+                    <Text color="green">{prLabel(prUrl)}</Text>
                   </Box>
                 )}
               </Box>
