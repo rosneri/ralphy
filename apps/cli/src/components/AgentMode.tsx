@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
@@ -683,12 +683,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue">{w.issueIdentifier}</Text>
+                  <Text color="blue">{`\x1b]8;;${w.issue.url}\x07${w.issueIdentifier}\x1b]8;;\x07`}</Text>
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green">{prLabel(prUrl)}</Text>
+                    <Text color="green">{`\x1b]8;;${prUrl}\x07${prLabel(prUrl)}\x1b]8;;\x07`}</Text>
                   </Box>
                 )}
               </Box>
@@ -704,7 +704,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               )}
 
               {/* ── Phase + command ──────────────────────────── */}
-              <Box gap={3} marginTop={0}>
+              <Box gap={3} marginTop={0} flexWrap="wrap">
                 <Box gap={1}>
                   <Text dimColor>PHASE</Text>
                   <Text color={pColor} bold>
@@ -722,7 +722,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 )}
                 <Box gap={1}>
                   <Text dimColor>LOG</Text>
-                  <Text dimColor>{trunc(meta?.logFile ?? "–", 60)}</Text>
+                  <Text dimColor>
+                    {trunc(meta?.logFile ? relative(process.cwd(), meta.logFile) : "–", 40)}
+                  </Text>
                 </Box>
               </Box>
 
