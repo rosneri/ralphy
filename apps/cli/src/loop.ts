@@ -10,4 +10,7 @@ export {
   buildSteeringPrompt,
   mergeUsage,
 } from "@ralphy/core/loop";
-export { allCompleted, countUnchecked } from "@ralphy/core/tasks-md";
+export {
+  allCompleted as allTasksCompleted,
+  countUnchecked as countUncheckedTasks,
+} from "@ralphy/core/tasks-md";
