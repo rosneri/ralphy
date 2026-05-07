@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { join, relative } from "node:path";
+import { homedir } from "node:os";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
@@ -68,6 +69,22 @@ function trunc(s: string, max: number): string {
 function prLabel(prUrl: string): string {
   const m = prUrl.match(/\/pull\/(\d+)/);
   return m ? `#${m[1]}` : "PR";
+}
+
+/** Returns true when the terminal reliably renders OSC 8 hyperlinks. */
+const HYPERLINKS_SUPPORTED = (() => {
+  if (process.env["TMUX"]) return false;
+  const tp = process.env["TERM_PROGRAM"];
+  if (tp === "iTerm.app" || tp === "WezTerm" || tp === "Hyper") return true;
+  const term = process.env["TERM"];
+  if (term === "xterm-kitty" || term === "foot" || term === "xterm-ghostty") return true;
+  if (process.env["VTE_VERSION"]) return true;
+  return false;
+})();
+
+/** Wraps label in an OSC 8 terminal hyperlink if the terminal supports it. */
+function osc8(url: string, label: string): string {
+  return HYPERLINKS_SUPPORTED ? `\x1b]8;;${url}\x07${label}\x1b]8;;\x07` : label;
 }
 
 // Strip ANSI escape codes (CSI, OSC, and 2-char sequences).
@@ -176,6 +193,19 @@ function displayTailLines(activeCount: number): number {
   return 5;
 }
 
+/** Agent-mode debug log written to ~/.ralph/agent-mode.log (appended each session). */
+const AGENT_LOG_PATH = join(homedir(), ".ralph", "agent-mode.log");
+const SESSION_START = new Date().toISOString();
+
+function writeAgentLog(text: string) {
+  const line = `[${new Date().toISOString()}] ${text}\n`;
+  Bun.file(AGENT_LOG_PATH)
+    .text()
+    .catch(() => "")
+    .then((existing) => Bun.write(AGENT_LOG_PATH, existing + line))
+    .catch(() => undefined);
+}
+
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -199,6 +229,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
   function appendLog(text: string, color?: string) {
     setLogs((prev) => [...prev, { id: nextId(), text, color }]);
+    writeAgentLog(text);
   }
 
   useEffect(() => {
@@ -206,6 +237,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     let cancelled = false;
 
     async function init() {
+      writeAgentLog(`=== session start ${SESSION_START} ===`);
       const cfgPath = await ensureRalphyConfig(projectRoot);
       const cfg = await loadRalphyConfig(projectRoot);
       cfgRef.current = cfg;
@@ -228,6 +260,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         onLog: appendLog,
         onWorkersChanged: () => setTick((t) => t + 1),
         onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+          writeAgentLog(`worker-started ${changeName} log=${logFile}`);
           workerMetaRef.current.set(changeName, {
             startedAt: Date.now(),
             statesDir: dir,
@@ -244,12 +277,16 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           });
         },
         onWorkerExited: (changeName) => {
+          writeAgentLog(`worker-exited ${changeName}`);
           workerMetaRef.current.delete(changeName);
         },
         onWorkerPhase: (changeName, phase, detail) => {
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
-          if (m.phase !== phase) m.phaseStartedAt = Date.now();
+          if (m.phase !== phase) {
+            writeAgentLog(`phase ${changeName}: ${phase}${detail ? ` (${detail})` : ""}`);
+            m.phaseStartedAt = Date.now();
+          }
           m.phase = phase;
           m.phaseDetail = detail ?? "";
         },
@@ -683,12 +720,16 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue">{`\x1b]8;;${w.issue.url}\x07${w.issueIdentifier}\x1b]8;;\x07`}</Text>
+                  <Text color="blue" underline={HYPERLINKS_SUPPORTED}>
+                    {osc8(w.issue.url, w.issueIdentifier)}
+                  </Text>
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green">{`\x1b]8;;${prUrl}\x07${prLabel(prUrl)}\x1b]8;;\x07`}</Text>
+                    <Text color="green" underline={HYPERLINKS_SUPPORTED}>
+                      {osc8(prUrl, prLabel(prUrl))}
+                    </Text>
                   </Box>
                 )}
               </Box>

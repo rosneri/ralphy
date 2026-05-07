@@ -42,6 +42,7 @@
     "mts",
     "mjs",
     "fission",
+    "ghostty",
     "shellcheck",
     "cspell",
     "zod",
