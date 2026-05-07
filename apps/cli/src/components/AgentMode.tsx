@@ -447,13 +447,27 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               </Text>
             )}
           </Text>
-          {/* Line 2: Linear filter — raw string, truncated to fit */}
-          {pollStatus.filterDesc && (
-            <Text dimColor>
-              {"Linear  "}
-              {trunc(pollStatus.filterDesc.replace(/, /g, "  ·  "), termWidth - 12)}
-            </Text>
-          )}
+          {/* Line 2+: Linear filter — wrapped across as many lines as needed */}
+          {pollStatus.filterDesc &&
+            (() => {
+              const prefix = "Linear  ";
+              const indent = " ".repeat(prefix.length);
+              const full = pollStatus.filterDesc.replace(/, /g, "  ·  ");
+              const lineWidth = Math.max(20, termWidth - 4);
+              const lines: string[] = [];
+              let remaining = full;
+              while (remaining.length > 0) {
+                const budget = lineWidth - (lines.length === 0 ? prefix.length : indent.length);
+                lines.push(remaining.slice(0, budget));
+                remaining = remaining.slice(budget);
+              }
+              return lines.map((segment, i) => (
+                <Text key={i} dimColor>
+                  {i === 0 ? prefix : indent}
+                  {segment}
+                </Text>
+              ));
+            })()}
         </Box>
 
         {/* ── Poll status + queue ─────────────────────────────── */}
