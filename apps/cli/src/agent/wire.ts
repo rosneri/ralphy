@@ -13,6 +13,8 @@ import {
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
+  fetchTeamIdByKey,
+  createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
   type LinearIssue,
@@ -244,6 +246,7 @@ export function buildAgentCoordinator(
 
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
+  const teamIdCache = new Map<string, string>();
   const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
 
   async function resolveStateId(issue: LinearIssue, name: string): Promise<string | null> {
@@ -265,7 +268,25 @@ export function buildAgentCoordinator(
       map = new Map(labels.map((l) => [l.name.toLowerCase(), l.id]));
       labelCache.set(t, map);
     }
-    return map.get(name.toLowerCase()) ?? null;
+    const existing = map.get(name.toLowerCase());
+    if (existing) return existing;
+    // Label doesn't exist — create it.
+    try {
+      let teamId = teamIdCache.get(t);
+      if (!teamId) {
+        const fetched = await fetchTeamIdByKey(apiKey, t);
+        if (!fetched) return null;
+        teamId = fetched;
+        teamIdCache.set(t, teamId);
+      }
+      const newId = await createIssueLabel(apiKey, teamId, name);
+      if (!newId) return null;
+      map.set(name.toLowerCase(), newId);
+      onLog(`  created Linear label '${name}' for team ${t}`, "gray");
+      return newId;
+    } catch {
+      return null;
+    }
   }
 
   async function applyMarker(issue: LinearIssue, m: Marker): Promise<void> {
@@ -280,7 +301,7 @@ export function buildAgentCoordinator(
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
-        onLog(`! Linear label '${m.value}' not found for ${issue.identifier}`, "yellow");
+        onLog(`! Linear label '${m.value}' could not be created for ${issue.identifier}`, "yellow");
         return;
       }
       await addLabelToIssue(apiKey, issue.id, id);
