@@ -13,18 +13,8 @@ permissions:
   contents: read
 
 jobs:
-  setup:
+  ci:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup
-
-  static:
-    runs-on: ubuntu-latest
-    needs: setup
-    if: "!cancelled()"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -95,18 +85,6 @@ jobs:
         if: "!cancelled()"
         run: bun scripts/check-outdated.ts
 
-  test:
-    runs-on: ubuntu-latest
-    needs: setup
-    if: "!cancelled()"
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup
-        with:
-          nx-shas: "true"
-
       - name: Test affected files + coverage
         if: "!cancelled()"
         run: bun run test:affected-files:coverage:ci
@@ -119,52 +97,10 @@ jobs:
         if: "!cancelled() && startsWith(github.ref, 'refs/tags/v')"
         run: bun run test:coverage:ci
 
-  build:
-    runs-on: ubuntu-latest
-    needs: setup
-    if: "!cancelled()"
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/setup
-        with:
-          nx-shas: "true"
-
       - name: Security audit
         if: "!cancelled()"
         run: bun audit --audit-level=high
 
-      # - name: Install Tauri system dependencies # local-ci: skip
-      #   if: "!cancelled() && runner.os == 'Linux'"
-      #   run: |
-      #     sudo apt-get update
-      #     sudo apt-get install -y \
-      #       libwebkit2gtk-4.1-dev \
-      #       libappindicator3-dev \
-      #       librsvg2-dev \
-      #       patchelf \
-      #       libglib2.0-dev \
-      #       libgtk-3-dev \
-      #       libsoup-3.0-dev \
-      #       libjavascriptcoregtk-4.1-dev
-
       - name: Build (affected)
         if: "!cancelled()"
         run: bun run build:ci
-
-  ci:
-    runs-on: ubuntu-latest
-    needs: [setup, static, test, build]
-    if: always()
-    steps:
-      - name: Aggregate CI status # local-ci: skip
-        run: |
-          if [[ "${{ needs.setup.result }}" != "success" || \
-                "${{ needs.static.result }}" != "success" || \
-                "${{ needs.test.result }}" != "success" || \
-                "${{ needs.build.result }}" != "success" ]]; then
-            echo "One or more jobs failed"
-            exit 1
-          fi
-          echo "All jobs passed"
