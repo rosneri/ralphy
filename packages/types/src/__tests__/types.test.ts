@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { StateSchema, UsageSchema, HistoryEntrySchema } from "../types";
+import {
+  StateSchema,
+  UsageSchema,
+  HistoryEntrySchema,
+  markersOf,
+  type Marker,
+  type SetIndicator,
+} from "../types";
 
 describe("UsageSchema", () => {
   test("parses a full usage object", () => {
@@ -118,5 +125,25 @@ describe("StateSchema", () => {
   test("rejects missing required fields", () => {
     expect(() => StateSchema.parse({})).toThrow();
     expect(() => StateSchema.parse({ name: "x" })).toThrow();
+  });
+});
+
+describe("markersOf", () => {
+  test("wraps a single marker into a one-element array", () => {
+    const m: Marker = { type: "label", value: "shipped" };
+    expect(markersOf(m)).toEqual([m]);
+  });
+
+  test("returns the apply array for a multi-marker SetIndicator", () => {
+    const set: SetIndicator = {
+      apply: [
+        { type: "status", value: "Done" },
+        { type: "label", value: "shipped" },
+      ],
+    };
+    expect(markersOf(set)).toEqual([
+      { type: "status", value: "Done" },
+      { type: "label", value: "shipped" },
+    ]);
   });
 });
