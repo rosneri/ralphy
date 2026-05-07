@@ -481,8 +481,8 @@ describe("agent/linear", () => {
           data: {
             issueLabels: {
               nodes: [
-                { id: "l1", name: "ralphy-done" },
-                { id: "l2", name: "needs-review" },
+                { id: "l1", name: "ralphy-done", parent: null },
+                { id: "l2", name: "needs-review", parent: null },
               ],
             },
           },
@@ -494,6 +494,31 @@ describe("agent/linear", () => {
     expect(captured!.variables).toEqual({ team: "ENG" });
     expect(labels).toHaveLength(2);
     expect(labels[0]!.name).toBe("ralphy-done");
+  });
+
+  test("fetchIssueLabels joins parent name with colon for namespaced labels", async () => {
+    mockFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issueLabels: {
+                nodes: [
+                  { id: "l3", name: "error", parent: { name: "ralph" } },
+                  { id: "l4", name: "in-progress", parent: { name: "ralph" } },
+                  { id: "l5", name: "Bug", parent: null },
+                ],
+              },
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    const labels = await fetchIssueLabels("k", "ENG");
+    expect(labels).toHaveLength(3);
+    expect(labels[0]!.name).toBe("ralph:error");
+    expect(labels[1]!.name).toBe("ralph:in-progress");
+    expect(labels[2]!.name).toBe("Bug");
   });
 
   test("addLabelToIssue posts an issueAddLabel mutation", async () => {

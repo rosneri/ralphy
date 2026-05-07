@@ -179,7 +179,11 @@ class FakeLinear {
         JSON.stringify({
           data: {
             issueLabels: {
-              nodes: [...this.labelIds.entries()].map(([name, id]) => ({ id, name })),
+              nodes: [...this.labelIds.entries()].map(([name, id]) => ({
+                id,
+                name: name.includes(":") ? name.split(":")[1]! : name,
+                parent: name.includes(":") ? { name: name.split(":")[0]! } : null,
+              })),
             },
           },
         }),
