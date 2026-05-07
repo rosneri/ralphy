@@ -121,8 +121,14 @@ interface BuildAgentCoordinatorInput {
   /** Called whenever the active-worker set changes (drives re-render). */
   onWorkersChanged: () => void;
   /** Called when a new worker subprocess starts. The UI uses `statesDir`
-   *  to poll `<statesDir>/<changeName>/.ralph-state.json` for iter count. */
-  onWorkerStarted: (changeName: string, statesDir: string, logFile: string) => void;
+   *  to poll `<statesDir>/<changeName>/.ralph-state.json` for iter count,
+   *  and `changeDir` to read the first unchecked task from tasks.md. */
+  onWorkerStarted: (
+    changeName: string,
+    statesDir: string,
+    logFile: string,
+    changeDir: string,
+  ) => void;
   /** Called after the post-task block resolves; UI drops the worker row. */
   onWorkerExited: (changeName: string) => void;
   /** Phase transition for a worker — dashboard renders alongside iter+elapsed. */
@@ -139,6 +145,8 @@ interface BuildAgentCoordinatorInput {
     durationMs?: number,
     ok?: boolean,
   ) => void;
+  /** Called when a PR URL is registered for a worker — dashboard shows it. */
+  onWorkerPr?: (changeName: string, prUrl: string) => void;
   /** Optional side-effect overrides (test injection). */
   runners?: AgentRunners;
 }
@@ -626,7 +634,12 @@ export function buildAgentCoordinator(
         `respawn at ${new Date().toISOString()}`,
       ).exited;
     };
-    onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir, logFilePath);
+    onWorkerStarted(
+      changeName,
+      statesDirByChange.get(changeName) ?? statesDir,
+      logFilePath,
+      projectLayout(cwd).changeDir(changeName),
+    );
     onWorkerPhase?.(changeName, "working");
 
     const tracedCmd = onWorkerCmd
@@ -671,6 +684,7 @@ export function buildAgentCoordinator(
           registerPr: (cn, url) => {
             prByChange.set(cn, url);
             prUnavailable.delete(cn);
+            input.onWorkerPr?.(cn, url);
           },
           ...(onWorkerPhase && {
             onPhase: (phase: PostTaskPhase, detail?: string) =>
