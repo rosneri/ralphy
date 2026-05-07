@@ -38,6 +38,7 @@ export interface BuildInitialStateOptions {
   prompt: string;
   engine?: string;
   model?: string;
+  manualTest?: boolean;
 }
 
 /**
@@ -66,6 +67,7 @@ export function buildInitialState(options: BuildInitialStateOptions): State {
     prompt: options.prompt,
     engine: options.engine ?? "claude",
     model: options.model ?? "opus",
+    manualTest: options.manualTest ?? false,
     createdAt: now,
     lastModified: now,
     metadata: { branch },

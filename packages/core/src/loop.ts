@@ -4,6 +4,15 @@ import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked } from "./tasks-md";
 
+// Re-export task utilities with standardized names for use in loop context
+export {
+  allCompleted as allTasksCompleted,
+  countUnchecked as countUncheckedTasks,
+  prependSection,
+  prependFixTask,
+  firstUnchecked as extractFirstUncheckedSection,
+} from "./tasks-md";
+
 /**
  * Minimal change-store operations required by the loop.
  * Satisfied structurally by ChangeStore from @ralphy/change-store.
@@ -24,6 +33,7 @@ export interface LoopOptions {
   delay: number;
   log: boolean;
   verbose: boolean;
+  manualTest: boolean;
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;
@@ -35,6 +45,7 @@ const STEERING_MAX_LINES = 20;
  * Build the full prompt for a change iteration by concatenating:
  * 1. Steering section from proposal.md (first 20 non-header lines)
  * 2. First unchecked section of tasks.md
+ * 3. Manual testing instruction if enabled and primary tasks complete
  */
 export function buildTaskPrompt(state: State, taskDir: string): string {
   const storage = getStorage();
@@ -79,7 +90,29 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     prompt += `**First action**: create \`${taskDir}/tasks.md\` with a checklist of all work items derived from the prompt above (use \`## Section\` headings with \`- [ ] task\` items). Then begin the first unchecked item.\n\n`;
   }
 
-  // 3. Base context: change name and instructions
+  // 3. Manual testing instruction (if enabled and no more tasks)
+  if (state.manualTest) {
+    const tasksContent = storage.read(join(taskDir, "tasks.md"));
+    const hasUncheckedTasks = tasksContent !== null && /^- \[ \]/m.test(tasksContent);
+    if (!hasUncheckedTasks) {
+      const hasManualTestSection =
+        tasksContent !== null && /^## Manual Testing/m.test(tasksContent);
+      if (!hasManualTestSection) {
+        prompt += "---\n\n## Manual Testing Phase\n\n";
+        prompt +=
+          "All primary implementation tasks are complete. Now create manual test tasks.\n\n";
+        prompt += "1. Analyze the specification and implementation\n";
+        prompt +=
+          "2. Identify critical manual test scenarios (UI interactions, edge cases, user workflows, integration testing)\n";
+        prompt +=
+          "3. Add a `## Manual Testing` section to tasks.md with test items as `- [ ] Test scenario description`\n";
+        prompt += "4. Complete each test and check it off when done\n\n";
+        prompt += "---\n\n";
+      }
+    }
+  }
+
+  // 4. Base context: change name and instructions
   prompt += `Change name: \`${state.name}\`\n\n`;
   prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
 

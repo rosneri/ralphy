@@ -163,6 +163,7 @@ function makeOpts(overrides: Partial<LoopOptions> = {}): LoopOptions {
     delay: 0,
     log: false,
     verbose: false,
+    manualTest: false,
     statesDir: tempDir,
     tasksDir: tempDir,
     changeStore: stubChangeStore,

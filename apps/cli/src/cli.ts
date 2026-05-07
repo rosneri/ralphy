@@ -1,8 +1,47 @@
 import { log } from "@ralphy/output";
 import type { Engine, Indicators, Marker, Mode, SetIndicator, GetIndicator } from "@ralphy/types";
-import pkg from "../../../package.json" with { type: "json" };
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-export const VERSION: string = pkg.version;
+// Load package.json at runtime from the project root to work correctly from any location (source or compiled)
+function getVersion(): string {
+  // Walk up from current directory or import.meta.dir to find workspace root (has "workspaces" field)
+  const dirsToTry: string[] = [];
+
+  // Start from import.meta.dir if available
+  try {
+    const cliDir = import.meta.dir;
+    dirsToTry.push(cliDir);
+  } catch {
+    // import.meta.dir might not be available
+  }
+
+  // Also try from cwd
+  dirsToTry.push(process.cwd());
+
+  for (const startDir of dirsToTry) {
+    let current = startDir;
+    for (let i = 0; i < 10; i++) {
+      const pkgPath = resolve(current, "package.json");
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+        // Found workspace root (has "workspaces" field) with valid version
+        if (pkg.workspaces && pkg.version && pkg.version !== "0.0.0") {
+          return pkg.version;
+        }
+      } catch {
+        // File doesn't exist or isn't valid JSON, keep walking up
+      }
+      const parent = resolve(current, "..");
+      if (parent === current) break; // Hit filesystem root
+      current = parent;
+    }
+  }
+
+  return "unknown";
+}
+
+export const VERSION: string = getVersion();
 
 export interface ParsedArgs {
   mode: Mode;
@@ -18,6 +57,7 @@ export interface ParsedArgs {
   delay: number;
   log: boolean;
   verbose: boolean;
+  manualTest: boolean;
   // agent mode
   linearTeam: string;
   linearAssignee: string;
@@ -75,6 +115,7 @@ const HELP_TEXT = [
   "  --max-runtime <n>       Stop after N minutes of wall-clock time (0 = no limit)",
   "  --max-failures <n>      Stop after N consecutive failures (default: 5, 0 = disable)",
   "  --unlimited             No iteration limit (default)",
+  "  --manual-test           Enable manual testing phase (create test tasks in tasks.md)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
   "",
@@ -177,6 +218,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     delay: 0,
     log: false,
     verbose: false,
+    manualTest: false,
     linearTeam: "",
     linearAssignee: "",
     pollInterval: 60,
@@ -373,6 +415,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--fix-ci":
         result.fixCi = true;
+        break;
+      case "--manual-test":
+        result.manualTest = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

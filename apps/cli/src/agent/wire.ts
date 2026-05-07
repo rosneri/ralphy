@@ -526,6 +526,7 @@ export function buildAgentCoordinator(
     if (delay > 0) c.push("--delay", String(delay));
     if (args.log || cfg.logRawStream) c.push("--log");
     if (args.verbose || cfg.taskVerbose) c.push("--verbose");
+    if (args.manualTest || cfg.enableManualTest) c.push("--manual-test");
     return c;
   }
 
