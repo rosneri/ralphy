@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { join } from "node:path";
 import { Text, useApp } from "ink";
 import type { ParsedArgs } from "../cli";
@@ -9,6 +9,7 @@ import { TaskStatus } from "./TaskStatus";
 import { TaskLoop } from "./TaskLoop";
 import { AgentMode } from "./AgentMode";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
+import { loadRalphyConfig } from "../agent/config";
 
 interface AppProps {
   args: ParsedArgs;
@@ -32,6 +33,57 @@ function ErrorMessage({ message }: { message: string }) {
     exit();
   }, [exit]);
   return <Text color="red">{message}</Text>;
+}
+
+interface TaskModeWrapperProps {
+  args: ParsedArgs;
+  statesDir: string;
+  tasksDir: string;
+  projectRoot: string;
+}
+
+function TaskModeWrapper({ args, statesDir, tasksDir, projectRoot }: TaskModeWrapperProps) {
+  const [config, setConfig] = useState<{ manualTest: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadRalphyConfig(projectRoot)
+      .then((cfg) => setConfig({ manualTest: cfg.enableManualTest }))
+      .catch((err) => setError((err as Error).message));
+  }, [projectRoot]);
+
+  if (error) {
+    return <ErrorMessage message={`Error loading config: ${error}`} />;
+  }
+  if (!config) {
+    // Loading; show nothing (will be very brief)
+    return <Text></Text>;
+  }
+
+  // CLI flag takes precedence over config
+  const manualTest = args.manualTest || config.manualTest;
+
+  return (
+    <TaskLoop
+      opts={{
+        name: args.name,
+        prompt: args.prompt,
+        engine: args.engine,
+        model: args.model,
+        maxIterations: args.maxIterations,
+        maxCostUsd: args.maxCostUsd,
+        maxRuntimeMinutes: args.maxRuntimeMinutes,
+        maxConsecutiveFailures: args.maxConsecutiveFailures,
+        delay: args.delay,
+        log: args.log,
+        verbose: args.verbose,
+        manualTest,
+        statesDir,
+        tasksDir,
+        changeStore: new OpenSpecChangeStore(),
+      }}
+    />
+  );
 }
 
 export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
@@ -87,24 +139,11 @@ export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
       // Directory creation is handled up front in index.ts / the sidecar; the
       // storage provider will create parents lazily on first write as well.
       return (
-        <TaskLoop
-          opts={{
-            name: args.name,
-            prompt: args.prompt,
-            engine: args.engine,
-            model: args.model,
-            maxIterations: args.maxIterations,
-            maxCostUsd: args.maxCostUsd,
-            maxRuntimeMinutes: args.maxRuntimeMinutes,
-            maxConsecutiveFailures: args.maxConsecutiveFailures,
-            delay: args.delay,
-            log: args.log,
-            verbose: args.verbose,
-            manualTest: args.manualTest,
-            statesDir,
-            tasksDir,
-            changeStore: new OpenSpecChangeStore(),
-          }}
+        <TaskModeWrapper
+          args={args}
+          statesDir={statesDir}
+          tasksDir={tasksDir}
+          projectRoot={projectRoot}
         />
       );
     }

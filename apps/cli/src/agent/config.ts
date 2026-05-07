@@ -70,6 +70,10 @@ const RalphyConfigSchema = z
     iterationDelaySeconds: z.number().int().nonnegative().default(0),
     logRawStream: z.boolean().default(false),
     taskVerbose: z.boolean().default(false),
+    // Enable manual testing phase for each task (forwarded as --manual-test).
+    enableManualTest: z.boolean().default(false),
+    // When true, every task runs in a per-issue git worktree under
+    // ~/.ralph/<project>/worktrees/<change-name> on a fresh `ralph/<change-name>` branch.
     useWorktree: z.boolean().default(false),
     cleanupWorktreeOnSuccess: z.boolean().default(false),
     setupScript: z.string().optional(),
@@ -105,6 +109,7 @@ const RalphyConfigSchema = z
     pollIntervalSeconds: 60,
     maxIterationsPerTask: 0,
     maxCostUsdPerTask: 0,
+    enableManualTest: false,
     engine: "claude",
     model: "opus",
     linear: { postComments: true, updateEveryIterations: 10, indicators: {} },

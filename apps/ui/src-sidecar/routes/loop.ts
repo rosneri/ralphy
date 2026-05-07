@@ -134,6 +134,7 @@ export async function loopRoutes(
       delay: body.delay ?? 2,
       log: body.log ?? false,
       verbose: body.verbose ?? false,
+      manualTest: body.manualTest ?? false,
       statesDir: ctx.statesDir,
       tasksDir: ctx.tasksDir,
       changeStore: new OpenSpecChangeStore(),
