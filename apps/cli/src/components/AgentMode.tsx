@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, useApp } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { join } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
@@ -34,17 +34,12 @@ interface WorkerMeta {
   phase: string;
   phaseDetail: string;
   phaseStartedAt: number;
-  /** First unchecked task from tasks.md — updated on each clock tick. */
   currentTask: string | null;
-  /** PR URL registered via registerPr (post-task pipeline). */
   prUrl: string | null;
-  /** In-flight shell command (post-task tracer). null when nothing is running. */
   currentCmd: { argv: string[]; startedAt: number } | null;
-  /** Ring buffer of last N lines of worker stdout/stderr. */
   tail: string[];
 }
 
-/** How many lines to store per worker (ring buffer ceiling). */
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
 
@@ -65,42 +60,38 @@ function fmtElapsed(ms: number): string {
   return `${h}h${(m % 60).toString().padStart(2, "0")}m`;
 }
 
-/** Truncate a string and add ellipsis if needed. */
 function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-/** Priority label and color for a Linear priority level. */
-function priorityBadge(p: number): { text: string; color: string } {
+function priorityBadge(p: number): { text: string; color: string; label: string } {
   switch (p) {
     case 1:
-      return { text: "!", color: "red" };
+      return { text: "▲", color: "red", label: "URGENT" };
     case 2:
-      return { text: "↑", color: "yellow" };
+      return { text: "↑", color: "yellow", label: "HIGH" };
     case 3:
-      return { text: "·", color: "blue" };
+      return { text: "·", color: "blue", label: "MED" };
     case 4:
-      return { text: "↓", color: "gray" };
+      return { text: "↓", color: "gray", label: "LOW" };
     default:
-      return { text: " ", color: "gray" };
+      return { text: " ", color: "gray", label: "" };
   }
 }
 
-/** Mode badge text and color for a spawn mode. */
 function modeBadge(mode: string): { text: string; color: string } {
   switch (mode) {
     case "fresh":
-      return { text: "new", color: "cyan" };
+      return { text: "NEW", color: "cyan" };
     case "resume":
-      return { text: "resume", color: "yellow" };
+      return { text: "RESUME", color: "yellow" };
     case "conflict-fix":
-      return { text: "fix", color: "magenta" };
+      return { text: "FIX", color: "magenta" };
     default:
-      return { text: mode, color: "white" };
+      return { text: mode.toUpperCase(), color: "white" };
   }
 }
 
-/** Text color for a worker phase. */
 function phaseColor(phase: string): string {
   switch (phase) {
     case "working":
@@ -129,36 +120,55 @@ function phaseColor(phase: string): string {
   }
 }
 
-/** How many tail lines to display based on active worker count. */
+function workerBorderColor(phase: string): string {
+  switch (phase) {
+    case "working":
+    case "scaffolding":
+      return "cyan";
+    case "committing":
+    case "commit-retry":
+    case "pushing":
+    case "push-retry":
+    case "rebasing":
+    case "pr-create":
+      return "yellow";
+    case "ci-poll":
+    case "ci-fix":
+      return "blue";
+    case "done":
+      return "green";
+    case "gave-up":
+      return "red";
+    default:
+      return "gray";
+  }
+}
+
 function displayTailLines(activeCount: number): number {
   if (activeCount <= 1) return 20;
   if (activeCount <= 2) return 12;
   if (activeCount <= 3) return 8;
-  return 6;
+  return 5;
 }
 
-/** Compact settings summary for the sticky footer. */
-function settingsSummary(cfg: RalphyConfig, filterDesc: string): string {
-  const parts: string[] = [
-    `${cfg.engine}/${cfg.model}`,
-    `concurrency: ${cfg.concurrency}`,
-    `poll: ${cfg.pollIntervalSeconds}s`,
-  ];
-  if (cfg.maxIterationsPerTask > 0) parts.push(`maxIter: ${cfg.maxIterationsPerTask}`);
-  if (cfg.maxCostUsdPerTask > 0) parts.push(`maxCost: $${cfg.maxCostUsdPerTask}`);
-  if (cfg.maxRuntimeMinutesPerTask > 0) parts.push(`maxRuntime: ${cfg.maxRuntimeMinutesPerTask}m`);
-  if (cfg.createPrOnSuccess) parts.push("PR: on");
-  if (cfg.fixCiOnFailure) parts.push("fixCI: on");
-  if (cfg.useWorktree) parts.push("worktree: on");
-  const settingsStr = parts.join(" · ");
-  return filterDesc ? `${settingsStr}  [${filterDesc}]` : settingsStr;
+/** Parse the flat filterDesc string into individual key=value pairs. */
+function parseFilterParts(filterDesc: string): { key: string; val: string }[] {
+  return filterDesc.split(", ").map((part) => {
+    const eq = part.indexOf("=");
+    if (eq < 0) return { key: part, val: "" };
+    return { key: part.slice(0, eq), val: part.slice(eq + 1) };
+  });
 }
 
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const { isRawModeSupported } = useStdin();
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
+  /** Index into activeWorkers of the focused worker card (0-based). */
+  const [focusedIdx, setFocusedIdx] = useState(0);
   const coordRef = useRef<AgentCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -233,15 +243,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           m.tail.push(line);
           if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
         },
-        onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
+        onWorkerCmd: (changeName, cmd, state) => {
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
           if (state === "start") {
             m.currentCmd = { argv: cmd, startedAt: Date.now() };
           } else {
             m.currentCmd = null;
-            void durationMs;
-            void ok;
           }
         },
         onWorkerPr: (changeName, prUrl) => {
@@ -249,17 +257,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           if (m) m.prUrl = prUrl;
         },
       });
-      appendLog(
-        `  concurrency: ${concurrency} · poll: ${pollInterval}s · ${cfg.engine}/${cfg.model}`,
-        "gray",
-      );
-      const feats: string[] = [];
-      if (cfg.createPrOnSuccess) feats.push("createPR");
-      if (cfg.fixCiOnFailure) feats.push("fixCI");
-      if (cfg.useWorktree) feats.push("worktree");
-      if (cfg.maxIterationsPerTask > 0) feats.push(`maxIter=${cfg.maxIterationsPerTask}`);
-      if (cfg.maxCostUsdPerTask > 0) feats.push(`maxCost=$${cfg.maxCostUsdPerTask}`);
-      if (feats.length) appendLog(`  features: ${feats.join(", ")}`, "gray");
+      void concurrency;
+      void pollInterval;
 
       coordRef.current = coord;
       await coord.init();
@@ -307,14 +306,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 1-second clock: update iter count + current task from disk.
   useEffect(() => {
     let cancelled = false;
     const interval = setInterval(() => {
       if (cancelled) return;
       void (async () => {
         for (const [changeName, meta] of workerMetaRef.current) {
-          // Read iteration count from state file.
           try {
             const file = Bun.file(join(meta.statesDir, changeName, ".ralph-state.json"));
             if (await file.exists()) {
@@ -324,7 +321,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           } catch {
             /* state file may not exist yet */
           }
-          // Read first unchecked task from tasks.md.
           if (meta.changeDir) {
             try {
               const tasksFile = Bun.file(join(meta.changeDir, "tasks.md"));
@@ -349,16 +345,43 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
   const coord = coordRef.current;
   const cfg = cfgRef.current;
-  const spinnerFrame = SPINNER_FRAMES[clock % SPINNER_FRAMES.length];
+  const spinnerFrame = SPINNER_FRAMES[clock % SPINNER_FRAMES.length]!;
   const now = Date.now();
   const secsToNextPoll = nextPollAtRef.current
     ? Math.max(0, Math.ceil((nextPollAtRef.current - now) / 1000))
     : null;
   const activeCount = coord?.activeCount ?? 0;
-  const tailLines = displayTailLines(activeCount);
+  const termWidth = (stdout?.columns ?? 100) - 2;
+  const termHeight = stdout?.rows ?? 40;
+  const filterParts = pollStatus.filterDesc ? parseFilterParts(pollStatus.filterDesc) : [];
+
+  // Keyboard navigation — cycle through workers with Tab / arrow keys.
+  const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
+  useInput(
+    (input, key) => {
+      if (activeCount === 0) return;
+      if (key.tab || key.rightArrow) {
+        setFocusedIdx((i) => (Math.min(i, activeCount - 1) + 1) % activeCount);
+      } else if (key.leftArrow) {
+        setFocusedIdx((i) => (Math.min(i, activeCount - 1) - 1 + activeCount) % activeCount);
+      } else {
+        const n = parseInt(input, 10);
+        if (!isNaN(n) && n >= 1 && n <= activeCount) setFocusedIdx(n - 1);
+      }
+    },
+    { isActive: isRawModeSupported && activeCount > 1 },
+  );
+
+  // Compute tail lines for the focused worker to fill available height.
+  // Approximated fixed overhead: header box (5) + status row (4) + tabs bar (3) + card header (7) + log/phase (2)
+  const FIXED_OVERHEAD = 22;
+  const nonFocusedCount = Math.max(0, activeCount - 1);
+  const focusedTailLines = Math.max(5, termHeight - FIXED_OVERHEAD - nonFocusedCount);
+  const compactTailLines = displayTailLines(activeCount);
 
   return (
     <Box flexDirection="column">
+      {/* ── Scrolling log history ────────────────────────────── */}
       <Static items={logs}>
         {(line) =>
           line.color ? (
@@ -371,40 +394,208 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         }
       </Static>
 
-      <Box marginTop={1} flexDirection="column">
-        {/* Poll status row */}
-        <Text dimColor>
-          {spinnerFrame}{" "}
-          {pollStatus.state === "polling"
-            ? `polling Linear (${pollStatus.filterDesc})`
-            : pollStatus.lastAt !== null
-              ? `last poll: ${pollStatus.lastFound} open, ${pollStatus.lastAdded} new${
-                  secsToNextPoll !== null ? ` · next in ${secsToNextPoll}s` : ""
-                }`
-              : "starting…"}
-        </Text>
-
-        {/* Workers summary + sticky settings */}
-        <Box>
-          <Text dimColor>
-            {"  "}workers active: {activeCount} · queued: {coord?.queuedCount ?? 0}
-          </Text>
-          {cfg && pollStatus.filterDesc && (
-            <Text dimColor>
-              {"  "}
-              {settingsSummary(cfg, pollStatus.filterDesc)}
+      <Box flexDirection="column" marginTop={1}>
+        {/* ── Settings header ─────────────────────────────────── */}
+        <Box
+          borderStyle="round"
+          borderColor="blue"
+          flexDirection="column"
+          paddingX={1}
+          width={termWidth}
+        >
+          {/* Title row */}
+          <Box gap={2}>
+            <Text bold color="cyan">
+              ◈ RALPH AGENT
             </Text>
+            <Text dimColor>v{VERSION}</Text>
+            {cfg && (
+              <>
+                <Text dimColor>│</Text>
+                <Text dimColor>ENGINE</Text>
+                <Text color="cyan" bold>
+                  {cfg.engine}/{cfg.model}
+                </Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>CONCURRENCY</Text>
+                <Text color="white" bold>
+                  {cfg.concurrency}
+                </Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>POLL</Text>
+                <Text color="white">{cfg.pollIntervalSeconds}s</Text>
+                {cfg.maxIterationsPerTask > 0 && (
+                  <>
+                    <Text dimColor>│</Text>
+                    <Text dimColor>MAX ITER</Text>
+                    <Text color="yellow">{cfg.maxIterationsPerTask}</Text>
+                  </>
+                )}
+                {cfg.maxCostUsdPerTask > 0 && (
+                  <>
+                    <Text dimColor>│</Text>
+                    <Text dimColor>MAX COST</Text>
+                    <Text color="yellow">${cfg.maxCostUsdPerTask}</Text>
+                  </>
+                )}
+                {cfg.maxRuntimeMinutesPerTask > 0 && (
+                  <>
+                    <Text dimColor>│</Text>
+                    <Text dimColor>MAX TIME</Text>
+                    <Text color="yellow">{cfg.maxRuntimeMinutesPerTask}m</Text>
+                  </>
+                )}
+              </>
+            )}
+          </Box>
+
+          {/* Feature flags row */}
+          {cfg && (cfg.createPrOnSuccess || cfg.fixCiOnFailure || cfg.useWorktree) && (
+            <Box gap={2} marginTop={0}>
+              <Text dimColor>FEATURES</Text>
+              {cfg.createPrOnSuccess && <Text color="green">● create-pr</Text>}
+              {cfg.fixCiOnFailure && <Text color="green">● fix-ci</Text>}
+              {cfg.useWorktree && <Text color="green">● worktree</Text>}
+            </Box>
+          )}
+
+          {/* Linear filter row */}
+          {filterParts.length > 0 && (
+            <Box gap={3} marginTop={0}>
+              <Text dimColor>LINEAR</Text>
+              {filterParts.map(({ key, val }) => (
+                <Box key={key} gap={1}>
+                  <Text dimColor>{key}</Text>
+                  <Text color="magenta">{val}</Text>
+                </Box>
+              ))}
+            </Box>
           )}
         </Box>
 
-        {/* Per-worker cards */}
-        {coord?.activeWorkers.map((w) => {
+        {/* ── Poll status + queue ─────────────────────────────── */}
+        <Box flexDirection="row" gap={1} marginTop={1} width={termWidth}>
+          {/* Poll status */}
+          <Box
+            borderStyle="round"
+            borderColor="gray"
+            flexDirection="column"
+            paddingX={1}
+            flexGrow={1}
+          >
+            <Text dimColor bold>
+              POLL STATUS
+            </Text>
+            <Box gap={2} marginTop={0}>
+              <Text color="gray">{spinnerFrame}</Text>
+              <Text>
+                {pollStatus.state === "polling"
+                  ? "Polling Linear…"
+                  : pollStatus.lastAt !== null
+                    ? "Idle"
+                    : "Starting…"}
+              </Text>
+              {pollStatus.lastAt !== null && (
+                <>
+                  <Text dimColor>│</Text>
+                  <Text dimColor>found</Text>
+                  <Text color="white">{pollStatus.lastFound}</Text>
+                  <Text dimColor>│</Text>
+                  <Text dimColor>new</Text>
+                  <Text color={pollStatus.lastAdded! > 0 ? "green" : "white"}>
+                    {pollStatus.lastAdded}
+                  </Text>
+                  {secsToNextPoll !== null && (
+                    <>
+                      <Text dimColor>│</Text>
+                      <Text dimColor>next in</Text>
+                      <Text color="gray">{secsToNextPoll}s</Text>
+                    </>
+                  )}
+                </>
+              )}
+            </Box>
+          </Box>
+
+          {/* Worker queue summary */}
+          <Box
+            borderStyle="round"
+            borderColor="gray"
+            flexDirection="column"
+            paddingX={1}
+            minWidth={28}
+          >
+            <Text dimColor bold>
+              WORKERS
+            </Text>
+            <Box gap={3} marginTop={0}>
+              <Box gap={1}>
+                <Text dimColor>active</Text>
+                <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
+                  {activeCount}
+                </Text>
+              </Box>
+              <Box gap={1}>
+                <Text dimColor>queued</Text>
+                <Text color={(coord?.queuedCount ?? 0 > 0) ? "yellow" : "gray"} bold>
+                  {coord?.queuedCount ?? 0}
+                </Text>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+
+        {/* ── Worker tabs bar ─────────────────────────────────── */}
+        {activeCount > 0 && (
+          <Box
+            borderStyle="round"
+            borderColor="gray"
+            flexDirection="column"
+            paddingX={1}
+            marginTop={1}
+            width={termWidth}
+          >
+            <Box gap={1}>
+              <Text dimColor bold>
+                TASKS
+              </Text>
+              <Text dimColor>{activeCount > 1 ? "  Tab/← → to switch · 1-9 jump" : ""}</Text>
+            </Box>
+            <Box gap={3} flexWrap="wrap">
+              {coord?.activeWorkers.map((w, idx) => {
+                const meta = workerMetaRef.current.get(w.changeName);
+                const phase = meta?.phase ?? "working";
+                const pBadge = priorityBadge(w.issue.priority);
+                const isFocused = idx === safeFocusedIdx;
+                return (
+                  <Box key={w.changeName} gap={1}>
+                    <Text color={isFocused ? "white" : "gray"} bold={isFocused}>
+                      [{idx + 1}]
+                    </Text>
+                    {pBadge.label && <Text color={pBadge.color}>{pBadge.text}</Text>}
+                    <Text color={isFocused ? "cyan" : "gray"} bold={isFocused}>
+                      {w.issueIdentifier}
+                    </Text>
+                    <Text color={phaseColor(phase)} dimColor={!isFocused}>
+                      {phase}
+                    </Text>
+                    {isFocused && <Text color="white">◀</Text>}
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+        )}
+
+        {/* ── Active worker cards ─────────────────────────────── */}
+        {coord?.activeWorkers.map((w, idx) => {
+          const isFocused = idx === safeFocusedIdx;
           const meta = workerMetaRef.current.get(w.changeName);
           const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
           const iter = meta?.iter ?? 0;
           const phase = meta?.phase ?? "working";
           const phaseElapsed = meta ? fmtElapsed(now - meta.phaseStartedAt) : "–";
-          const phaseDetail = meta?.phaseDetail ? ` (${meta.phaseDetail})` : "";
+          const phaseDetail = meta?.phaseDetail ?? "";
           const cmd = meta?.currentCmd;
           const cmdElapsed = cmd ? fmtElapsed(now - cmd.startedAt) : null;
           const tail = meta?.tail ?? [];
@@ -413,83 +604,146 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
-          const issueTitle = trunc(w.issue.title, 52);
           const pColor = phaseColor(phase);
+          const bColor = isFocused ? workerBorderColor(phase) : "gray";
+          const visibleTailLines = isFocused ? focusedTailLines : compactTailLines;
 
+          /* Compact row for non-focused workers */
+          if (!isFocused && activeCount > 1) {
+            return (
+              <Box
+                key={w.changeName}
+                borderStyle="round"
+                borderColor="gray"
+                paddingX={1}
+                marginTop={1}
+                gap={2}
+                width={termWidth}
+              >
+                <Text dimColor>[{idx + 1}]</Text>
+                {pBadge.label && <Text color={pBadge.color}>{pBadge.text}</Text>}
+                <Text color="gray" bold>
+                  {w.issueIdentifier}
+                </Text>
+                <Text dimColor>{trunc(w.issue.title, 40)}</Text>
+                <Text dimColor>│</Text>
+                <Text color={pColor} dimColor>
+                  {phase}
+                </Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>{elapsed}</Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>iter {iter}</Text>
+                {currentTask && (
+                  <>
+                    <Text dimColor>│</Text>
+                    <Text dimColor>▶ {trunc(currentTask, 40)}</Text>
+                  </>
+                )}
+              </Box>
+            );
+          }
+
+          /* Full card for the focused worker */
           return (
-            <Box key={w.changeName} flexDirection="column" marginTop={1}>
-              {/* Header: priority · identifier · title · [mode] · elapsed · iter */}
-              <Box>
-                <Text>{"  "}</Text>
-                <Text>{spinnerFrame} </Text>
-                <Text color={pBadge.color}>{pBadge.text}</Text>
-                <Text> </Text>
+            <Box
+              key={w.changeName}
+              borderStyle="round"
+              borderColor={bColor}
+              flexDirection="column"
+              paddingX={1}
+              marginTop={1}
+              width={termWidth}
+            >
+              {/* ── Card header ─────────────────────────────── */}
+              <Box gap={2}>
+                <Text>{spinnerFrame}</Text>
+                {pBadge.label && (
+                  <Text color={pBadge.color}>
+                    {pBadge.text} {pBadge.label}
+                  </Text>
+                )}
                 <Text color="cyan" bold>
                   {w.issueIdentifier}
                 </Text>
-                <Text dimColor> · </Text>
-                <Text>{issueTitle}</Text>
-                <Text dimColor> </Text>
-                <Text color={mBadge.color}>[{mBadge.text}]</Text>
-                <Text dimColor>
-                  {" "}
-                  {elapsed} · iter {iter}
+                <Text color="white" bold>
+                  {trunc(w.issue.title, Math.max(30, termWidth - 60))}
+                </Text>
+                <Text color={mBadge.color} bold>
+                  [{mBadge.text}]
+                </Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>elapsed</Text>
+                <Text color="white">{elapsed}</Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>iter</Text>
+                <Text color="white" bold>
+                  {iter}
                 </Text>
               </Box>
 
-              {/* Linear URL */}
-              <Text dimColor>
-                {"      ↗ "}
-                {w.issue.url}
-              </Text>
+              {/* ── Links ───────────────────────────────────── */}
+              <Box gap={3} marginTop={0}>
+                <Box gap={1}>
+                  <Text dimColor>↗ LINEAR</Text>
+                  <Text color="blue">{w.issue.url}</Text>
+                </Box>
+                {prUrl && (
+                  <Box gap={1}>
+                    <Text dimColor>↗ PR</Text>
+                    <Text color="green">{prUrl}</Text>
+                  </Box>
+                )}
+              </Box>
 
-              {/* Current task from tasks.md */}
+              {/* ── Current task ────────────────────────────── */}
               {currentTask && (
-                <Box>
-                  <Text dimColor>{"      ▶ "}</Text>
-                  <Text color="white">{trunc(currentTask, 90)}</Text>
+                <Box gap={1} marginTop={0}>
+                  <Text color="yellow" bold>
+                    ▶ TASK
+                  </Text>
+                  <Text color="white">{trunc(currentTask, termWidth - 14)}</Text>
                 </Box>
               )}
 
-              {/* Phase */}
-              <Box>
-                <Text dimColor>{"      phase: "}</Text>
-                <Text color={pColor}>
-                  {phase}
-                  {phaseDetail}
-                </Text>
-                <Text dimColor> · {phaseElapsed}</Text>
+              {/* ── Phase + command ──────────────────────────── */}
+              <Box gap={3} marginTop={0}>
+                <Box gap={1}>
+                  <Text dimColor>PHASE</Text>
+                  <Text color={pColor} bold>
+                    {phase}
+                    {phaseDetail ? ` (${phaseDetail})` : ""}
+                  </Text>
+                  <Text dimColor>{phaseElapsed}</Text>
+                </Box>
+                {cmd && (
+                  <Box gap={1}>
+                    <Text color="yellow">⏵ CMD</Text>
+                    <Text color="yellow">{fmtCmd(cmd.argv)}</Text>
+                    <Text dimColor>{cmdElapsed}</Text>
+                  </Box>
+                )}
+                <Box gap={1}>
+                  <Text dimColor>LOG</Text>
+                  <Text dimColor>{trunc(meta?.logFile ?? "–", 60)}</Text>
+                </Box>
               </Box>
 
-              {/* PR URL if available */}
-              {prUrl && (
-                <Text dimColor>
-                  {"      ↗ pr: "}
-                  {prUrl}
-                </Text>
+              {/* ── Output tail ─────────────────────────────── */}
+              {tail.length > 0 && (
+                <Box flexDirection="column" marginTop={0}>
+                  <Text dimColor>
+                    {"─ OUTPUT "}
+                    {"─".repeat(Math.max(4, termWidth - 14))}
+                  </Text>
+                  {tail.slice(-visibleTailLines).map((line, i) => (
+                    <Text key={`${w.changeName}-tail-${i}`} dimColor>
+                      {"│ "}
+                      {trunc(line, termWidth - 6)}
+                    </Text>
+                  ))}
+                </Box>
               )}
-
-              {/* Log file hint */}
-              <Text dimColor>
-                {"      log: "}
-                {meta?.logFile ?? "–"}
-              </Text>
-
-              {/* Running command */}
-              {cmd && (
-                <Text color="yellow">
-                  {"      ⏵ "}
-                  {fmtCmd(cmd.argv)} · {cmdElapsed}
-                </Text>
-              )}
-
-              {/* Tail output */}
-              {tail.slice(-tailLines).map((line, i) => (
-                <Text key={`${w.changeName}-tail-${i}`} dimColor>
-                  {"      │ "}
-                  {line.length > 110 ? line.slice(0, 109) + "…" : line}
-                </Text>
-              ))}
             </Box>
           );
         })}
