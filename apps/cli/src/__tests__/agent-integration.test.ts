@@ -326,7 +326,9 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if (!url.includes("linear.app")) {
-        throw new Error(`unexpected fetch in test: ${url}`);
+        const err = new Error("unexpected fetch in test") as Error & { url?: string };
+        err.url = url;
+        throw err;
       }
       const body = JSON.parse(init?.body as string) as {
         query: string;

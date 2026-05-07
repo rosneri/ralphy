@@ -1,11 +1,6 @@
 import type { SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
 
-/** "Started" comment marker — used for idempotency on resume. */
-const STARTED_COMMENT_PREFIX = "🤖 Ralph started working";
-const PROGRESS_COMMENT_PREFIX = "🔄 Ralph progress update";
-const CONFLICT_COMMENT_PREFIX = "⚠ Ralph detected merge conflicts";
-
 /** Spawn shape — same as before. */
 interface WorkerHandle {
   exited: Promise<number>;
@@ -59,7 +54,7 @@ export interface CoordinatorDeps {
   getIterationCount?: (changeName: string) => Promise<number>;
 }
 
-export interface CoordinatorOptions {
+interface CoordinatorOptions {
   concurrency: number;
   setInProgress?: SetIndicator | undefined;
   setDone?: SetIndicator | undefined;
@@ -92,7 +87,6 @@ export class AgentCoordinator {
    *  against re-posting the conflict comment every poll. Cleared once
    *  the worker exits successfully (clearConflicted is applied). */
   private conflictNotified = new Set<string>();
-  private lastPollAt: string | null = null;
 
   constructor(
     private readonly deps: CoordinatorDeps,
@@ -107,9 +101,6 @@ export class AgentCoordinator {
   }
   get activeWorkers(): readonly ActiveWorker[] {
     return this.workers;
-  }
-  get lastPollAtIso(): string | null {
-    return this.lastPollAt;
   }
 
   async init(): Promise<void> {
@@ -194,8 +185,6 @@ export class AgentCoordinator {
       });
     }
 
-    this.lastPollAt = new Date().toISOString();
-
     this.spawnNext();
     await this.scanDoneForConflicts();
     await this.reportProgress();
@@ -252,7 +241,7 @@ export class AgentCoordinator {
       try {
         await this.deps.postComment(
           w.issue,
-          `${PROGRESS_COMMENT_PREFIX}: iteration ${count} on \`${w.changeName}\``,
+          `🔄 Ralph progress update: iteration ${count} on \`${w.changeName}\``,
         );
         w.lastReportedIteration = count;
       } catch (err) {
@@ -313,7 +302,7 @@ export class AgentCoordinator {
         try {
           await this.deps.postComment(
             issue,
-            `${CONFLICT_COMMENT_PREFIX} on this PR (${pr.url}) — re-running to resolve`,
+            `⚠ Ralph detected merge conflicts on this PR (${pr.url}) — re-running to resolve`,
           );
         } catch (err) {
           this.deps.onLog(
@@ -379,7 +368,7 @@ export class AgentCoordinator {
       let alreadyPosted = false;
       try {
         const comments = await this.deps.fetchComments(issue.id);
-        alreadyPosted = comments.some((c) => c.body.startsWith(STARTED_COMMENT_PREFIX));
+        alreadyPosted = comments.some((c) => c.body.startsWith("🤖 Ralph started working"));
       } catch (err) {
         this.deps.onLog(
           `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -390,7 +379,7 @@ export class AgentCoordinator {
         try {
           await this.deps.postComment(
             issue,
-            `${STARTED_COMMENT_PREFIX} on this issue. Tracking change: \`${prep.changeName}\``,
+            `🤖 Ralph started working on this issue. Tracking change: \`${prep.changeName}\``,
           );
         } catch (err) {
           this.deps.onLog(

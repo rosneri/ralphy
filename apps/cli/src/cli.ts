@@ -113,19 +113,33 @@ export function printHelp(): void {
  */
 function parseIndicatorArg(raw: string): { key: keyof Indicators; marker: Marker } {
   const firstColon = raw.indexOf(":");
-  if (firstColon < 0) throw new Error(`--indicator expects key:type:value, got ${raw}`);
+  if (firstColon < 0) {
+    const err = new Error("--indicator expects key:type:value") as Error & { input?: string };
+    err.input = raw;
+    throw err;
+  }
   const secondColon = raw.indexOf(":", firstColon + 1);
-  if (secondColon < 0) throw new Error(`--indicator expects key:type:value, got ${raw}`);
+  if (secondColon < 0) {
+    const err = new Error("--indicator expects key:type:value") as Error & { input?: string };
+    err.input = raw;
+    throw err;
+  }
   const key = raw.slice(0, firstColon) as keyof Indicators;
   const type = raw.slice(firstColon + 1, secondColon) as Marker["type"];
   const value = raw.slice(secondColon + 1);
   if (!INDICATOR_KEYS.has(key)) {
-    throw new Error(`unknown indicator key '${key}'`);
+    const err = new Error("unknown indicator key") as Error & { key?: string };
+    err.key = key;
+    throw err;
   }
   if (type !== "label" && type !== "status") {
-    throw new Error(`indicator type must be 'label' or 'status', got '${type}'`);
+    const err = new Error("indicator type must be 'label' or 'status'") as Error & {
+      type?: string;
+    };
+    err.type = type;
+    throw err;
   }
-  if (!value) throw new Error(`indicator value cannot be empty`);
+  if (!value) throw new Error("indicator value cannot be empty");
   return { key, marker: { type, value } };
 }
 

@@ -116,8 +116,9 @@ describe("getPrChecksStatus retry on transient failure", () => {
     // running fast — three retries with 5/15/45s would time out the test
     // suite. Instead, patch global setTimeout for this case.
     const realSetTimeout = globalThis.setTimeout;
-    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((fn: () => void) =>
-      realSetTimeout(fn, 0)) as unknown as typeof setTimeout;
+    const g = globalThis as { setTimeout: typeof setTimeout };
+    g.setTimeout = ((fn: () => void): ReturnType<typeof setTimeout> =>
+      realSetTimeout(fn, 0)) as typeof setTimeout;
     try {
       const retries: number[] = [];
       const status = await getPrChecksStatus("123", runner, "/wt", (n) => {
@@ -127,7 +128,7 @@ describe("getPrChecksStatus retry on transient failure", () => {
       expect(calls).toBe(3);
       expect(retries).toEqual([1, 2]);
     } finally {
-      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = realSetTimeout;
+      (globalThis as { setTimeout: typeof setTimeout }).setTimeout = realSetTimeout;
     }
   });
 

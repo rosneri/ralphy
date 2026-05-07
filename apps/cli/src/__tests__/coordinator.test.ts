@@ -202,6 +202,22 @@ describe("AgentCoordinator — todo polling", () => {
     expect(r).toEqual({ found: 0, added: 0 });
   });
 
+  test("getters expose live counts and worker descriptors", async () => {
+    const issues = [issue("a", "ENG-1"), issue("b", "ENG-2")];
+    const ctx = makeDeps({ todo: issues });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    expect(coord.activeCount).toBe(0);
+    expect(coord.queuedCount).toBe(0);
+    expect(coord.activeWorkers).toEqual([]);
+    await coord.pollOnce();
+    await tick();
+    expect(coord.activeCount).toBe(1);
+    expect(coord.queuedCount).toBe(1);
+    expect(coord.activeWorkers).toHaveLength(1);
+    expect(coord.activeWorkers[0]!.changeName).toBe("change-eng-1");
+  });
+
   test("blocked issue is skipped while blocker is open in our view", async () => {
     const blocker = issue("blocker", "ENG-1");
     const blocked = issue("blocked", "ENG-2", 3, ["blocker"]);
@@ -233,6 +249,31 @@ describe("AgentCoordinator — set/clear indicators", () => {
     expect(ctx.applies).toContainEqual({ id: "a", ind: setInProgress });
     // spawn happened too
     expect(ctx.workers.has("change-eng-1")).toBe(true);
+  });
+
+  test("fetchComments failure logs warning and proceeds with the spawn", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.fetchComments = async () => {
+      throw new Error("rate limited");
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.logs.some((l) => l.text.includes("comment fetch failed"))).toBe(true);
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+  });
+
+  test("'started' comment is NOT re-posted when an existing one is found", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.fetchComments = async () => [
+      { body: "🤖 Ralph started working on this issue earlier" },
+    ];
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.comments.find((c) => c.body.includes("started working"))).toBeUndefined();
   });
 
   test("setDone applied on clean exit; setError on non-zero", async () => {
