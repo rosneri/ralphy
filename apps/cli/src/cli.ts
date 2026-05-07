@@ -194,8 +194,6 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectMaxRuntime = false;
   let expectMaxFailures = false;
   let expectMaxIterations = false;
-  let expectTimeout = false;
-  let expectPushInterval = false;
   let expectLinearTeam = false;
   let expectLinearAssignee = false;
   let expectPollInterval = false;
@@ -258,14 +256,6 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     if (expectMaxIterations) {
       result.maxIterations = parseInt(arg, 10);
       expectMaxIterations = false;
-      continue;
-    }
-    if (expectTimeout) {
-      expectTimeout = false;
-      continue;
-    }
-    if (expectPushInterval) {
-      expectPushInterval = false;
       continue;
     }
     if (expectLinearTeam) {
@@ -337,12 +327,6 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--max-iterations":
         expectMaxIterations = true;
-        break;
-      case "--timeout":
-        expectTimeout = true;
-        break;
-      case "--push-interval":
-        expectPushInterval = true;
         break;
       case "--unlimited":
         result.maxIterations = 0;

@@ -4,9 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildTaskPrompt,
-  extractFirstUncheckedSection,
-  allTasksCompleted,
-  countUncheckedTasks,
   checkStopSignal,
   checkStopCondition,
   updateStateIteration,
@@ -14,6 +11,11 @@ import {
   buildSteeringPrompt,
   mergeUsage,
 } from "../loop";
+import {
+  firstUnchecked as extractFirstUncheckedSection,
+  allCompleted as allTasksCompleted,
+  countUnchecked as countUncheckedTasks,
+} from "../tasks-md";
 import { buildInitialState, writeState, readState } from "../state";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import type { State } from "@ralphy/types";

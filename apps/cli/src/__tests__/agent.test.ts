@@ -105,9 +105,11 @@ describe("agent/config", () => {
   test("ensureRalphyConfig creates file with defaults when missing", async () => {
     const path = await ensureRalphyConfig(tempDir);
     expect(existsSync(path)).toBe(true);
-    const json = JSON.parse(readFileSync(path, "utf-8"));
-    expect(json.concurrency).toBe(1);
-    expect(json.linear.indicators).toEqual({});
+    // The written file uses JSONC (// comments), so we parse it via the loader
+    // rather than raw JSON.parse.
+    const cfg = await loadRalphyConfig(tempDir);
+    expect(cfg.concurrency).toBe(1);
+    expect(cfg.linear.indicators).toEqual({});
   });
 
   test("ensureRalphyConfig leaves existing file untouched", async () => {

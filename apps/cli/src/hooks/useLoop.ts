@@ -15,8 +15,8 @@ import {
   appendSteeringMessage,
   buildSteeringPrompt,
   mergeUsage,
-  allTasksCompleted,
-  countUncheckedTasks,
+  allCompleted,
+  countUnchecked,
   type StopReason,
   type LoopOptions,
 } from "../loop";
@@ -143,10 +143,10 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         // Check if all tasks are done
         const tasksContent = storage.read(join(tasksDir, "tasks.md"));
         if (tasksContent !== null) {
-          const remaining = countUncheckedTasks(tasksContent);
+          const remaining = countUnchecked(tasksContent);
           addInfo(`tasks.md: ${remaining} unchecked item${remaining === 1 ? "" : "s"} remaining`);
         }
-        if (tasksContent !== null && allTasksCompleted(tasksContent)) {
+        if (tasksContent !== null && allCompleted(tasksContent)) {
           addInfo("All tasks completed — archiving change.");
           currentState = {
             ...currentState,
