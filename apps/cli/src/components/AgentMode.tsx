@@ -64,12 +64,6 @@ function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-/** OSC 8 terminal hyperlink. Renders as clickable text in supporting terminals;
- *  falls back to plain text in others (the escape params are invisible). */
-function inkLink(url: string, label: string): string {
-  return `\x1b]8;;${url}\x1b\\${label}\x1b]8;;\x1b\\`;
-}
-
 /** Extract a short label from a GitHub PR URL, e.g. "#123". */
 function prLabel(prUrl: string): string {
   const m = prUrl.match(/\/pull\/(\d+)/);
@@ -78,13 +72,21 @@ function prLabel(prUrl: string): string {
 
 // ANSI escape sequence strip regex — covers CSI (colors/movement), OSC (hyperlinks), and 2-char sequences.
 const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
-// Lines consisting only of box-drawing chars + spaces are Ink UI artifacts from the subprocess renderer.
+// Lines consisting only of box-drawing chars + spaces: Ink render artifacts.
 const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
+// Status bar line emitted by TaskLoop's StatusBar component on every clock tick.
+// Pattern: braille-spinner "iter N │ $X │ Ns │ model" (possibly with ✓/✗ instead of spinner).
+const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
+// Iteration header from IterationHeader component: "── model (hash…)" or just "──...".
+const ITER_HEADER_LINE_RE = /^──/;
 
 /** Strip ANSI codes and return null if the line is a UI rendering artifact. */
 function cleanOutputLine(raw: string): string | null {
   const clean = raw.replace(ANSI_STRIP_RE, "").trim();
-  if (!clean || BOX_ONLY_RE.test(clean)) return null;
+  if (!clean) return null;
+  if (BOX_ONLY_RE.test(clean)) return null;
+  if (STATUS_BAR_LINE_RE.test(clean)) return null;
+  if (ITER_HEADER_LINE_RE.test(clean)) return null;
   return clean;
 }
 
@@ -667,12 +669,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue">{inkLink(w.issue.url, w.issueIdentifier)}</Text>
+                  <Text color="blue">{w.issueIdentifier}</Text>
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green">{inkLink(prUrl, prLabel(prUrl))}</Text>
+                    <Text color="green">{prLabel(prUrl)}</Text>
                   </Box>
                 )}
               </Box>
