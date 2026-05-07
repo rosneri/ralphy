@@ -61,6 +61,7 @@ try {
   process.exit(1);
 }
 
+telemetry.setDefaultProperties({ mode: args.mode, engine: args.engine, model: args.model });
 telemetry.capture("command_run", { mode: args.mode, engine: args.engine, model: args.model });
 
 try {
