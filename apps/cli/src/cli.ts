@@ -29,6 +29,8 @@ export interface ParsedArgs {
   indicators: Partial<Indicators>;
   createPr: boolean;
   fixCi: boolean;
+  /** Agent mode: stop picking up new issues after this many have been started (0 = unlimited). */
+  maxTickets: number;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean"]);
@@ -91,6 +93,7 @@ const HELP_TEXT = [
   "                          Types: label, status",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
+  "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "",
   "  --help, -h              Show this help message",
   "",
@@ -182,6 +185,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     indicators: {},
     createPr: false,
     fixCi: false,
+    maxTickets: 0,
   };
 
   let expectModel = false;
@@ -198,6 +202,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectLinearAssignee = false;
   let expectPollInterval = false;
   let expectConcurrency = false;
+  let expectMaxTickets = false;
   let expectIndicator = false;
 
   for (const arg of argv) {
@@ -278,6 +283,11 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       expectConcurrency = false;
       continue;
     }
+    if (expectMaxTickets) {
+      result.maxTickets = parseInt(arg, 10);
+      expectMaxTickets = false;
+      continue;
+    }
     if (expectIndicator) {
       const { key, marker } = parseIndicatorArg(arg);
       mergeIndicator(result.indicators, key, marker);
@@ -348,6 +358,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--concurrency":
         expectConcurrency = true;
+        break;
+      case "--max-tickets":
+        expectMaxTickets = true;
         break;
       case "--worktree":
         result.worktree = true;
