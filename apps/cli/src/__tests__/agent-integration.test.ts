@@ -200,6 +200,19 @@ class FakeLinear {
         }),
       );
     }
+    if (q.includes("issueLabelCreate")) {
+      const name = (body.variables.name as string) ?? "";
+      const newId = `label-created-${name}`;
+      this.labelIds.set(name, newId);
+      return new Response(
+        JSON.stringify({
+          data: { issueLabelCreate: { success: true, issueLabel: { id: newId } } },
+        }),
+      );
+    }
+    if (q.includes("TeamId") || (q.includes("teams") && q.includes("key"))) {
+      return new Response(JSON.stringify({ data: { teams: { nodes: [{ id: "team-fake-id" }] } } }));
+    }
     if (q.includes("issue(id")) {
       // fetchIssueComments
       return new Response(JSON.stringify({ data: { issue: { comments: { nodes: [] } } } }));

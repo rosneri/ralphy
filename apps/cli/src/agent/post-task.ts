@@ -251,11 +251,11 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
       let prGaveUp = commitGaveUp;
       let nonFfRebaseAttempted = false;
-      // Retry loop: when the host's pre-push hook rejects the push (e.g.
-      // lint/spellcheck failure) we prepend a fix task with the failure
-      // output and re-run the worker loop so the AI fixes the underlying
-      // issue, then retry the PR. Shares the hookFixAttempt budget with
-      // commit.
+      // Retry loop: when a push is rejected (e.g. pre-push hook running lint/
+      // typecheck, or any other push failure) we prepend a fix task with the
+      // failure output and re-run the worker loop so the AI fixes the
+      // underlying issue, then retry the PR. Shares the hookFixAttempt budget
+      // with commit.
       while (!prGaveUp) {
         try {
           emit("pr-create", "git push + gh pr create");
@@ -369,10 +369,10 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
             }
           }
 
-          if (!isHookReject || hookFixAttempt >= maxHookFixAttempts) {
+          if (!pushRejected || hookFixAttempt >= maxHookFixAttempts) {
             if (pushRejected) {
               log(
-                `! push rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-push hook still failing) — worktree preserved at ${cwd}`,
+                `! push rejected for ${changeName} after ${hookFixAttempt} fix attempts (push still failing) — worktree preserved at ${cwd}`,
                 "red",
               );
               log(`    detail: ${detail}`, "red");
@@ -391,9 +391,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
           );
           log(`    detail: ${detail}`, "yellow");
           const retryCode = await runWorkerWithFixTask(
-            "Fix host pre-push hook rejection",
-            `Push to origin/${branch} was rejected by the host repo's pre-push hook. ` +
-              `Fix the underlying problem, then the push will be retried.\n\n` +
+            "Fix push rejection",
+            `Push to origin/${branch} was rejected. Fix the underlying problem ` +
+              `(e.g. failing pre-push hook checks), then the push will be retried.\n\n` +
               combined.trim(),
           );
           if (retryCode !== 0) {

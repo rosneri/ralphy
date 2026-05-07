@@ -11,6 +11,8 @@ import {
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
+  fetchTeamIdByKey,
+  createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
   type LinearIssue,
@@ -516,5 +518,56 @@ describe("agent/linear", () => {
     });
     await removeLabelFromIssue("k", "issue-1", "label-9");
     expect(captured!.variables).toEqual({ id: "issue-1", labelId: "label-9" });
+  });
+
+  test("fetchTeamIdByKey returns team id when found", async () => {
+    let captured: { variables: { key: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { teams: { nodes: [{ id: "team-uuid-1" }] } } }), {
+        status: 200,
+      });
+    });
+    const id = await fetchTeamIdByKey("k", "ENG");
+    expect(captured!.variables).toEqual({ key: "ENG" });
+    expect(id).toBe("team-uuid-1");
+  });
+
+  test("fetchTeamIdByKey returns null when team not found", async () => {
+    mockFetch(
+      async () => new Response(JSON.stringify({ data: { teams: { nodes: [] } } }), { status: 200 }),
+    );
+    const id = await fetchTeamIdByKey("k", "MISSING");
+    expect(id).toBeNull();
+  });
+
+  test("createIssueLabel posts issueLabelCreate and returns new label id", async () => {
+    let captured: { variables: { teamId: string; name: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(
+        JSON.stringify({
+          data: {
+            issueLabelCreate: { success: true, issueLabel: { id: "label-new-1" } },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const id = await createIssueLabel("k", "team-uuid-1", "ralph:in-progress");
+    expect(captured!.variables).toEqual({ teamId: "team-uuid-1", name: "ralph:in-progress" });
+    expect(id).toBe("label-new-1");
+  });
+
+  test("createIssueLabel returns null when issueLabel is null", async () => {
+    mockFetch(
+      async () =>
+        new Response(
+          JSON.stringify({ data: { issueLabelCreate: { success: false, issueLabel: null } } }),
+          { status: 200 },
+        ),
+    );
+    const id = await createIssueLabel("k", "team-uuid-1", "ralph:in-progress");
+    expect(id).toBeNull();
   });
 });

@@ -277,6 +277,37 @@ export async function fetchIssueLabels(apiKey: string, teamKey: string): Promise
   return data.issueLabels.nodes;
 }
 
+/** Fetch the UUID of a team by its key (e.g. "ENG"). Returns null if not found. */
+export async function fetchTeamIdByKey(apiKey: string, teamKey: string): Promise<string | null> {
+  const query = `query TeamId($key: String!) {
+    teams(filter: { key: { eq: $key } }, first: 1) {
+      nodes { id }
+    }
+  }`;
+  const data = await linearRequest<{ teams: { nodes: { id: string }[] } }>(apiKey, query, {
+    key: teamKey,
+  });
+  return data.teams.nodes[0]?.id ?? null;
+}
+
+/** Create a label in a team. Returns the new label id, or null on failure. */
+export async function createIssueLabel(
+  apiKey: string,
+  teamId: string,
+  name: string,
+): Promise<string | null> {
+  const mutation = `mutation CreateLabel($teamId: String!, $name: String!) {
+    issueLabelCreate(input: { teamId: $teamId, name: $name }) {
+      success
+      issueLabel { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    issueLabelCreate: { success: boolean; issueLabel: { id: string } | null };
+  }>(apiKey, mutation, { teamId, name });
+  return data.issueLabelCreate.issueLabel?.id ?? null;
+}
+
 /** Add a label to an issue. Linear preserves existing labels. */
 export async function addLabelToIssue(
   apiKey: string,
