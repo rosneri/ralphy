@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useStdout } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { join } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
@@ -163,9 +163,12 @@ function parseFilterParts(filterDesc: string): { key: string; val: string }[] {
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const { isRawModeSupported } = useStdin();
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
+  /** Index into activeWorkers of the focused worker card (0-based). */
+  const [focusedIdx, setFocusedIdx] = useState(0);
   const coordRef = useRef<AgentCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -348,9 +351,33 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     ? Math.max(0, Math.ceil((nextPollAtRef.current - now) / 1000))
     : null;
   const activeCount = coord?.activeCount ?? 0;
-  const tailLines = displayTailLines(activeCount);
   const termWidth = (stdout?.columns ?? 100) - 2;
+  const termHeight = stdout?.rows ?? 40;
   const filterParts = pollStatus.filterDesc ? parseFilterParts(pollStatus.filterDesc) : [];
+
+  // Keyboard navigation — cycle through workers with Tab / arrow keys.
+  const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
+  useInput(
+    (input, key) => {
+      if (activeCount === 0) return;
+      if (key.tab || key.rightArrow) {
+        setFocusedIdx((i) => (Math.min(i, activeCount - 1) + 1) % activeCount);
+      } else if (key.leftArrow) {
+        setFocusedIdx((i) => (Math.min(i, activeCount - 1) - 1 + activeCount) % activeCount);
+      } else {
+        const n = parseInt(input, 10);
+        if (!isNaN(n) && n >= 1 && n <= activeCount) setFocusedIdx(n - 1);
+      }
+    },
+    { isActive: isRawModeSupported && activeCount > 1 },
+  );
+
+  // Compute tail lines for the focused worker to fill available height.
+  // Approximated fixed overhead: header box (5) + status row (4) + tabs bar (3) + card header (7) + log/phase (2)
+  const FIXED_OVERHEAD = 22;
+  const nonFocusedCount = Math.max(0, activeCount - 1);
+  const focusedTailLines = Math.max(5, termHeight - FIXED_OVERHEAD - nonFocusedCount);
+  const compactTailLines = displayTailLines(activeCount);
 
   return (
     <Box flexDirection="column">
@@ -518,8 +545,51 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           </Box>
         </Box>
 
+        {/* ── Worker tabs bar ─────────────────────────────────── */}
+        {activeCount > 0 && (
+          <Box
+            borderStyle="round"
+            borderColor="gray"
+            flexDirection="column"
+            paddingX={1}
+            marginTop={1}
+            width={termWidth}
+          >
+            <Box gap={1}>
+              <Text dimColor bold>
+                TASKS
+              </Text>
+              <Text dimColor>{activeCount > 1 ? "  Tab/← → to switch · 1-9 jump" : ""}</Text>
+            </Box>
+            <Box gap={3} flexWrap="wrap">
+              {coord?.activeWorkers.map((w, idx) => {
+                const meta = workerMetaRef.current.get(w.changeName);
+                const phase = meta?.phase ?? "working";
+                const pBadge = priorityBadge(w.issue.priority);
+                const isFocused = idx === safeFocusedIdx;
+                return (
+                  <Box key={w.changeName} gap={1}>
+                    <Text color={isFocused ? "white" : "gray"} bold={isFocused}>
+                      [{idx + 1}]
+                    </Text>
+                    {pBadge.label && <Text color={pBadge.color}>{pBadge.text}</Text>}
+                    <Text color={isFocused ? "cyan" : "gray"} bold={isFocused}>
+                      {w.issueIdentifier}
+                    </Text>
+                    <Text color={phaseColor(phase)} dimColor={!isFocused}>
+                      {phase}
+                    </Text>
+                    {isFocused && <Text color="white">◀</Text>}
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+        )}
+
         {/* ── Active worker cards ─────────────────────────────── */}
-        {coord?.activeWorkers.map((w) => {
+        {coord?.activeWorkers.map((w, idx) => {
+          const isFocused = idx === safeFocusedIdx;
           const meta = workerMetaRef.current.get(w.changeName);
           const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
           const iter = meta?.iter ?? 0;
@@ -535,8 +605,46 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
           const pColor = phaseColor(phase);
-          const bColor = workerBorderColor(phase);
+          const bColor = isFocused ? workerBorderColor(phase) : "gray";
+          const visibleTailLines = isFocused ? focusedTailLines : compactTailLines;
 
+          /* Compact row for non-focused workers */
+          if (!isFocused && activeCount > 1) {
+            return (
+              <Box
+                key={w.changeName}
+                borderStyle="round"
+                borderColor="gray"
+                paddingX={1}
+                marginTop={1}
+                gap={2}
+                width={termWidth}
+              >
+                <Text dimColor>[{idx + 1}]</Text>
+                {pBadge.label && <Text color={pBadge.color}>{pBadge.text}</Text>}
+                <Text color="gray" bold>
+                  {w.issueIdentifier}
+                </Text>
+                <Text dimColor>{trunc(w.issue.title, 40)}</Text>
+                <Text dimColor>│</Text>
+                <Text color={pColor} dimColor>
+                  {phase}
+                </Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>{elapsed}</Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>iter {iter}</Text>
+                {currentTask && (
+                  <>
+                    <Text dimColor>│</Text>
+                    <Text dimColor>▶ {trunc(currentTask, 40)}</Text>
+                  </>
+                )}
+              </Box>
+            );
+          }
+
+          /* Full card for the focused worker */
           return (
             <Box
               key={w.changeName}
@@ -628,7 +736,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     {"─ OUTPUT "}
                     {"─".repeat(Math.max(4, termWidth - 14))}
                   </Text>
-                  {tail.slice(-tailLines).map((line, i) => (
+                  {tail.slice(-visibleTailLines).map((line, i) => (
                     <Text key={`${w.changeName}-tail-${i}`} dimColor>
                       {"│ "}
                       {trunc(line, termWidth - 6)}
