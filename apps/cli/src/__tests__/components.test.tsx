@@ -352,6 +352,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     delay: 0,
     log: false,
     verbose: false,
+    manualTest: false,
     linearTeam: "",
     linearAssignee: "",
     pollInterval: 60,
