@@ -126,7 +126,7 @@ function modeBadge(mode: string): { text: string; color: string } {
     case "fresh":
       return { text: "NEW", color: "cyan" };
     case "resume":
-      return { text: "RESUME", color: "yellow" };
+      return { text: "RES", color: "yellow" };
     case "conflict-fix":
       return { text: "FIX", color: "magenta" };
     default:
@@ -606,7 +606,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     <Text color={isFocused ? "white" : "gray"} bold={isFocused}>
                       [{idx + 1}]
                     </Text>
-                    {pBadge.label && <Text color={pBadge.color}>{pBadge.text}</Text>}
+                    {pBadge.label && (
+                      <Text color={pBadge.color}>
+                        {pBadge.text} {pBadge.label}
+                      </Text>
+                    )}
                     <Text color={isFocused ? "cyan" : "gray"} bold={isFocused}>
                       {w.issueIdentifier}
                     </Text>
@@ -692,41 +696,28 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               {/* ── Card header ─────────────────────────────── */}
               <Box gap={2}>
                 <Text>{spinnerFrame}</Text>
-                {pBadge.label && (
-                  <Text color={pBadge.color}>
-                    {pBadge.text} {pBadge.label}
-                  </Text>
-                )}
-                <Text color="cyan" bold>
-                  {w.issueIdentifier}
-                </Text>
+                {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
+                <Link url={w.issue.url} label={w.issueIdentifier} color="cyan" />
                 <Text color="white" bold>
-                  {trunc(w.issue.title, Math.max(30, termWidth - 60))}
+                  {trunc(w.issue.title, Math.max(20, termWidth - 68))}
                 </Text>
                 <Text color={mBadge.color} bold>
                   [{mBadge.text}]
                 </Text>
+                <Text color={pColor} bold>
+                  {phase}
+                  {phaseDetail ? ` (${phaseDetail})` : ""}
+                </Text>
                 <Text dimColor>│</Text>
-                <Text dimColor>elapsed</Text>
                 <Text color="white">{elapsed}</Text>
                 <Text dimColor>│</Text>
-                <Text dimColor>iter</Text>
+                <Text dimColor>↺</Text>
                 <Text color="white" bold>
                   {iter}
                 </Text>
-              </Box>
-
-              {/* ── Links ───────────────────────────────────── */}
-              <Box gap={3} marginTop={0}>
-                <Box gap={1}>
-                  <Text dimColor>↗ LINEAR</Text>
-                  <Link url={w.issue.url} label={w.issueIdentifier} color="blue" />
-                </Box>
-                {prUrl && (
-                  <Box gap={1}>
-                    <Text dimColor>↗ PR</Text>
-                    <Link url={prUrl} label={prLabel(prUrl)} color="green" />
-                  </Box>
+                <Text dimColor>│</Text>
+                {meta?.logFile && (
+                  <Link url={`file://${meta.logFile}`} label="LOG" color="gray" />
                 )}
               </Box>
 
@@ -740,30 +731,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </Box>
               )}
 
-              {/* ── Phase + command ──────────────────────────── */}
-              <Box gap={3} marginTop={0} flexWrap="wrap">
-                <Box gap={1}>
-                  <Text dimColor>PHASE</Text>
-                  <Text color={pColor} bold>
-                    {phase}
-                    {phaseDetail ? ` (${phaseDetail})` : ""}
-                  </Text>
-                  <Text dimColor>{phaseElapsed}</Text>
+              {/* ── Command (when active) ────────────────────── */}
+              {cmd && (
+                <Box gap={1} marginTop={0}>
+                  <Text color="yellow">⏵ CMD</Text>
+                  <Text color="yellow">{fmtCmd(cmd.argv)}</Text>
+                  <Text dimColor>{cmdElapsed}</Text>
                 </Box>
-                {cmd && (
-                  <Box gap={1}>
-                    <Text color="yellow">⏵ CMD</Text>
-                    <Text color="yellow">{fmtCmd(cmd.argv)}</Text>
-                    <Text dimColor>{cmdElapsed}</Text>
-                  </Box>
-                )}
-                <Box gap={1}>
-                  <Text dimColor>LOG</Text>
-                  <Text dimColor>
-                    {trunc(meta?.logFile ? relative(process.cwd(), meta.logFile) : "–", 40)}
-                  </Text>
-                </Box>
-              </Box>
+              )}
 
               {/* ── Output tail ─────────────────────────────── */}
               {tail.length > 0 && (
