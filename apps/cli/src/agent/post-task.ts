@@ -595,15 +595,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     respawnWorker,
   } = input;
 
-  if (cfg.teardownScript) {
-    emit("teardown", cfg.teardownScript);
-    try {
-      await runScript("teardown", cfg.teardownScript, cwd);
-    } catch {
-      /* runScript already logs */
-    }
-  }
-
   let effectiveCode = exitCode;
   const ok = exitCode === 0;
 
@@ -658,6 +649,15 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
 
   if (effectiveCode === 0) emit("done");
   else emit("gave-up", `exit ${effectiveCode}`);
+
+  if (effectiveCode === 0 && cfg.teardownScript) {
+    emit("teardown", cfg.teardownScript);
+    try {
+      await runScript("teardown", cfg.teardownScript, cwd);
+    } catch {
+      /* runScript already logs */
+    }
+  }
 
   if (useWorktree && cwd !== projectRoot) {
     emit("cleanup", "checking worktree safety");
