@@ -64,6 +64,31 @@ function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
+/** Extract a short label from a GitHub PR URL, e.g. "#123". */
+function prLabel(prUrl: string): string {
+  const m = prUrl.match(/\/pull\/(\d+)/);
+  return m ? `#${m[1]}` : "PR";
+}
+
+// Strip ANSI escape codes (CSI, OSC, and 2-char sequences).
+const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
+// Lines that are only box-drawing chars + spaces: Ink render artifacts.
+const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
+// Status bar tick line: braille-spinner "iter N │ $X │ Ns │ model" from TaskLoop's StatusBar.
+const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
+// Iteration header from IterationHeader component (starts with ──).
+const ITER_HEADER_LINE_RE = /^──/;
+
+/** Strip ANSI codes; return null if the line is a subprocess UI rendering artifact. */
+function cleanOutputLine(raw: string): string | null {
+  const clean = raw.replace(ANSI_STRIP_RE, "").trim();
+  if (!clean) return null;
+  if (BOX_ONLY_RE.test(clean)) return null;
+  if (STATUS_BAR_LINE_RE.test(clean)) return null;
+  if (ITER_HEADER_LINE_RE.test(clean)) return null;
+  return clean;
+}
+
 function priorityBadge(p: number): { text: string; color: string; label: string } {
   switch (p) {
     case 1:
@@ -151,15 +176,6 @@ function displayTailLines(activeCount: number): number {
   return 5;
 }
 
-/** Parse the flat filterDesc string into individual key=value pairs. */
-function parseFilterParts(filterDesc: string): { key: string; val: string }[] {
-  return filterDesc.split(", ").map((part) => {
-    const eq = part.indexOf("=");
-    if (eq < 0) return { key: part, val: "" };
-    return { key: part.slice(0, eq), val: part.slice(eq + 1) };
-  });
-}
-
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -240,7 +256,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         onWorkerOutput: (changeName, line) => {
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
-          m.tail.push(line);
+          const clean = cleanOutputLine(line);
+          if (!clean) return;
+          m.tail.push(clean);
           if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
         },
         onWorkerCmd: (changeName, cmd, state) => {
@@ -353,7 +371,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const activeCount = coord?.activeCount ?? 0;
   const termWidth = (stdout?.columns ?? 100) - 2;
   const termHeight = stdout?.rows ?? 40;
-  const filterParts = pollStatus.filterDesc ? parseFilterParts(pollStatus.filterDesc) : [];
 
   // Keyboard navigation — cycle through workers with Tab / arrow keys.
   const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
@@ -395,7 +412,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       </Static>
 
       <Box flexDirection="column" marginTop={1}>
-        {/* ── Settings header ─────────────────────────────────── */}
+        {/* ── Settings header — two compact text lines ─────────── */}
         <Box
           borderStyle="round"
           borderColor="blue"
@@ -403,73 +420,38 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           paddingX={1}
           width={termWidth}
         >
-          {/* Title row */}
-          <Box gap={2}>
+          {/* Line 1: identity + key settings */}
+          <Text>
             <Text bold color="cyan">
-              ◈ RALPH AGENT
+              ◈ RALPH AGENT{" "}
             </Text>
             <Text dimColor>v{VERSION}</Text>
             {cfg && (
-              <>
-                <Text dimColor>│</Text>
-                <Text dimColor>ENGINE</Text>
+              <Text>
+                <Text dimColor> │ </Text>
                 <Text color="cyan" bold>
                   {cfg.engine}/{cfg.model}
                 </Text>
-                <Text dimColor>│</Text>
-                <Text dimColor>CONCURRENCY</Text>
-                <Text color="white" bold>
-                  {cfg.concurrency}
-                </Text>
-                <Text dimColor>│</Text>
-                <Text dimColor>POLL</Text>
-                <Text color="white">{cfg.pollIntervalSeconds}s</Text>
+                <Text dimColor> │ ×{cfg.concurrency}</Text>
+                <Text dimColor> │ poll {cfg.pollIntervalSeconds}s</Text>
                 {cfg.maxIterationsPerTask > 0 && (
-                  <>
-                    <Text dimColor>│</Text>
-                    <Text dimColor>MAX ITER</Text>
-                    <Text color="yellow">{cfg.maxIterationsPerTask}</Text>
-                  </>
+                  <Text color="yellow"> │ iter ≤{cfg.maxIterationsPerTask}</Text>
                 )}
                 {cfg.maxCostUsdPerTask > 0 && (
-                  <>
-                    <Text dimColor>│</Text>
-                    <Text dimColor>MAX COST</Text>
-                    <Text color="yellow">${cfg.maxCostUsdPerTask}</Text>
-                  </>
+                  <Text color="yellow"> │ cost ≤${cfg.maxCostUsdPerTask}</Text>
                 )}
-                {cfg.maxRuntimeMinutesPerTask > 0 && (
-                  <>
-                    <Text dimColor>│</Text>
-                    <Text dimColor>MAX TIME</Text>
-                    <Text color="yellow">{cfg.maxRuntimeMinutesPerTask}m</Text>
-                  </>
-                )}
-              </>
+                {cfg.createPrOnSuccess && <Text color="green"> ● PR</Text>}
+                {cfg.fixCiOnFailure && <Text color="green"> ● fixCI</Text>}
+                {cfg.useWorktree && <Text color="green"> ● worktree</Text>}
+              </Text>
             )}
-          </Box>
-
-          {/* Feature flags row */}
-          {cfg && (cfg.createPrOnSuccess || cfg.fixCiOnFailure || cfg.useWorktree) && (
-            <Box gap={2} marginTop={0}>
-              <Text dimColor>FEATURES</Text>
-              {cfg.createPrOnSuccess && <Text color="green">● create-pr</Text>}
-              {cfg.fixCiOnFailure && <Text color="green">● fix-ci</Text>}
-              {cfg.useWorktree && <Text color="green">● worktree</Text>}
-            </Box>
-          )}
-
-          {/* Linear filter row */}
-          {filterParts.length > 0 && (
-            <Box gap={3} marginTop={0}>
-              <Text dimColor>LINEAR</Text>
-              {filterParts.map(({ key, val }) => (
-                <Box key={key} gap={1}>
-                  <Text dimColor>{key}</Text>
-                  <Text color="magenta">{val}</Text>
-                </Box>
-              ))}
-            </Box>
+          </Text>
+          {/* Line 2: Linear filter — raw string, truncated to fit */}
+          {pollStatus.filterDesc && (
+            <Text dimColor>
+              {"Linear  "}
+              {trunc(pollStatus.filterDesc.replace(/, /g, "  ·  "), termWidth - 12)}
+            </Text>
           )}
         </Box>
 
@@ -686,12 +668,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue">{w.issue.url}</Text>
+                  <Text color="blue">{w.issueIdentifier}</Text>
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green">{prUrl}</Text>
+                    <Text color="green">{prLabel(prUrl)}</Text>
                   </Box>
                 )}
               </Box>
