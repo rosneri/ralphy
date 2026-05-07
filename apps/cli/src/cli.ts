@@ -1,20 +1,44 @@
 import { log } from "@ralphy/output";
 import type { Engine, Indicators, Marker, Mode, SetIndicator, GetIndicator } from "@ralphy/types";
 import { readFileSync } from "node:fs";
+import { normalize, resolve } from "node:path";
 
 // Load package.json at runtime from the project root to work correctly from any location (source or compiled)
 function getVersion(): string {
+  // Walk up from current directory or import.meta.dir to find workspace root (has "workspaces" field)
+  const dirsToTry: string[] = [];
+
+  // Start from import.meta.dir if available
   try {
-    // Use import.meta.resolve to get the absolute path to package.json
-    const pkgUrl = import.meta.resolve("../../../package.json");
-    // Convert file:// URL to filesystem path
-    const pkgPath = pkgUrl.startsWith("file://") ? pkgUrl.slice(7) : pkgUrl;
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    return pkg.version || "unknown";
-  } catch (e) {
-    // Silently return unknown on error (don't log to avoid side effects in tests)
-    return "unknown";
+    const cliDir = import.meta.dir;
+    dirsToTry.push(cliDir);
+  } catch {
+    // import.meta.dir might not be available
   }
+
+  // Also try from cwd
+  dirsToTry.push(process.cwd());
+
+  for (const startDir of dirsToTry) {
+    let current = startDir;
+    for (let i = 0; i < 10; i++) {
+      const pkgPath = resolve(current, "package.json");
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+        // Found workspace root (has "workspaces" field) with valid version
+        if (pkg.workspaces && pkg.version && pkg.version !== "0.0.0") {
+          return pkg.version;
+        }
+      } catch {
+        // File doesn't exist or isn't valid JSON, keep walking up
+      }
+      const parent = resolve(current, "..");
+      if (parent === current) break; // Hit filesystem root
+      current = parent;
+    }
+  }
+
+  return "unknown";
 }
 
 export const VERSION: string = getVersion();

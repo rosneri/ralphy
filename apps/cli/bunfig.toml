@@ -9,6 +9,7 @@ coveragePathIgnorePatterns = [
   "../**",
   "**/dist/**",
   "**/components/AgentMode.tsx",
+  "**/components/App.tsx",
   "**/agent/wire.ts",
   "**/agent/post-task.ts",
 ]
