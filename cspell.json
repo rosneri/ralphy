@@ -70,6 +70,10 @@
     "zaudu",
     "initialises",
     "posthog",
-    "POSTHOG"
+    "POSTHOG",
+    "dedup",
+    "respawns",
+    "misconfigs",
+    "badtype"
   ]
 }

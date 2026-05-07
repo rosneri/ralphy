@@ -1,5 +1,9 @@
 import { join } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { projectLayout } from "@ralphy/core/layout";
+import { prependFixTask } from "@ralphy/core/tasks-md";
+import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
+import { markersOf } from "@ralphy/types";
 import type { ParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import {
@@ -10,15 +14,15 @@ import {
   updateIssueState,
   fetchIssueLabels,
   addLabelToIssue,
+  removeLabelFromIssue,
   type LinearIssue,
-  type LinearFilter,
+  type LinearFilterSpec,
 } from "./linear";
-import { AgentCoordinator } from "./coordinator";
-import { scaffoldChangeForIssue } from "./scaffold";
-import { createWorktree, seedWorktreeMcpConfig, type GitRunner } from "./worktree";
+import { AgentCoordinator, type SpawnMode, type PrepareResult } from "./coordinator";
+import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
+import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
 import { runPostTask, type PostTaskPhase } from "./post-task";
-import type { AgentStateStore } from "./state";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -65,6 +69,21 @@ const bunCmdRunner: CmdRunner = {
 };
 
 /**
+ * Side-effect runners. Production wires bun-spawned git / generic command
+ * processes; tests inject in-memory fakes so an end-to-end integration
+ * suite never spawns a real subprocess. Provide whatever you want to
+ * stub; anything you omit falls back to the bun-based default.
+ */
+export interface AgentRunners {
+  git?: GitRunner;
+  cmd?: CmdRunner;
+  /** Spawn the actual `ralph task` worker subprocess. Default: Bun.spawn. */
+  spawnWorker?: (cmd: string[], cwd: string) => { exited: Promise<number>; kill: () => void };
+  /** Run a shell script (setup/teardown). Returns exit code; never throws. */
+  runScript?: (cmd: string, cwd: string) => Promise<number>;
+}
+
+/**
  * Wrap a CmdRunner so each call emits start/end events. The dashboard
  * uses these to surface "currently running `gh pr checks`…" so a hung
  * external command is immediately visible (e.g. GitHub 504 hangs).
@@ -97,8 +116,6 @@ interface BuildAgentCoordinatorInput {
   statesDir: string;
   tasksDir: string;
   apiKey: string;
-  /** Already loaded; the factory does not call store.load(). */
-  store: AgentStateStore;
   /** Receive log lines for the UI. */
   onLog: (text: string, color?: string) => void;
   /** Called whenever the active-worker set changes (drives re-render). */
@@ -110,9 +127,7 @@ interface BuildAgentCoordinatorInput {
   onWorkerExited: (changeName: string) => void;
   /** Phase transition for a worker — dashboard renders alongside iter+elapsed. */
   onWorkerPhase?: (changeName: string, phase: WorkerPhase, detail?: string) => void;
-  /** A line of stdout/stderr captured from the worker subprocess. The UI
-   *  keeps a small ring buffer for display; the full stream is teed to a
-   *  per-change log file at `<projectRoot>/.ralph/logs/<changeName>.log`. */
+  /** A line of stdout/stderr captured from the worker subprocess. */
   onWorkerOutput?: (changeName: string, line: string) => void;
   /** Live shell-command tracer — fires on every `cmd.run(...)` start/end
    *  inside post-task. The dashboard uses this to show "running `gh pr
@@ -124,26 +139,56 @@ interface BuildAgentCoordinatorInput {
     durationMs?: number,
     ok?: boolean,
   ) => void;
+  /** Optional side-effect overrides (test injection). */
+  runners?: AgentRunners;
 }
 
 interface BuildAgentCoordinatorResult {
   coord: AgentCoordinator;
   /** One-line description of the active Linear filter, for the status footer. */
   filterDesc: string;
-  /** Effective concurrency (CLI arg or config). */
   concurrency: number;
-  /** Effective poll interval seconds. */
   pollInterval: number;
-  /** Look up the working dir (worktree path or projectRoot) for an active
-   *  change. Used by the iteration-count polling effect. */
   getWorkerCwd: (changeName: string) => string | undefined;
 }
 
 /**
+ * Resolve the effective Indicators map: CLI overrides replace config keys
+ * one-by-one. Repeated CLI flags for the same key collapse into
+ * `{apply: [...]}`. CLI is authoritative when present. Strips `undefined`
+ * values from the merged record (exactOptionalPropertyTypes).
+ */
+function mergeIndicators(cfg: Record<string, unknown>, cli: Partial<Indicators>): Indicators {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(cfg)) {
+    if (v !== undefined) out[k] = v;
+  }
+  for (const [k, v] of Object.entries(cli)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out as Indicators;
+}
+
+/** Build a flat marker list across many SetIndicators (used for exclusion). */
+function unionMarkers(...sets: (SetIndicator | undefined)[]): Marker[] {
+  const out: Marker[] = [];
+  const seen = new Set<string>();
+  for (const s of sets) {
+    if (!s) continue;
+    for (const m of markersOf(s)) {
+      const key = `${m.type}:${m.value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(m);
+    }
+  }
+  return out;
+}
+
+/**
  * Build a fully wired `AgentCoordinator`. Owns the per-change book-keeping
- * maps, the workflow-state / label resolver caches, the scaffold and
- * spawnWorker callbacks, and the post-task hand-off. Pure async — no React
- * dependencies — so the wiring can be unit-tested in isolation.
+ * maps, the workflow-state / label resolver caches, the prepare and
+ * spawnWorker callbacks, and the post-task hand-off.
  */
 export function buildAgentCoordinator(
   input: BuildAgentCoordinatorInput,
@@ -155,7 +200,6 @@ export function buildAgentCoordinator(
     statesDir,
     tasksDir,
     apiKey,
-    store,
     onLog,
     onWorkersChanged,
     onWorkerStarted,
@@ -170,28 +214,107 @@ export function buildAgentCoordinator(
   const concurrency = args.concurrency || cfg.concurrency;
   const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
 
-  const inProgressName = args.inProgressStatus || cfg.linear.inProgressStatus;
-  const baseStatuses = args.linearStatus.length ? args.linearStatus : cfg.linear.statuses;
-  // Always include `inProgressStatus` in the effective filter when one is
-  // configured, so issues left in flight by an interrupted previous run
-  // are picked up again on restart. (Workers are deduped against
-  // .ralph/agent-state.json, so we won't double-process.)
-  const effectiveStatuses =
-    inProgressName && baseStatuses.length > 0 && !baseStatuses.includes(inProgressName)
-      ? [...baseStatuses, inProgressName]
-      : baseStatuses;
-  const filter: LinearFilter = {
-    team: args.linearTeam || cfg.linear.team,
-    assignee: args.linearAssignee || cfg.linear.assignee,
-    statuses: effectiveStatuses,
-    labels: args.linearLabel.length ? args.linearLabel : cfg.linear.labels,
-  };
+  const indicators: Indicators = mergeIndicators(
+    cfg.linear.indicators as Record<string, unknown>,
+    args.indicators,
+  );
+  const team = args.linearTeam || cfg.linear.team;
+  const assignee = args.linearAssignee || cfg.linear.assignee;
+
+  // Markers excluded from `getTodo` so already-handled issues don't get
+  // re-picked. `getInProgress` is intentionally NOT excluded here — the
+  // coordinator routes resumes through a different bucket and the include
+  // filter for `getTodo` doesn't already match in-progress issues.
+  const excludeFromTodo = unionMarkers(
+    indicators.setDone,
+    indicators.setError,
+    indicators.setConflicted,
+  );
+
+  const gitRunner: GitRunner = input.runners?.git ?? bunGitRunner;
+  const cmdRunner: CmdRunner = input.runners?.cmd ?? bunCmdRunner;
 
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
   const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
 
-  const useWorktree = args.worktree || cfg.useWorktree;
+  async function resolveStateId(issue: LinearIssue, name: string): Promise<string | null> {
+    const t = teamKeyOf(issue);
+    let map = stateCache.get(t);
+    if (!map) {
+      const states = await fetchWorkflowStates(apiKey, t);
+      map = new Map(states.map((s) => [s.name.toLowerCase(), s.id]));
+      stateCache.set(t, map);
+    }
+    return map.get(name.toLowerCase()) ?? null;
+  }
+
+  async function resolveLabelId(issue: LinearIssue, name: string): Promise<string | null> {
+    const t = teamKeyOf(issue);
+    let map = labelCache.get(t);
+    if (!map) {
+      const labels = await fetchIssueLabels(apiKey, t);
+      map = new Map(labels.map((l) => [l.name.toLowerCase(), l.id]));
+      labelCache.set(t, map);
+    }
+    return map.get(name.toLowerCase()) ?? null;
+  }
+
+  async function applyMarker(issue: LinearIssue, m: Marker): Promise<void> {
+    if (m.type === "status") {
+      const id = await resolveStateId(issue, m.value);
+      if (!id) {
+        onLog(`! Linear status '${m.value}' not found for ${issue.identifier}`, "yellow");
+        return;
+      }
+      await updateIssueState(apiKey, issue.id, id);
+      onLog(`  → ${issue.identifier} status='${m.value}'`, "gray");
+    } else {
+      const id = await resolveLabelId(issue, m.value);
+      if (!id) {
+        onLog(`! Linear label '${m.value}' not found for ${issue.identifier}`, "yellow");
+        return;
+      }
+      await addLabelToIssue(apiKey, issue.id, id);
+      onLog(`  → ${issue.identifier} +label='${m.value}'`, "gray");
+    }
+  }
+
+  async function applyIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
+    for (const m of markersOf(ind)) await applyMarker(issue, m);
+  }
+
+  /** Removes label-typed markers; status removal is a no-op (Linear status
+   *  is mutually exclusive — to "remove" a status you set a different one). */
+  async function removeIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
+    for (const m of markersOf(ind)) {
+      if (m.type !== "label") continue;
+      const id = await resolveLabelId(issue, m.value);
+      if (!id) {
+        onLog(`! Linear label '${m.value}' not found for ${issue.identifier}`, "yellow");
+        continue;
+      }
+      await removeLabelFromIssue(apiKey, issue.id, id);
+      onLog(`  → ${issue.identifier} -label='${m.value}'`, "gray");
+    }
+  }
+
+  async function fetchByGet(
+    inc: SetIndicator | { filter: Marker[] } | undefined,
+    excl: Marker[],
+  ): Promise<LinearIssue[]> {
+    if (!inc) return [];
+    // GetIndicator carries its filter list directly.
+    const include = "filter" in inc ? inc.filter : [];
+    if (include.length === 0) return [];
+    const spec: LinearFilterSpec = {
+      team,
+      assignee,
+      include,
+      exclude: excl,
+    };
+    return fetchOpenIssues(apiKey, spec);
+  }
 
   // Per-changeName book-keeping. The coordinator's deps callbacks read and
   // write these in tandem; they live in the factory's closure rather than
@@ -200,92 +323,174 @@ export function buildAgentCoordinator(
   const statesDirByChange = new Map<string, string>();
   const branchByChange = new Map<string, string>();
   const issueByChange = new Map<string, LinearIssue>();
+  /** PR URL per change, populated when a PR is created or surfaced. Used
+   *  by the conflict-scan step. Volatile — repopulated on next poll if
+   *  the worker recreates a PR. */
+  const prByChange = new Map<string, string>();
+  /** changeNames whose PR is known to be gone (merged + branch deleted).
+   *  Skipped by conflict-scan thereafter. */
+  const prUnavailable = new Set<string>();
 
-  async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
-    onLog(`  ${label}: ${cmd}`, "gray");
-    const proc = Bun.spawn({
-      cmd: ["sh", "-c", cmd],
-      cwd,
-      stdout: "ignore",
-      stderr: "pipe",
-      stdin: "ignore",
-    });
-    const code = await proc.exited;
-    if (code !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      onLog(
-        `! ${label} exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
-        "yellow",
-      );
-    }
-  }
+  const useWorktree = args.worktree || cfg.useWorktree;
 
-  async function scaffoldCallback(issue: LinearIssue): Promise<string> {
-    // The coordinator hasn't created an "active worker" entry yet (it
-    // only does so once spawnWorker returns), so we can't emit phases
-    // keyed by changeName here. The "▶ <id> → <change>" log line
-    // already covers this transition.
-    let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
-    try {
-      comments = await fetchIssueComments(apiKey, issue.id);
-    } catch (err) {
-      onLog(
-        `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
-        "yellow",
-      );
-    }
-
-    // Decide where this change's files live:
-    //  - useWorktree: scaffold inside the worktree so the loop sees them
-    //  - else: scaffold in main project root
-    let workerCwd = projectRoot;
-    let scaffoldTasksDir = tasksDir;
-    let scaffoldStatesDir = statesDir;
-    let workerBranch: string | null = null;
-    const probeName = issue.identifier.toLowerCase();
-    if (useWorktree) {
-      try {
-        const wt = await createWorktree(projectRoot, probeName, bunGitRunner);
-        workerCwd = wt.cwd;
-        workerBranch = wt.branch;
-        const wtLayout = projectLayout(wt.cwd);
-        scaffoldTasksDir = wtLayout.tasksDir;
-        scaffoldStatesDir = wtLayout.statesDir;
-        onLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
-        try {
-          await seedWorktreeMcpConfig(projectRoot, wt.cwd);
-        } catch (err) {
-          onLog(
-            `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
-      } catch (err) {
+  const scriptRunner =
+    input.runners?.runScript ??
+    (async (cmd: string, cwd: string): Promise<number> => {
+      const proc = Bun.spawn({
+        cmd: ["sh", "-c", cmd],
+        cwd,
+        stdout: "ignore",
+        stderr: "pipe",
+        stdin: "ignore",
+      });
+      const code = await proc.exited;
+      if (code !== 0) {
+        const stderr = await new Response(proc.stderr).text();
         onLog(
-          `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — falling back to project root`,
+          `! script exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
           "yellow",
         );
       }
+      return code;
+    });
+
+  async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
+    onLog(`  ${label}: ${cmd}`, "gray");
+    const code = await scriptRunner(cmd, cwd);
+    if (code !== 0) {
+      onLog(`! ${label} exited code ${code}`, "yellow");
+    }
+  }
+
+  /** Establish a worktree (or stay in projectRoot when not configured) and
+   *  return the working directory + scaffold dirs + branch. Idempotent —
+   *  reuses an existing worktree when one is already present. */
+  async function setupWorktree(issue: LinearIssue): Promise<{
+    workerCwd: string;
+    scaffoldTasksDir: string;
+    scaffoldStatesDir: string;
+    branch: string | null;
+  }> {
+    let workerCwd = projectRoot;
+    let scaffoldTasksDir = tasksDir;
+    let scaffoldStatesDir = statesDir;
+    let branch: string | null = null;
+    if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
+    const probeName = issue.identifier.toLowerCase();
+    try {
+      const wt = await createWorktree(projectRoot, probeName, gitRunner);
+      workerCwd = wt.cwd;
+      branch = wt.branch;
+      const wtLayout = projectLayout(wt.cwd);
+      scaffoldTasksDir = wtLayout.tasksDir;
+      scaffoldStatesDir = wtLayout.statesDir;
+      onLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
+      try {
+        await seedWorktreeMcpConfig(projectRoot, wt.cwd);
+      } catch (err) {
+        onLog(
+          `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    } catch (err) {
+      onLog(
+        `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — falling back to project root`,
+        "yellow",
+      );
+    }
+    return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
+  }
+
+  async function prepare(issue: LinearIssue, mode: SpawnMode): Promise<PrepareResult> {
+    const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch } = await setupWorktree(issue);
+
+    let changeName: string;
+    if (mode === "fresh") {
+      // Fetch comments to embed in proposal — only on fresh runs to avoid
+      // the round-trip cost on every resume/fix.
+      let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
+      try {
+        comments = await fetchIssueComments(apiKey, issue.id);
+      } catch (err) {
+        onLog(
+          `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+      const appendPrompt = args.prompt || cfg.appendPrompt || "";
+      changeName = await scaffoldChangeForIssue(
+        scaffoldTasksDir,
+        scaffoldStatesDir,
+        issue,
+        comments,
+        appendPrompt,
+      );
+    } else {
+      // Resume / conflict-fix: do NOT re-scaffold (would overwrite tasks.md).
+      changeName = changeNameForIssue(issue);
+      const wtLayout = projectLayout(workerCwd);
+      await mkdir(wtLayout.changeDir(changeName), { recursive: true });
+      await mkdir(wtLayout.taskStateDir(changeName), { recursive: true });
     }
 
-    const appendPrompt = args.prompt || cfg.appendPrompt || "";
-    const changeName = await scaffoldChangeForIssue(
-      scaffoldTasksDir,
-      scaffoldStatesDir,
-      issue,
-      comments,
-      appendPrompt,
-    );
     cwdByChange.set(changeName, workerCwd);
     statesDirByChange.set(changeName, scaffoldStatesDir);
     issueByChange.set(changeName, issue);
-    if (workerBranch) branchByChange.set(changeName, workerBranch);
+    if (branch) branchByChange.set(changeName, branch);
+
+    if (mode === "conflict-fix") {
+      // Prepend a fix-conflicts task and reactivate the loop's state file
+      // so the worker picks it up first. The post-task pipeline already
+      // handles push (with hook-fix retry) → PR update.
+      const wtLayout = projectLayout(workerCwd);
+      const tasksFile = join(wtLayout.changeDir(changeName), "tasks.md");
+      const prUrl = prByChange.get(changeName);
+      const body = [
+        `The PR for this change has merge conflicts with \`${cfg.prBaseBranch}\`.`,
+        "",
+        "Steps:",
+        `1. \`git fetch origin ${cfg.prBaseBranch}\` then rebase or merge \`${cfg.prBaseBranch}\` into the current branch.`,
+        "2. Resolve conflicts in the files git lists.",
+        "3. Stage and commit the resolution.",
+        prUrl ? `\nPR: ${prUrl}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      try {
+        await prependFixTask(tasksFile, "Resolve PR merge conflicts", body);
+      } catch (err) {
+        onLog(`! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
+      }
+      await reactivateState(wtLayout.stateFile(changeName), changeName);
+    }
 
     if (cfg.setupScript) {
       await runScript("setup", cfg.setupScript, workerCwd);
     }
 
-    return changeName;
+    return {
+      changeName,
+      ...(prByChange.has(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
+    };
+  }
+
+  async function reactivateState(stateFilePath: string, changeName: string): Promise<void> {
+    const file = Bun.file(stateFilePath);
+    if (!(await file.exists())) return;
+    try {
+      const stateObj = JSON.parse(await file.text()) as {
+        status?: string;
+        lastModified?: string;
+      };
+      if (stateObj.status !== "active") {
+        stateObj.status = "active";
+        stateObj.lastModified = new Date().toISOString();
+        await Bun.write(stateFilePath, JSON.stringify(stateObj, null, 2) + "\n");
+      }
+    } catch (err) {
+      onLog(`! could not reactivate state for ${changeName}: ${(err as Error).message}`, "yellow");
+    }
   }
 
   function buildTaskCmdFor(changeName: string): string[] {
@@ -304,8 +509,6 @@ export function buildAgentCoordinator(
     if (maxCost > 0) c.push("--max-cost", String(maxCost));
     const maxRuntime = args.maxRuntimeMinutes || cfg.maxRuntimeMinutesPerTask;
     if (maxRuntime > 0) c.push("--max-runtime", String(maxRuntime));
-    // --max-failures default (5) is preserved by the worker; only forward
-    // when CLI/config explicitly differ from the default.
     const maxFailures =
       args.maxConsecutiveFailures !== 5
         ? args.maxConsecutiveFailures
@@ -318,14 +521,20 @@ export function buildAgentCoordinator(
     return c;
   }
 
-  function spawnWorker(changeName: string): { exited: Promise<number>; kill: () => void } {
-    const cwd = cwdByChange.get(changeName) ?? projectRoot;
+  /**
+   * Default worker spawner: pipes stdout/stderr through a line-buffered
+   * splitter that emits each line to `onWorkerOutput` (UI ring buffer) and
+   * tees to `<projectRoot>/.ralph/logs/<changeName>.log` so users have
+   * both a live tail and a `tail -f`-able file. Tests inject
+   * `runners.spawnWorker` to skip the streaming entirely.
+   */
+  function defaultSpawn(
+    changeName: string,
+    cmd: string[],
+    cwd: string,
+    note?: string,
+  ): { exited: Promise<number>; kill: () => void; logFilePath: string } {
     const logFilePath = join(logsDir, `${changeName}.log`);
-
-    // Pipe stdout/stderr through a line-buffered splitter that:
-    //  1. emits each line via onWorkerOutput (UI ring buffer)
-    //  2. appends to <projectRoot>/.ralph/logs/<changeName>.log
-    // so users have both a live tail and a `tail -f`-able file.
     let logWriter: ReturnType<ReturnType<typeof Bun.file>["writer"]> | null = null;
     const ensureLogWriter = async () => {
       if (logWriter) return logWriter;
@@ -338,7 +547,6 @@ export function buildAgentCoordinator(
         return null;
       }
     };
-
     async function pump(stream: ReadableStream<Uint8Array> | null, label: string): Promise<void> {
       if (!stream) return;
       const reader = stream.getReader();
@@ -364,7 +572,7 @@ export function buildAgentCoordinator(
           onWorkerOutput?.(changeName, label === "err" ? `! ${buf}` : buf);
         }
       } catch {
-        /* stream errors are non-fatal — the subprocess exit drives control flow */
+        /* stream errors are non-fatal — exit drives control flow */
       } finally {
         try {
           writer?.flush();
@@ -373,41 +581,65 @@ export function buildAgentCoordinator(
         }
       }
     }
+    const p = Bun.spawn({
+      cmd,
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
+    });
+    void (async () => {
+      const writer = await ensureLogWriter();
+      if (note && writer) writer.write(`\n--- ${note} ---\n`);
+    })();
+    void pump(p.stdout as ReadableStream<Uint8Array>, "out");
+    void pump(p.stderr as ReadableStream<Uint8Array>, "err");
+    return { exited: p.exited, kill: () => p.kill(), logFilePath };
+  }
 
-    const launch = (note?: string) => {
-      const p = Bun.spawn({
-        cmd: buildTaskCmdFor(changeName),
+  function spawnWorker(changeName: string): { exited: Promise<number>; kill: () => void } {
+    const cwd = cwdByChange.get(changeName) ?? projectRoot;
+    const injected = input.runners?.spawnWorker;
+
+    let logFilePath: string;
+    let handle: { exited: Promise<number>; kill: () => void };
+    if (injected) {
+      logFilePath = join(logsDir, `${changeName}.log`);
+      handle = injected(buildTaskCmdFor(changeName), cwd);
+    } else {
+      const r = defaultSpawn(
+        changeName,
+        buildTaskCmdFor(changeName),
         cwd,
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-      });
-      if (note && logWriter) logWriter.write(`\n--- ${note} ---\n`);
-      void pump(p.stdout as ReadableStream<Uint8Array>, "out");
-      void pump(p.stderr as ReadableStream<Uint8Array>, "err");
-      return p;
-    };
-
+        `spawn at ${new Date().toISOString()}`,
+      );
+      logFilePath = r.logFilePath;
+      handle = { exited: r.exited, kill: r.kill };
+    }
     const respawn = (): Promise<number> => {
       onWorkerPhase?.(changeName, "working", "respawn");
-      const rp = launch(`respawn at ${new Date().toISOString()}`);
-      return rp.exited;
+      if (injected) return injected(buildTaskCmdFor(changeName), cwd).exited;
+      return defaultSpawn(
+        changeName,
+        buildTaskCmdFor(changeName),
+        cwd,
+        `respawn at ${new Date().toISOString()}`,
+      ).exited;
     };
-    const proc = launch(`spawn at ${new Date().toISOString()}`);
     onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir, logFilePath);
     onWorkerPhase?.(changeName, "working");
 
     const tracedCmd = onWorkerCmd
       ? traceCmdRunner(
-          bunCmdRunner,
+          cmdRunner,
           (cmd) => onWorkerCmd(changeName, cmd, "start"),
           (cmd, ms, ok) => onWorkerCmd(changeName, cmd, "end", ms, ok),
         )
-      : bunCmdRunner;
+      : cmdRunner;
 
     const wantPr = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
-    const wrapped = proc.exited.then(async (code) => {
+    const wrapped = handle.exited.then(async (code) => {
       const workerLayout = projectLayout(cwd);
       const effectiveCode = await runPostTask(
         {
@@ -433,21 +665,19 @@ export function buildAgentCoordinator(
         },
         {
           cmd: tracedCmd,
-          git: bunGitRunner,
+          git: gitRunner,
           log: onLog,
           runScript,
+          registerPr: (cn, url) => {
+            prByChange.set(cn, url);
+            prUnavailable.delete(cn);
+          },
           ...(onWorkerPhase && {
             onPhase: (phase: PostTaskPhase, detail?: string) =>
               onWorkerPhase(changeName, phase, detail),
           }),
         },
       );
-      try {
-        logWriter?.flush();
-        await logWriter?.end();
-      } catch {
-        /* ignore */
-      }
       cwdByChange.delete(changeName);
       statesDirByChange.delete(changeName);
       branchByChange.delete(changeName);
@@ -456,15 +686,92 @@ export function buildAgentCoordinator(
       return effectiveCode;
     });
 
-    return { exited: wrapped, kill: () => proc.kill() };
+    return { exited: wrapped, kill: () => handle.kill() };
+  }
+
+  /**
+   * Look up the PR for a given issue and ask `gh` whether it's conflicting
+   * with main. Returns null when no PR can be found (branch deleted, never
+   * created, etc.) — caller skips.
+   */
+  async function checkPrConflict(
+    issue: LinearIssue,
+  ): Promise<{ url: string; conflicting: boolean } | null> {
+    const changeName = changeNameForIssue(issue);
+    if (prUnavailable.has(changeName)) return null;
+
+    const branch = branchForChange(changeName);
+    let prUrl = prByChange.get(changeName);
+    if (!prUrl) {
+      // Discover via gh (one-shot).
+      try {
+        const res = await cmdRunner.run(
+          [
+            "gh",
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "open",
+            "--json",
+            "url",
+            "--jq",
+            ".[0].url // empty",
+          ],
+          projectRoot,
+        );
+        const found = res.stdout.trim();
+        if (!found) {
+          prUnavailable.add(changeName);
+          return null;
+        }
+        prUrl = found;
+        prByChange.set(changeName, prUrl);
+      } catch {
+        prUnavailable.add(changeName);
+        return null;
+      }
+    }
+
+    try {
+      const res = await cmdRunner.run(
+        ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
+        projectRoot,
+      );
+      const mergeable = res.stdout.trim();
+      return { url: prUrl, conflicting: mergeable === "CONFLICTING" };
+    } catch {
+      return null;
+    }
+  }
+
+  // setDone candidates for conflict scan: include = setDone marker(s),
+  // exclude = setConflicted marker(s) (don't double-count).
+  async function fetchDoneCandidates(): Promise<LinearIssue[]> {
+    if (!indicators.setDone) return [];
+    const include = markersOf(indicators.setDone);
+    const exclude = indicators.setConflicted ? markersOf(indicators.setConflicted) : [];
+    if (include.length === 0) return [];
+    return fetchOpenIssues(apiKey, { team, assignee, include, exclude });
   }
 
   const coord = new AgentCoordinator(
     {
-      fetchIssues: (f) => fetchOpenIssues(apiKey, f),
-      scaffold: scaffoldCallback,
+      fetchTodo: () => fetchByGet(indicators.getTodo, excludeFromTodo),
+      fetchInProgress: () => fetchByGet(indicators.getInProgress, []),
+      fetchConflicted: () => fetchByGet(indicators.getConflicted, []),
+      fetchDoneCandidates,
+      prepare,
       spawnWorker,
-      store,
+      applyIndicator,
+      removeIndicator,
+      postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
+      fetchComments: async (issueId) => {
+        const c = await fetchIssueComments(apiKey, issueId);
+        return c.map((x) => ({ body: x.body }));
+      },
+      checkPrConflict,
       onLog,
       onWorkersChanged,
       getIterationCount: async (changeName) => {
@@ -474,47 +781,44 @@ export function buildAgentCoordinator(
         const json = (await file.json()) as { iteration?: number };
         return json.iteration ?? 0;
       },
-      updater: {
-        postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
-        setState: (issue, stateId) => updateIssueState(apiKey, issue.id, stateId),
-        resolveStateId: async (issue, stateName) => {
-          const team = teamKeyOf(issue);
-          let map = stateCache.get(team);
-          if (!map) {
-            const states = await fetchWorkflowStates(apiKey, team);
-            map = new Map(states.map((s) => [s.name.toLowerCase(), s.id]));
-            stateCache.set(team, map);
-          }
-          return map.get(stateName.toLowerCase()) ?? null;
-        },
-        addLabel: (issue, labelId) => addLabelToIssue(apiKey, issue.id, labelId),
-        resolveLabelId: async (issue, labelName) => {
-          const team = teamKeyOf(issue);
-          let map = labelCache.get(team);
-          if (!map) {
-            const labels = await fetchIssueLabels(apiKey, team);
-            map = new Map(labels.map((l) => [l.name.toLowerCase(), l.id]));
-            labelCache.set(team, map);
-          }
-          return map.get(labelName.toLowerCase()) ?? null;
-        },
-      },
     },
     {
       concurrency,
-      filter,
-      inProgressStatus: args.inProgressStatus || cfg.linear.inProgressStatus,
-      doneStatus: args.doneStatus || cfg.linear.doneStatus,
-      doneLabel: args.doneLabel || cfg.linear.doneLabel,
+      ...(indicators.setInProgress !== undefined
+        ? { setInProgress: indicators.setInProgress }
+        : {}),
+      ...(indicators.setDone !== undefined ? { setDone: indicators.setDone } : {}),
+      ...(indicators.setError !== undefined ? { setError: indicators.setError } : {}),
+      ...(indicators.setConflicted !== undefined
+        ? { setConflicted: indicators.setConflicted }
+        : {}),
+      ...(indicators.clearConflicted !== undefined
+        ? { clearConflicted: indicators.clearConflicted }
+        : {}),
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
     },
   );
 
-  const filterDesc =
-    `team=${filter.team ?? "*"}, assignee=${filter.assignee ?? "*"}, statuses=` +
-    `${filter.statuses?.length ? filter.statuses.join(",") : "open"}` +
-    `${filter.labels?.length ? `, labels=${filter.labels.join(",")}` : ""}`;
+  // One-shot startup migration: agent-state.json is no longer used. If we
+  // find it, log a warning and unlink it so subsequent runs don't carry
+  // the stale local copy. We do this asynchronously and don't await — the
+  // file is informational at this point.
+  void (async () => {
+    const legacy = Bun.file(projectLayout(projectRoot).agentStateFile);
+    if (await legacy.exists()) {
+      onLog(
+        "  legacy .ralph/agent-state.json detected — Linear is now the source of truth; deleting",
+        "gray",
+      );
+      try {
+        await legacy.delete();
+      } catch (err) {
+        onLog(`! failed to delete legacy agent-state.json: ${(err as Error).message}`, "yellow");
+      }
+    }
+  })();
+  const filterDesc = describeIndicators(indicators, team, assignee);
 
   return {
     coord,
@@ -523,4 +827,28 @@ export function buildAgentCoordinator(
     pollInterval,
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
   };
+}
+
+function describeIndicators(
+  indicators: Indicators,
+  team: string | undefined,
+  assignee: string | undefined,
+): string {
+  const parts: string[] = [];
+  parts.push(`team=${team ?? "*"}`);
+  parts.push(`assignee=${assignee ?? "*"}`);
+  if (indicators.getTodo) {
+    parts.push(`todo=[${indicators.getTodo.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`);
+  }
+  if (indicators.getInProgress) {
+    parts.push(
+      `inProgress=[${indicators.getInProgress.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
+    );
+  }
+  if (indicators.getConflicted) {
+    parts.push(
+      `conflicted=[${indicators.getConflicted.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
+    );
+  }
+  return parts.join(", ");
 }

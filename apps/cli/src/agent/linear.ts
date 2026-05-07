@@ -1,3 +1,5 @@
+import type { Marker } from "@ralphy/types";
+
 export interface LinearIssue {
   id: string;
   identifier: string;
@@ -16,15 +18,17 @@ export interface LinearIssue {
   blockedByIds: string[];
 }
 
-export interface LinearFilter {
+/**
+ * Linear query spec used by the agent. `include` is an any-of marker list
+ * (issue must match at least one). `exclude` is a none-of marker list
+ * (issue must not match any). Empty lists are treated as "no constraint".
+ */
+export interface LinearFilterSpec {
   team?: string | undefined;
   assignee?: string | undefined;
-  statuses?: string[] | undefined;
-  /** Match any-of these label names (legacy `label` config maps to a 1-element array). */
-  labels?: string[] | undefined;
+  include?: Marker[] | undefined;
+  exclude?: Marker[] | undefined;
 }
-
-const OPEN_STATE_TYPES = ["unstarted", "started", "backlog"] as const;
 
 const LINEAR_API = "https://api.linear.app/graphql";
 
@@ -41,29 +45,71 @@ interface LinearNode {
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
 }
 
-export async function fetchOpenIssues(
-  apiKey: string,
-  filter: LinearFilter,
-): Promise<LinearIssue[]> {
+function partition(markers: Marker[]): { statuses: string[]; labels: string[] } {
+  const statuses: string[] = [];
+  const labels: string[] = [];
+  for (const m of markers) {
+    if (m.type === "status") statuses.push(m.value);
+    else labels.push(m.value);
+  }
+  return { statuses, labels };
+}
+
+/**
+ * Build the Linear `IssueFilter` GraphQL variable. `include` is any-of
+ * across the union of statuses + labels; `exclude` is none-of across both.
+ *
+ * Linear's filter language doesn't have a top-level OR, so we OR by
+ * passing an `or: [...]` array of partial filters. When include has only
+ * one kind (only statuses, or only labels), we collapse to a flat filter.
+ */
+function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   const where: Record<string, unknown> = {};
-  if (filter.team) where.team = { key: { eq: filter.team } };
-  if (filter.assignee) {
-    if (filter.assignee === "me") {
-      where.assignee = { isMe: { eq: true } };
-    } else if (filter.assignee.includes("@")) {
-      where.assignee = { email: { eq: filter.assignee } };
-    } else {
-      where.assignee = { id: { eq: filter.assignee } };
+  if (spec.team) where.team = { key: { eq: spec.team } };
+  if (spec.assignee) {
+    if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };
+    else if (spec.assignee.includes("@")) where.assignee = { email: { eq: spec.assignee } };
+    else where.assignee = { id: { eq: spec.assignee } };
+  }
+
+  const inc = spec.include ?? [];
+  if (inc.length > 0) {
+    const { statuses, labels } = partition(inc);
+    const branches: Record<string, unknown>[] = [];
+    if (statuses.length > 0) branches.push({ state: { name: { in: statuses } } });
+    if (labels.length > 0) branches.push({ labels: { some: { name: { in: labels } } } });
+    if (branches.length === 1) Object.assign(where, branches[0]);
+    else where.or = branches;
+  } else {
+    // Default: open issues only (preserves prior behavior when no
+    // indicators are configured at all).
+    where.state = { type: { in: ["unstarted", "started", "backlog"] } };
+  }
+
+  const exc = spec.exclude ?? [];
+  if (exc.length > 0) {
+    const { statuses, labels } = partition(exc);
+    if (statuses.length > 0) {
+      // Merge with any existing state constraint via `and:`.
+      const current = where.state as Record<string, unknown> | undefined;
+      const noStatus = { state: { name: { nin: statuses } } };
+      if (current === undefined) Object.assign(where, noStatus);
+      else where.and = [{ state: current }, noStatus];
+    }
+    if (labels.length > 0) {
+      // "every label is not in [...]" — Linear supports `labels.every`.
+      where.labels = { ...(where.labels as object | undefined), every: { name: { nin: labels } } };
     }
   }
-  if (filter.statuses && filter.statuses.length > 0) {
-    where.state = { name: { in: filter.statuses } };
-  } else {
-    where.state = { type: { in: [...OPEN_STATE_TYPES] } };
-  }
-  if (filter.labels && filter.labels.length > 0) {
-    where.labels = { some: { name: { in: filter.labels } } };
-  }
+
+  return where;
+}
+
+export async function fetchOpenIssues(
+  apiKey: string,
+  spec: LinearFilterSpec,
+): Promise<LinearIssue[]> {
+  const where = buildIssueFilter(spec);
 
   const query = `query Issues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {
@@ -243,6 +289,21 @@ export async function addLabelToIssue(
     issueAddLabel(id: $id, labelId: $labelId) { success }
   }`;
   await linearRequest<{ issueAddLabel: { success: boolean } }>(apiKey, mutation, {
+    id: issueId,
+    labelId,
+  });
+}
+
+/** Remove a label from an issue. No-op if the issue does not bear it. */
+export async function removeLabelFromIssue(
+  apiKey: string,
+  issueId: string,
+  labelId: string,
+): Promise<void> {
+  const mutation = `mutation RemoveLabel($id: String!, $labelId: String!) {
+    issueRemoveLabel(id: $id, labelId: $labelId) { success }
+  }`;
+  await linearRequest<{ issueRemoveLabel: { success: boolean } }>(apiKey, mutation, {
     id: issueId,
     labelId,
   });

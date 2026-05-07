@@ -80,50 +80,50 @@ export type Usage = z.infer<typeof UsageSchema>;
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
 export type State = z.infer<typeof StateSchema>;
 
-// --- Agent state ---
+// --- Linear indicators ---
 //
-// The orchestrator's view of which Linear issues Ralph has touched. Lives
-// at `<projectRoot>/.ralph/agent-state.json`. The runtime store + zod
-// schema live in `apps/cli/src/agent/state.ts` (single-writer enforcement);
-// these types are duplicated here so cross-cutting consumers (status
-// views, `ralph clean`, future telemetry) can refer to one shape.
-//
-// IMPORTANT: this declaration must stay in sync with `AgentStateSchema`
-// in `apps/cli/src/agent/state.ts`. A schema-drift test in that module
-// asserts the shapes match.
+// Linear is the single source of truth for which issues Ralph has touched.
+// Indicators are typed records of how Ralph queries / mutates Linear at
+// each lifecycle transition. A `Marker` is either a Linear issue-label
+// name or a Linear workflow-state name; `getX` indicators carry an any-of
+// filter built from markers; `setX` indicators apply one or more markers.
 
-export type AgentTaskState = "started" | "processed" | "failed";
+export type Marker = { type: "label"; value: string } | { type: "status"; value: string };
 
-export interface AgentTaskEntry {
-  issueId: string;
-  identifier: string;
-  state: AgentTaskState;
-  changeName?: string | undefined;
-  startedAt?: string | undefined;
-  finishedAt?: string | undefined;
-  exitCode?: number | undefined;
-  commentPosted?: boolean | undefined;
+/** Any-of filter: an issue matches if ANY listed marker matches. */
+export interface GetIndicator {
+  filter: Marker[];
 }
 
-export interface AgentSnapshot {
-  /** Map of Linear identifier (e.g. `ENG-42`) → task lifecycle entry. */
-  tasks: Record<string, AgentTaskEntry>;
-  /** ISO timestamp of the last poll, or null if never polled. */
-  lastPollAt: string | null;
-}
+/** Single marker, or `{apply: [...]}` for multiple in one transition. */
+export type SetIndicator = Marker | { apply: Marker[] };
 
 /**
- * Unified read-only view of every piece of state Ralph keeps about a
- * project. The two backing files (`agent-state.json` and the per-change
- * `.ralph-state.json`s) stay separate on disk for write-isolation
- * reasons, but consumers that need to reason across both — `ralph clean`,
- * status dashboards, future telemetry — should target this view.
+ * Action-name → indicator map. All keys optional; missing keys mean
+ * "Ralph does not perform that detection / mutation".
  */
-export interface RalphStateView {
-  /** Orchestrator state. `null` when agent mode has not touched this project. */
-  agent: AgentSnapshot | null;
-  /** Per-change loop state, keyed by `changeName`. */
-  changes: Record<string, State>;
+export interface Indicators {
+  /** Issues to pick up. */
+  getTodo?: GetIndicator;
+  /** Issues to resume after restart (already in flight). */
+  getInProgress?: GetIndicator;
+  /** Issues whose PR is conflicted and needs a re-fix run. */
+  getConflicted?: GetIndicator;
+  /** Marker(s) applied when a worker spawns. */
+  setInProgress?: SetIndicator;
+  /** Marker(s) applied on clean success. */
+  setDone?: SetIndicator;
+  /** Marker(s) applied on non-zero exit (quarantine signal). */
+  setError?: SetIndicator;
+  /** Marker(s) applied when PR conflict detected. */
+  setConflicted?: SetIndicator;
+  /** Label-only marker(s) removed when conflict is fixed. */
+  clearConflicted?: SetIndicator;
+}
+
+/** Convenience: extract the marker list applied by a SetIndicator. */
+export function markersOf(set: SetIndicator): Marker[] {
+  return "apply" in set ? set.apply : [set];
 }
 
 // --- Phase config ---

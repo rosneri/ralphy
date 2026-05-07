@@ -1,5 +1,5 @@
 import { log } from "@ralphy/output";
-import type { Engine, Mode } from "@ralphy/types";
+import type { Engine, Indicators, Marker, Mode, SetIndicator, GetIndicator } from "@ralphy/types";
 import pkg from "../../../package.json" with { type: "json" };
 
 export const VERSION: string = pkg.version;
@@ -21,14 +21,12 @@ export interface ParsedArgs {
   // agent mode
   linearTeam: string;
   linearAssignee: string;
-  linearStatus: string[];
-  linearLabel: string[];
   pollInterval: number;
   concurrency: number;
   worktree: boolean;
-  inProgressStatus: string;
-  doneStatus: string;
-  doneLabel: string;
+  /** CLI overrides for the indicator map. Wire layer merges these onto
+   *  the config's `linear.indicators`; CLI wins on conflict. */
+  indicators: Partial<Indicators>;
   createPr: boolean;
   fixCi: boolean;
 }
@@ -36,6 +34,18 @@ export interface ParsedArgs {
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean"]);
 
 const VALID_MODELS = new Set<string>(["haiku", "sonnet", "opus"]);
+
+const INDICATOR_KEYS = new Set<keyof Indicators>([
+  "getTodo",
+  "getInProgress",
+  "getConflicted",
+  "setInProgress",
+  "setDone",
+  "setError",
+  "setConflicted",
+  "clearConflicted",
+]);
+const GET_KEYS = new Set<keyof Indicators>(["getTodo", "getInProgress", "getConflicted"]);
 
 const HELP_TEXT = [
   `ralph v${VERSION}`,
@@ -69,23 +79,25 @@ const HELP_TEXT = [
   "Agent mode options (require LINEAR_API_KEY env var):",
   "  --linear-team <key>     Linear team key (e.g. ENG)",
   "  --linear-assignee <id>  Filter by assignee (user id, email, or 'me')",
-  "  --linear-status <name>  Filter by status name (repeatable, e.g. Todo, In Progress)",
-  "  --linear-label <name>   Filter by label name (repeatable, any-of)",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
-  "  --worktree              Run each task in its own git worktree (~/.ralph/<project>/worktrees/<name>)",
-  "  --in-progress-status <name>  Linear status to set when work starts on an issue",
-  "  --done-status <name>    Linear status to set when work completes successfully",
-  "  --done-label <name>     Linear label to add when work completes successfully",
+  "  --worktree              Run each task in its own git worktree",
+  "  --indicator <k>:<t>:<v> Override an indicator (repeatable). Examples:",
+  "                          --indicator getTodo:status:Todo",
+  "                          --indicator setDone:label:shipped",
+  "                          --indicator setDone:status:Done   (combined with above → multi-marker)",
+  "                          Keys: getTodo, getInProgress, getConflicted,",
+  "                                setInProgress, setDone, setError, setConflicted, clearConflicted",
+  "                          Types: label, status",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
-  "  --fix-ci                After opening the PR, re-run the task on CI failures until green (needs --create-pr)",
+  "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
   "",
   "  --help, -h              Show this help message",
   "",
   "Examples:",
   '  ralph task --name my-feature --prompt "Add dark mode"',
   "  ralph task --name my-feature --claude sonnet --max-iterations 10",
-  "  ralph task --name my-feature",
+  "  ralph agent --indicator getTodo:status:Todo --indicator setDone:status:Done",
   "  ralph list",
   "  ralph status --name my-feature",
   "  ralph init",
@@ -93,6 +105,58 @@ const HELP_TEXT = [
 
 export function printHelp(): void {
   log(HELP_TEXT);
+}
+
+/**
+ * Parse one --indicator value of the form `key:type:value` into a typed
+ * pair. `value` may itself contain colons; we split only on the first two.
+ */
+function parseIndicatorArg(raw: string): { key: keyof Indicators; marker: Marker } {
+  const firstColon = raw.indexOf(":");
+  if (firstColon < 0) {
+    const err = new Error("--indicator expects key:type:value") as Error & { input?: string };
+    err.input = raw;
+    throw err;
+  }
+  const secondColon = raw.indexOf(":", firstColon + 1);
+  if (secondColon < 0) {
+    const err = new Error("--indicator expects key:type:value") as Error & { input?: string };
+    err.input = raw;
+    throw err;
+  }
+  const key = raw.slice(0, firstColon) as keyof Indicators;
+  const type = raw.slice(firstColon + 1, secondColon) as Marker["type"];
+  const value = raw.slice(secondColon + 1);
+  if (!INDICATOR_KEYS.has(key)) {
+    const err = new Error("unknown indicator key") as Error & { key?: string };
+    err.key = key;
+    throw err;
+  }
+  if (type !== "label" && type !== "status") {
+    const err = new Error("indicator type must be 'label' or 'status'") as Error & {
+      type?: string;
+    };
+    err.type = type;
+    throw err;
+  }
+  if (!value) throw new Error("indicator value cannot be empty");
+  return { key, marker: { type, value } };
+}
+
+/** Merge a marker into the existing indicators bag for the given key. */
+function mergeIndicator(bag: Partial<Indicators>, key: keyof Indicators, marker: Marker): void {
+  if (GET_KEYS.has(key)) {
+    const existing = bag[key] as GetIndicator | undefined;
+    const filter = existing ? [...existing.filter, marker] : [marker];
+    (bag as Record<string, GetIndicator>)[key] = { filter };
+  } else {
+    const existing = bag[key] as SetIndicator | undefined;
+    let next: SetIndicator;
+    if (!existing) next = marker;
+    else if ("apply" in existing) next = { apply: [...existing.apply, marker] };
+    else next = { apply: [existing, marker] };
+    (bag as Record<string, SetIndicator>)[key] = next;
+  }
 }
 
 export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
@@ -112,14 +176,10 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     verbose: false,
     linearTeam: "",
     linearAssignee: "",
-    linearStatus: [],
-    linearLabel: [],
     pollInterval: 60,
     concurrency: 1,
     worktree: false,
-    inProgressStatus: "",
-    doneStatus: "",
-    doneLabel: "",
+    indicators: {},
     createPr: false,
     fixCi: false,
   };
@@ -138,23 +198,17 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectPushInterval = false;
   let expectLinearTeam = false;
   let expectLinearAssignee = false;
-  let expectLinearStatus = false;
-  let expectLinearLabel = false;
   let expectPollInterval = false;
   let expectConcurrency = false;
-  let expectInProgressStatus = false;
-  let expectDoneStatus = false;
-  let expectDoneLabel = false;
+  let expectIndicator = false;
 
   for (const arg of argv) {
-    // Check if we're expecting a model argument after --claude
     if (expectModel) {
       if (VALID_MODELS.has(arg)) {
         result.model = arg;
         expectModel = false;
         continue;
       }
-      // Not a valid model — fall through to process as a regular arg
       expectModel = false;
     }
 
@@ -207,12 +261,10 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       continue;
     }
     if (expectTimeout) {
-      // Deprecated — consume and ignore
       expectTimeout = false;
       continue;
     }
     if (expectPushInterval) {
-      // Deprecated — consume and ignore
       expectPushInterval = false;
       continue;
     }
@@ -226,16 +278,6 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       expectLinearAssignee = false;
       continue;
     }
-    if (expectLinearStatus) {
-      result.linearStatus.push(arg);
-      expectLinearStatus = false;
-      continue;
-    }
-    if (expectLinearLabel) {
-      result.linearLabel.push(arg);
-      expectLinearLabel = false;
-      continue;
-    }
     if (expectPollInterval) {
       result.pollInterval = parseInt(arg, 10);
       expectPollInterval = false;
@@ -246,19 +288,10 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       expectConcurrency = false;
       continue;
     }
-    if (expectInProgressStatus) {
-      result.inProgressStatus = arg;
-      expectInProgressStatus = false;
-      continue;
-    }
-    if (expectDoneStatus) {
-      result.doneStatus = arg;
-      expectDoneStatus = false;
-      continue;
-    }
-    if (expectDoneLabel) {
-      result.doneLabel = arg;
-      expectDoneLabel = false;
+    if (expectIndicator) {
+      const { key, marker } = parseIndicatorArg(arg);
+      mergeIndicator(result.indicators, key, marker);
+      expectIndicator = false;
       continue;
     }
 
@@ -326,12 +359,6 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       case "--linear-assignee":
         expectLinearAssignee = true;
         break;
-      case "--linear-status":
-        expectLinearStatus = true;
-        break;
-      case "--linear-label":
-        expectLinearLabel = true;
-        break;
       case "--poll-interval":
         expectPollInterval = true;
         break;
@@ -341,14 +368,8 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       case "--worktree":
         result.worktree = true;
         break;
-      case "--in-progress-status":
-        expectInProgressStatus = true;
-        break;
-      case "--done-status":
-        expectDoneStatus = true;
-        break;
-      case "--done-label":
-        expectDoneLabel = true;
+      case "--indicator":
+        expectIndicator = true;
         break;
       case "--create-pr":
         result.createPr = true;
