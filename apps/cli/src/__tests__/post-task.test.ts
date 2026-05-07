@@ -15,6 +15,9 @@ const FAKE_ISSUE: LinearIssue = {
   description: "",
   priority: 2,
   blockedByIds: [],
+  state: { name: "In Progress", type: "started" },
+  assignee: null,
+  labels: [],
 };
 
 function makeCmd(
