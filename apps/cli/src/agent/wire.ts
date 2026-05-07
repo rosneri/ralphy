@@ -800,24 +800,6 @@ export function buildAgentCoordinator(
     },
   );
 
-  // One-shot startup migration: agent-state.json is no longer used. If we
-  // find it, log a warning and unlink it so subsequent runs don't carry
-  // the stale local copy. We do this asynchronously and don't await — the
-  // file is informational at this point.
-  void (async () => {
-    const legacy = Bun.file(projectLayout(projectRoot).agentStateFile);
-    if (await legacy.exists()) {
-      onLog(
-        "  legacy .ralph/agent-state.json detected — Linear is now the source of truth; deleting",
-        "gray",
-      );
-      try {
-        await legacy.delete();
-      } catch (err) {
-        onLog(`! failed to delete legacy agent-state.json: ${(err as Error).message}`, "yellow");
-      }
-    }
-  })();
   const filterDesc = describeIndicators(indicators, team, assignee);
 
   return {

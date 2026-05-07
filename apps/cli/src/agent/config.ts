@@ -112,21 +112,160 @@ const RalphyConfigSchema = z
 
 export type RalphyConfig = z.infer<typeof RalphyConfigSchema>;
 
+/** Strip `//` line comments from a JSONC string before parsing. */
+function stripJsonComments(text: string): string {
+  // Remove // line comments that are not inside strings.
+  // This is a simple heuristic: it won't handle all edge cases (e.g. // inside
+  // a string value), but is sufficient for ralphy.config.json where values
+  // won't contain double-slash sequences.
+  return text.replace(/\/\/[^\n]*/g, "");
+}
+
 export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfig> {
   const path = join(projectRoot, "ralphy.config.json");
   const file = Bun.file(path);
   if (!(await file.exists())) {
     return RalphyConfigSchema.parse({});
   }
-  const raw = await file.json();
+  const text = await file.text();
+  const raw = JSON.parse(stripJsonComments(text));
   return RalphyConfigSchema.parse(raw);
 }
+
+/**
+ * Default config template written when no `ralphy.config.json` exists.
+ * Uses JSONC-style `//` comments so users can uncomment sections without
+ * needing to look up the schema.
+ *
+ * The `linear.indicators` block is commented out because activating it will
+ * query and mutate Linear labels/statuses. Uncomment only after you have
+ * confirmed the label and status names match your Linear workspace.
+ */
+const DEFAULT_CONFIG_TEMPLATE = `{
+  // How many tasks to run in parallel.
+  "concurrency": 1,
+
+  // Seconds between polls for new Linear issues (agent mode).
+  "pollIntervalSeconds": 60,
+
+  // Maximum iterations per task. 0 = unlimited.
+  "maxIterationsPerTask": 0,
+
+  // Maximum cost in USD per task. 0 = unlimited.
+  "maxCostUsdPerTask": 0,
+
+  // Maximum wall-clock minutes per task. 0 = unlimited.
+  "maxRuntimeMinutesPerTask": 0,
+
+  // Stop a task after this many consecutive identical failures.
+  "maxConsecutiveFailuresPerTask": 5,
+
+  // Seconds to wait between loop iterations (throttle).
+  "iterationDelaySeconds": 0,
+
+  // Log the raw engine stream to stdout.
+  "logRawStream": false,
+
+  // Pass --verbose to the ralph task sub-process.
+  "taskVerbose": false,
+
+  // Run each task in an isolated git worktree.
+  "useWorktree": false,
+
+  // Delete the worktree after a successful task.
+  "cleanupWorktreeOnSuccess": false,
+
+  // Shell script to run inside the worktree before the task starts.
+  // "setupScript": "bun install",
+
+  // Shell script to run inside the worktree after the task finishes.
+  // "teardownScript": "bun run lint",
+
+  // Extra text appended to every task prompt.
+  // "appendPrompt": "Always run tests before finishing.",
+
+  // Open a pull request after a task succeeds.
+  "createPrOnSuccess": false,
+
+  // Base branch for pull requests.
+  "prBaseBranch": "main",
+
+  // Let the agent attempt to fix CI failures after a PR is created.
+  "fixCiOnFailure": false,
+
+  // Maximum number of CI-fix attempts per task.
+  "maxCiFixAttempts": 5,
+
+  // Seconds between CI status polls.
+  "ciPollIntervalSeconds": 30,
+
+  // Underlying engine: "claude" or "codex".
+  "engine": "claude",
+
+  // Model tier: "haiku", "sonnet", or "opus".
+  "model": "opus",
+
+  "linear": {
+    // Linear team key to filter issues (e.g. "ENG"). Omit to match all teams.
+    // "team": "ENG",
+
+    // Linear user to filter issues. Can be an email address or user ID.
+    // Omit to match issues regardless of assignee.
+    // "assignee": "dev@example.com",
+
+    // Post progress comments on the Linear issue while a task is running.
+    "postComments": true,
+
+    // Post a progress update every N iterations. 0 disables. Requires postComments.
+    "updateEveryIterations": 10,
+
+    // ---------------------------------------------------------------------------
+    // Linear indicators — COMMENTED OUT BY DEFAULT
+    //
+    // Indicators map Ralph lifecycle events to Linear labels/statuses.
+    // WARNING: Activating indicators will query AND mutate your Linear workspace.
+    // Labels or statuses that do not already exist may be created automatically.
+    // Review every value against your actual Linear workspace before enabling,
+    // then replace the empty object below with the full indicators block.
+    //
+    // To activate, replace "indicators": {} with:
+    //
+    // "indicators": {
+    //   // Issues to pick up (any-of filter — Ralph will start working on these).
+    //   "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
+    //
+    //   // Issues already in flight (resume after restart).
+    //   "getInProgress": { "filter": [{ "type": "label", "value": "ralph:in-progress" }] },
+    //
+    //   // Issues whose PR has a merge conflict (Ralph will attempt a re-fix run).
+    //   "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflict" }] },
+    //
+    //   // Applied when Ralph picks up an issue.
+    //   "setInProgress": { "type": "label", "value": "ralph:in-progress" },
+    //
+    //   // Applied on clean success.
+    //   "setDone": { "type": "status", "value": "In Review" },
+    //
+    //   // Applied when the task exits with an error (quarantine signal).
+    //   "setError": { "type": "label", "value": "ralph:error" },
+    //
+    //   // Applied when a PR merge conflict is detected.
+    //   "setConflicted": { "type": "label", "value": "ralph:conflict" },
+    //
+    //   // Label-only marker(s) removed once the conflict is fixed.
+    //   // Note: only label-typed markers are valid here — status removal is not supported.
+    //   "clearConflicted": { "type": "label", "value": "ralph:conflict" }
+    // }
+    // ---------------------------------------------------------------------------
+    "indicators": {}
+  }
+}
+`;
 
 export async function ensureRalphyConfig(projectRoot: string): Promise<string> {
   const path = join(projectRoot, "ralphy.config.json");
   const file = Bun.file(path);
   if (await file.exists()) return path;
-  const defaults: RalphyConfig = RalphyConfigSchema.parse({});
-  await Bun.write(path, JSON.stringify(defaults, null, 2) + "\n");
+  await Bun.write(path, DEFAULT_CONFIG_TEMPLATE);
   return path;
 }

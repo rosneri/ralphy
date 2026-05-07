@@ -9,6 +9,5 @@ export {
   appendSteeringMessage,
   buildSteeringPrompt,
   mergeUsage,
-  allTasksCompleted,
-  countUncheckedTasks,
 } from "@ralphy/core/loop";
+export { allCompleted, countUnchecked } from "@ralphy/core/tasks-md";

@@ -4,13 +4,6 @@ import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked } from "./tasks-md";
 
-// Re-export tasks.md helpers under their legacy names so existing
-// callers in @ralphy/core consumers keep working. New code should
-// import from `./tasks-md` directly.
-export { firstUnchecked as extractFirstUncheckedSection } from "./tasks-md";
-export { countUnchecked as countUncheckedTasks } from "./tasks-md";
-export { allCompleted as allTasksCompleted } from "./tasks-md";
-export { prependSection, prependFixTask } from "./tasks-md";
 
 /**
  * Minimal change-store operations required by the loop.

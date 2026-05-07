@@ -97,16 +97,6 @@ describe("parseArgs", () => {
     expect(result.maxIterations).toBe(0);
   });
 
-  test("ignores deprecated --timeout flag", async () => {
-    const result = await parseArgs(["--timeout", "300"]);
-    expect(result.mode).toBe("task");
-  });
-
-  test("ignores deprecated --push-interval flag", async () => {
-    const result = await parseArgs(["--push-interval", "5"]);
-    expect(result.mode).toBe("task");
-  });
-
   test("throws on unknown argument", async () => {
     await expect(parseArgs(["--bogus"])).rejects.toThrow("Unknown argument");
   });
