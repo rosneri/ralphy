@@ -11,6 +11,9 @@ const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
 const TRANSIENT_GH_RE =
   /HTTP 5\d\d|Gateway Timeout|Bad Gateway|Service Unavailable|connection reset|ECONNRESET|ETIMEDOUT|getaddrinfo|EAI_AGAIN|could not resolve host/i;
 
+/** gh exits 1 with this message when no workflows are configured for a branch. */
+const NO_CHECKS_RE = /no checks reported/i;
+
 /** Backoff schedule for transient `gh` failures (ms). 5s / 15s / 45s. */
 const GH_RETRY_DELAYS = [5_000, 15_000, 45_000];
 
@@ -60,12 +63,22 @@ export async function getPrChecksStatus(
   cwd: string,
   onTransientRetry?: (attempt: number, delayMs: number, reason: string) => void,
 ): Promise<CiStatus> {
-  const out = await runGhWithRetry(
-    ["gh", "pr", "checks", prRef, "--json", PR_CHECKS_FIELDS],
-    runner,
-    cwd,
-    onTransientRetry,
-  );
+  let out: { stdout: string; stderr: string };
+  try {
+    out = await runGhWithRetry(
+      ["gh", "pr", "checks", prRef, "--json", PR_CHECKS_FIELDS],
+      runner,
+      cwd,
+      onTransientRetry,
+    );
+  } catch (err) {
+    const e = err as Error & { stderr?: string; stdout?: string };
+    const blob = `${e.message}\n${e.stderr ?? ""}\n${e.stdout ?? ""}`;
+    // gh exits 1 with "no checks reported" when the repo has no CI workflows.
+    // Treat this as a pass — no checks configured means nothing can fail.
+    if (NO_CHECKS_RE.test(blob)) return { bucket: "pass", failedRunIds: [] };
+    throw err;
+  }
   const checks = (
     JSON.parse(out.stdout || "[]") as {
       name: string;
