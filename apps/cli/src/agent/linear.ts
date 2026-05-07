@@ -19,8 +19,8 @@ export interface LinearIssue {
 }
 
 /**
- * Linear query spec used by the agent. `include` is an any-of marker list
- * (issue must match at least one). `exclude` is a none-of marker list
+ * Linear query spec used by the agent. `include` is an all-of marker list
+ * (issue must match every condition). `exclude` is a none-of marker list
  * (issue must not match any). Empty lists are treated as "no constraint".
  */
 export interface LinearFilterSpec {
@@ -56,12 +56,11 @@ function partition(markers: Marker[]): { statuses: string[]; labels: string[] } 
 }
 
 /**
- * Build the Linear `IssueFilter` GraphQL variable. `include` is any-of
- * across the union of statuses + labels; `exclude` is none-of across both.
+ * Build the Linear `IssueFilter` GraphQL variable. `include` is all-of
+ * across statuses + labels; `exclude` is none-of across both.
  *
- * Linear's filter language doesn't have a top-level OR, so we OR by
- * passing an `or: [...]` array of partial filters. When include has only
- * one kind (only statuses, or only labels), we collapse to a flat filter.
+ * Multiple include conditions are ANDed by assigning each directly to
+ * `where` (Linear treats top-level fields as implicit AND).
  */
 function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   const where: Record<string, unknown> = {};
@@ -78,8 +77,7 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
     const branches: Record<string, unknown>[] = [];
     if (statuses.length > 0) branches.push({ state: { name: { in: statuses } } });
     if (labels.length > 0) branches.push({ labels: { some: { name: { in: labels } } } });
-    if (branches.length === 1) Object.assign(where, branches[0]);
-    else where.or = branches;
+    for (const b of branches) Object.assign(where, b);
   } else {
     // Default: open issues only (preserves prior behavior when no
     // indicators are configured at all).

@@ -300,7 +300,7 @@ describe("agent/linear", () => {
     });
   });
 
-  test("fetchOpenIssues ORs status + label include via or:[...]", async () => {
+  test("fetchOpenIssues ANDs status + label include as flat filter", async () => {
     let captured: { variables: { filter: Record<string, unknown> } } | null = null;
     mockFetch(async (req) => {
       captured = await req.json();
@@ -314,10 +314,8 @@ describe("agent/linear", () => {
       ],
     });
     expect(captured!.variables.filter).toEqual({
-      or: [
-        { state: { name: { in: ["Todo"] } } },
-        { labels: { some: { name: { in: ["ready"] } } } },
-      ],
+      state: { name: { in: ["Todo"] } },
+      labels: { some: { name: { in: ["ready"] } } },
     });
   });
 
