@@ -224,45 +224,34 @@ const DEFAULT_CONFIG_TEMPLATE = `{
     // Post a progress update every N iterations. 0 disables. Requires postComments.
     "updateEveryIterations": 10,
 
-    // ---------------------------------------------------------------------------
-    // Linear indicators — COMMENTED OUT BY DEFAULT
-    //
     // Indicators map Ralph lifecycle events to Linear labels/statuses.
-    // WARNING: Activating indicators will query AND mutate your Linear workspace.
-    // Labels or statuses that do not already exist may be created automatically.
-    // Review every value against your actual Linear workspace before enabling,
-    // then replace the empty object below with the full indicators block.
-    //
-    // To activate, replace "indicators": {} with:
-    //
-    // "indicators": {
-    //   // Issues to pick up (any-of filter — Ralph will start working on these).
-    //   "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
-    //
-    //   // Issues already in flight (resume after restart).
-    //   "getInProgress": { "filter": [{ "type": "label", "value": "ralph:in-progress" }] },
-    //
-    //   // Issues whose PR has a merge conflict (Ralph will attempt a re-fix run).
-    //   "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflict" }] },
-    //
-    //   // Applied when Ralph picks up an issue.
-    //   "setInProgress": { "type": "label", "value": "ralph:in-progress" },
-    //
-    //   // Applied on clean success.
-    //   "setDone": { "type": "status", "value": "In Review" },
-    //
-    //   // Applied when the task exits with an error (quarantine signal).
-    //   "setError": { "type": "label", "value": "ralph:error" },
-    //
-    //   // Applied when a PR merge conflict is detected.
-    //   "setConflicted": { "type": "label", "value": "ralph:conflict" },
-    //
-    //   // Label-only marker(s) removed once the conflict is fixed.
-    //   // Note: only label-typed markers are valid here — status removal is not supported.
-    //   "clearConflicted": { "type": "label", "value": "ralph:conflict" }
-    // }
-    // ---------------------------------------------------------------------------
-    "indicators": {}
+    // WARNING: activating indicators will query AND mutate your Linear workspace.
+    // Uncomment each entry after confirming the label/status names match your workspace.
+    "indicators": {
+      // Issues to pick up (any-of filter — Ralph will start working on these).
+      // "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
+
+      // Issues already in flight (resume after restart).
+      // "getInProgress": { "filter": [{ "type": "label", "value": "ralph:in-progress" }] },
+
+      // Issues whose PR has a merge conflict (Ralph will attempt a re-fix run).
+      // "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflict" }] },
+
+      // Applied when Ralph picks up an issue.
+      // "setInProgress": { "type": "label", "value": "ralph:in-progress" },
+
+      // Applied on clean success.
+      // "setDone": { "type": "status", "value": "In Review" },
+
+      // Applied when the task exits with an error (quarantine signal).
+      // "setError": { "type": "label", "value": "ralph:error" },
+
+      // Applied when a PR merge conflict is detected.
+      // "setConflicted": { "type": "label", "value": "ralph:conflict" },
+
+      // Label removed once the conflict is fixed (status removal is not supported here).
+      // "clearConflicted": { "type": "label", "value": "ralph:conflict" }
+    }
   }
 }
 `;
