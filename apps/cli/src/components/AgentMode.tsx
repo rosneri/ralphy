@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
-import { join, relative, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { appendFile, mkdir } from "node:fs/promises";
 import { VERSION, type ParsedArgs } from "../cli";
@@ -668,7 +668,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
           const iter = meta?.iter ?? 0;
           const phase = meta?.phase ?? "working";
-          const phaseElapsed = meta ? fmtElapsed(now - meta.phaseStartedAt) : "–";
           const phaseDetail = meta?.phaseDetail ?? "";
           const cmd = meta?.currentCmd;
           const cmdElapsed = cmd ? fmtElapsed(now - cmd.startedAt) : null;
