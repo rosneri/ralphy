@@ -10,6 +10,17 @@ mock.module("@ralphy/openspec", () => ({
   OpenSpecChangeStore: class {},
 }));
 
+// Mock for testing config loading failure
+let configError: Error | null = null;
+mock.module("../agent/config", () => ({
+  loadRalphyConfig: async () => {
+    if (configError) throw configError;
+    return { enableManualTest: false };
+  },
+  ensureRalphyConfig: async () => "/path/to/config.json",
+  RalphyConfigSchema: {},
+}));
+
 const { App } = await import("../components/App");
 
 function withStorage<T>(fn: () => T): T {
@@ -74,6 +85,25 @@ describe("App misc modes", () => {
         expect(frames.length).toBeGreaterThan(0);
         // Clean's render path is a no-op placeholder.
         expect(lastFrame()).not.toContain("Initialized");
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test("task mode with config error shows error message", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "app-task-error-"));
+    try {
+      await withStorage(async () => {
+        configError = new Error("Failed to load config");
+        const args = makeArgs({ mode: "task", name: "test-change" });
+        const { frames } = render(
+          <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
+        );
+        await new Promise((r) => setTimeout(r, 100));
+        // The error should be displayed
+        expect(frames.join("\n")).toContain("Error loading config");
+        configError = null;
       });
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
