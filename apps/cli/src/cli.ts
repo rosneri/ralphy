@@ -1,7 +1,7 @@
 import { log } from "@ralphy/output";
 import type { Engine, Indicators, Marker, Mode, SetIndicator, GetIndicator } from "@ralphy/types";
 import { readFileSync } from "node:fs";
-import { normalize, resolve } from "node:path";
+import { resolve } from "node:path";
 
 // Load package.json at runtime from the project root to work correctly from any location (source or compiled)
 function getVersion(): string {
