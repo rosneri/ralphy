@@ -440,6 +440,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 {cfg.maxCostUsdPerTask > 0 && (
                   <Text color="yellow"> │ cost ≤${cfg.maxCostUsdPerTask}</Text>
                 )}
+                {args.maxTickets > 0 && <Text color="yellow"> │ tickets ≤{args.maxTickets}</Text>}
                 {cfg.createPrOnSuccess && <Text color="green"> ● PR</Text>}
                 {cfg.fixCiOnFailure && <Text color="green"> ● fixCI</Text>}
                 {cfg.useWorktree && <Text color="green"> ● worktree</Text>}

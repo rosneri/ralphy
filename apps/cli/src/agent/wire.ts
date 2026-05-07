@@ -811,6 +811,7 @@ export function buildAgentCoordinator(
         : {}),
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
+      ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
     },
   );
 

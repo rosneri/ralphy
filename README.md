@@ -82,12 +82,15 @@ ralph status --name fix-auth  # Detailed view of one task
 ```bash
 export LINEAR_API_KEY=lin_api_xxx
 ralph agent --linear-team ENG --linear-assignee me --concurrency 3 --poll-interval 60
+
+# Limit the number of tickets processed in this run
+ralph agent --max-tickets 5 --linear-team ENG --linear-assignee me
 ```
 
 What it does on each tick:
 
 1. Polls Linear for open issues matching the filter (team / assignee / status / labels)
-2. Dedupes against `.ralph/agent-state.json` (already processed) plus any in-flight workers
+2. Dedupes against in-flight workers and any already-active issues
 3. For each new issue: fetches existing comments, scaffolds `openspec/changes/<id-slug>/{proposal.md,tasks.md,design.md}` (with the comments embedded so the worker sees prior discussion), then spawns `ralph task --name <id-slug>` up to the concurrency cap
 4. Posts a "🤖 started" comment on the Linear issue and applies the `setInProgress` indicator (if configured)
 5. On worker exit, posts a success/failure comment and applies the `setDone` indicator on success or `setError` on failure (if configured)
@@ -196,10 +199,40 @@ Failed workers (non-zero exit) are not marked processed, so they'll be retried o
 | `--linear-assignee <id>`  | Filter by assignee (user id, email, or `me`)                                  |
 | `--poll-interval <s>`     | Seconds between Linear polls (default: 60)                                    |
 | `--concurrency <n>`       | Max concurrent task loops (default: 1)                                        |
+| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (0 = unlimited) |
 | `--worktree`              | Run each task in its own git worktree                                         |
 | `--indicator <k>:<t>:<v>` | Override a `linear.indicators` entry; repeatable (e.g. `setDone:status:Done`) |
 | `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)         |
 | `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)  |
+
+#### `--max-tickets`
+
+Use `--max-tickets N` to cap how many issues ralph picks up in a single agent run. Once N issues have been started (across fresh, resume, and conflict-fix modes), the coordinator stops enqueuing new work. In-flight workers continue to completion. The limit resets each time you restart `ralph agent`.
+
+```bash
+# Process at most 3 issues this session, then idle
+ralph agent --max-tickets 3 --linear-team ENG
+```
+
+When the limit is reached, ralph logs a yellow notice and the dashboard header shows `│ tickets ≤N`. Polling continues (to handle conflict re-fixes on already-started issues), but no new issues are queued.
+
+#### Dashboard
+
+The `ralph agent` terminal dashboard shows a full-terminal layout with three always-visible panels:
+
+- **RALPH AGENT** (blue box): engine/model, concurrency, poll interval, active limits (`iter ≤N`, `cost ≤$N`, `tickets ≤N`), feature flags (● PR ● fixCI ● worktree), and the Linear filter on the second line
+- **POLL STATUS + WORKERS** (side-by-side): last-poll counts and next-poll countdown; active/queued worker totals with colored counts
+- **TASKS tab bar** (when multiple workers run): numbered worker tabs with priority glyph and phase — Tab/← → to switch, 1-9 to jump
+
+Each worker card shows:
+
+- Priority badge (`▲ URGENT` / `↑ HIGH` / `· MED` / `↓ LOW`) + issue identifier + title + mode badge (`[NEW]` / `[RESUME]` / `[FIX]`)
+- `↗ LINEAR  ISSUE-ID` and `↗ PR  #N` (short labels, not full URLs)
+- `▶ TASK` — first unchecked task from `tasks.md`, updated every second
+- `PHASE` with color (cyan = working, yellow = git ops, blue = CI, green = done, red = gave-up) + time in phase
+- `⏵ CMD` when a shell command is in flight (shows the command and how long it's been running)
+- `LOG` — path to the worker's log file for `tail -f`
+- `─ OUTPUT ─` section with live stdout/stderr (scales to fill remaining terminal height for the focused worker)
 
 ## OpenSpec Flow
 

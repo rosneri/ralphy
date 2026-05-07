@@ -1,6 +1,6 @@
 {
   "name": "@neriros/ralphy",
-  "version": "2.13.7",
+  "version": "2.13.8",
   "description": "An iterative AI task execution framework. Orchestrates multi-phase autonomous work using Claude or Codex engines.",
   "keywords": [
     "agent",

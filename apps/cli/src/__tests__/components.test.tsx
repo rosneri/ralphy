@@ -360,6 +360,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     indicators: {},
     createPr: false,
     fixCi: false,
+    maxTickets: 0,
     ...overrides,
   };
 }

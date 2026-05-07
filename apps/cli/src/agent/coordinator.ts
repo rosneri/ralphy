@@ -64,6 +64,8 @@ interface CoordinatorOptions {
   clearConflicted?: SetIndicator | undefined;
   postComments?: boolean | undefined;
   commentEveryIterations?: number | undefined;
+  /** Stop picking up new issues once this many have been started this run (0 = unlimited). */
+  maxTickets?: number | undefined;
 }
 
 interface ActiveWorker {
@@ -88,6 +90,8 @@ export class AgentCoordinator {
    *  against re-posting the conflict comment every poll. Cleared once
    *  the worker exits successfully (clearConflicted is applied). */
   private conflictNotified = new Set<string>();
+  /** Total issues launched this process run — used to enforce maxTickets. */
+  private ticketsStarted = 0;
 
   constructor(
     private readonly deps: CoordinatorDeps,
@@ -102,6 +106,10 @@ export class AgentCoordinator {
   }
   get activeWorkers(): readonly ActiveWorker[] {
     return this.workers;
+  }
+  /** How many issues have been started this process run. */
+  get ticketsStartedCount(): number {
+    return this.ticketsStarted;
   }
 
   async init(): Promise<void> {
@@ -141,11 +149,21 @@ export class AgentCoordinator {
     const eligible = (id: string): boolean =>
       !queuedIds.has(id) && !activeIds.has(id) && !this.pendingIds.has(id);
 
+    const maxT = this.opts.maxTickets ?? 0;
+    /** Returns true when no more issues should be enqueued this run. */
+    const atTicketLimit = (): boolean => {
+      if (maxT === 0) return false;
+      const inFlight =
+        this.ticketsStarted + this.queue.length + this.workers.length + this.pendingIds.size;
+      return inFlight >= maxT;
+    };
+
     let added = 0;
 
     // 1. In-progress issues take precedence on restart — re-attach first
     //    so concurrency budget is honored.
     for (const issue of inProgress) {
+      if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       this.queue.push({ issue, mode: "resume" });
@@ -155,6 +173,7 @@ export class AgentCoordinator {
 
     // 2. Conflicted issues: re-fix runs.
     for (const issue of conflicted) {
+      if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       this.queue.push({ issue, mode: "conflict-fix" });
       queuedIds.add(issue.id);
@@ -163,6 +182,7 @@ export class AgentCoordinator {
 
     // 3. Fresh todo.
     for (const issue of todo) {
+      if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       this.queue.push({ issue, mode: "fresh" });
@@ -424,6 +444,14 @@ export class AgentCoordinator {
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
+    this.ticketsStarted += 1;
+    const maxT = this.opts.maxTickets ?? 0;
+    if (maxT > 0 && this.ticketsStarted >= maxT) {
+      this.deps.onLog(
+        `  ticket limit reached (${maxT}) — no new issues will be picked up`,
+        "yellow",
+      );
+    }
     capture("agent_worker_spawned", {
       spawn_mode: mode,
       issue_identifier: issue.identifier,
