@@ -301,13 +301,21 @@ export async function fetchTeamIdByKey(apiKey: string, teamKey: string): Promise
   return data.teams.nodes[0]?.id ?? null;
 }
 
-/** Create a label in a team. Returns the new label id, or null on failure. */
+/** Create a label in a team. Pass `parentId` to nest it under a group label. Returns the new label id, or null on failure. */
 export async function createIssueLabel(
   apiKey: string,
   teamId: string,
   name: string,
+  parentId?: string,
 ): Promise<string | null> {
-  const mutation = `mutation CreateLabel($teamId: String!, $name: String!) {
+  const mutation = parentId
+    ? `mutation CreateLabel($teamId: String!, $name: String!, $parentId: String!) {
+    issueLabelCreate(input: { teamId: $teamId, name: $name, parentId: $parentId }) {
+      success
+      issueLabel { id }
+    }
+  }`
+    : `mutation CreateLabel($teamId: String!, $name: String!) {
     issueLabelCreate(input: { teamId: $teamId, name: $name }) {
       success
       issueLabel { id }
@@ -315,7 +323,7 @@ export async function createIssueLabel(
   }`;
   const data = await linearRequest<{
     issueLabelCreate: { success: boolean; issueLabel: { id: string } | null };
-  }>(apiKey, mutation, { teamId, name });
+  }>(apiKey, mutation, parentId ? { teamId, name, parentId } : { teamId, name });
   return data.issueLabelCreate.issueLabel?.id ?? null;
 }
 

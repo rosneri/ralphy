@@ -270,7 +270,7 @@ export function buildAgentCoordinator(
     }
     const existing = map.get(name.toLowerCase());
     if (existing) return existing;
-    // Label doesn't exist — create it.
+    // Label doesn't exist — create it (nested under a group if name is "group:child").
     try {
       let teamId = teamIdCache.get(t);
       if (!teamId) {
@@ -279,7 +279,25 @@ export function buildAgentCoordinator(
         teamId = fetched;
         teamIdCache.set(t, teamId);
       }
-      const newId = await createIssueLabel(apiKey, teamId, name);
+      const colonIdx = name.indexOf(":");
+      let parentId: string | undefined;
+      let childName = name;
+      if (colonIdx > 0) {
+        const groupName = name.slice(0, colonIdx);
+        childName = name.slice(colonIdx + 1);
+        // Resolve or create the parent group label.
+        const existingGroup = map.get(groupName.toLowerCase());
+        if (existingGroup) {
+          parentId = existingGroup;
+        } else {
+          const groupId = await createIssueLabel(apiKey, teamId, groupName);
+          if (groupId) {
+            map.set(groupName.toLowerCase(), groupId);
+            parentId = groupId;
+          }
+        }
+      }
+      const newId = await createIssueLabel(apiKey, teamId, childName, parentId);
       if (!newId) return null;
       map.set(name.toLowerCase(), newId);
       onLog(`  created Linear label '${name}' for team ${t}`, "gray");
@@ -577,6 +595,17 @@ export function buildAgentCoordinator(
         return null;
       }
     };
+    const ANSI_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
+    const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
+    const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
+    const ITER_HEADER_LINE_RE = /^──/;
+    function isLogWorthy(clean: string): boolean {
+      return (
+        !BOX_ONLY_RE.test(clean) &&
+        !STATUS_BAR_LINE_RE.test(clean) &&
+        !ITER_HEADER_LINE_RE.test(clean)
+      );
+    }
     async function pump(stream: ReadableStream<Uint8Array> | null, label: string): Promise<void> {
       if (!stream) return;
       const reader = stream.getReader();
@@ -593,12 +622,14 @@ export function buildAgentCoordinator(
           while ((nl = buf.indexOf("\n")) >= 0) {
             const line = buf.slice(0, nl);
             buf = buf.slice(nl + 1);
-            if (writer) writer.write(line + "\n");
+            const clean = line.replace(ANSI_RE, "").trim();
+            if (writer && clean && isLogWorthy(clean)) writer.write(clean + "\n");
             if (line) onWorkerOutput?.(changeName, label === "err" ? `! ${line}` : line);
           }
         }
         if (buf) {
-          if (writer) writer.write(buf + "\n");
+          const clean = buf.replace(ANSI_RE, "").trim();
+          if (writer && clean && isLogWorthy(clean)) writer.write(clean + "\n");
           onWorkerOutput?.(changeName, label === "err" ? `! ${buf}` : buf);
         }
       } catch {

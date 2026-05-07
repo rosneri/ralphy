@@ -538,6 +538,14 @@ export class AgentCoordinator {
             error: (err as Error).message,
           });
         }
+        // Remove the in-progress label now that the task is done.
+        if (this.opts.setInProgress) {
+          try {
+            await this.deps.removeIndicator(issue, this.opts.setInProgress);
+          } catch {
+            // non-fatal — label cleanup failure doesn't affect the task outcome
+          }
+        }
       }
     } else if (this.opts.setError) {
       try {
@@ -552,6 +560,14 @@ export class AgentCoordinator {
           issue_identifier: issue.identifier,
           error: (err as Error).message,
         });
+      }
+      // Remove the in-progress label now that the task has errored.
+      if (this.opts.setInProgress) {
+        try {
+          await this.deps.removeIndicator(issue, this.opts.setInProgress);
+        } catch {
+          // non-fatal
+        }
       }
     }
   }

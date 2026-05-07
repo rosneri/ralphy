@@ -210,9 +210,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
           const e = err as Error & { stderr?: string; stdout?: string };
           const detail = e.stderr?.trim() || e.message;
           const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-          // If git complains there's nothing to commit (race vs. a worker
-          // post-commit), accept and move on.
-          if (/nothing to commit/i.test(combined)) break;
+          // If there's nothing to commit (clean tree or lint-staged reformatted
+          // files back to HEAD leaving an empty diff), accept and move on.
+          if (/nothing to commit/i.test(combined) || /empty git commit/i.test(combined)) break;
           if (hookFixAttempt >= maxHookFixAttempts) {
             log(
               `! commit rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-commit hook still failing) — worktree preserved at ${cwd}`,
