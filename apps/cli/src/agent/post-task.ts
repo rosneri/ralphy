@@ -510,18 +510,8 @@ async function fixConflictsAndCiLoop(
               ),
             ),
           getFailedLogs: (ids) => fetchFailedRunLogs(ids, ctx.cmd, ctx.cwd),
-          runTaskWithSteering: async (steering) => {
-            try {
-              await prependFixTask(
-                join(ctx.changeDir, "tasks.md"),
-                "Fix failing CI checks",
-                steering,
-              );
-            } catch (err) {
-              ctx.log(`! could not prepend fix task: ${(err as Error).message}`, "red");
-            }
-            return ctx.respawnWorker();
-          },
+          runTaskWithSteering: (steering) =>
+            runWorkerWithFixTask(ctx, "Fix failing CI checks", steering),
           pushBranch: async () => {
             await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
           },
