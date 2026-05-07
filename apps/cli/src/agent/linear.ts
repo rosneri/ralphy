@@ -264,17 +264,28 @@ interface IssueLabel {
   name: string;
 }
 
-/** Fetch all issue labels for a given team key. */
+interface IssueLabelNode {
+  id: string;
+  name: string;
+  parent: { name: string } | null;
+}
+
+/** Fetch all issue labels for a given team key.
+ *  Namespaced labels (e.g. parent "ralph", name "error") are returned with
+ *  a colon-joined key ("ralph:error") so config references match. */
 export async function fetchIssueLabels(apiKey: string, teamKey: string): Promise<IssueLabel[]> {
   const query = `query Labels($team: String!) {
     issueLabels(filter: { team: { key: { eq: $team } } }, first: 250) {
-      nodes { id name }
+      nodes { id name parent { name } }
     }
   }`;
-  const data = await linearRequest<{ issueLabels: { nodes: IssueLabel[] } }>(apiKey, query, {
+  const data = await linearRequest<{ issueLabels: { nodes: IssueLabelNode[] } }>(apiKey, query, {
     team: teamKey,
   });
-  return data.issueLabels.nodes;
+  return data.issueLabels.nodes.map((l) => ({
+    id: l.id,
+    name: l.parent ? `${l.parent.name}:${l.name}` : l.name,
+  }));
 }
 
 /** Fetch the UUID of a team by its key (e.g. "ENG"). Returns null if not found. */
