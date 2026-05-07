@@ -64,6 +64,30 @@ function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
+/** OSC 8 terminal hyperlink. Renders as clickable text in supporting terminals;
+ *  falls back to plain text in others (the escape params are invisible). */
+function inkLink(url: string, label: string): string {
+  return `\x1b]8;;${url}\x1b\\${label}\x1b]8;;\x1b\\`;
+}
+
+/** Extract a short label from a GitHub PR URL, e.g. "#123". */
+function prLabel(prUrl: string): string {
+  const m = prUrl.match(/\/pull\/(\d+)/);
+  return m ? `#${m[1]}` : "PR";
+}
+
+// ANSI escape sequence strip regex — covers CSI (colors/movement), OSC (hyperlinks), and 2-char sequences.
+const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
+// Lines consisting only of box-drawing chars + spaces are Ink UI artifacts from the subprocess renderer.
+const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
+
+/** Strip ANSI codes and return null if the line is a UI rendering artifact. */
+function cleanOutputLine(raw: string): string | null {
+  const clean = raw.replace(ANSI_STRIP_RE, "").trim();
+  if (!clean || BOX_ONLY_RE.test(clean)) return null;
+  return clean;
+}
+
 function priorityBadge(p: number): { text: string; color: string; label: string } {
   switch (p) {
     case 1:
@@ -231,7 +255,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         onWorkerOutput: (changeName, line) => {
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
-          m.tail.push(line);
+          const clean = cleanOutputLine(line);
+          if (!clean) return; // skip Ink UI artifacts (status bar separators, box borders)
+          m.tail.push(clean);
           if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
         },
         onWorkerCmd: (changeName, cmd, state) => {
@@ -641,12 +667,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue">{w.issue.url}</Text>
+                  <Text color="blue">{inkLink(w.issue.url, w.issueIdentifier)}</Text>
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green">{prUrl}</Text>
+                    <Text color="green">{inkLink(prUrl, prLabel(prUrl))}</Text>
                   </Box>
                 )}
               </Box>
