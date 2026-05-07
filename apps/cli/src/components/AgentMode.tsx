@@ -28,7 +28,25 @@ function nextId(): string {
 interface WorkerMeta {
   startedAt: number;
   statesDir: string;
+  logFile: string;
   iter: number;
+  phase: string;
+  phaseDetail: string;
+  phaseStartedAt: number;
+  /** In-flight shell command (post-task tracer). null when nothing is running. */
+  currentCmd: { argv: string[]; startedAt: number } | null;
+  /** Last completed cmd, for "(took 12s)" tail display. */
+  lastCmd: { argv: string[]; durationMs: number; ok: boolean } | null;
+  /** Ring buffer of last N lines of worker stdout/stderr. */
+  tail: string[];
+}
+
+const TAIL_MAX_LINES = 5;
+const CMD_DISPLAY_MAX = 80;
+
+function fmtCmd(argv: string[]): string {
+  const joined = argv.join(" ");
+  return joined.length > CMD_DISPLAY_MAX ? joined.slice(0, CMD_DISPLAY_MAX - 1) + "…" : joined;
 }
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -88,15 +106,45 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         apiKey,
         onLog: appendLog,
         onWorkersChanged: () => setTick((t) => t + 1),
-        onWorkerStarted: (changeName, dir) => {
+        onWorkerStarted: (changeName, dir, logFile) => {
           workerMetaRef.current.set(changeName, {
             startedAt: Date.now(),
             statesDir: dir,
+            logFile,
             iter: 0,
+            phase: "working",
+            phaseDetail: "",
+            phaseStartedAt: Date.now(),
+            currentCmd: null,
+            lastCmd: null,
+            tail: [],
           });
         },
         onWorkerExited: (changeName) => {
           workerMetaRef.current.delete(changeName);
+        },
+        onWorkerPhase: (changeName, phase, detail) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (m.phase !== phase) m.phaseStartedAt = Date.now();
+          m.phase = phase;
+          m.phaseDetail = detail ?? "";
+        },
+        onWorkerOutput: (changeName, line) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          m.tail.push(line);
+          if (m.tail.length > TAIL_MAX_LINES) m.tail.splice(0, m.tail.length - TAIL_MAX_LINES);
+        },
+        onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (state === "start") {
+            m.currentCmd = { argv: cmd, startedAt: Date.now() };
+          } else {
+            m.currentCmd = null;
+            m.lastCmd = { argv: cmd, durationMs: durationMs ?? 0, ok: ok ?? true };
+          }
         },
       });
       appendLog(`concurrency=${concurrency} pollInterval=${pollInterval}s`, "gray");
@@ -211,11 +259,36 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const meta = workerMetaRef.current.get(w.changeName);
           const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
           const iter = meta?.iter ?? 0;
+          const phase = meta?.phase ?? "working";
+          const phaseElapsed = meta ? fmtElapsed(now - meta.phaseStartedAt) : "–";
+          const phaseDetail = meta?.phaseDetail ? ` (${meta.phaseDetail})` : "";
+          const cmd = meta?.currentCmd;
+          const cmdElapsed = cmd ? fmtElapsed(now - cmd.startedAt) : null;
+          const tail = meta?.tail ?? [];
           return (
-            <Text key={w.changeName} color="cyan">
-              {"  "}
-              {spinnerFrame} {w.issueIdentifier} ({w.changeName}) · iter {iter} · {elapsed}
-            </Text>
+            <Box key={w.changeName} flexDirection="column">
+              <Text color="cyan">
+                {"  "}
+                {spinnerFrame} {w.issueIdentifier} ({w.changeName}) · iter {iter} · {elapsed}
+              </Text>
+              <Text dimColor>
+                {"      phase: "}
+                {phase}
+                {phaseDetail} · {phaseElapsed}
+              </Text>
+              {cmd && (
+                <Text color="yellow">
+                  {"      ⏵ "}
+                  {fmtCmd(cmd.argv)} · {cmdElapsed}
+                </Text>
+              )}
+              {tail.map((line, i) => (
+                <Text key={`${w.changeName}-tail-${i}`} dimColor>
+                  {"      │ "}
+                  {line.length > 110 ? line.slice(0, 109) + "…" : line}
+                </Text>
+              ))}
+            </Box>
           );
         })}
       </Box>

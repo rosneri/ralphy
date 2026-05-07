@@ -22,7 +22,11 @@ import { AgentCoordinator, type SpawnMode, type PrepareResult } from "./coordina
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
 import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
-import { runPostTask } from "./post-task";
+import { runPostTask, type PostTaskPhase } from "./post-task";
+
+/** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
+ *  plus the worker-subprocess "working" phase. */
+type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
 const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {
@@ -79,6 +83,32 @@ export interface AgentRunners {
   runScript?: (cmd: string, cwd: string) => Promise<number>;
 }
 
+/**
+ * Wrap a CmdRunner so each call emits start/end events. The dashboard
+ * uses these to surface "currently running `gh pr checks`…" so a hung
+ * external command is immediately visible (e.g. GitHub 504 hangs).
+ */
+function traceCmdRunner(
+  base: CmdRunner,
+  onStart: (cmd: string[]) => void,
+  onEnd: (cmd: string[], durationMs: number, ok: boolean) => void,
+): CmdRunner {
+  return {
+    run: async (cmd, cwd) => {
+      const t0 = Date.now();
+      onStart(cmd);
+      try {
+        const r = await base.run(cmd, cwd);
+        onEnd(cmd, Date.now() - t0, true);
+        return r;
+      } catch (err) {
+        onEnd(cmd, Date.now() - t0, false);
+        throw err;
+      }
+    },
+  };
+}
+
 interface BuildAgentCoordinatorInput {
   args: ParsedArgs;
   cfg: RalphyConfig;
@@ -90,8 +120,25 @@ interface BuildAgentCoordinatorInput {
   onLog: (text: string, color?: string) => void;
   /** Called whenever the active-worker set changes (drives re-render). */
   onWorkersChanged: () => void;
-  onWorkerStarted: (changeName: string, statesDir: string) => void;
+  /** Called when a new worker subprocess starts. The UI uses `statesDir`
+   *  to poll `<statesDir>/<changeName>/.ralph-state.json` for iter count. */
+  onWorkerStarted: (changeName: string, statesDir: string, logFile: string) => void;
+  /** Called after the post-task block resolves; UI drops the worker row. */
   onWorkerExited: (changeName: string) => void;
+  /** Phase transition for a worker — dashboard renders alongside iter+elapsed. */
+  onWorkerPhase?: (changeName: string, phase: WorkerPhase, detail?: string) => void;
+  /** A line of stdout/stderr captured from the worker subprocess. */
+  onWorkerOutput?: (changeName: string, line: string) => void;
+  /** Live shell-command tracer — fires on every `cmd.run(...)` start/end
+   *  inside post-task. The dashboard uses this to show "running `gh pr
+   *  checks` (12s)…" so hung externals are obvious. */
+  onWorkerCmd?: (
+    changeName: string,
+    cmd: string[],
+    state: "start" | "end",
+    durationMs?: number,
+    ok?: boolean,
+  ) => void;
   /** Optional side-effect overrides (test injection). */
   runners?: AgentRunners;
 }
@@ -157,7 +204,12 @@ export function buildAgentCoordinator(
     onWorkersChanged,
     onWorkerStarted,
     onWorkerExited,
+    onWorkerPhase,
+    onWorkerOutput,
+    onWorkerCmd,
   } = input;
+
+  const logsDir = join(projectRoot, ".ralph", "logs");
 
   const concurrency = args.concurrency || cfg.concurrency;
   const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
@@ -469,24 +521,121 @@ export function buildAgentCoordinator(
     return c;
   }
 
-  const workerSpawner =
-    input.runners?.spawnWorker ??
-    ((cmd: string[], cwd: string) => {
-      const proc = Bun.spawn({
-        cmd,
-        cwd,
-        stdout: "ignore",
-        stderr: "ignore",
-        stdin: "ignore",
-      });
-      return { exited: proc.exited, kill: () => proc.kill() };
+  /**
+   * Default worker spawner: pipes stdout/stderr through a line-buffered
+   * splitter that emits each line to `onWorkerOutput` (UI ring buffer) and
+   * tees to `<projectRoot>/.ralph/logs/<changeName>.log` so users have
+   * both a live tail and a `tail -f`-able file. Tests inject
+   * `runners.spawnWorker` to skip the streaming entirely.
+   */
+  function defaultSpawn(
+    changeName: string,
+    cmd: string[],
+    cwd: string,
+    note?: string,
+  ): { exited: Promise<number>; kill: () => void; logFilePath: string } {
+    const logFilePath = join(logsDir, `${changeName}.log`);
+    let logWriter: ReturnType<ReturnType<typeof Bun.file>["writer"]> | null = null;
+    const ensureLogWriter = async () => {
+      if (logWriter) return logWriter;
+      try {
+        await Bun.write(logFilePath, "");
+        logWriter = Bun.file(logFilePath).writer();
+        return logWriter;
+      } catch (err) {
+        onLog(`! could not open worker log ${logFilePath}: ${(err as Error).message}`, "yellow");
+        return null;
+      }
+    };
+    async function pump(stream: ReadableStream<Uint8Array> | null, label: string): Promise<void> {
+      if (!stream) return;
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      const writer = await ensureLogWriter();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          buf += chunk;
+          let nl: number;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl);
+            buf = buf.slice(nl + 1);
+            if (writer) writer.write(line + "\n");
+            if (line) onWorkerOutput?.(changeName, label === "err" ? `! ${line}` : line);
+          }
+        }
+        if (buf) {
+          if (writer) writer.write(buf + "\n");
+          onWorkerOutput?.(changeName, label === "err" ? `! ${buf}` : buf);
+        }
+      } catch {
+        /* stream errors are non-fatal — exit drives control flow */
+      } finally {
+        try {
+          writer?.flush();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    const p = Bun.spawn({
+      cmd,
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "ignore",
     });
+    void (async () => {
+      const writer = await ensureLogWriter();
+      if (note && writer) writer.write(`\n--- ${note} ---\n`);
+    })();
+    void pump(p.stdout as ReadableStream<Uint8Array>, "out");
+    void pump(p.stderr as ReadableStream<Uint8Array>, "err");
+    return { exited: p.exited, kill: () => p.kill(), logFilePath };
+  }
 
   function spawnWorker(changeName: string): { exited: Promise<number>; kill: () => void } {
     const cwd = cwdByChange.get(changeName) ?? projectRoot;
-    const respawn = (): Promise<number> => workerSpawner(buildTaskCmdFor(changeName), cwd).exited;
-    const handle = workerSpawner(buildTaskCmdFor(changeName), cwd);
-    onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir);
+    const injected = input.runners?.spawnWorker;
+
+    let logFilePath: string;
+    let handle: { exited: Promise<number>; kill: () => void };
+    if (injected) {
+      logFilePath = join(logsDir, `${changeName}.log`);
+      handle = injected(buildTaskCmdFor(changeName), cwd);
+    } else {
+      const r = defaultSpawn(
+        changeName,
+        buildTaskCmdFor(changeName),
+        cwd,
+        `spawn at ${new Date().toISOString()}`,
+      );
+      logFilePath = r.logFilePath;
+      handle = { exited: r.exited, kill: r.kill };
+    }
+    const respawn = (): Promise<number> => {
+      onWorkerPhase?.(changeName, "working", "respawn");
+      if (injected) return injected(buildTaskCmdFor(changeName), cwd).exited;
+      return defaultSpawn(
+        changeName,
+        buildTaskCmdFor(changeName),
+        cwd,
+        `respawn at ${new Date().toISOString()}`,
+      ).exited;
+    };
+    onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir, logFilePath);
+    onWorkerPhase?.(changeName, "working");
+
+    const tracedCmd = onWorkerCmd
+      ? traceCmdRunner(
+          cmdRunner,
+          (cmd) => onWorkerCmd(changeName, cmd, "start"),
+          (cmd, ms, ok) => onWorkerCmd(changeName, cmd, "end", ms, ok),
+        )
+      : cmdRunner;
 
     const wantPr = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
@@ -515,7 +664,7 @@ export function buildAgentCoordinator(
           respawnWorker: respawn,
         },
         {
-          cmd: cmdRunner,
+          cmd: tracedCmd,
           git: gitRunner,
           log: onLog,
           runScript,
@@ -523,6 +672,10 @@ export function buildAgentCoordinator(
             prByChange.set(cn, url);
             prUnavailable.delete(cn);
           },
+          ...(onWorkerPhase && {
+            onPhase: (phase: PostTaskPhase, detail?: string) =>
+              onWorkerPhase(changeName, phase, detail),
+          }),
         },
       );
       cwdByChange.delete(changeName);
