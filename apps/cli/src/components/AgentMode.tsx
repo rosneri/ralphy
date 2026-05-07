@@ -544,7 +544,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </Text>
               ));
             })()}
-        </Box>
+        </LabeledBox>
 
         {/* ── Poll status + queue ─────────────────────────────── */}
         <Box flexDirection="row" gap={1} marginTop={0} width={termWidth}>
