@@ -4,6 +4,15 @@ import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked } from "./tasks-md";
 
+// Re-export task utilities with standardized names for use in loop context
+export {
+  allCompleted as allTasksCompleted,
+  countUnchecked as countUncheckedTasks,
+  prependSection,
+  prependFixTask,
+  firstUnchecked as extractFirstUncheckedSection,
+} from "./tasks-md";
+
 /**
  * Minimal change-store operations required by the loop.
  * Satisfied structurally by ChangeStore from @ralphy/change-store.
