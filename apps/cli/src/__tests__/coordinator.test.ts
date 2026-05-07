@@ -232,6 +232,27 @@ describe("AgentCoordinator — todo polling", () => {
     expect(ctx.workers.has("change-eng-2")).toBe(false);
     expect(ctx.logs.some((l) => l.text.includes("ENG-2") && l.text.includes("blocked"))).toBe(true);
   });
+
+  test("maxTickets caps how many issues are started this run", async () => {
+    const issues = [issue("a", "ENG-1"), issue("b", "ENG-2"), issue("c", "ENG-3")];
+    const ctx = makeDeps({ todo: issues });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 3, maxTickets: 2 });
+    await coord.init();
+
+    const result = await coord.pollOnce();
+    // only 2 should be enqueued, not 3
+    expect(result.added).toBe(2);
+    await tick();
+    expect(coord.activeCount).toBe(2);
+    expect(coord.ticketsStartedCount).toBe(2);
+    // second poll must not pick up the third issue
+    await coord.pollOnce();
+    await tick();
+    expect(coord.activeCount).toBe(2);
+    expect(coord.ticketsStartedCount).toBe(2);
+    // a "ticket limit reached" notice should have been logged
+    expect(ctx.logs.some((l) => l.text.includes("ticket limit"))).toBe(true);
+  });
 });
 
 describe("AgentCoordinator — set/clear indicators", () => {
