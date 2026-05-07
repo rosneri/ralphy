@@ -426,10 +426,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   );
 
   // Compute tail lines for the focused worker to fill available height.
-  // Approximated fixed overhead: header box (5) + status row (4) + tabs bar (3) + card header (7) + log/phase (2)
-  const FIXED_OVERHEAD = 22;
+  // header-box(5) + poll-row(5) + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
-  const focusedTailLines = Math.max(5, termHeight - FIXED_OVERHEAD - nonFocusedCount);
+  const tasksBoxLines = activeCount > 0 ? 5 : 0;
+  const FIXED_OVERHEAD = 5 + 5 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
   return (
