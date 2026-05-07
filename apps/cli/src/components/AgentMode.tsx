@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
+import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
 import { join, relative, dirname } from "node:path";
 import { homedir } from "node:os";
 import { appendFile, mkdir } from "node:fs/promises";
@@ -74,6 +74,33 @@ function prLabel(prUrl: string): string {
 
 /** Tmux mangles OSC 8 sequences — skip hyperlinks inside tmux. */
 const HYPERLINKS_SUPPORTED = !process.env["TMUX"];
+
+/** Box with a centered label embedded in the top border: ╭─── LABEL ───╮ */
+function LabeledBox({
+  label,
+  borderColor = "gray",
+  width,
+  children,
+  ...rest
+}: { label: string; borderColor?: string; width: number; children: React.ReactNode } & Omit<
+  React.ComponentProps<typeof Box>,
+  "borderStyle" | "borderTop" | "borderColor" | "width"
+>) {
+  const innerWidth = Math.max(0, width - 2);
+  const labelStr = ` ${label} `;
+  const dashes = Math.max(0, innerWidth - labelStr.length);
+  const left = Math.floor(dashes / 2);
+  const right = dashes - left;
+  const top = `╭${"─".repeat(left)}${labelStr}${"─".repeat(right)}╮`;
+  return (
+    <Box flexDirection="column" width={width}>
+      <Text color={borderColor}>{top}</Text>
+      <Box borderStyle="round" borderTop={false} borderColor={borderColor} width={width} {...rest}>
+        {children}
+      </Box>
+    </Box>
+  );
+}
 
 /** Renders label as an OSC 8 terminal hyperlink via Transform (so Ink measures only the label width). */
 function Link({ url, label, color }: { url: string; label: string; color: string }) {
@@ -436,32 +463,31 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   return (
     <Box flexDirection="column">
       {/* ── Scrolling log history ────────────────────────────── */}
-      <Static items={logs}>
-        {(line) =>
-          line.color ? (
-            <Text key={line.id} color={line.color}>
-              {line.text}
-            </Text>
-          ) : (
-            <Text key={line.id}>{line.text}</Text>
-          )
-        }
-      </Static>
-
-      <Box flexDirection="column" marginTop={1}>
-        {/* ── Settings header — two compact text lines ─────────── */}
+      {logs.length > 0 && (
         <Box
           borderStyle="round"
-          borderColor="blue"
+          borderColor="gray"
           flexDirection="column"
           paddingX={1}
           width={termWidth}
         >
-          {/* Line 1: identity + key settings */}
+          {logs.slice(-5).map((line) =>
+            line.color ? (
+              <Text key={line.id} color={line.color}>
+                {line.text}
+              </Text>
+            ) : (
+              <Text key={line.id}>{line.text}</Text>
+            ),
+          )}
+        </Box>
+      )}
+
+      <Box flexDirection="column" marginTop={0}>
+        {/* ── Settings header — two compact text lines ─────────── */}
+        <LabeledBox label="◈ RALPH AGENT" borderColor="blue" width={termWidth} paddingX={1} flexDirection="column">
+          {/* Line 1: key settings */}
           <Text>
-            <Text bold color="cyan">
-              ◈ RALPH AGENT{" "}
-            </Text>
             <Text dimColor>v{VERSION}</Text>
             {cfg && (
               <Text>
@@ -508,19 +534,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         </Box>
 
         {/* ── Poll status + queue ─────────────────────────────── */}
-        <Box flexDirection="row" gap={1} marginTop={1} width={termWidth}>
+        <Box flexDirection="row" gap={1} marginTop={0} width={termWidth}>
           {/* Poll status */}
-          <Box
-            borderStyle="round"
-            borderColor="gray"
-            flexDirection="column"
-            paddingX={1}
-            flexGrow={1}
-          >
-            <Text dimColor bold>
-              POLL STATUS
-            </Text>
-            <Box gap={2} marginTop={0}>
+          <LabeledBox label="POLL STATUS" borderColor="gray" width={termWidth - 30} paddingX={1} flexDirection="column">
+            <Box gap={2}>
               <Text color="gray">{spinnerFrame}</Text>
               <Text>
                 {pollStatus.state === "polling"
@@ -549,20 +566,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </>
               )}
             </Box>
-          </Box>
+          </LabeledBox>
 
           {/* Worker queue summary */}
-          <Box
-            borderStyle="round"
-            borderColor="gray"
-            flexDirection="column"
-            paddingX={1}
-            minWidth={28}
-          >
-            <Text dimColor bold>
-              WORKERS
-            </Text>
-            <Box gap={3} marginTop={0}>
+          <LabeledBox label="WORKERS" borderColor="gray" width={29} paddingX={1} flexDirection="column">
+            <Box gap={3}>
               <Box gap={1}>
                 <Text dimColor>active</Text>
                 <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
@@ -576,25 +584,18 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </Text>
               </Box>
             </Box>
-          </Box>
+          </LabeledBox>
         </Box>
 
         {/* ── Worker tabs bar ─────────────────────────────────── */}
         {activeCount > 0 && (
-          <Box
-            borderStyle="round"
+          <LabeledBox
+            label={`TASKS${activeCount > 1 ? "  Tab/← → · 1-9" : ""}`}
             borderColor="gray"
-            flexDirection="column"
-            paddingX={1}
-            marginTop={1}
             width={termWidth}
+            paddingX={1}
+            flexDirection="column"
           >
-            <Box gap={1}>
-              <Text dimColor bold>
-                TASKS
-              </Text>
-              <Text dimColor>{activeCount > 1 ? "  Tab/← → to switch · 1-9 jump" : ""}</Text>
-            </Box>
             <Box gap={3} flexWrap="wrap">
               {coord?.activeWorkers.map((w, idx) => {
                 const meta = workerMetaRef.current.get(w.changeName);
@@ -611,9 +612,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         {pBadge.text} {pBadge.label}
                       </Text>
                     )}
-                    <Text color={isFocused ? "cyan" : "gray"} bold={isFocused}>
-                      {w.issueIdentifier}
-                    </Text>
+                    <Link url={w.issue.url} label={w.issueIdentifier} color={isFocused ? "cyan" : "gray"} />
                     <Text color={phaseColor(phase)} dimColor={!isFocused}>
                       {phase}
                     </Text>
@@ -622,7 +621,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 );
               })}
             </Box>
-          </Box>
+          </LabeledBox>
         )}
 
         {/* ── Active worker cards ─────────────────────────────── */}
@@ -649,12 +648,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           /* Compact row for non-focused workers */
           if (!isFocused && activeCount > 1) {
             return (
-              <Box
+              <LabeledBox
                 key={w.changeName}
-                borderStyle="round"
+                label={w.issueIdentifier}
                 borderColor="gray"
                 paddingX={1}
-                marginTop={1}
                 gap={2}
                 width={termWidth}
               >
@@ -678,19 +676,18 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     <Text dimColor>▶ {trunc(currentTask, 40)}</Text>
                   </>
                 )}
-              </Box>
+              </LabeledBox>
             );
           }
 
           /* Full card for the focused worker */
           return (
-            <Box
+            <LabeledBox
               key={w.changeName}
-              borderStyle="round"
+              label={w.issueIdentifier}
               borderColor={bColor}
               flexDirection="column"
               paddingX={1}
-              marginTop={1}
               width={termWidth}
             >
               {/* ── Card header ─────────────────────────────── */}
@@ -755,7 +752,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   ))}
                 </Box>
               )}
-            </Box>
+            </LabeledBox>
           );
         })}
       </Box>
