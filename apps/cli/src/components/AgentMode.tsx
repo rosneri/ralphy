@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
 import { join, dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import { homedir } from "node:os";
 import { appendFile, mkdir } from "node:fs/promises";
 import { VERSION, type ParsedArgs } from "../cli";
@@ -470,7 +471,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   // Compute tail lines for the focused worker to fill available height.
   // header-box(5) + poll-row(5) + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
-  const tasksBoxLines = activeCount > 0 ? 5 : 0;
+  const tasksBoxLines = activeCount > 1 ? 5 : 0;
   const FIXED_OVERHEAD = 5 + 5 + tasksBoxLines + 8 + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
@@ -621,7 +622,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         </Box>
 
         {/* ── Worker tabs bar ─────────────────────────────────── */}
-        {activeCount > 0 && (
+        {activeCount > 1 && (
           <LabeledBox
             label={`TASKS${activeCount > 1 ? "  Tab/← → · 1-9" : ""}`}
             borderColor="gray"
@@ -771,7 +772,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   {iter}
                 </Text>
                 <Text dimColor>│</Text>
-                {meta?.logFile && <Link url={`file://${meta.logFile}`} label="LOG" color="gray" />}
+                {meta?.logFile && (
+                  <Link url={pathToFileURL(meta.logFile).href} label="LOG" color="gray" />
+                )}
               </Box>
 
               {/* ── Current task ────────────────────────────── */}

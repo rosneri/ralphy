@@ -157,6 +157,13 @@ try {
     await mkdir(join(projectRoot, ".ralph"), { recursive: true });
   }
 
+  if (args.mode === "agent" && args.jsonOutput) {
+    const { runAgentJson } = await import("./agent/json-runner");
+    await runAgentJson({ args, projectRoot, statesDir, tasksDir });
+    await telemetry.shutdown();
+    process.exit(process.exitCode ?? 0);
+  }
+
   await runWithContext(createDefaultContext(), async () => {
     const { waitUntilExit } = render(
       createElement(App, { args, statesDir, tasksDir, projectRoot }),

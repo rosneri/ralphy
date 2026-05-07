@@ -75,6 +75,8 @@ export interface ParsedArgs {
   fixCi: boolean;
   /** Agent mode: stop picking up new issues after this many have been started (0 = unlimited). */
   maxTickets: number;
+  /** Agent mode: emit JSONL to stdout instead of rendering the Ink dashboard. */
+  jsonOutput: boolean;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean"]);
@@ -139,6 +141,7 @@ const HELP_TEXT = [
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
+  "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
   "",
   "  --help, -h              Show this help message",
   "",
@@ -232,6 +235,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     createPr: false,
     fixCi: false,
     maxTickets: 0,
+    jsonOutput: false,
   };
 
   let expectModel = false;
@@ -419,6 +423,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--fix-ci":
         result.fixCi = true;
+        break;
+      case "--json-output":
+        result.jsonOutput = true;
         break;
       case "--manual-test":
         result.manualTest = true;
