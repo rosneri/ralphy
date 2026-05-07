@@ -744,6 +744,17 @@ export function buildAgentCoordinator(
             onPhase: (phase: PostTaskPhase, detail?: string) =>
               onWorkerPhase(changeName, phase, detail),
           }),
+          checkPrConflict: async (prUrl: string) => {
+            try {
+              const res = await tracedCmd.run(
+                ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
+                cwd,
+              );
+              return res.stdout.trim() === "CONFLICTING";
+            } catch {
+              return false;
+            }
+          },
         },
       );
       cwdByChange.delete(changeName);

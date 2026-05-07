@@ -57,6 +57,8 @@ export type PostTaskPhase =
   | "push-retry"
   | "rebasing"
   | "pr-create"
+  | "conflict-check"
+  | "conflict-fix-inner"
   | "ci-poll"
   | "ci-fix"
   | "cleanup"
@@ -75,7 +77,35 @@ interface PostTaskDeps {
   registerPr?: (changeName: string, prUrl: string) => void;
   /** Optional phase emitter — surfaced in the dashboard footer. */
   onPhase?: (phase: PostTaskPhase, detail?: string) => void;
+  /**
+   * Optional: check whether a PR currently has merge conflicts.
+   * When provided, the post-task loop re-checks conflicts after each CI fix
+   * cycle and resolves them in-place rather than waiting for the coordinator
+   * to detect them on the next poll.
+   */
+  checkPrConflict?: (prUrl: string) => Promise<boolean>;
 }
+
+// ---------------------------------------------------------------------------
+// Shared context bundled once and threaded into helpers below.
+// ---------------------------------------------------------------------------
+
+interface PostTaskCtx {
+  changeName: string;
+  cwd: string;
+  branch: string;
+  changeDir: string;
+  stateFilePath: string;
+  cfg: PostTaskInput["cfg"];
+  cmd: CmdRunner;
+  log: (text: string, color?: string) => void;
+  emit: (phase: PostTaskPhase, detail?: string) => void;
+  respawnWorker: () => Promise<number>;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /**
  * The loop sets state.status="completed" once tasks.md has no unchecked
@@ -106,11 +136,439 @@ async function reactivateState(
 }
 
 /**
+ * Prepend a fix task to tasks.md, reactivate the loop state so the worker
+ * picks it up, and re-spawn the worker. Returns the worker's exit code.
+ */
+async function runWorkerWithFixTask(
+  ctx: PostTaskCtx,
+  heading: string,
+  body: string,
+): Promise<number> {
+  try {
+    await prependFixTask(join(ctx.changeDir, "tasks.md"), heading, body);
+  } catch (err) {
+    ctx.log(`! could not prepend fix task: ${(err as Error).message}`, "red");
+    return 1;
+  }
+  await reactivateState(ctx.stateFilePath, ctx.log, ctx.changeName);
+  return ctx.respawnWorker();
+}
+
+/**
+ * Push the branch to origin. If the push is rejected as non-fast-forward
+ * (e.g. after a rebase rewrote history), fall back to --force-with-lease,
+ * which still refuses if someone else pushed to the branch since our last
+ * fetch.
+ *
+ * Returns true on success, false on failure (failure is already logged).
+ */
+async function pushWithLeases(ctx: PostTaskCtx): Promise<boolean> {
+  try {
+    ctx.emit("pushing", "after conflict resolution");
+    await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
+    return true;
+  } catch (pushErr) {
+    const pe = pushErr as Error & { stderr?: string };
+    const blob = `${pe.message}\n${pe.stderr ?? ""}`;
+    if (!/non-fast-forward|Updates were rejected/i.test(blob)) {
+      ctx.log(`! push after conflict fix failed: ${pe.message}`, "red");
+      return false;
+    }
+    try {
+      await ctx.cmd.run(["git", "push", "--force-with-lease", "origin", ctx.branch], ctx.cwd);
+      return true;
+    } catch (forceErr) {
+      ctx.log(`! force-push after conflict fix failed: ${(forceErr as Error).message}`, "red");
+      return false;
+    }
+  }
+}
+
+/**
+ * Commit any dirty files the worker left behind, retrying on pre-commit hook
+ * rejections by feeding the hook output back to the worker as a fix task.
+ *
+ * Returns `{ gaveUp: true }` when the budget is exhausted or a re-run fails;
+ * the caller should set effectiveCode = PR_FAILED_EXIT in that case.
+ * Returns the final `hookFixAttempt` count so the PR-create phase can share
+ * the same budget.
+ */
+async function commitResidualChanges(
+  ctx: PostTaskCtx,
+  maxAttempts: number,
+): Promise<{ gaveUp: boolean; hookFixAttempt: number }> {
+  let hookFixAttempt = 0;
+
+  while (true) {
+    ctx.emit("committing", "git status");
+    let dirty = "";
+    try {
+      const status = await ctx.cmd.run(["git", "status", "--porcelain"], ctx.cwd);
+      dirty = status.stdout.trim();
+    } catch (err) {
+      ctx.log(`! git status failed for ${ctx.changeName}: ${(err as Error).message}`, "yellow");
+      break;
+    }
+    if (!dirty) break;
+
+    try {
+      ctx.emit("committing", "git add -A");
+      await ctx.cmd.run(["git", "add", "-A"], ctx.cwd);
+      ctx.emit("committing", "git commit");
+      await ctx.cmd.run(
+        ["git", "commit", "-m", `chore(ralph): residual changes for ${ctx.changeName}`],
+        ctx.cwd,
+      );
+      ctx.log(`  committed residual changes for ${ctx.changeName}`, "gray");
+      break;
+    } catch (err) {
+      const e = err as Error & { stderr?: string; stdout?: string };
+      const detail = e.stderr?.trim() || e.message;
+      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+      if (/nothing to commit/i.test(combined) || /empty git commit/i.test(combined)) break;
+
+      if (hookFixAttempt >= maxAttempts) {
+        ctx.log(
+          `! commit rejected for ${ctx.changeName} after ${hookFixAttempt} hook-fix attempts (host pre-commit hook still failing) — worktree preserved at ${ctx.cwd}`,
+          "red",
+        );
+        ctx.log(`    detail: ${detail}`, "red");
+        return { gaveUp: true, hookFixAttempt };
+      }
+
+      hookFixAttempt += 1;
+      ctx.emit("commit-retry", `${hookFixAttempt}/${maxAttempts}`);
+      ctx.log(
+        `! commit rejected for ${ctx.changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxAttempts})`,
+        "yellow",
+      );
+      ctx.log(`    detail: ${detail}`, "yellow");
+
+      const retryCode = await runWorkerWithFixTask(
+        ctx,
+        "Fix host pre-commit hook rejection",
+        `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
+          `Fix the underlying problem, then the commit will be retried.\n\n` +
+          combined.trim(),
+      );
+      if (retryCode !== 0) {
+        ctx.log(
+          `! worker re-run after commit rejection exited code ${retryCode} — giving up`,
+          "red",
+        );
+        return { gaveUp: true, hookFixAttempt };
+      }
+    }
+  }
+
+  return { gaveUp: false, hookFixAttempt };
+}
+
+/**
+ * Push the branch and open (or surface) a GitHub PR, retrying on push
+ * rejections (pre-push hooks, non-fast-forward) by feeding failure output
+ * back to the worker as a fix task. Shares the `hookFixAttempt` budget with
+ * the commit phase.
+ *
+ * Returns `{ pr, gaveUp }`. When `gaveUp` is true the caller should set
+ * effectiveCode = PR_FAILED_EXIT; `pr` will be null in that case.
+ */
+async function createPrWithRetry(
+  ctx: PostTaskCtx,
+  issue: LinearIssue,
+  initialHookFixAttempt: number,
+): Promise<{ pr: Awaited<ReturnType<typeof createPullRequest>>; gaveUp: boolean }> {
+  const maxAttempts = ctx.cfg.maxCiFixAttempts;
+  let hookFixAttempt = initialHookFixAttempt;
+  let nonFfRebaseAttempted = false;
+  let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
+
+  while (true) {
+    try {
+      ctx.emit("pr-create", "git push + gh pr create");
+      pr = await createPullRequest(
+        { cwd: ctx.cwd, branch: ctx.branch, issue, base: ctx.cfg.prBaseBranch },
+        ctx.cmd,
+      );
+      return { pr, gaveUp: false };
+    } catch (err) {
+      const e = err as Error & { stderr?: string; stdout?: string; code?: number };
+      const detail = e.stderr?.trim() || e.message;
+      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+
+      const isNonFastForward =
+        /non-fast-forward|Updates were rejected because the (tip of your current branch is behind|remote contains work)/i.test(
+          combined,
+        ) && !/pre-push hook|hook declined/i.test(combined);
+      const isHookReject = /pre-push hook|hook declined/i.test(combined);
+      const pushRejected = isHookReject || /failed to push some refs/i.test(combined);
+
+      if (isNonFastForward && !nonFfRebaseAttempted) {
+        nonFfRebaseAttempted = true;
+        ctx.emit("rebasing", `git pull --rebase origin ${ctx.branch}`);
+        ctx.log(
+          `  non-fast-forward push for ${ctx.changeName} — rebasing onto origin/${ctx.branch}`,
+          "yellow",
+        );
+        try {
+          await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
+          await ctx.cmd.run(["git", "pull", "--rebase", "origin", ctx.branch], ctx.cwd);
+          continue;
+        } catch (rebaseErr) {
+          const re = rebaseErr as Error & { stderr?: string; stdout?: string };
+          const reBlob = `${re.stdout ?? ""}\n${re.stderr ?? ""}`;
+          const isConflict = /CONFLICT|Merge conflict|could not apply|both modified/i.test(reBlob);
+          if (!isConflict) {
+            ctx.log(
+              `! rebase failed for ${ctx.changeName}: ${(rebaseErr as Error).message} — giving up`,
+              "red",
+            );
+            return { pr: null, gaveUp: true };
+          }
+
+          ctx.emit("rebasing", "conflicts detected — aborting + queueing fix task");
+          try {
+            await ctx.cmd.run(["git", "rebase", "--abort"], ctx.cwd);
+          } catch {
+            /* if --abort itself fails, the worktree may already be clean */
+          }
+
+          let conflictedFiles = "";
+          try {
+            const r = await ctx.cmd.run(
+              ["git", "diff", "--name-only", `HEAD..origin/${ctx.branch}`],
+              ctx.cwd,
+            );
+            conflictedFiles = r.stdout.trim();
+          } catch {
+            /* best-effort */
+          }
+
+          if (hookFixAttempt >= maxAttempts) {
+            ctx.log(
+              `! merge conflict on rebase of ${ctx.branch} after ${hookFixAttempt} attempts — worktree preserved at ${ctx.cwd}`,
+              "red",
+            );
+            ctx.log(`    detail: ${reBlob.trim().split("\n").slice(0, 8).join("\n")}`, "red");
+            return { pr: null, gaveUp: true };
+          }
+
+          hookFixAttempt += 1;
+          ctx.emit("rebasing", `conflict-fix ${hookFixAttempt}/${maxAttempts}`);
+          ctx.log(
+            `! merge conflict rebasing ${ctx.branch} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxAttempts})`,
+            "yellow",
+          );
+
+          const retryCode = await runWorkerWithFixTask(
+            ctx,
+            "Resolve merge conflict with origin/" + ctx.branch,
+            `Push to origin/${ctx.branch} was rejected as non-fast-forward, and rebasing ` +
+              `onto origin/${ctx.branch} produced merge conflicts.\n\n` +
+              `Run \`git fetch origin ${ctx.branch}\` and \`git rebase origin/${ctx.branch}\`, ` +
+              `resolve every conflict, \`git add\` the resolved files, and finish with ` +
+              `\`git rebase --continue\`. The push will be retried after this loop ` +
+              `iteration finishes.\n\n` +
+              (conflictedFiles
+                ? `Files that differ between your branch and origin/${ctx.branch}:\n${conflictedFiles}\n\n`
+                : "") +
+              `Rebase output:\n${reBlob.trim()}`,
+          );
+          if (retryCode !== 0) {
+            ctx.log(
+              `! worker re-run after merge conflict exited code ${retryCode} — giving up`,
+              "red",
+            );
+            return { pr: null, gaveUp: true };
+          }
+          nonFfRebaseAttempted = false;
+          continue;
+        }
+      }
+
+      if (!pushRejected || hookFixAttempt >= maxAttempts) {
+        if (pushRejected) {
+          ctx.log(
+            `! push rejected for ${ctx.changeName} after ${hookFixAttempt} fix attempts (push still failing) — worktree preserved at ${ctx.cwd}`,
+            "red",
+          );
+          ctx.log(`    detail: ${detail}`, "red");
+        } else {
+          ctx.log(`! PR create failed for ${ctx.changeName}: ${detail}`, "red");
+        }
+        return { pr: null, gaveUp: true };
+      }
+
+      hookFixAttempt += 1;
+      ctx.emit("push-retry", `${hookFixAttempt}/${maxAttempts}`);
+      ctx.log(
+        `! push rejected for ${ctx.changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxAttempts})`,
+        "yellow",
+      );
+      ctx.log(`    detail: ${detail}`, "yellow");
+
+      const retryCode = await runWorkerWithFixTask(
+        ctx,
+        "Fix push rejection",
+        `Push to origin/${ctx.branch} was rejected. Fix the underlying problem ` +
+          `(e.g. failing pre-push hook checks), then the push will be retried.\n\n` +
+          combined.trim(),
+      );
+      if (retryCode !== 0) {
+        ctx.log(`! worker re-run after push rejection exited code ${retryCode} — giving up`, "red");
+        return { pr: null, gaveUp: true };
+      }
+    }
+  }
+}
+
+/**
+ * Outer loop that alternates between conflict resolution and CI polling until
+ * the PR is both conflict-free and CI-green, or the attempt budget runs out.
+ *
+ * Budget: each conflict-fix cycle consumes one outer attempt counter. The CI
+ * fix loop inside gets its own fresh maxAttempts budget per cycle so a
+ * multi-attempt CI fix doesn't starve the conflict-re-check path.
+ *
+ * Returns an effective exit code: 0 on success, CI_FAILED_EXIT or
+ * PR_FAILED_EXIT on failure.
+ */
+async function fixConflictsAndCiLoop(
+  ctx: PostTaskCtx,
+  prUrl: string,
+  wantFixCi: boolean,
+  checkPrConflict: ((url: string) => Promise<boolean>) | undefined,
+): Promise<number> {
+  const wantConflictLoop = !!checkPrConflict;
+  const maxOuterAttempts = ctx.cfg.maxCiFixAttempts;
+  let outerAttempt = 0;
+  let ciConfirmedGreen = false;
+
+  while (outerAttempt < maxOuterAttempts) {
+    // Step 1: check whether the PR has merge conflicts.
+    if (wantConflictLoop) {
+      ctx.emit("conflict-check");
+      let conflicting = false;
+      try {
+        conflicting = await checkPrConflict!(prUrl);
+      } catch (err) {
+        ctx.log(`! conflict check failed: ${(err as Error).message}`, "yellow");
+      }
+
+      if (conflicting) {
+        outerAttempt++;
+        ciConfirmedGreen = false;
+        ctx.emit("conflict-fix-inner", `attempt ${outerAttempt}/${maxOuterAttempts}`);
+        ctx.log(
+          `  merge conflicts on PR (attempt ${outerAttempt}/${maxOuterAttempts}) — spawning resolution task`,
+          "yellow",
+        );
+
+        const conflictCode = await runWorkerWithFixTask(
+          ctx,
+          "Resolve PR merge conflicts",
+          [
+            `The PR ${prUrl} has merge conflicts with \`${ctx.cfg.prBaseBranch}\`.`,
+            "",
+            "Steps:",
+            `1. \`git fetch origin ${ctx.cfg.prBaseBranch}\` then rebase or merge \`${ctx.cfg.prBaseBranch}\` into the current branch.`,
+            "2. Resolve conflicts in the files git lists.",
+            "3. Stage and commit the resolution.",
+          ].join("\n"),
+        );
+        if (conflictCode !== 0) {
+          ctx.log(`! conflict resolution worker exited code ${conflictCode} — giving up`, "red");
+          return PR_FAILED_EXIT;
+        }
+
+        // Push the resolved branch. If the worker rebased (rewrote history),
+        // the regular push fails as non-fast-forward; pushWithLeases falls
+        // back to --force-with-lease which still refuses if someone else
+        // pushed to the branch concurrently.
+        const pushed = await pushWithLeases(ctx);
+        if (!pushed) return PR_FAILED_EXIT;
+
+        continue; // re-enter loop to re-check conflicts before CI
+      }
+    }
+
+    // Step 2: poll CI until green (or budget exhausted).
+    if (!wantFixCi) break; // conflict-check-only mode: no conflicts → done
+
+    if (!ciConfirmedGreen) {
+      ctx.log(`  watching CI for ${prUrl} (max ${ctx.cfg.maxCiFixAttempts} fix attempts)`, "gray");
+      ctx.emit("ci-poll", "starting");
+
+      const result = await fixCiUntilGreen(
+        {
+          onPhase: (p, d) => ctx.emit(p as PostTaskPhase, d),
+          getStatus: () =>
+            getPrChecksStatus(prUrl, ctx.cmd, ctx.cwd, (n, ms, why) =>
+              ctx.log(
+                `  gh transient (try ${n}) — retry in ${Math.round(ms / 1000)}s · ${why}`,
+                "yellow",
+              ),
+            ),
+          getFailedLogs: (ids) => fetchFailedRunLogs(ids, ctx.cmd, ctx.cwd),
+          runTaskWithSteering: async (steering) => {
+            try {
+              await prependFixTask(
+                join(ctx.changeDir, "tasks.md"),
+                "Fix failing CI checks",
+                steering,
+              );
+            } catch (err) {
+              ctx.log(`! could not prepend fix task: ${(err as Error).message}`, "red");
+            }
+            return ctx.respawnWorker();
+          },
+          pushBranch: async () => {
+            await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
+          },
+          log: ctx.log,
+          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        },
+        {
+          maxAttempts: ctx.cfg.maxCiFixAttempts,
+          pollIntervalSeconds: ctx.cfg.ciPollIntervalSeconds,
+        },
+      );
+
+      if (!result.success) {
+        ctx.log(
+          `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
+          "red",
+        );
+        return CI_FAILED_EXIT;
+      }
+      ciConfirmedGreen = true;
+    }
+
+    // CI is green — do one final conflict scan (if enabled) to confirm the
+    // PR is stable before declaring success.
+    if (wantConflictLoop) {
+      continue; // re-enter the conflict-check step at the top
+    }
+    return 0; // CI green and no conflict loop → done
+  }
+
+  if (outerAttempt >= maxOuterAttempts) {
+    ctx.log(`! outer fix loop exhausted ${maxOuterAttempts} attempts — giving up`, "red");
+    return CI_FAILED_EXIT;
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
+/**
  * Orchestrate everything that happens after the worker subprocess exits:
  *
  *  1. Run the configured teardown script.
  *  2. On success + `wantPr`: commit residual changes (with hook-fix retry),
- *     create a PR (with push-rejection retry), and optionally run the CI
+ *     create a PR (with push-rejection retry), then run the conflict + CI
  *     fix loop until checks go green or the attempt budget runs out.
  *  3. On full success + `useWorktree`: safely remove the worktree.
  *
@@ -157,306 +615,42 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       );
       effectiveCode = PR_FAILED_EXIT;
     } else {
-      const maxHookFixAttempts = cfg.maxCiFixAttempts;
-      // Prepend a fresh unchecked task (with the failure output inlined) to
-      // the change's tasks.md, then re-spawn the worker. The loop's "first
-      // unchecked section" rule then routes the worker straight at the fix.
-      const runWorkerWithFixTask = async (
-        heading: string,
-        failureOutput: string,
-      ): Promise<number> => {
-        try {
-          await prependFixTask(join(changeDir, "tasks.md"), heading, failureOutput);
-        } catch (err) {
-          log(`! could not prepend fix task: ${(err as Error).message}`, "red");
-          return 1;
-        }
-        await reactivateState(stateFilePath, log, changeName);
-        return respawnWorker();
+      const ctx: PostTaskCtx = {
+        changeName,
+        cwd,
+        branch,
+        changeDir,
+        stateFilePath,
+        cfg,
+        cmd,
+        log,
+        emit,
+        respawnWorker,
       };
 
-      // Single retry budget shared across commit + push hook failures. Both
-      // flow through the same prepend-task → re-run-loop → retry-action
-      // mechanism.
-      let hookFixAttempt = 0;
-      // Pre-commit retry: if the worker left uncommitted changes (typically
-      // because the host's pre-commit hook rejected ralphy's
-      // `docs(ralph): change finished` commit) we attempt the commit
-      // ourselves and, on hook failure, feed the hook output back into the
-      // loop as a new fix task.
-      let commitGaveUp = false;
-      while (true) {
-        emit("committing", "git status");
-        let dirty = "";
-        try {
-          const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-          dirty = status.stdout.trim();
-        } catch (err) {
-          log(`! git status failed for ${changeName}: ${(err as Error).message}`, "yellow");
-          break;
-        }
-        if (!dirty) break;
-        try {
-          emit("committing", "git add -A");
-          await cmd.run(["git", "add", "-A"], cwd);
-          emit("committing", "git commit");
-          await cmd.run(
-            ["git", "commit", "-m", `chore(ralph): residual changes for ${changeName}`],
-            cwd,
-          );
-          log(`  committed residual changes for ${changeName}`, "gray");
-          break;
-        } catch (err) {
-          const e = err as Error & { stderr?: string; stdout?: string };
-          const detail = e.stderr?.trim() || e.message;
-          const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-          // If there's nothing to commit (clean tree or lint-staged reformatted
-          // files back to HEAD leaving an empty diff), accept and move on.
-          if (/nothing to commit/i.test(combined) || /empty git commit/i.test(combined)) break;
-          if (hookFixAttempt >= maxHookFixAttempts) {
-            log(
-              `! commit rejected for ${changeName} after ${hookFixAttempt} hook-fix attempts (host pre-commit hook still failing) — worktree preserved at ${cwd}`,
-              "red",
-            );
-            log(`    detail: ${detail}`, "red");
-            effectiveCode = PR_FAILED_EXIT;
-            commitGaveUp = true;
-            break;
-          }
-          hookFixAttempt += 1;
-          emit("commit-retry", `${hookFixAttempt}/${maxHookFixAttempts}`);
-          log(
-            `! commit rejected for ${changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
-            "yellow",
-          );
-          log(`    detail: ${detail}`, "yellow");
-          const retryCode = await runWorkerWithFixTask(
-            "Fix host pre-commit hook rejection",
-            `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
-              `Fix the underlying problem, then the commit will be retried.\n\n` +
-              combined.trim(),
-          );
-          if (retryCode !== 0) {
-            log(
-              `! worker re-run after commit rejection exited code ${retryCode} — giving up`,
-              "red",
-            );
-            effectiveCode = PR_FAILED_EXIT;
-            commitGaveUp = true;
-            break;
-          }
-        }
-      }
-
-      let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
-      let prGaveUp = commitGaveUp;
-      let nonFfRebaseAttempted = false;
-      // Retry loop: when a push is rejected (e.g. pre-push hook running lint/
-      // typecheck, or any other push failure) we prepend a fix task with the
-      // failure output and re-run the worker loop so the AI fixes the
-      // underlying issue, then retry the PR. Shares the hookFixAttempt budget
-      // with commit.
-      while (!prGaveUp) {
-        try {
-          emit("pr-create", "git push + gh pr create");
-          pr = await createPullRequest({ cwd, branch, issue, base: cfg.prBaseBranch }, cmd);
-          break;
-        } catch (err) {
-          const e = err as Error & {
-            stderr?: string;
-            stdout?: string;
-            code?: number;
-          };
-          const detail = e.stderr?.trim() || e.message;
-          const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-          // A non-fast-forward push means the remote branch advanced (e.g.
-          // a previous push retry actually landed, or someone else pushed).
-          // The fix is not "rerun Claude" — it's a rebase. Try once.
-          const isNonFastForward =
-            /non-fast-forward|Updates were rejected because the (tip of your current branch is behind|remote contains work)/i.test(
-              combined,
-            ) && !/pre-push hook|hook declined/i.test(combined);
-          const isHookReject = /pre-push hook|hook declined/i.test(combined);
-          const pushRejected = isHookReject || /failed to push some refs/i.test(combined);
-
-          if (isNonFastForward && !nonFfRebaseAttempted) {
-            nonFfRebaseAttempted = true;
-            emit("rebasing", `git pull --rebase origin ${branch}`);
-            log(
-              `  non-fast-forward push for ${changeName} — rebasing onto origin/${branch}`,
-              "yellow",
-            );
-            try {
-              await cmd.run(["git", "fetch", "origin", branch], cwd);
-              await cmd.run(["git", "pull", "--rebase", "origin", branch], cwd);
-              continue;
-            } catch (rebaseErr) {
-              const re = rebaseErr as Error & { stderr?: string; stdout?: string };
-              const reBlob = `${re.stdout ?? ""}\n${re.stderr ?? ""}`;
-              const isConflict = /CONFLICT|Merge conflict|could not apply|both modified/i.test(
-                reBlob,
-              );
-              if (!isConflict) {
-                log(
-                  `! rebase failed for ${changeName}: ${(rebaseErr as Error).message} — giving up`,
-                  "red",
-                );
-                effectiveCode = PR_FAILED_EXIT;
-                prGaveUp = true;
-                break;
-              }
-              // Conflict: abort the in-progress rebase to leave a clean
-              // working tree, gather the conflicted file list, and feed it
-              // back to the worker as a fix task so the AI can resolve it.
-              emit("rebasing", "conflicts detected — aborting + queueing fix task");
-              try {
-                await cmd.run(["git", "rebase", "--abort"], cwd);
-              } catch {
-                /* if --abort itself fails, the worktree may already be clean */
-              }
-              let conflictedFiles = "";
-              try {
-                const r = await cmd.run(
-                  ["git", "diff", "--name-only", `HEAD..origin/${branch}`],
-                  cwd,
-                );
-                conflictedFiles = r.stdout.trim();
-              } catch {
-                /* best-effort */
-              }
-              if (hookFixAttempt >= maxHookFixAttempts) {
-                log(
-                  `! merge conflict on rebase of ${branch} after ${hookFixAttempt} attempts — worktree preserved at ${cwd}`,
-                  "red",
-                );
-                log(`    detail: ${reBlob.trim().split("\n").slice(0, 8).join("\n")}`, "red");
-                effectiveCode = PR_FAILED_EXIT;
-                prGaveUp = true;
-                break;
-              }
-              hookFixAttempt += 1;
-              emit("rebasing", `conflict-fix ${hookFixAttempt}/${maxHookFixAttempts}`);
-              log(
-                `! merge conflict rebasing ${branch} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
-                "yellow",
-              );
-              const retryCode = await runWorkerWithFixTask(
-                "Resolve merge conflict with origin/" + branch,
-                `Push to origin/${branch} was rejected as non-fast-forward, and rebasing ` +
-                  `onto origin/${branch} produced merge conflicts.\n\n` +
-                  `Run \`git fetch origin ${branch}\` and \`git rebase origin/${branch}\`, ` +
-                  `resolve every conflict, \`git add\` the resolved files, and finish with ` +
-                  `\`git rebase --continue\`. The push will be retried after this loop ` +
-                  `iteration finishes.\n\n` +
-                  (conflictedFiles
-                    ? `Files that differ between your branch and origin/${branch}:\n${conflictedFiles}\n\n`
-                    : "") +
-                  `Rebase output:\n${reBlob.trim()}`,
-              );
-              if (retryCode !== 0) {
-                log(
-                  `! worker re-run after merge conflict exited code ${retryCode} — giving up`,
-                  "red",
-                );
-                effectiveCode = PR_FAILED_EXIT;
-                prGaveUp = true;
-                break;
-              }
-              // Allow another rebase attempt now that the worker has
-              // (presumably) resolved the conflict and committed.
-              nonFfRebaseAttempted = false;
-              continue;
-            }
-          }
-
-          if (!pushRejected || hookFixAttempt >= maxHookFixAttempts) {
-            if (pushRejected) {
-              log(
-                `! push rejected for ${changeName} after ${hookFixAttempt} fix attempts (push still failing) — worktree preserved at ${cwd}`,
-                "red",
-              );
-              log(`    detail: ${detail}`, "red");
-            } else {
-              log(`! PR create failed for ${changeName}: ${detail}`, "red");
-            }
-            effectiveCode = PR_FAILED_EXIT;
-            prGaveUp = true;
-            break;
-          }
-          hookFixAttempt += 1;
-          emit("push-retry", `${hookFixAttempt}/${maxHookFixAttempts}`);
-          log(
-            `! push rejected for ${changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxHookFixAttempts})`,
-            "yellow",
-          );
-          log(`    detail: ${detail}`, "yellow");
-          const retryCode = await runWorkerWithFixTask(
-            "Fix push rejection",
-            `Push to origin/${branch} was rejected. Fix the underlying problem ` +
-              `(e.g. failing pre-push hook checks), then the push will be retried.\n\n` +
-              combined.trim(),
-          );
-          if (retryCode !== 0) {
-            log(`! worker re-run after push rejection exited code ${retryCode} — giving up`, "red");
-            effectiveCode = PR_FAILED_EXIT;
-            prGaveUp = true;
-            break;
-          }
-        }
-      }
-
-      if (prGaveUp) {
-        // already logged + effectiveCode set
-      } else if (!pr) {
-        log(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
+      const { gaveUp: commitGaveUp, hookFixAttempt } = await commitResidualChanges(
+        ctx,
+        cfg.maxCiFixAttempts,
+      );
+      if (commitGaveUp) {
+        effectiveCode = PR_FAILED_EXIT;
       } else {
-        log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
-        deps.registerPr?.(changeName, pr.url);
+        const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue, hookFixAttempt);
+        if (prGaveUp) {
+          effectiveCode = PR_FAILED_EXIT;
+        } else if (!pr) {
+          log(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
+        } else {
+          log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
+          deps.registerPr?.(changeName, pr.url);
 
-        if (wantFixCi) {
-          log(`  watching CI for ${pr.url} (max ${cfg.maxCiFixAttempts} fix attempts)`, "gray");
-          emit("ci-poll", "starting");
-          const result = await fixCiUntilGreen(
-            {
-              onPhase: (p, d) => emit(p as PostTaskPhase, d),
-              getStatus: () =>
-                getPrChecksStatus(pr.url, cmd, cwd, (n, ms, why) =>
-                  log(
-                    `  gh transient (try ${n}) — retry in ${Math.round(ms / 1000)}s · ${why}`,
-                    "yellow",
-                  ),
-                ),
-              getFailedLogs: (ids) => fetchFailedRunLogs(ids, cmd, cwd),
-              runTaskWithSteering: async (steering) => {
-                try {
-                  await prependFixTask(
-                    join(changeDir, "tasks.md"),
-                    "Fix failing CI checks",
-                    steering,
-                  );
-                } catch (err) {
-                  log(`! could not prepend fix task: ${(err as Error).message}`, "red");
-                }
-                return respawnWorker();
-              },
-              pushBranch: async () => {
-                await cmd.run(["git", "push", "origin", branch], cwd);
-              },
-              log,
-              sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-            },
-            {
-              maxAttempts: cfg.maxCiFixAttempts,
-              pollIntervalSeconds: cfg.ciPollIntervalSeconds,
-            },
+          const loopCode = await fixConflictsAndCiLoop(
+            ctx,
+            pr.url,
+            wantFixCi,
+            deps.checkPrConflict,
           );
-          if (!result.success) {
-            log(
-              `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
-              "red",
-            );
-            effectiveCode = CI_FAILED_EXIT;
-          }
+          if (loopCode !== 0) effectiveCode = loopCode;
         }
       }
     }
