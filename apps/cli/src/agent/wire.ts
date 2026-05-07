@@ -64,6 +64,21 @@ const bunCmdRunner: CmdRunner = {
   },
 };
 
+/**
+ * Side-effect runners. Production wires bun-spawned git / generic command
+ * processes; tests inject in-memory fakes so an end-to-end integration
+ * suite never spawns a real subprocess. Provide whatever you want to
+ * stub; anything you omit falls back to the bun-based default.
+ */
+export interface AgentRunners {
+  git?: GitRunner;
+  cmd?: CmdRunner;
+  /** Spawn the actual `ralph task` worker subprocess. Default: Bun.spawn. */
+  spawnWorker?: (cmd: string[], cwd: string) => { exited: Promise<number>; kill: () => void };
+  /** Run a shell script (setup/teardown). Returns exit code; never throws. */
+  runScript?: (cmd: string, cwd: string) => Promise<number>;
+}
+
 interface BuildAgentCoordinatorInput {
   args: ParsedArgs;
   cfg: RalphyConfig;
@@ -77,6 +92,8 @@ interface BuildAgentCoordinatorInput {
   onWorkersChanged: () => void;
   onWorkerStarted: (changeName: string, statesDir: string) => void;
   onWorkerExited: (changeName: string) => void;
+  /** Optional side-effect overrides (test injection). */
+  runners?: AgentRunners;
 }
 
 interface BuildAgentCoordinatorResult {
@@ -161,6 +178,9 @@ export function buildAgentCoordinator(
     indicators.setError,
     indicators.setConflicted,
   );
+
+  const gitRunner: GitRunner = input.runners?.git ?? bunGitRunner;
+  const cmdRunner: CmdRunner = input.runners?.cmd ?? bunCmdRunner;
 
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
@@ -261,22 +281,32 @@ export function buildAgentCoordinator(
 
   const useWorktree = args.worktree || cfg.useWorktree;
 
+  const scriptRunner =
+    input.runners?.runScript ??
+    (async (cmd: string, cwd: string): Promise<number> => {
+      const proc = Bun.spawn({
+        cmd: ["sh", "-c", cmd],
+        cwd,
+        stdout: "ignore",
+        stderr: "pipe",
+        stdin: "ignore",
+      });
+      const code = await proc.exited;
+      if (code !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        onLog(
+          `! script exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
+          "yellow",
+        );
+      }
+      return code;
+    });
+
   async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
     onLog(`  ${label}: ${cmd}`, "gray");
-    const proc = Bun.spawn({
-      cmd: ["sh", "-c", cmd],
-      cwd,
-      stdout: "ignore",
-      stderr: "pipe",
-      stdin: "ignore",
-    });
-    const code = await proc.exited;
+    const code = await scriptRunner(cmd, cwd);
     if (code !== 0) {
-      const stderr = await new Response(proc.stderr).text();
-      onLog(
-        `! ${label} exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
-        "yellow",
-      );
+      onLog(`! ${label} exited code ${code}`, "yellow");
     }
   }
 
@@ -296,7 +326,7 @@ export function buildAgentCoordinator(
     if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
     const probeName = issue.identifier.toLowerCase();
     try {
-      const wt = await createWorktree(projectRoot, probeName, bunGitRunner);
+      const wt = await createWorktree(projectRoot, probeName, gitRunner);
       workerCwd = wt.cwd;
       branch = wt.branch;
       const wtLayout = projectLayout(wt.cwd);
@@ -439,30 +469,28 @@ export function buildAgentCoordinator(
     return c;
   }
 
-  function spawnWorker(changeName: string): { exited: Promise<number>; kill: () => void } {
-    const cwd = cwdByChange.get(changeName) ?? projectRoot;
-    const respawn = (): Promise<number> => {
-      const rp = Bun.spawn({
-        cmd: buildTaskCmdFor(changeName),
+  const workerSpawner =
+    input.runners?.spawnWorker ??
+    ((cmd: string[], cwd: string) => {
+      const proc = Bun.spawn({
+        cmd,
         cwd,
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
       });
-      return rp.exited;
-    };
-    const proc = Bun.spawn({
-      cmd: buildTaskCmdFor(changeName),
-      cwd,
-      stdout: "ignore",
-      stderr: "ignore",
-      stdin: "ignore",
+      return { exited: proc.exited, kill: () => proc.kill() };
     });
+
+  function spawnWorker(changeName: string): { exited: Promise<number>; kill: () => void } {
+    const cwd = cwdByChange.get(changeName) ?? projectRoot;
+    const respawn = (): Promise<number> => workerSpawner(buildTaskCmdFor(changeName), cwd).exited;
+    const handle = workerSpawner(buildTaskCmdFor(changeName), cwd);
     onWorkerStarted(changeName, statesDirByChange.get(changeName) ?? statesDir);
 
     const wantPr = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
-    const wrapped = proc.exited.then(async (code) => {
+    const wrapped = handle.exited.then(async (code) => {
       const workerLayout = projectLayout(cwd);
       const effectiveCode = await runPostTask(
         {
@@ -487,8 +515,8 @@ export function buildAgentCoordinator(
           respawnWorker: respawn,
         },
         {
-          cmd: bunCmdRunner,
-          git: bunGitRunner,
+          cmd: cmdRunner,
+          git: gitRunner,
           log: onLog,
           runScript,
           registerPr: (cn, url) => {
@@ -505,7 +533,7 @@ export function buildAgentCoordinator(
       return effectiveCode;
     });
 
-    return { exited: wrapped, kill: () => proc.kill() };
+    return { exited: wrapped, kill: () => handle.kill() };
   }
 
   /**
@@ -524,7 +552,7 @@ export function buildAgentCoordinator(
     if (!prUrl) {
       // Discover via gh (one-shot).
       try {
-        const res = await bunCmdRunner.run(
+        const res = await cmdRunner.run(
           [
             "gh",
             "pr",
@@ -554,7 +582,7 @@ export function buildAgentCoordinator(
     }
 
     try {
-      const res = await bunCmdRunner.run(
+      const res = await cmdRunner.run(
         ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
         projectRoot,
       );
