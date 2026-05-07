@@ -3,20 +3,25 @@ import type { Engine, Indicators, Marker, Mode, SetIndicator, GetIndicator } fro
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Load package.json at runtime from the project root to work correctly from any location (source or compiled)
+// Injected at build time by apps/cli/build.ts via Bun.build define.
+// Falls back to a runtime walk when executing from source (e.g. bun run src/index.ts).
+declare const RALPH_VERSION: string | undefined;
+
 function getVersion(): string {
+  // Compile-time constant takes precedence (set by build.ts).
+  try {
+    if (typeof RALPH_VERSION !== "undefined" && RALPH_VERSION) return RALPH_VERSION;
+  } catch {
+    // not defined in this context
+  }
+
   // Walk up from current directory or import.meta.dir to find workspace root (has "workspaces" field)
   const dirsToTry: string[] = [];
-
-  // Start from import.meta.dir if available
   try {
-    const cliDir = import.meta.dir;
-    dirsToTry.push(cliDir);
+    dirsToTry.push(import.meta.dir);
   } catch {
     // import.meta.dir might not be available
   }
-
-  // Also try from cwd
   dirsToTry.push(process.cwd());
 
   for (const startDir of dirsToTry) {
@@ -25,7 +30,6 @@ function getVersion(): string {
       const pkgPath = resolve(current, "package.json");
       try {
         const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-        // Found workspace root (has "workspaces" field) with valid version
         if (pkg.workspaces && pkg.version && pkg.version !== "0.0.0") {
           return pkg.version;
         }
@@ -33,7 +37,7 @@ function getVersion(): string {
         // File doesn't exist or isn't valid JSON, keep walking up
       }
       const parent = resolve(current, "..");
-      if (parent === current) break; // Hit filesystem root
+      if (parent === current) break;
       current = parent;
     }
   }

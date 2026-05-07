@@ -147,6 +147,20 @@ describe("getPrChecksStatus retry on transient failure", () => {
     await expect(getPrChecksStatus("123", runner, "/wt")).rejects.toThrow();
     expect(calls).toBe(1);
   });
+
+  test('returns "pass" when gh reports no checks (repo has no CI workflows)', async () => {
+    const runner: CmdRunner = {
+      run: async () => {
+        const err = new Error(
+          "`gh pr checks 139` exited 1: no checks reported on the 'ralph/cod-81' branch",
+        ) as Error & { stderr?: string };
+        err.stderr = "no checks reported on the 'ralph/cod-81' branch\n";
+        throw err;
+      },
+    };
+    const status = await getPrChecksStatus("139", runner, "/wt");
+    expect(status).toEqual({ bucket: "pass", failedRunIds: [] });
+  });
 });
 
 describe("fetchFailedRunLogs", () => {

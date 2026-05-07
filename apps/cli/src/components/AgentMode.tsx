@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
-import { join, relative } from "node:path";
+import { Box, Static, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
+import { join, relative, dirname } from "node:path";
 import { homedir } from "node:os";
+import { appendFile, mkdir } from "node:fs/promises";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
@@ -71,20 +72,19 @@ function prLabel(prUrl: string): string {
   return m ? `#${m[1]}` : "PR";
 }
 
-/** Returns true when the terminal reliably renders OSC 8 hyperlinks. */
-const HYPERLINKS_SUPPORTED = (() => {
-  if (process.env["TMUX"]) return false;
-  const tp = process.env["TERM_PROGRAM"];
-  if (tp === "iTerm.app" || tp === "WezTerm" || tp === "Hyper") return true;
-  const term = process.env["TERM"];
-  if (term === "xterm-kitty" || term === "foot" || term === "xterm-ghostty") return true;
-  if (process.env["VTE_VERSION"]) return true;
-  return false;
-})();
+/** Tmux mangles OSC 8 sequences — skip hyperlinks inside tmux. */
+const HYPERLINKS_SUPPORTED = !process.env["TMUX"];
 
-/** Wraps label in an OSC 8 terminal hyperlink if the terminal supports it. */
-function osc8(url: string, label: string): string {
-  return HYPERLINKS_SUPPORTED ? `\x1b]8;;${url}\x07${label}\x1b]8;;\x07` : label;
+/** Renders label as an OSC 8 terminal hyperlink via Transform (so Ink measures only the label width). */
+function Link({ url, label, color }: { url: string; label: string; color: string }) {
+  if (!HYPERLINKS_SUPPORTED) return <Text color={color}>{label}</Text>;
+  return (
+    <Transform transform={(output) => `\x1b]8;;${url}\x07${output}\x1b]8;;\x07`}>
+      <Text color={color} underline>
+        {label}
+      </Text>
+    </Transform>
+  );
 }
 
 // Strip ANSI escape codes (CSI, OSC, and 2-char sequences).
@@ -196,14 +196,13 @@ function displayTailLines(activeCount: number): number {
 /** Agent-mode debug log written to ~/.ralph/agent-mode.log (appended each session). */
 const AGENT_LOG_PATH = join(homedir(), ".ralph", "agent-mode.log");
 const SESSION_START = new Date().toISOString();
+mkdir(dirname(AGENT_LOG_PATH), { recursive: true }).catch(() => undefined);
 
 function writeAgentLog(text: string) {
-  const line = `[${new Date().toISOString()}] ${text}\n`;
-  Bun.file(AGENT_LOG_PATH)
-    .text()
-    .catch(() => "")
-    .then((existing) => Bun.write(AGENT_LOG_PATH, existing + line))
-    .catch(() => undefined);
+  const clean = text.replace(ANSI_STRIP_RE, "").trim();
+  if (!clean) return;
+  const line = `[${new Date().toISOString()}] ${clean}\n`;
+  appendFile(AGENT_LOG_PATH, line).catch(() => undefined);
 }
 
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
@@ -427,10 +426,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   );
 
   // Compute tail lines for the focused worker to fill available height.
-  // Approximated fixed overhead: header box (5) + status row (4) + tabs bar (3) + card header (7) + log/phase (2)
-  const FIXED_OVERHEAD = 22;
+  // header-box(5) + poll-row(5) + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
-  const focusedTailLines = Math.max(5, termHeight - FIXED_OVERHEAD - nonFocusedCount);
+  const tasksBoxLines = activeCount > 0 ? 5 : 0;
+  const FIXED_OVERHEAD = 5 + 5 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
   return (
@@ -720,16 +720,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Box gap={3} marginTop={0}>
                 <Box gap={1}>
                   <Text dimColor>↗ LINEAR</Text>
-                  <Text color="blue" underline={HYPERLINKS_SUPPORTED}>
-                    {osc8(w.issue.url, w.issueIdentifier)}
-                  </Text>
+                  <Link url={w.issue.url} label={w.issueIdentifier} color="blue" />
                 </Box>
                 {prUrl && (
                   <Box gap={1}>
                     <Text dimColor>↗ PR</Text>
-                    <Text color="green" underline={HYPERLINKS_SUPPORTED}>
-                      {osc8(prUrl, prLabel(prUrl))}
-                    </Text>
+                    <Link url={prUrl} label={prLabel(prUrl)} color="green" />
                   </Box>
                 )}
               </Box>

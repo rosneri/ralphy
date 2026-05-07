@@ -20,7 +20,7 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun build apps/cli/src/index.ts --outdir dist/cli --target bun",
+        "command": "bun run apps/cli/build.ts",
         "cwd": "{workspaceRoot}"
       },
       "outputs": ["{workspaceRoot}/dist/cli"]

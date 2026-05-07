@@ -1,9 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreDependencies": [
-    "bun-types",
     "@secretlint/secretlint-rule-preset-recommend",
-    "ink-testing-library",
     "@fission-ai/openspec",
     "@nx/js",
     "@total-typescript/ts-reset"
@@ -11,18 +9,13 @@
   "ignore": ["reset.d.ts"],
   "workspaces": {
     "apps/cli": {
-      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}"]
+      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}", "build.ts"]
     },
     "apps/mcp": {
       "entry": ["src/index.ts", "src/__tests__/**/*.ts"]
     },
     "apps/ui": {
-      "entry": [
-        "src/main.tsx",
-        "src-sidecar/server.ts",
-        "src/components/**/*.tsx",
-        "src/lib/**/*.ts"
-      ]
+      "entry": ["src-sidecar/server.ts", "src/components/**/*.tsx", "src/lib/**/*.ts"]
     },
     "packages/content": {
       "entry": ["src/**/*.ts"]
