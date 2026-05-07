@@ -106,7 +106,9 @@ function LabeledBox({
           <Text color={borderColor}>{`${"─".repeat(right)}╮`}</Text>
         </Box>
       ) : (
-        <Text color={borderColor}>{`╭${"─".repeat(left)} ${label ?? ""} ${"─".repeat(right)}╮`}</Text>
+        <Text
+          color={borderColor}
+        >{`╭${"─".repeat(left)} ${label ?? ""} ${"─".repeat(right)}╮`}</Text>
       )}
       <Box borderStyle="round" borderTop={false} borderColor={borderColor} width={width} {...rest}>
         {children}
@@ -477,8 +479,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     <Box flexDirection="column">
       {/* ── Scrolling log history ────────────────────────────── */}
       {logs.length > 0 && (
-        <Box
-          borderStyle="round"
+        <LabeledBox
+          label="LOGS"
           borderColor="gray"
           flexDirection="column"
           paddingX={1}
@@ -493,12 +495,18 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               <Text key={line.id}>{line.text}</Text>
             ),
           )}
-        </Box>
+        </LabeledBox>
       )}
 
       <Box flexDirection="column" marginTop={0}>
         {/* ── Settings header — two compact text lines ─────────── */}
-        <LabeledBox label="◈ RALPH AGENT" borderColor="blue" width={termWidth} paddingX={1} flexDirection="column">
+        <LabeledBox
+          label="◈ RALPH AGENT"
+          borderColor="blue"
+          width={termWidth}
+          paddingX={1}
+          flexDirection="column"
+        >
           {/* Line 1: key settings */}
           <Text>
             <Text dimColor>v{VERSION}</Text>
@@ -549,7 +557,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         {/* ── Poll status + queue ─────────────────────────────── */}
         <Box flexDirection="row" gap={1} marginTop={0} width={termWidth}>
           {/* Poll status */}
-          <LabeledBox label="POLL STATUS" borderColor="gray" width={termWidth - 30} paddingX={1} flexDirection="column">
+          <LabeledBox
+            label="POLL STATUS"
+            borderColor="gray"
+            width={termWidth - 30}
+            paddingX={1}
+            flexDirection="column"
+          >
             <Box gap={2}>
               <Text color="gray">{spinnerFrame}</Text>
               <Text>
@@ -582,7 +596,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           </LabeledBox>
 
           {/* Worker queue summary */}
-          <LabeledBox label="WORKERS" borderColor="gray" width={29} paddingX={1} flexDirection="column">
+          <LabeledBox
+            label="WORKERS"
+            borderColor="gray"
+            width={29}
+            paddingX={1}
+            flexDirection="column"
+          >
             <Box gap={3}>
               <Box gap={1}>
                 <Text dimColor>active</Text>
@@ -625,7 +645,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                         {pBadge.text} {pBadge.label}
                       </Text>
                     )}
-                    <Link url={w.issue.url} label={w.issueIdentifier} color={isFocused ? "cyan" : "gray"} />
+                    <Link
+                      url={w.issue.url}
+                      label={w.issueIdentifier}
+                      color={isFocused ? "cyan" : "gray"}
+                    />
                     <Text color={phaseColor(phase)} dimColor={!isFocused}>
                       {phase}
                     </Text>
@@ -748,9 +772,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   {iter}
                 </Text>
                 <Text dimColor>│</Text>
-                {meta?.logFile && (
-                  <Link url={`file://${meta.logFile}`} label="LOG" color="gray" />
-                )}
+                {meta?.logFile && <Link url={`file://${meta.logFile}`} label="LOG" color="gray" />}
               </Box>
 
               {/* ── Current task ────────────────────────────── */}
