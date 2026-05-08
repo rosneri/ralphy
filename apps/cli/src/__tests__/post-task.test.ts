@@ -138,6 +138,7 @@ describe("runPostTask — CI fix reactivates state", () => {
           maxCiFixAttempts: 3,
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
+          ignoreCiChecks: [],
         },
         respawnWorker,
       },
