@@ -126,7 +126,8 @@ export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
       );
 
     case "clean":
-      // Handled in index.ts before render; should not reach here.
+    case "debug":
+      // Both handled in index.ts before render; should not reach here.
       return (
         <ExitAfterRender>
           <Text></Text>

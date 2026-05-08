@@ -17,6 +17,7 @@ import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
 import { projectLayout } from "@ralphy/core/layout";
 import { worktreesDir } from "./agent/worktree";
+import { runDebug } from "./debug";
 import * as telemetry from "@ralphy/telemetry";
 
 /**
@@ -82,6 +83,16 @@ try {
       stdio: ["inherit", "inherit", "inherit"],
       cwd: process.cwd(),
     });
+  }
+
+  if (args.mode === "debug") {
+    if (!args.name) {
+      process.stderr.write("Error: --name is required for debug mode\n");
+      process.exit(1);
+    }
+    await runDebug({ name: args.name, projectRoot });
+    await telemetry.shutdown();
+    process.exit(0);
   }
 
   if (args.mode === "clean") {

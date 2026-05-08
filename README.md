@@ -21,6 +21,65 @@ graph LR
 
 Each iteration reads the `## Steering` section of `proposal.md`, picks the first unchecked item from `tasks.md`, does the work, validates, and checks the item off. When all items are checked the loop archives the change automatically.
 
+## Agent Mode Flow
+
+The full orchestration cycle from Linear poll through teardown:
+
+```mermaid
+flowchart TD
+    LINEAR_POLL["Linear poll\n(todo / in-progress / conflicted)"]
+
+    LINEAR_POLL --> ISSUE_STATE{issue state}
+    ISSUE_STATE -- todo --> MODE_FRESH[mode: fresh\nscaffold change]
+    ISSUE_STATE -- in-progress --> MODE_RESUME[mode: resume]
+    ISSUE_STATE -- conflicted --> MODE_CONFLICT_FIX[mode: conflict-fix\nprepend fix task]
+
+    MODE_FRESH & MODE_RESUME & MODE_CONFLICT_FIX --> SET_IN_PROGRESS[Linear: setInProgress]
+    SET_IN_PROGRESS --> USE_WORKTREE{useWorktree?}
+    USE_WORKTREE -- yes --> SCAFFOLD[scaffolding\ncreate worktree + branch]
+    USE_WORKTREE -- no --> WORKER
+    SCAFFOLD --> WORKER([working\nClaude agent loop])
+
+    WORKER --> EXIT_CODE{exitCode?}
+    EXIT_CODE -- "non-zero" --> GAVE_UP
+    EXIT_CODE -- "0" --> WANT_PR{wantPr?}
+
+    WANT_PR -- no --> DONE
+    WANT_PR -- yes --> PUSH_AND_CREATE_PR["push + pr-create\n↺ rebase/hook-fix on rejection"]
+
+    PUSH_AND_CREATE_PR -- gave-up --> GAVE_UP
+    PUSH_AND_CREATE_PR -- no commits ahead --> DONE
+
+    PUSH_AND_CREATE_PR -- pr opened --> WATCH_LOOP
+
+    subgraph WATCH_LOOP["watch loop"]
+        direction LR
+        CONFLICT_CHECK[conflict-check] --> CI_POLL[ci-poll / ci-fix]
+        CI_POLL --> CONFLICT_CHECK
+    end
+
+    WATCH_LOOP -- green & clean --> DONE
+    WATCH_LOOP -- gave-up --> GAVE_UP
+
+    DONE([done]) --> WORKTREE_CLEANUP
+    GAVE_UP([gave-up]) --> WORKTREE_CLEANUP
+
+    subgraph WORKTREE_CLEANUP["cleanup"]
+        direction LR
+        SHOULD_REMOVE_WORKTREE{useWorktree\n& success\n& cleanupOnSuccess?}
+        SHOULD_REMOVE_WORKTREE -- yes --> REMOVE_WORKTREE[remove worktree]
+    end
+
+    WORKTREE_CLEANUP --> TEARDOWN[teardown]
+    TEARDOWN --> OUTCOME{ok?}
+
+    OUTCOME -- "yes,\nnot conflict-fix" --> LINEAR_SET_DONE["Linear: setDone\nclearInProgress\npost comment"]
+    OUTCOME -- "yes,\nconflict-fix" --> LINEAR_CLEAR_CONFLICTED["Linear: clearConflicted\npost comment"]
+    OUTCOME -- no --> LINEAR_SET_ERROR["Linear: setError\nclearInProgress\npost comment"]
+
+    LINEAR_SET_DONE & LINEAR_CLEAR_CONFLICTED & LINEAR_SET_ERROR --> LINEAR_POLL
+```
+
 ## Installation
 
 ### npm (global)
@@ -156,7 +215,7 @@ Marker types are `"label"` or `"status"`. Combine markers under `apply` when one
 
 With `--worktree` (or `useWorktree: true` in config) each task runs in an isolated worktree at `.ralph/worktrees/<change-name>` checked out onto a fresh `ralph/<change-name>` branch. The change is scaffolded _inside_ the worktree, and the loop's cwd is the worktree, so concurrent workers can't stomp on each other.
 
-Use `setupScript` (run inside the worktree right after scaffolding) to install dependencies, copy `.env`, etc. Use `teardownScript` (run after the loop exits, before any worktree cleanup) to gather artifacts or roll back local mutations. Both run via `sh -c`; failures are logged but never block the loop. With `cleanupWorktreeOnSuccess: true` the worktree is removed when the worker exits 0 — failed workers always keep their worktree (and branch) for human inspection.
+Use `setupScript` (run inside the worktree right after scaffolding) to install dependencies, copy `.env`, etc. Use `teardownScript` (run after the loop exits and worktree cleanup) to gather artifacts or roll back local mutations. Both run via `sh -c`; failures are logged but never block the loop. With `cleanupWorktreeOnSuccess: true` the worktree is removed when the worker exits 0 — failed workers always keep their worktree (and branch) for human inspection.
 
 **`appendPrompt`** (or `--prompt` in agent mode) is appended to every scaffolded `proposal.md` under an `## Additional instructions` section — use it for cross-cutting guidance every task should see.
 
