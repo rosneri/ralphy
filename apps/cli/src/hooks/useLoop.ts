@@ -107,6 +107,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           engine: opts.engine,
           model: opts.model,
           manualTest: opts.manualTest,
+          createPr: opts.createPr ?? false,
         });
         writeState(stateDir, currentState);
       }

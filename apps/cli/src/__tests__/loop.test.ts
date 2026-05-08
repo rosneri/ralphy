@@ -85,6 +85,28 @@ describe("buildTaskPrompt", () => {
     }));
 });
 
+describe("createPr instructions", () => {
+  test("includes PR creation instructions when state.createPr is true", () =>
+    withStorage(() => {
+      const state = { ...makeState(), createPr: true };
+      writeState(tempDir, state);
+
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("push your branch and open a pull request");
+      expect(prompt).toContain("git push -u origin HEAD");
+      expect(prompt).toContain("gh pr create");
+    }));
+
+  test("omits PR creation instructions when state.createPr is false", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("push your branch and open a pull request");
+    }));
+});
+
 describe("change name and validation instructions", () => {
   test("prompt includes the change name for claude engine", () =>
     withStorage(() => {
@@ -164,6 +186,7 @@ function makeOpts(overrides: Partial<LoopOptions> = {}): LoopOptions {
     log: false,
     verbose: false,
     manualTest: false,
+    createPr: false,
     statesDir: tempDir,
     tasksDir: tempDir,
     changeStore: stubChangeStore,

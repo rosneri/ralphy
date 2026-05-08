@@ -62,6 +62,7 @@ export interface ParsedArgs {
   log: boolean;
   verbose: boolean;
   manualTest: boolean;
+  fromAgent: boolean;
   // agent mode
   linearTeam: string;
   linearAssignee: string;
@@ -226,6 +227,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     log: false,
     verbose: false,
     manualTest: false,
+    fromAgent: false,
     linearTeam: "",
     linearAssignee: "",
     pollInterval: 60,
@@ -429,6 +431,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--manual-test":
         result.manualTest = true;
+        break;
+      case "--from-agent":
+        result.fromAgent = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

@@ -78,6 +78,7 @@ function TaskModeWrapper({ args, statesDir, tasksDir, projectRoot }: TaskModeWra
         log: args.log,
         verbose: args.verbose,
         manualTest,
+        createPr: args.fromAgent,
         statesDir,
         tasksDir,
         changeStore: new OpenSpecChangeStore(),

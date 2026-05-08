@@ -34,6 +34,7 @@ export interface LoopOptions {
   log: boolean;
   verbose: boolean;
   manualTest: boolean;
+  createPr?: boolean;
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;
@@ -116,6 +117,13 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
   prompt += `Change name: \`${state.name}\`\n\n`;
   prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
   prompt += `Commit all changed files yourself before finishing — stage files individually (e.g. \`git add path/to/file\`), never \`git add -A\` or \`git commit -am\`. Nothing is committed automatically after you exit.\n`;
+
+  if (state.createPr) {
+    prompt += `\nWhen all tasks are complete and all files are committed, push your branch and open a pull request:\n`;
+    prompt += `  git push -u origin HEAD\n`;
+    prompt += `  gh pr create --title "${state.name}" --body "Summary of changes for ${state.name}"\n`;
+    prompt += `Use the change name as the PR title and write a concise summary of the implementation in the body.\n`;
+  }
 
   return prompt;
 }
