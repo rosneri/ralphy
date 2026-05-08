@@ -206,7 +206,6 @@ async function inspectBinary(projectRoot: string): Promise<BinaryInfo | null> {
   const file = Bun.file(binPath);
   if (!(await file.exists())) return null;
 
-  const stat = await Bun.file(binPath).exists(); // just for existence
   let embeddedVersion: string | undefined;
 
   // Read a slice of the binary to find the embedded version string

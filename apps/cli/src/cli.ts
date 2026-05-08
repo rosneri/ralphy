@@ -79,7 +79,7 @@ export interface ParsedArgs {
   /** Agent mode: emit JSONL to stdout instead of rendering the Ink dashboard. */
   jsonOutput: boolean;
   /** Debug mode: override the project root directory (default: cwd walk). */
-  projectRoot: string | undefined;
+  projectRoot?: string | undefined;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean", "debug"]);
