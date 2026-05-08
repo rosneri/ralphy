@@ -27,57 +27,57 @@ The full orchestration cycle from Linear poll through teardown:
 
 ```mermaid
 flowchart TD
-    POLL["Linear poll\n(todo / in-progress / conflicted)"]
+    LINEAR_POLL["Linear poll\n(todo / in-progress / conflicted)"]
 
-    POLL --> Q{issue state}
-    Q -- todo --> FRESH[mode: fresh\nscaffold change]
-    Q -- in-progress --> RESUME[mode: resume]
-    Q -- conflicted --> CFIX[mode: conflict-fix\nprepend fix task]
+    LINEAR_POLL --> ISSUE_STATE{issue state}
+    ISSUE_STATE -- todo --> MODE_FRESH[mode: fresh\nscaffold change]
+    ISSUE_STATE -- in-progress --> MODE_RESUME[mode: resume]
+    ISSUE_STATE -- conflicted --> MODE_CONFLICT_FIX[mode: conflict-fix\nprepend fix task]
 
-    FRESH & RESUME & CFIX --> LIN_IP[Linear: setInProgress]
-    LIN_IP --> WTS{useWorktree?}
-    WTS -- yes --> SC[scaffolding\ncreate worktree + branch]
-    WTS -- no --> W
-    SC --> W([working\nClaude agent loop])
+    MODE_FRESH & MODE_RESUME & MODE_CONFLICT_FIX --> SET_IN_PROGRESS[Linear: setInProgress]
+    SET_IN_PROGRESS --> USE_WORKTREE{useWorktree?}
+    USE_WORKTREE -- yes --> SCAFFOLD[scaffolding\ncreate worktree + branch]
+    USE_WORKTREE -- no --> WORKER
+    SCAFFOLD --> WORKER([working\nClaude agent loop])
 
-    W --> EX{exitCode?}
-    EX -- "non-zero" --> GAVEUP
-    EX -- "0" --> PR{wantPr?}
+    WORKER --> EXIT_CODE{exitCode?}
+    EXIT_CODE -- "non-zero" --> GAVE_UP
+    EXIT_CODE -- "0" --> WANT_PR{wantPr?}
 
-    PR -- no --> DONE
-    PR -- yes --> PUSH["push + pr-create\n↺ rebase/hook-fix on rejection"]
+    WANT_PR -- no --> DONE
+    WANT_PR -- yes --> PUSH_AND_CREATE_PR["push + pr-create\n↺ rebase/hook-fix on rejection"]
 
-    PUSH -- gave-up --> GAVEUP
-    PUSH -- no commits ahead --> DONE
+    PUSH_AND_CREATE_PR -- gave-up --> GAVE_UP
+    PUSH_AND_CREATE_PR -- no commits ahead --> DONE
 
-    PUSH -- pr opened --> WATCH
+    PUSH_AND_CREATE_PR -- pr opened --> WATCH_LOOP
 
-    subgraph WATCH["watch loop"]
+    subgraph WATCH_LOOP["watch loop"]
         direction LR
-        CC[conflict-check] --> CI[ci-poll / ci-fix]
-        CI --> CC
+        CONFLICT_CHECK[conflict-check] --> CI_POLL[ci-poll / ci-fix]
+        CI_POLL --> CONFLICT_CHECK
     end
 
-    WATCH -- green & clean --> DONE
-    WATCH -- gave-up --> GAVEUP
+    WATCH_LOOP -- green & clean --> DONE
+    WATCH_LOOP -- gave-up --> GAVE_UP
 
-    DONE([done]) --> CLWT
-    GAVEUP([gave-up]) --> CLWT
+    DONE([done]) --> WORKTREE_CLEANUP
+    GAVE_UP([gave-up]) --> WORKTREE_CLEANUP
 
-    subgraph CLWT["cleanup"]
+    subgraph WORKTREE_CLEANUP["cleanup"]
         direction LR
-        CL{useWorktree\n& success\n& cleanupOnSuccess?}
-        CL -- yes --> RW[remove worktree]
+        SHOULD_REMOVE_WORKTREE{useWorktree\n& success\n& cleanupOnSuccess?}
+        SHOULD_REMOVE_WORKTREE -- yes --> REMOVE_WORKTREE[remove worktree]
     end
 
-    CLWT --> TD[teardown]
-    TD --> RES{ok?}
+    WORKTREE_CLEANUP --> TEARDOWN[teardown]
+    TEARDOWN --> OUTCOME{ok?}
 
-    RES -- "yes,\nnot conflict-fix" --> LIN_DONE["Linear: setDone\nclearInProgress\npost comment"]
-    RES -- "yes,\nconflict-fix" --> LIN_CC["Linear: clearConflicted\npost comment"]
-    RES -- no --> LIN_ERR["Linear: setError\nclearInProgress\npost comment"]
+    OUTCOME -- "yes,\nnot conflict-fix" --> LINEAR_SET_DONE["Linear: setDone\nclearInProgress\npost comment"]
+    OUTCOME -- "yes,\nconflict-fix" --> LINEAR_CLEAR_CONFLICTED["Linear: clearConflicted\npost comment"]
+    OUTCOME -- no --> LINEAR_SET_ERROR["Linear: setError\nclearInProgress\npost comment"]
 
-    LIN_DONE & LIN_CC & LIN_ERR --> POLL
+    LINEAR_SET_DONE & LINEAR_CLEAR_CONFLICTED & LINEAR_SET_ERROR --> LINEAR_POLL
 ```
 
 ## Installation
