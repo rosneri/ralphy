@@ -6,7 +6,7 @@
     "@nx/js",
     "@total-typescript/ts-reset"
   ],
-  "ignore": ["reset.d.ts"],
+  "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
     "apps/cli": {
       "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}", "build.ts"]

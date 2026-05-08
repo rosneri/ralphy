@@ -13,7 +13,7 @@ import { AGENT_LOG_PATH } from "@ralphy/log";
 // Log parsing
 // ---------------------------------------------------------------------------
 
-export interface DebugLogLine {
+interface DebugLogLine {
   ts: Date;
   type: string;
   text: string;
@@ -21,7 +21,7 @@ export interface DebugLogLine {
 
 const LOG_LINE_RE = /^\[(.+?)\] \[(.+?)\] (.+)$/;
 
-export function parseLog(content: string): DebugLogLine[] {
+function parseLog(content: string): DebugLogLine[] {
   return content
     .split("\n")
     .filter(Boolean)
@@ -44,7 +44,7 @@ function fmtTs(d: Date): string {
 
 const SPAWN_RE = /▶ (\S+) → (\S+)/;
 
-export async function resolveDebugTarget(opts: {
+async function resolveDebugTarget(opts: {
   name?: string;
   issue?: string;
 }): Promise<{ changeName: string; identifier: string | undefined }> {

@@ -481,7 +481,7 @@ async function fixConflictsAndCiLoop(
 // ---------------------------------------------------------------------------
 
 /** Inputs consumed only by the PR phase. */
-export interface PrPhaseInput {
+interface PrPhaseInput {
   changeName: string;
   cwd: string;
   branch: string | null;
@@ -493,7 +493,7 @@ export interface PrPhaseInput {
 }
 
 /** Deps consumed only by the PR phase. */
-export interface PrPhaseDeps {
+interface PrPhaseDeps {
   cmd: CmdRunner;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
@@ -563,7 +563,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
 }
 
 /** Inputs consumed only by the worktree cleanup phase. */
-export interface WorktreeCleanupPhaseInput {
+interface WorktreeCleanupPhaseInput {
   changeName: string;
   cwd: string;
   projectRoot: string;
@@ -573,7 +573,7 @@ export interface WorktreeCleanupPhaseInput {
 }
 
 /** Deps consumed only by the worktree cleanup phase. */
-export interface WorktreeCleanupPhaseDeps {
+interface WorktreeCleanupPhaseDeps {
   git: GitRunner;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
@@ -630,13 +630,13 @@ export async function runWorktreeCleanupPhase(
 }
 
 /** Inputs consumed only by the teardown phase. */
-export interface TeardownPhaseInput {
+interface TeardownPhaseInput {
   cwd: string;
   teardownScript: string | null;
 }
 
 /** Deps consumed only by the teardown phase. */
-export interface TeardownPhaseDeps {
+interface TeardownPhaseDeps {
   runScript: (label: string, cmd: string, cwd: string) => Promise<void>;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
