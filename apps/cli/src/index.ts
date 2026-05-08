@@ -90,7 +90,7 @@ try {
       process.stderr.write("Error: --name is required for debug mode\n");
       process.exit(1);
     }
-    await runDebug({ name: args.name, projectRoot });
+    await runDebug({ name: args.name, projectRoot: args.projectRoot ?? projectRoot });
     await telemetry.shutdown();
     process.exit(0);
   }
