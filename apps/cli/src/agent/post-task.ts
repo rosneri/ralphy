@@ -51,7 +51,6 @@ interface PostTaskInput {
  * is visible immediately.
  */
 export type PostTaskPhase =
-  | "teardown"
   | "pushing"
   | "push-retry"
   | "rebasing"
@@ -62,7 +61,8 @@ export type PostTaskPhase =
   | "ci-fix"
   | "cleanup"
   | "done"
-  | "gave-up";
+  | "gave-up"
+  | "teardown";
 
 interface PostTaskDeps {
   cmd: CmdRunner;
@@ -476,17 +476,209 @@ async function fixConflictsAndCiLoop(
 }
 
 // ---------------------------------------------------------------------------
+// Phase functions — each handles one step of the post-task flow and can be
+// tested in isolation by passing minimal deps.
+// ---------------------------------------------------------------------------
+
+/** Inputs consumed only by the PR phase. */
+export interface PrPhaseInput {
+  changeName: string;
+  cwd: string;
+  branch: string | null;
+  changeDir: string;
+  stateFilePath: string;
+  issue: LinearIssue | null;
+  wantFixCi: boolean;
+  cfg: PostTaskInput["cfg"];
+}
+
+/** Deps consumed only by the PR phase. */
+export interface PrPhaseDeps {
+  cmd: CmdRunner;
+  log: (text: string, color?: string) => void;
+  emit: (phase: PostTaskPhase, detail?: string) => void;
+  respawnWorker: () => Promise<number>;
+  registerPr?: (changeName: string, prUrl: string) => void;
+  checkPrConflict?: (prUrl: string) => Promise<boolean>;
+}
+
+/**
+ * Phase 1 — PR creation + CI/conflict watch loop.
+ *
+ * Validates that branch + issue are present (returns `PR_FAILED_EXIT` if not),
+ * pushes the branch, opens or surfaces a PR, then runs `fixConflictsAndCiLoop`
+ * until the PR is both conflict-free and CI-green.
+ *
+ * Returns an effective exit code: 0 on success, PR_FAILED_EXIT or
+ * CI_FAILED_EXIT on failure.
+ */
+export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
+  const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantFixCi, cfg } = input;
+  const { cmd, log, emit, respawnWorker, registerPr, checkPrConflict } = deps;
+
+  if (!branch || !issue) {
+    log(
+      `! createPr requested but no worktree branch is tracked for ${changeName} (use --worktree)`,
+      "yellow",
+    );
+    return PR_FAILED_EXIT;
+  }
+
+  const ctx: PostTaskCtx = {
+    changeName,
+    cwd,
+    branch,
+    changeDir,
+    stateFilePath,
+    cfg,
+    cmd,
+    log,
+    emit,
+    respawnWorker,
+  };
+
+  try {
+    const status = await cmd.run(["git", "status", "--porcelain"], cwd);
+    if (status.stdout.trim()) {
+      log(
+        `! ${changeName} has uncommitted changes after worker exit — the agent should commit everything before finishing. These changes will not be included in the PR.`,
+        "yellow",
+      );
+    }
+  } catch (err) {
+    log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
+  }
+
+  const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);
+  if (prGaveUp) return PR_FAILED_EXIT;
+  if (!pr) {
+    log(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
+    return 0;
+  }
+
+  log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
+  registerPr?.(changeName, pr.url);
+
+  return fixConflictsAndCiLoop(ctx, pr.url, wantFixCi, checkPrConflict);
+}
+
+/** Inputs consumed only by the worktree cleanup phase. */
+export interface WorktreeCleanupPhaseInput {
+  changeName: string;
+  cwd: string;
+  projectRoot: string;
+  useWorktree: boolean;
+  effectiveCode: number;
+  cfg: Pick<PostTaskInput["cfg"], "cleanupWorktreeOnSuccess" | "prBaseBranch">;
+}
+
+/** Deps consumed only by the worktree cleanup phase. */
+export interface WorktreeCleanupPhaseDeps {
+  git: GitRunner;
+  log: (text: string, color?: string) => void;
+  emit: (phase: PostTaskPhase, detail?: string) => void;
+}
+
+/**
+ * Phase 2 — worktree cleanup.
+ *
+ * Removes the task worktree only when the run fully succeeded and
+ * `cleanupWorktreeOnSuccess` is set. A pre-removal safety check refuses to
+ * delete a worktree that still has uncommitted files or unpushed commits, so
+ * human-inspectable state is never silently lost.
+ *
+ * Failed runs always keep their worktree and branch for human inspection on
+ * the existing PR.
+ */
+export async function runWorktreeCleanupPhase(
+  input: WorktreeCleanupPhaseInput,
+  deps: WorktreeCleanupPhaseDeps,
+): Promise<void> {
+  const { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg } = input;
+  const { git, log, emit } = deps;
+
+  if (!useWorktree || cwd === projectRoot) return;
+
+  emit("cleanup", "checking worktree safety");
+
+  if (effectiveCode !== 0 || !cfg.cleanupWorktreeOnSuccess) return;
+
+  // Strict pre-removal guard: never `git worktree remove --force` a worktree
+  // that still has uncommitted files or commits not yet pushed/PR'd — `--force`
+  // would destroy them silently.
+  const check = await isWorktreeSafeToRemove(cwd, cfg.prBaseBranch, git).catch((err) => ({
+    safe: false as const,
+    reason: `safety check failed: ${(err as Error).message}`,
+    dirty: "",
+    unpushedCommits: "",
+  }));
+
+  if (!check.safe) {
+    log(`! preserving worktree for ${changeName}: ${check.reason}`, "yellow");
+    if (check.dirty) log(`    uncommitted:\n${check.dirty}`, "yellow");
+    if (check.unpushedCommits) log(`    commits:\n${check.unpushedCommits}`, "yellow");
+    log(`    path: ${cwd}`, "yellow");
+    return;
+  }
+
+  try {
+    await removeWorktree(projectRoot, cwd, git);
+    log(`  removed worktree ${cwd}`, "gray");
+  } catch (err) {
+    log(`! worktree remove failed for ${changeName}: ${(err as Error).message}`, "yellow");
+  }
+}
+
+/** Inputs consumed only by the teardown phase. */
+export interface TeardownPhaseInput {
+  cwd: string;
+  teardownScript: string | null;
+}
+
+/** Deps consumed only by the teardown phase. */
+export interface TeardownPhaseDeps {
+  runScript: (label: string, cmd: string, cwd: string) => Promise<void>;
+  log: (text: string, color?: string) => void;
+  emit: (phase: PostTaskPhase, detail?: string) => void;
+}
+
+/**
+ * Phase 3 — teardown script.
+ *
+ * Runs after both the worker and any post-task CI/PR work, and after worktree
+ * cleanup. Fires on both success and failure, so artifacts can be gathered and
+ * local mutations rolled back regardless of outcome. Failures are logged and
+ * never block the caller.
+ */
+export async function runTeardownPhase(
+  input: TeardownPhaseInput,
+  deps: TeardownPhaseDeps,
+): Promise<void> {
+  const { cwd, teardownScript } = input;
+  const { runScript, log, emit } = deps;
+
+  if (!teardownScript) return;
+
+  emit("teardown", teardownScript);
+  try {
+    await runScript("teardown", teardownScript, cwd);
+  } catch (err) {
+    log(`! teardown script threw: ${(err as Error).message}`, "yellow");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
 /**
- * Orchestrate everything that happens after the worker subprocess exits:
+ * Orchestrate everything that happens after the worker subprocess exits.
+ * The flow mirrors the agent mode diagram exactly:
  *
- *  1. Run the configured teardown script.
- *  2. On success + `wantPr`: commit residual changes (with hook-fix retry),
- *     create a PR (with push-rejection retry), then run the conflict + CI
- *     fix loop until checks go green or the attempt budget runs out.
- *  3. On full success + `useWorktree`: safely remove the worktree.
+ *  Phase 1 (PR) — on success + `wantPr`: push, open/surface a PR, then run
+ *    the conflict + CI fix loop until checks are green or attempts run out.
+ *  Phase 2 (cleanup) — on success + `useWorktree`: safely remove the worktree.
+ *  Phase 3 (teardown) — always: run `teardownScript` if configured.
  *
  * Returns an "effective" exit code: the worker's own code, overridden to
  * `PR_FAILED_EXIT` or `CI_FAILED_EXIT` when post-task work fails. The
@@ -511,106 +703,35 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     respawnWorker,
   } = input;
 
+  // Phase 1: PR creation + CI/conflict watch
   let effectiveCode = exitCode;
-  const ok = exitCode === 0;
-
-  if (ok && wantPr) {
-    if (!branch || !issue) {
-      log(
-        `! createPr requested but no worktree branch is tracked for ${changeName} (use --worktree)`,
-        "yellow",
-      );
-      effectiveCode = PR_FAILED_EXIT;
-    } else {
-      const ctx: PostTaskCtx = {
-        changeName,
-        cwd,
-        branch,
-        changeDir,
-        stateFilePath,
-        cfg,
+  if (effectiveCode === 0 && wantPr) {
+    effectiveCode = await runPrPhase(
+      { changeName, cwd, branch, changeDir, stateFilePath, issue, wantFixCi, cfg },
+      {
         cmd,
         log,
         emit,
         respawnWorker,
-      };
-
-      try {
-        const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-        if (status.stdout.trim()) {
-          log(
-            `! ${changeName} has uncommitted changes after worker exit — the agent should commit everything before finishing. These changes will not be included in the PR.`,
-            "yellow",
-          );
-        }
-      } catch (err) {
-        log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
-      }
-
-      {
-        const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);
-        if (prGaveUp) {
-          effectiveCode = PR_FAILED_EXIT;
-        } else if (!pr) {
-          log(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
-        } else {
-          log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
-          deps.registerPr?.(changeName, pr.url);
-
-          const loopCode = await fixConflictsAndCiLoop(
-            ctx,
-            pr.url,
-            wantFixCi,
-            deps.checkPrConflict,
-          );
-          if (loopCode !== 0) effectiveCode = loopCode;
-        }
-      }
-    }
+        registerPr: deps.registerPr,
+        checkPrConflict: deps.checkPrConflict,
+      },
+    );
   }
 
-  if (effectiveCode === 0) emit("done");
-  else emit("gave-up", `exit ${effectiveCode}`);
+  emit(
+    effectiveCode === 0 ? "done" : "gave-up",
+    effectiveCode !== 0 ? `exit ${effectiveCode}` : undefined,
+  );
 
-  if (effectiveCode === 0 && cfg.teardownScript) {
-    emit("teardown", cfg.teardownScript);
-    try {
-      await runScript("teardown", cfg.teardownScript, cwd);
-    } catch (err) {
-      log(`! teardown script threw: ${(err as Error).message}`, "yellow");
-    }
-  }
+  // Phase 2: worktree cleanup
+  await runWorktreeCleanupPhase(
+    { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
+    { git, log, emit },
+  );
 
-  if (useWorktree && cwd !== projectRoot) {
-    emit("cleanup", "checking worktree safety");
-    // Only clean up the worktree on full success — that includes CI passing
-    // when fix-CI is on. Failed CI keeps the worktree and branch for human
-    // inspection on the existing PR.
-    if (effectiveCode === 0 && cfg.cleanupWorktreeOnSuccess) {
-      // Strict pre-removal guard: never `git worktree remove --force` a
-      // worktree that still has uncommitted files or commits not yet
-      // pushed/PR'd — `--force` would destroy them silently.
-      const check = await isWorktreeSafeToRemove(cwd, cfg.prBaseBranch, git).catch((err) => ({
-        safe: false as const,
-        reason: `safety check failed: ${(err as Error).message}`,
-        dirty: "",
-        unpushedCommits: "",
-      }));
-      if (!check.safe) {
-        log(`! preserving worktree for ${changeName}: ${check.reason}`, "yellow");
-        if (check.dirty) log(`    uncommitted:\n${check.dirty}`, "yellow");
-        if (check.unpushedCommits) log(`    commits:\n${check.unpushedCommits}`, "yellow");
-        log(`    path: ${cwd}`, "yellow");
-      } else {
-        try {
-          await removeWorktree(projectRoot, cwd, git);
-          log(`  removed worktree ${cwd}`, "gray");
-        } catch (err) {
-          log(`! worktree remove failed for ${changeName}: ${(err as Error).message}`, "yellow");
-        }
-      }
-    }
-  }
+  // Phase 3: teardown script
+  await runTeardownPhase({ cwd, teardownScript: cfg.teardownScript }, { runScript, log, emit });
 
   return effectiveCode;
 }

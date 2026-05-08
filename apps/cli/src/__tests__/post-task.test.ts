@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runPostTask } from "../agent/post-task";
+import {
+  runPostTask,
+  runPrPhase,
+  runWorktreeCleanupPhase,
+  runTeardownPhase,
+} from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
 import type { LinearIssue } from "../agent/linear";
@@ -152,5 +157,155 @@ describe("runPostTask — CI fix reactivates state", () => {
 
     expect(stateAtRespawn).not.toBeNull();
     expect(stateAtRespawn!.status).toBe("active");
+  });
+});
+
+describe("runPostTask — teardown", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-teardown-test-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("teardown fires even when exitCode is non-zero", async () => {
+    const phases: string[] = [];
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const { cmd } = makeCmd({});
+
+    await runPostTask(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        projectRoot: tmpDir,
+        changeDir,
+        stateFilePath,
+        branch: "ralph/my-change",
+        issue: FAKE_ISSUE,
+        exitCode: 1,
+        useWorktree: false,
+        wantPr: false,
+        wantFixCi: false,
+        cfg: {
+          teardownScript: "echo done",
+          prBaseBranch: "main",
+          maxCiFixAttempts: 3,
+          ciPollIntervalSeconds: 0,
+          cleanupWorktreeOnSuccess: false,
+          ignoreCiChecks: [],
+        },
+        respawnWorker: async () => 0,
+      },
+      {
+        cmd,
+        git,
+        log: () => {},
+        runScript: async () => {},
+        onPhase: (phase) => phases.push(phase),
+      },
+    );
+
+    expect(phases).toContain("gave-up");
+    expect(phases).toContain("teardown");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase isolation smoke tests
+// ---------------------------------------------------------------------------
+
+describe("runPrPhase — isolation", () => {
+  test("returns PR_FAILED_EXIT when branch is null", async () => {
+    const noop = async () => {};
+    const phases: string[] = [];
+    const cmd: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+
+    const code = await runPrPhase(
+      {
+        changeName: "x",
+        cwd: "/tmp",
+        branch: null,
+        changeDir: "/tmp/changes/x",
+        stateFilePath: "/tmp/.ralph-state.json",
+        issue: null,
+        wantFixCi: false,
+        cfg: {
+          teardownScript: null,
+          prBaseBranch: "main",
+          maxCiFixAttempts: 3,
+          ciPollIntervalSeconds: 0,
+          cleanupWorktreeOnSuccess: false,
+          ignoreCiChecks: [],
+        },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: (p) => phases.push(p),
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(71); // PR_FAILED_EXIT
+    expect(phases).not.toContain("pr-create");
+  });
+});
+
+describe("runWorktreeCleanupPhase — isolation", () => {
+  test("is a no-op when useWorktree is false", async () => {
+    const git: GitRunner = {
+      run: async () => {
+        throw new Error("git must not be called");
+      },
+    };
+    const phases: string[] = [];
+
+    await runWorktreeCleanupPhase(
+      {
+        changeName: "x",
+        cwd: "/tmp/worktree",
+        projectRoot: "/tmp",
+        useWorktree: false,
+        effectiveCode: 0,
+        cfg: { cleanupWorktreeOnSuccess: true, prBaseBranch: "main" },
+      },
+      { git, log: () => {}, emit: (p) => phases.push(p) },
+    );
+
+    expect(phases).toHaveLength(0);
+  });
+});
+
+describe("runTeardownPhase — isolation", () => {
+  test("is a no-op when teardownScript is null", async () => {
+    const phases: string[] = [];
+    let scriptRan = false;
+
+    await runTeardownPhase(
+      { cwd: "/tmp", teardownScript: null },
+      {
+        runScript: async () => {
+          scriptRan = true;
+        },
+        log: () => {},
+        emit: (p) => phases.push(p),
+      },
+    );
+
+    expect(scriptRan).toBe(false);
+    expect(phases).toHaveLength(0);
   });
 });
