@@ -10,7 +10,8 @@
     "./init": "./src/init.ts",
     "./loop": "./src/loop.ts",
     "./tasks-md": "./src/tasks-md.ts",
-    "./layout": "./src/layout.ts"
+    "./layout": "./src/layout.ts",
+    "./progress": "./src/progress.ts"
   },
   "dependencies": {
     "@ralphy/content": "workspace:*",

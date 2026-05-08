@@ -8,6 +8,7 @@ import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
+import { countProgress } from "@ralphy/core/progress";
 
 interface AgentModeProps {
   args: ParsedArgs;
@@ -39,6 +40,7 @@ interface WorkerMeta {
   phaseDetail: string;
   phaseStartedAt: number;
   currentTask: string | null;
+  taskProgress: { checked: number; total: number } | null;
   prUrl: string | null;
   currentCmd: { argv: string[]; startedAt: number } | null;
   tail: string[];
@@ -66,6 +68,28 @@ function fmtElapsed(ms: number): string {
 
 function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function calcProgressBar(
+  checked: number,
+  total: number,
+  width: number,
+): {
+  countStr: string;
+  filledLeft: number;
+  leftSlot: number;
+  filledRight: number;
+  rightSlot: number;
+} | null {
+  const countStr = `${checked}/${total}`;
+  const inner = width - 2; // for [ and ]
+  if (inner < countStr.length + 2) return null;
+  const leftSlot = Math.floor((inner - countStr.length) / 2);
+  const rightSlot = Math.max(0, inner - countStr.length - leftSlot);
+  const filled = total > 0 ? Math.round((checked / total) * inner) : 0;
+  const filledLeft = Math.min(filled, leftSlot);
+  const filledRight = Math.max(0, Math.min(filled - leftSlot - countStr.length, rightSlot));
+  return { countStr, filledLeft, leftSlot, filledRight, rightSlot };
 }
 
 /** Extract a short label from a GitHub PR URL, e.g. "#123". */
@@ -325,6 +349,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             phaseDetail: "",
             phaseStartedAt: Date.now(),
             currentTask: null,
+            taskProgress: null,
             prUrl: null,
             currentCmd: null,
             tail: [],
@@ -447,6 +472,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 const text = await tasksFile.text();
                 const match = text.match(/^- \[ \] (.+)$/m);
                 meta.currentTask = match?.[1]?.trim() ?? null;
+                const { checked, total } = countProgress(text);
+                meta.taskProgress = total > 0 ? { checked, total } : null;
               }
             } catch (err) {
               console.error(
@@ -700,6 +727,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const tail = meta?.tail ?? [];
           const prUrl = meta?.prUrl ?? null;
           const currentTask = meta?.currentTask ?? null;
+          const taskProgress = meta?.taskProgress ?? null;
 
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
@@ -801,6 +829,31 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   <Link url={pathToFileURL(meta.logFile).href} label="LOG" color="gray" />
                 )}
               </Box>
+
+              {/* ── Task progress bar ───────────────────────── */}
+              {taskProgress &&
+                (() => {
+                  const bar = calcProgressBar(
+                    taskProgress.checked,
+                    taskProgress.total,
+                    termWidth - 4,
+                  );
+                  if (!bar) return null;
+                  const { countStr, filledLeft, leftSlot, filledRight, rightSlot } = bar;
+                  return (
+                    <Box marginTop={0}>
+                      <Text dimColor>[</Text>
+                      <Text color="green">{"█".repeat(filledLeft)}</Text>
+                      <Text dimColor>{"░".repeat(leftSlot - filledLeft)}</Text>
+                      <Text color="white" bold>
+                        {countStr}
+                      </Text>
+                      <Text color="green">{"█".repeat(filledRight)}</Text>
+                      <Text dimColor>{"░".repeat(rightSlot - filledRight)}</Text>
+                      <Text dimColor>]</Text>
+                    </Box>
+                  );
+                })()}
 
               {/* ── Current task ────────────────────────────── */}
               {currentTask && (
