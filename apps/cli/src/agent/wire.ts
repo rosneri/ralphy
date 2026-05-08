@@ -568,6 +568,7 @@ export function buildAgentCoordinator(
     if (args.log || cfg.logRawStream) c.push("--log");
     if (args.verbose || cfg.taskVerbose) c.push("--verbose");
     if (args.manualTest || cfg.enableManualTest) c.push("--manual-test");
+    c.push("--from-agent");
     return c;
   }
 
