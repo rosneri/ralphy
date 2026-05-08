@@ -40,7 +40,9 @@ flowchart TD
     WTS -- no --> W
     SC --> W([working\nClaude agent loop])
 
-    W --> PR{wantPr?}
+    W --> EX{exitCode?}
+    EX -- "non-zero" --> GAVEUP
+    EX -- "0" --> PR{wantPr?}
 
     PR -- no --> DONE
     PR -- yes --> PUSH["push + pr-create\n↺ rebase/hook-fix on rejection"]
@@ -71,9 +73,9 @@ flowchart TD
     CLWT --> TD[teardown]
     TD --> RES{ok?}
 
-    RES -- "yes,\nnot conflict-fix" --> LIN_DONE[Linear: setDone\nclearInProgress]
-    RES -- "yes,\nconflict-fix" --> LIN_CC[Linear: clearConflicted]
-    RES -- no --> LIN_ERR[Linear: setError\npost comment]
+    RES -- "yes,\nnot conflict-fix" --> LIN_DONE["Linear: setDone\nclearInProgress\npost comment"]
+    RES -- "yes,\nconflict-fix" --> LIN_CC["Linear: clearConflicted\npost comment"]
+    RES -- no --> LIN_ERR["Linear: setError\nclearInProgress\npost comment"]
 
     LIN_DONE & LIN_CC & LIN_ERR --> POLL
 ```
