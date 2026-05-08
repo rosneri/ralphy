@@ -705,6 +705,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
 
   // Phase 1: PR creation + CI/conflict watch
   let effectiveCode = exitCode;
+  if (effectiveCode !== 0 && wantPr) {
+    log(`  skipping PR phase for ${changeName} (worker exited with code ${effectiveCode})`, "gray");
+  }
   if (effectiveCode === 0 && wantPr) {
     effectiveCode = await runPrPhase(
       { changeName, cwd, branch, changeDir, stateFilePath, issue, wantFixCi, cfg },
@@ -713,8 +716,8 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         log,
         emit,
         respawnWorker,
-        registerPr: deps.registerPr,
-        checkPrConflict: deps.checkPrConflict,
+        ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
+        ...(deps.checkPrConflict !== undefined ? { checkPrConflict: deps.checkPrConflict } : {}),
       },
     );
   }

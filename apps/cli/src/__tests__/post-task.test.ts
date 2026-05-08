@@ -229,7 +229,6 @@ describe("runPostTask — teardown", () => {
 
 describe("runPrPhase — isolation", () => {
   test("returns PR_FAILED_EXIT when branch is null", async () => {
-    const noop = async () => {};
     const phases: string[] = [];
     const cmd: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
 

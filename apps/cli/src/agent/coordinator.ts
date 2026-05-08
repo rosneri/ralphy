@@ -144,6 +144,13 @@ export class AgentCoordinator {
       return { found: 0, added: 0 };
     }
 
+    if (todo.length + inProgress.length + conflicted.length > 0) {
+      this.deps.onLog(
+        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted`,
+        "gray",
+      );
+    }
+
     const queuedIds = new Set(this.queue.map((q) => q.issue.id));
     const activeIds = new Set(this.workers.map((w) => w.issueId));
     const eligible = (id: string): boolean =>
@@ -169,6 +176,7 @@ export class AgentCoordinator {
       this.queue.push({ issue, mode: "resume" });
       queuedIds.add(issue.id);
       added += 1;
+      this.deps.onLog(`  ↳ ${issue.identifier} queued (resume)`, "gray");
     }
 
     // 2. Conflicted issues: re-fix runs.
@@ -178,6 +186,7 @@ export class AgentCoordinator {
       this.queue.push({ issue, mode: "conflict-fix" });
       queuedIds.add(issue.id);
       added += 1;
+      this.deps.onLog(`  ↳ ${issue.identifier} queued (conflict-fix)`, "gray");
     }
 
     // 3. Fresh todo.
@@ -188,6 +197,7 @@ export class AgentCoordinator {
       this.queue.push({ issue, mode: "fresh" });
       queuedIds.add(issue.id);
       added += 1;
+      this.deps.onLog(`  ↳ ${issue.identifier} queued (fresh)`, "gray");
     }
 
     if (added > 0) {
@@ -266,6 +276,10 @@ export class AgentCoordinator {
           `🔄 Ralph progress update: iteration ${count} on \`${w.changeName}\``,
         );
         w.lastReportedIteration = count;
+        this.deps.onLog(
+          `  ${w.issueIdentifier}: posted progress comment (iteration ${count})`,
+          "gray",
+        );
       } catch (err) {
         this.deps.onLog(
           `! Linear progress comment failed for ${w.issueIdentifier}: ${(err as Error).message}`,
@@ -313,6 +327,7 @@ export class AgentCoordinator {
 
       try {
         await this.deps.applyIndicator(issue, this.opts.setConflicted);
+        this.deps.onLog(`  ${issue.identifier}: setConflicted applied`, "gray");
       } catch (err) {
         this.deps.onLog(
           `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -332,6 +347,7 @@ export class AgentCoordinator {
             issue,
             `⚠ Ralph detected merge conflicts on this PR (${pr.url}) — re-running to resolve`,
           );
+          this.deps.onLog(`  ${issue.identifier}: posted conflict comment`, "gray");
         } catch (err) {
           this.deps.onLog(
             `! Linear conflict comment failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -388,6 +404,7 @@ export class AgentCoordinator {
     if (mode !== "resume" && this.opts.setInProgress) {
       try {
         await this.deps.applyIndicator(issue, this.opts.setInProgress);
+        this.deps.onLog(`  ${issue.identifier}: setInProgress applied`, "gray");
       } catch (err) {
         this.deps.onLog(
           `! Linear setInProgress failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -420,6 +437,7 @@ export class AgentCoordinator {
             issue,
             `🤖 Ralph started working on this issue. Tracking change: \`${prep.changeName}\``,
           );
+          this.deps.onLog(`  ${issue.identifier}: posted "started" comment`, "gray");
         } catch (err) {
           this.deps.onLog(
             `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -498,6 +516,7 @@ export class AgentCoordinator {
           `\`ralph clean --name ${changeName}\`) to clear the quarantine.`;
       try {
         await this.deps.postComment(issue, body);
+        this.deps.onLog(`  ${issue.identifier}: posted completion comment`, "gray");
       } catch (err) {
         this.deps.onLog(
           `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -512,6 +531,7 @@ export class AgentCoordinator {
         if (this.opts.clearConflicted) {
           try {
             await this.deps.removeIndicator(issue, this.opts.clearConflicted);
+            this.deps.onLog(`  ${issue.identifier}: clearConflicted applied`, "gray");
           } catch (err) {
             this.deps.onLog(
               `! Linear clearConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -528,6 +548,7 @@ export class AgentCoordinator {
       } else if (this.opts.setDone) {
         try {
           await this.deps.applyIndicator(issue, this.opts.setDone);
+          this.deps.onLog(`  ${issue.identifier}: setDone applied`, "gray");
         } catch (err) {
           this.deps.onLog(
             `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -543,6 +564,7 @@ export class AgentCoordinator {
         if (this.opts.setInProgress) {
           try {
             await this.deps.removeIndicator(issue, this.opts.setInProgress);
+            this.deps.onLog(`  ${issue.identifier}: clearInProgress applied`, "gray");
           } catch {
             // non-fatal — label cleanup failure doesn't affect the task outcome
           }
@@ -551,6 +573,7 @@ export class AgentCoordinator {
     } else if (this.opts.setError) {
       try {
         await this.deps.applyIndicator(issue, this.opts.setError);
+        this.deps.onLog(`  ${issue.identifier}: setError applied`, "gray");
       } catch (err) {
         this.deps.onLog(
           `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -566,6 +589,7 @@ export class AgentCoordinator {
       if (this.opts.setInProgress) {
         try {
           await this.deps.removeIndicator(issue, this.opts.setInProgress);
+          this.deps.onLog(`  ${issue.identifier}: clearInProgress applied`, "gray");
         } catch {
           // non-fatal
         }
