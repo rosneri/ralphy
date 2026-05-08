@@ -17,7 +17,7 @@ import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { App } from "./components/App";
 import { projectLayout } from "@ralphy/core/layout";
 import { worktreesDir } from "./agent/worktree";
-import { runDebug } from "./agent/debug";
+import { runDebug } from "./debug";
 import * as telemetry from "@ralphy/telemetry";
 
 /**
