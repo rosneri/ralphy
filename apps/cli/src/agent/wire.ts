@@ -728,15 +728,22 @@ export function buildAgentCoordinator(
               onWorkerPhase(changeName, phase, detail),
           }),
           checkPrConflict: async (prUrl: string) => {
-            try {
-              const res = await tracedCmd.run(
-                ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
-                cwd,
-              );
-              return res.stdout.trim() === "CONFLICTING";
-            } catch {
-              return false;
+            // GitHub computes mergeability asynchronously and returns "UNKNOWN"
+            // while it works. Retry up to 5 times (10s total) before giving up.
+            for (let attempt = 0; attempt < 5; attempt++) {
+              try {
+                const res = await tracedCmd.run(
+                  ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
+                  cwd,
+                );
+                const mergeable = res.stdout.trim();
+                if (mergeable !== "UNKNOWN") return mergeable === "CONFLICTING";
+              } catch {
+                return false;
+              }
+              await new Promise<void>((r) => setTimeout(r, 2000));
             }
+            return false; // still UNKNOWN after retries — assume not conflicting
           },
         },
       );

@@ -308,3 +308,84 @@ describe("runTeardownPhase — isolation", () => {
     expect(phases).toHaveLength(0);
   });
 });
+
+describe("runPostTask — conflict-check loop termination", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-conflict-loop-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("exits cleanly after CI green + conflict check passes (no infinite loop)", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/99";
+    let conflictCheckCalls = 0;
+
+    // Simulate: push succeeds, PR already exists, CI passes, no conflicts
+    const { cmd } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline": { stdout: "abc1234 some work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+    });
+
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const phases: string[] = [];
+
+    await runPostTask(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        projectRoot: tmpDir,
+        changeDir,
+        stateFilePath,
+        branch: "ralph/my-change",
+        issue: FAKE_ISSUE,
+        exitCode: 0,
+        useWorktree: false,
+        wantPr: true,
+        wantFixCi: true,
+        cfg: {
+          teardownScript: null,
+          prBaseBranch: "main",
+          maxCiFixAttempts: 5,
+          ciPollIntervalSeconds: 0,
+          cleanupWorktreeOnSuccess: false,
+          ignoreCiChecks: [],
+        },
+        respawnWorker: async () => 0,
+      },
+      {
+        cmd,
+        git,
+        log: () => {},
+        runScript: async () => {},
+        onPhase: (p) => phases.push(p),
+        checkPrConflict: async () => {
+          conflictCheckCalls += 1;
+          return false; // not conflicting (MERGEABLE)
+        },
+      },
+    );
+
+    // Should emit "done" and call conflict-check at most twice (once before CI,
+    // once final scan after CI green) — not spin forever.
+    expect(phases).toContain("done");
+    expect(conflictCheckCalls).toBeLessThanOrEqual(2);
+  });
+});
