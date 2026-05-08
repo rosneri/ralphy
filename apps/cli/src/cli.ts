@@ -78,6 +78,8 @@ export interface ParsedArgs {
   maxTickets: number;
   /** Agent mode: emit JSONL to stdout instead of rendering the Ink dashboard. */
   jsonOutput: boolean;
+  /** Debug mode: override the project root directory (default: cwd walk). */
+  projectRoot: string | undefined;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean", "debug"]);
@@ -238,6 +240,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     createPr: false,
     fixCi: false,
     maxTickets: 0,
+    projectRoot: undefined,
     jsonOutput: false,
   };
 
@@ -257,6 +260,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectConcurrency = false;
   let expectMaxTickets = false;
   let expectIndicator = false;
+  let expectProjectRoot = false;
 
   for (const arg of argv) {
     if (expectModel) {
@@ -347,6 +351,11 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       expectIndicator = false;
       continue;
     }
+    if (expectProjectRoot) {
+      result.projectRoot = arg;
+      expectProjectRoot = false;
+      continue;
+    }
 
     switch (arg) {
       case "--claude":
@@ -435,6 +444,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--from-agent":
         result.fromAgent = true;
+        break;
+      case "--project-root":
+        expectProjectRoot = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {
