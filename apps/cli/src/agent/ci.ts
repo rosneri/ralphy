@@ -62,6 +62,7 @@ export async function getPrChecksStatus(
   runner: CmdRunner,
   cwd: string,
   onTransientRetry?: (attempt: number, delayMs: number, reason: string) => void,
+  ignoreCiChecks: string[] = [],
 ): Promise<CiStatus> {
   let out: { stdout: string; stderr: string };
   try {
@@ -79,13 +80,16 @@ export async function getPrChecksStatus(
     if (NO_CHECKS_RE.test(blob)) return { bucket: "pass", failedRunIds: [] };
     throw err;
   }
+  const ignoredLower = ignoreCiChecks.map((n) => n.toLowerCase());
   const checks = (
     JSON.parse(out.stdout || "[]") as {
       name: string;
       bucket: string;
       link?: string;
     }[]
-  ).filter((c) => c.bucket !== "skipping");
+  )
+    .filter((c) => !ignoredLower.includes(c.name.toLowerCase()))
+    .filter((c) => c.bucket !== "skipping");
 
   if (checks.some((c) => c.bucket === "pending")) {
     return { bucket: "pending", failedRunIds: [] };

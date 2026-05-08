@@ -84,6 +84,7 @@ const RalphyConfigSchema = z
     fixCiOnFailure: z.boolean().default(false),
     maxCiFixAttempts: z.number().int().positive().default(5),
     ciPollIntervalSeconds: z.number().int().positive().default(30),
+    ignoreCiChecks: z.array(z.string()).default([]),
     engine: z.enum(["claude", "codex"]).default("claude"),
     model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
     linear: z
@@ -203,6 +204,9 @@ const DEFAULT_CONFIG_TEMPLATE = `{
 
   // Seconds between CI status polls.
   "ciPollIntervalSeconds": 30,
+
+  // CI check names to ignore when polling PR status (case-insensitive).
+  // "ignoreCiChecks": ["Vercel", "codeql"],
 
   // Underlying engine: "claude" or "codex".
   "engine": "claude",
