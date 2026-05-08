@@ -376,6 +376,10 @@ async function fixConflictsAndCiLoop(
         ctx.log(`! conflict check failed: ${(err as Error).message}`, "yellow");
       }
 
+      // Not conflicting. If CI was already confirmed green this is the final
+      // stability check — declare success rather than looping again.
+      if (!conflicting && ciConfirmedGreen) return 0;
+
       if (conflicting) {
         outerAttempt++;
         ciConfirmedGreen = false;
