@@ -115,6 +115,7 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
   // 4. Base context: change name and instructions
   prompt += `Change name: \`${state.name}\`\n\n`;
   prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
+  prompt += `Commit all changed files yourself before finishing — stage files individually (e.g. \`git add path/to/file\`), never \`git add -A\` or \`git commit -am\`. Nothing is committed automatically after you exit.\n`;
 
   return prompt;
 }
