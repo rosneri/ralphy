@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { logJsonEvent, initWorkerLog } from "@ralphy/log";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
 import { runWithContext, createDefaultContext, getStorage } from "@ralphy/context";
 import { readState, writeState, buildInitialState } from "@ralphy/core/state";
@@ -39,24 +40,6 @@ interface RouteResult {
 // Track active log files per task so broadcast can append entries
 const taskLogFiles = new Map<string, string>();
 
-// Per-task serialized write queue so concurrent broadcasts don't clobber the log
-const taskLogWriteChains = new Map<string, Promise<void>>();
-
-function enqueueLogWrite(logFile: string, line: string): void {
-  const previous = taskLogWriteChains.get(logFile) ?? Promise.resolve();
-  const next = previous
-    .then(async () => {
-      const existing = await Bun.file(logFile)
-        .text()
-        .catch(() => "");
-      await Bun.write(logFile, existing + line);
-    })
-    .catch(() => {
-      // Non-fatal: log write failure shouldn't break the loop
-    });
-  taskLogWriteChains.set(logFile, next);
-}
-
 function broadcast(taskName: string, message: Record<string, unknown>) {
   const streams = getActiveStreams().get(taskName);
   if (streams) {
@@ -69,11 +52,8 @@ function broadcast(taskName: string, message: Record<string, unknown>) {
       }
     }
   }
-  // Append to log file if active
   const logFile = taskLogFiles.get(taskName);
-  if (logFile) {
-    enqueueLogWrite(logFile, JSON.stringify(message) + "\n");
-  }
+  if (logFile) logJsonEvent(logFile, message);
 }
 
 export async function loopRoutes(
@@ -157,9 +137,7 @@ export async function loopRoutes(
       })
       .finally(() => {
         runningLoops.delete(taskName);
-        const logFile = taskLogFiles.get(taskName);
         taskLogFiles.delete(taskName);
-        if (logFile) taskLogWriteChains.delete(logFile);
       });
 
     return { status: 200, body: { started: true } };
@@ -181,7 +159,7 @@ async function runLoopAsync(
 
     // Initialize log file for this run
     const logFile = join(taskDir, "LOG.jsonl");
-    await Bun.write(logFile, "");
+    await initWorkerLog(logFile);
     taskLogFiles.set(taskName, logFile);
 
     // Init or resume state

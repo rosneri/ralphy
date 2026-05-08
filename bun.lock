@@ -39,6 +39,7 @@
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
+        "@ralphy/log": "workspace:*",
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/telemetry": "workspace:*",
@@ -70,6 +71,7 @@
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
+        "@ralphy/log": "workspace:*",
         "@ralphy/openspec": "workspace:*",
         "@ralphy/types": "workspace:*",
         "@tauri-apps/api": "^2.2.0",
@@ -116,6 +118,10 @@
         "@ralphy/output": "workspace:*",
         "@ralphy/types": "workspace:*",
       },
+    },
+    "packages/log": {
+      "name": "@ralphy/log",
+      "version": "0.0.0",
     },
     "packages/openspec": {
       "name": "@ralphy/openspec",
@@ -711,6 +717,8 @@
     "@ralphy/engine": ["@ralphy/engine@workspace:packages/engine"],
 
     "@ralphy/generators": ["@ralphy/generators@workspace:tools/generators/lib"],
+
+    "@ralphy/log": ["@ralphy/log@workspace:packages/log"],
 
     "@ralphy/mcp": ["@ralphy/mcp@workspace:apps/mcp"],
 

@@ -13,6 +13,7 @@
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",
+    "@ralphy/log": "workspace:*",
     "@ralphy/openspec": "workspace:*",
     "@ralphy/types": "workspace:*",
     "@tauri-apps/api": "^2.2.0",

@@ -1,0 +1,9 @@
+{
+  "name": "@ralphy/log",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/log.ts"
+  }
+}
