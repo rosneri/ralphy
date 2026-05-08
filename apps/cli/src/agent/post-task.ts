@@ -34,6 +34,7 @@ interface PostTaskInput {
     maxCiFixAttempts: number;
     ciPollIntervalSeconds: number;
     cleanupWorktreeOnSuccess: boolean;
+    ignoreCiChecks: string[];
   };
   /**
    * Re-spawn the worker with the same args used originally. Used by the
@@ -503,11 +504,16 @@ async function fixConflictsAndCiLoop(
         {
           onPhase: (p, d) => ctx.emit(p as PostTaskPhase, d),
           getStatus: () =>
-            getPrChecksStatus(prUrl, ctx.cmd, ctx.cwd, (n, ms, why) =>
-              ctx.log(
-                `  gh transient (try ${n}) — retry in ${Math.round(ms / 1000)}s · ${why}`,
-                "yellow",
-              ),
+            getPrChecksStatus(
+              prUrl,
+              ctx.cmd,
+              ctx.cwd,
+              (n, ms, why) =>
+                ctx.log(
+                  `  gh transient (try ${n}) — retry in ${Math.round(ms / 1000)}s · ${why}`,
+                  "yellow",
+                ),
+              ctx.cfg.ignoreCiChecks,
             ),
           getFailedLogs: (ids) => fetchFailedRunLogs(ids, ctx.cmd, ctx.cwd),
           runTaskWithSteering: (steering) =>

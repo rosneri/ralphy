@@ -94,6 +94,33 @@ describe("getPrChecksStatus", () => {
   });
 });
 
+describe("getPrChecksStatus ignoreCiChecks", () => {
+  test("ignored check is excluded — failing check treated as pass", async () => {
+    const { runner } = makeRunner({
+      "gh pr checks": {
+        stdout: JSON.stringify([
+          { name: "Vercel", bucket: "fail", link: "https://github.com/o/r/actions/runs/1/job/1" },
+          { name: "test", bucket: "pass" },
+        ]),
+      },
+    });
+    const status = await getPrChecksStatus("123", runner, "/wt", undefined, ["Vercel"]);
+    expect(status).toEqual({ bucket: "pass", failedRunIds: [] });
+  });
+
+  test("ignored check matching is case-insensitive", async () => {
+    const { runner } = makeRunner({
+      "gh pr checks": {
+        stdout: JSON.stringify([
+          { name: "vercel", bucket: "fail", link: "https://github.com/o/r/actions/runs/1/job/1" },
+        ]),
+      },
+    });
+    const status = await getPrChecksStatus("123", runner, "/wt", undefined, ["VERCEL"]);
+    expect(status).toEqual({ bucket: "pass", failedRunIds: [] });
+  });
+});
+
 describe("getPrChecksStatus retry on transient failure", () => {
   test("retries on HTTP 504 and eventually succeeds", async () => {
     let calls = 0;

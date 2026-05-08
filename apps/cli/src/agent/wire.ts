@@ -727,6 +727,7 @@ export function buildAgentCoordinator(
             maxCiFixAttempts: cfg.maxCiFixAttempts,
             ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
             cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
+            ignoreCiChecks: cfg.ignoreCiChecks,
           },
           respawnWorker: respawn,
         },
