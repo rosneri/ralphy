@@ -8,6 +8,7 @@
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",
+    "@ralphy/log": "workspace:*",
     "@ralphy/openspec": "workspace:*",
     "@ralphy/output": "workspace:*",
     "@ralphy/telemetry": "workspace:*",

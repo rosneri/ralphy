@@ -231,8 +231,23 @@ Each worker card shows:
 - `▶ TASK` — first unchecked task from `tasks.md`, updated every second
 - `PHASE` with color (cyan = working, yellow = git ops, blue = CI, green = done, red = gave-up) + time in phase
 - `⏵ CMD` when a shell command is in flight (shows the command and how long it's been running)
-- `LOG` — path to the worker's log file for `tail -f`
+- `LOG` — path to the worker's log file for `tail -f` (format: `[ISO] [type] message`)
 - `─ OUTPUT ─` section with live stdout/stderr (scales to fill remaining terminal height for the focused worker)
+
+### Log files
+
+All log entries use the format `[2024-01-15T12:00:00.000Z] [type] message`. Four log types:
+
+| Type      | Meaning                                            | Destination                                        |
+| --------- | -------------------------------------------------- | -------------------------------------------------- |
+| `session` | Worker start / stop boundaries                     | `agent-mode.log` + worker log                      |
+| `phase`   | Phase transitions (working → pushing → ci-poll …)  | `agent-mode.log` + worker log                      |
+| `coord`   | Coordinator events (Linear poll, worktree, labels) | `agent-mode.log` + worker log (when task-specific) |
+| `output`  | Raw subprocess stdout/stderr lines                 | Worker log only                                    |
+
+- **`~/.ralph/agent-mode.log`** — global session log, appended each agent run
+- **`<projectRoot>/.ralph/logs/<change>.log`** — per-worker unified log; includes output, phases, and coordinator events for that task. `tail -f` this for live progress.
+- **`<taskDir>/LOG.jsonl`** — structured JSON event log for the web UI (each line has a `ts` field)
 
 ## OpenSpec Flow
 

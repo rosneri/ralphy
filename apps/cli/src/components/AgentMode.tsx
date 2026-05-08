@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { homedir } from "node:os";
-import { appendFile, mkdir } from "node:fs/promises";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
 import { countProgress } from "@ralphy/core/progress";
+import { logSession, logCoord, logPhase } from "@ralphy/log";
 
 interface AgentModeProps {
   args: ParsedArgs;
@@ -33,7 +32,6 @@ interface WorkerMeta {
   startedAt: number;
   statesDir: string;
   logFile: string;
-  phaseLogFile: string | null;
   changeDir: string;
   iter: number;
   phase: string;
@@ -257,22 +255,7 @@ function displayTailLines(activeCount: number): number {
   return 5;
 }
 
-/** Agent-mode debug log written to ~/.ralph/agent-mode.log (appended each session). */
-const AGENT_LOG_PATH = join(homedir(), ".ralph", "agent-mode.log");
 const SESSION_START = new Date().toISOString();
-mkdir(dirname(AGENT_LOG_PATH), { recursive: true }).catch(() => undefined);
-
-function writeAgentLog(text: string) {
-  const clean = text.replace(ANSI_STRIP_RE, "").trim();
-  if (!clean) return;
-  const line = `[${new Date().toISOString()}] ${clean}\n`;
-  appendFile(AGENT_LOG_PATH, line).catch(() => undefined);
-}
-
-function writePhaseLog(phaseLogFile: string, text: string) {
-  const line = `[${new Date().toISOString()}] ${text}\n`;
-  appendFile(phaseLogFile, line).catch(() => undefined);
-}
 
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
@@ -295,9 +278,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     filterDesc: string;
   }>({ state: "idle", lastFound: null, lastAdded: null, lastAt: null, filterDesc: "" });
 
-  function appendLog(text: string, color?: string) {
+  function appendLog(text: string, color?: string, workerLogFile?: string) {
     setLogs((prev) => [...prev, { id: nextId(), text, color }]);
-    writeAgentLog(text);
+    logCoord(text, workerLogFile);
   }
 
   useEffect(() => {
@@ -305,7 +288,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     let cancelled = false;
 
     async function init() {
-      writeAgentLog(`=== session start ${SESSION_START} ===`);
+      logSession(`=== session start ${SESSION_START} ===`);
       const cfgPath = await ensureRalphyConfig(projectRoot);
       const cfg = await loadRalphyConfig(projectRoot);
       cfgRef.current = cfg;
@@ -328,21 +311,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         onLog: appendLog,
         onWorkersChanged: () => setTick((t) => t + 1),
         onWorkerStarted: (changeName, dir, logFile, changeDir) => {
-          writeAgentLog(`worker-started ${changeName} log=${logFile}`);
-          const phaseLogFile = logFile.replace(/\.log$/, "-phases.log");
-          mkdir(dirname(phaseLogFile), { recursive: true })
-            .then(() =>
-              appendFile(
-                phaseLogFile,
-                `=== session ${SESSION_START} | worker-started ${new Date().toISOString()} ===\n`,
-              ),
-            )
-            .catch(() => undefined);
+          logSession(`worker-started ${changeName} log=${logFile}`, logFile);
           workerMetaRef.current.set(changeName, {
             startedAt: Date.now(),
             statesDir: dir,
             logFile,
-            phaseLogFile,
             changeDir,
             iter: 0,
             phase: "working",
@@ -356,25 +329,17 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           });
         },
         onWorkerExited: (changeName) => {
-          writeAgentLog(`worker-exited ${changeName}`);
           const m = workerMetaRef.current.get(changeName);
-          if (m?.phaseLogFile) {
-            writePhaseLog(m.phaseLogFile, `=== worker-exited ===`);
-          }
+          logSession(`worker-exited ${changeName}`, m?.logFile);
           workerMetaRef.current.delete(changeName);
         },
         onWorkerPhase: (changeName, phase, detail) => {
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
-          if (m.phase !== phase) {
-            writeAgentLog(`phase ${changeName}: ${phase}${detail ? ` (${detail})` : ""}`);
-            m.phaseStartedAt = Date.now();
-          }
+          if (m.phase !== phase) m.phaseStartedAt = Date.now();
           m.phase = phase;
           m.phaseDetail = detail ?? "";
-          if (m.phaseLogFile) {
-            writePhaseLog(m.phaseLogFile, `${phase}${detail ? ` (${detail})` : ""}`);
-          }
+          logPhase(changeName, m.logFile, phase, detail);
         },
         onWorkerOutput: (changeName, line) => {
           const m = workerMetaRef.current.get(changeName);

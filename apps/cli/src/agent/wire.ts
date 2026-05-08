@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
+import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
 import { prependFixTask } from "@ralphy/core/tasks-md";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
@@ -584,18 +585,6 @@ export function buildAgentCoordinator(
     note?: string,
   ): { exited: Promise<number>; kill: () => void; logFilePath: string } {
     const logFilePath = join(logsDir, `${changeName}.log`);
-    let logWriter: ReturnType<ReturnType<typeof Bun.file>["writer"]> | null = null;
-    const ensureLogWriter = async () => {
-      if (logWriter) return logWriter;
-      try {
-        await Bun.write(logFilePath, "");
-        logWriter = Bun.file(logFilePath).writer();
-        return logWriter;
-      } catch (err) {
-        onLog(`! could not open worker log ${logFilePath}: ${(err as Error).message}`, "yellow");
-        return null;
-      }
-    };
     const ANSI_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
     const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
     const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
@@ -612,7 +601,6 @@ export function buildAgentCoordinator(
       const reader = stream.getReader();
       const decoder = new TextDecoder();
       let buf = "";
-      const writer = await ensureLogWriter();
       try {
         while (true) {
           const { value, done } = await reader.read();
@@ -624,23 +612,17 @@ export function buildAgentCoordinator(
             const line = buf.slice(0, nl);
             buf = buf.slice(nl + 1);
             const clean = line.replace(ANSI_RE, "").trim();
-            if (writer && clean && isLogWorthy(clean)) writer.write(clean + "\n");
+            if (clean && isLogWorthy(clean)) logOutput(logFilePath, clean);
             if (line) onWorkerOutput?.(changeName, label === "err" ? `! ${line}` : line);
           }
         }
         if (buf) {
           const clean = buf.replace(ANSI_RE, "").trim();
-          if (writer && clean && isLogWorthy(clean)) writer.write(clean + "\n");
+          if (clean && isLogWorthy(clean)) logOutput(logFilePath, clean);
           onWorkerOutput?.(changeName, label === "err" ? `! ${buf}` : buf);
         }
       } catch {
         /* stream errors are non-fatal — exit drives control flow */
-      } finally {
-        try {
-          writer?.flush();
-        } catch {
-          /* ignore */
-        }
       }
     }
     const p = Bun.spawn({
@@ -650,10 +632,9 @@ export function buildAgentCoordinator(
       stderr: "pipe",
       stdin: "ignore",
     });
-    void (async () => {
-      const writer = await ensureLogWriter();
-      if (note && writer) writer.write(`\n--- ${note} ---\n`);
-    })();
+    void initWorkerLog(logFilePath).then(() => {
+      if (note) logSession(note, logFilePath);
+    });
     void pump(p.stdout as ReadableStream<Uint8Array>, "out");
     void pump(p.stderr as ReadableStream<Uint8Array>, "err");
     return { exited: p.exited, kill: () => p.kill(), logFilePath };
