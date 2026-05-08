@@ -32,6 +32,7 @@ interface WorkerMeta {
   startedAt: number;
   statesDir: string;
   logFile: string;
+  phaseLogFile: string | null;
   changeDir: string;
   iter: number;
   phase: string;
@@ -248,6 +249,11 @@ function writeAgentLog(text: string) {
   appendFile(AGENT_LOG_PATH, line).catch(() => undefined);
 }
 
+function writePhaseLog(phaseLogFile: string, text: string) {
+  const line = `[${new Date().toISOString()}] ${text}\n`;
+  appendFile(phaseLogFile, line).catch(() => undefined);
+}
+
 export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -303,10 +309,20 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         onWorkersChanged: () => setTick((t) => t + 1),
         onWorkerStarted: (changeName, dir, logFile, changeDir) => {
           writeAgentLog(`worker-started ${changeName} log=${logFile}`);
+          const phaseLogFile = logFile.replace(/\.log$/, "-phases.log");
+          mkdir(dirname(phaseLogFile), { recursive: true })
+            .then(() =>
+              appendFile(
+                phaseLogFile,
+                `=== session ${SESSION_START} | worker-started ${new Date().toISOString()} ===\n`,
+              ),
+            )
+            .catch(() => undefined);
           workerMetaRef.current.set(changeName, {
             startedAt: Date.now(),
             statesDir: dir,
             logFile,
+            phaseLogFile,
             changeDir,
             iter: 0,
             phase: "working",
@@ -320,6 +336,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         },
         onWorkerExited: (changeName) => {
           writeAgentLog(`worker-exited ${changeName}`);
+          const m = workerMetaRef.current.get(changeName);
+          if (m?.phaseLogFile) {
+            writePhaseLog(m.phaseLogFile, `=== worker-exited ===`);
+          }
           workerMetaRef.current.delete(changeName);
         },
         onWorkerPhase: (changeName, phase, detail) => {
@@ -331,6 +351,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           }
           m.phase = phase;
           m.phaseDetail = detail ?? "";
+          if (m.phaseLogFile) {
+            writePhaseLog(m.phaseLogFile, `${phase}${detail ? ` (${detail})` : ""}`);
+          }
         },
         onWorkerOutput: (changeName, line) => {
           const m = workerMetaRef.current.get(changeName);
