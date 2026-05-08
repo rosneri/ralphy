@@ -184,8 +184,6 @@ function phaseColor(phase: string): string {
       return "cyan";
     case "scaffolding":
       return "magenta";
-    case "committing":
-    case "commit-retry":
     case "pushing":
     case "push-retry":
     case "rebasing":
@@ -211,8 +209,6 @@ function workerBorderColor(phase: string): string {
     case "working":
     case "scaffolding":
       return "cyan";
-    case "committing":
-    case "commit-retry":
     case "pushing":
     case "push-retry":
     case "rebasing":
@@ -438,8 +434,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               const json = (await file.json()) as { iteration?: number };
               meta.iter = json.iteration ?? meta.iter;
             }
-          } catch {
-            /* state file may not exist yet */
+          } catch (err) {
+            console.error(
+              `Failed to read state file for worker '${changeName}' (may not exist yet):`,
+              err,
+            );
           }
           if (meta.changeDir) {
             try {
@@ -449,8 +448,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 const match = text.match(/^- \[ \] (.+)$/m);
                 meta.currentTask = match?.[1]?.trim() ?? null;
               }
-            } catch {
-              /* tasks.md may not exist yet */
+            } catch (err) {
+              console.error(
+                `Failed to read tasks.md for worker '${changeName}' (may not exist yet):`,
+                err,
+              );
             }
           }
         }

@@ -52,8 +52,6 @@ interface PostTaskInput {
  */
 export type PostTaskPhase =
   | "teardown"
-  | "committing"
-  | "commit-retry"
   | "pushing"
   | "push-retry"
   | "rebasing"
@@ -186,86 +184,6 @@ async function pushWithLeases(ctx: PostTaskCtx): Promise<boolean> {
 }
 
 /**
- * Commit any dirty files the worker left behind, retrying on pre-commit hook
- * rejections by feeding the hook output back to the worker as a fix task.
- *
- * Returns `{ gaveUp: true }` when the budget is exhausted or a re-run fails;
- * the caller should set effectiveCode = PR_FAILED_EXIT in that case.
- * Returns the final `hookFixAttempt` count so the PR-create phase can share
- * the same budget.
- */
-async function commitResidualChanges(
-  ctx: PostTaskCtx,
-  maxAttempts: number,
-): Promise<{ gaveUp: boolean; hookFixAttempt: number }> {
-  let hookFixAttempt = 0;
-
-  while (true) {
-    ctx.emit("committing", "git status");
-    let dirty = "";
-    try {
-      const status = await ctx.cmd.run(["git", "status", "--porcelain"], ctx.cwd);
-      dirty = status.stdout.trim();
-    } catch (err) {
-      ctx.log(`! git status failed for ${ctx.changeName}: ${(err as Error).message}`, "yellow");
-      break;
-    }
-    if (!dirty) break;
-
-    try {
-      ctx.emit("committing", "git add -A");
-      await ctx.cmd.run(["git", "add", "-A"], ctx.cwd);
-      ctx.emit("committing", "git commit");
-      await ctx.cmd.run(
-        ["git", "commit", "-m", `chore(ralph): residual changes for ${ctx.changeName}`],
-        ctx.cwd,
-      );
-      ctx.log(`  committed residual changes for ${ctx.changeName}`, "gray");
-      break;
-    } catch (err) {
-      const e = err as Error & { stderr?: string; stdout?: string };
-      const detail = e.stderr?.trim() || e.message;
-      const combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
-      if (/nothing to commit/i.test(combined) || /empty git commit/i.test(combined)) break;
-
-      if (hookFixAttempt >= maxAttempts) {
-        ctx.log(
-          `! commit rejected for ${ctx.changeName} after ${hookFixAttempt} hook-fix attempts (host pre-commit hook still failing) — worktree preserved at ${ctx.cwd}`,
-          "red",
-        );
-        ctx.log(`    detail: ${detail}`, "red");
-        return { gaveUp: true, hookFixAttempt };
-      }
-
-      hookFixAttempt += 1;
-      ctx.emit("commit-retry", `${hookFixAttempt}/${maxAttempts}`);
-      ctx.log(
-        `! commit rejected for ${ctx.changeName} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxAttempts})`,
-        "yellow",
-      );
-      ctx.log(`    detail: ${detail}`, "yellow");
-
-      const retryCode = await runWorkerWithFixTask(
-        ctx,
-        "Fix host pre-commit hook rejection",
-        `Committing residual changes was rejected by the host repo's pre-commit hook. ` +
-          `Fix the underlying problem, then the commit will be retried.\n\n` +
-          combined.trim(),
-      );
-      if (retryCode !== 0) {
-        ctx.log(
-          `! worker re-run after commit rejection exited code ${retryCode} — giving up`,
-          "red",
-        );
-        return { gaveUp: true, hookFixAttempt };
-      }
-    }
-  }
-
-  return { gaveUp: false, hookFixAttempt };
-}
-
-/**
  * Push the branch and open (or surface) a GitHub PR, retrying on push
  * rejections (pre-push hooks, non-fast-forward) by feeding failure output
  * back to the worker as a fix task. Shares the `hookFixAttempt` budget with
@@ -277,10 +195,9 @@ async function commitResidualChanges(
 async function createPrWithRetry(
   ctx: PostTaskCtx,
   issue: LinearIssue,
-  initialHookFixAttempt: number,
 ): Promise<{ pr: Awaited<ReturnType<typeof createPullRequest>>; gaveUp: boolean }> {
   const maxAttempts = ctx.cfg.maxCiFixAttempts;
-  let hookFixAttempt = initialHookFixAttempt;
+  let hookFixAttempt = 0;
   let nonFfRebaseAttempted = false;
   let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
 
@@ -330,8 +247,11 @@ async function createPrWithRetry(
           ctx.emit("rebasing", "conflicts detected — aborting + queueing fix task");
           try {
             await ctx.cmd.run(["git", "rebase", "--abort"], ctx.cwd);
-          } catch {
-            /* if --abort itself fails, the worktree may already be clean */
+          } catch (err) {
+            ctx.log(
+              `! git rebase --abort failed (worktree may already be clean): ${(err as Error).message}`,
+              "yellow",
+            );
           }
 
           let conflictedFiles = "";
@@ -341,8 +261,8 @@ async function createPrWithRetry(
               ctx.cwd,
             );
             conflictedFiles = r.stdout.trim();
-          } catch {
-            /* best-effort */
+          } catch (err) {
+            ctx.log(`! could not list conflicted files: ${(err as Error).message}`, "yellow");
           }
 
           if (hookFixAttempt >= maxAttempts) {
@@ -615,14 +535,20 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         respawnWorker,
       };
 
-      const { gaveUp: commitGaveUp, hookFixAttempt } = await commitResidualChanges(
-        ctx,
-        cfg.maxCiFixAttempts,
-      );
-      if (commitGaveUp) {
-        effectiveCode = PR_FAILED_EXIT;
-      } else {
-        const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue, hookFixAttempt);
+      try {
+        const status = await cmd.run(["git", "status", "--porcelain"], cwd);
+        if (status.stdout.trim()) {
+          log(
+            `! ${changeName} has uncommitted changes after worker exit — the agent should commit everything before finishing. These changes will not be included in the PR.`,
+            "yellow",
+          );
+        }
+      } catch (err) {
+        log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
+      }
+
+      {
+        const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);
         if (prGaveUp) {
           effectiveCode = PR_FAILED_EXIT;
         } else if (!pr) {
@@ -650,8 +576,8 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     emit("teardown", cfg.teardownScript);
     try {
       await runScript("teardown", cfg.teardownScript, cwd);
-    } catch {
-      /* runScript already logs */
+    } catch (err) {
+      log(`! teardown script threw: ${(err as Error).message}`, "yellow");
     }
   }
 
