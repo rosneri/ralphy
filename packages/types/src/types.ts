@@ -111,6 +111,8 @@ export interface Indicators {
   getInProgress?: GetIndicator;
   /** Issues whose PR is conflicted and needs a re-fix run. */
   getConflicted?: GetIndicator;
+  /** Done issues with new reviewer comments that need a follow-up run. */
+  getReview?: GetIndicator;
   /** Marker(s) applied when a worker spawns. */
   setInProgress?: SetIndicator;
   /** Marker(s) applied on clean success. */
@@ -121,6 +123,8 @@ export interface Indicators {
   setConflicted?: SetIndicator;
   /** Label-only marker(s) removed when conflict is fixed. */
   clearConflicted?: SetIndicator;
+  /** Label-only marker(s) removed when the review indicator is picked up. */
+  clearReview?: SetIndicator;
 }
 
 /** Convenience: extract the marker list applied by a SetIndicator. */

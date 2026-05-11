@@ -90,13 +90,20 @@ const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getTodo",
   "getInProgress",
   "getConflicted",
+  "getReview",
   "setInProgress",
   "setDone",
   "setError",
   "setConflicted",
   "clearConflicted",
+  "clearReview",
 ]);
-const GET_KEYS = new Set<keyof Indicators>(["getTodo", "getInProgress", "getConflicted"]);
+const GET_KEYS = new Set<keyof Indicators>([
+  "getTodo",
+  "getInProgress",
+  "getConflicted",
+  "getReview",
+]);
 
 const HELP_TEXT = [
   `ralph v${VERSION}`,
@@ -139,8 +146,9 @@ const HELP_TEXT = [
   "                          --indicator getTodo:status:Todo",
   "                          --indicator setDone:label:shipped",
   "                          --indicator setDone:status:Done   (combined with above → multi-marker)",
-  "                          Keys: getTodo, getInProgress, getConflicted,",
-  "                                setInProgress, setDone, setError, setConflicted, clearConflicted",
+  "                          Keys: getTodo, getInProgress, getConflicted, getReview,",
+  "                                setInProgress, setDone, setError, setConflicted,",
+  "                                clearConflicted, clearReview",
   "                          Types: label, status",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",

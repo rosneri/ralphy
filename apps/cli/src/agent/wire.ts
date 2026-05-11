@@ -180,6 +180,43 @@ function mergeIndicators(cfg: Record<string, unknown>, cli: Partial<Indicators>)
   return out as Indicators;
 }
 
+/** True when a Linear comment body was authored by Ralph itself. Match by
+ *  the distinctive emoji-prefixed lead used in every comment ralph posts;
+ *  this avoids needing to know the Linear user identity at filter time. */
+function isRalphComment(body: string): boolean {
+  const trimmed = body.trimStart();
+  return /^(🤖|🔄|✅|✗|⚠|🔁)\s*Ralph\b/.test(trimmed);
+}
+
+/** Format reviewer comments as a fix-task body. Each comment becomes a
+ *  fenced block with the author + timestamp header so the worker can see
+ *  who said what. Empty input falls back to a "no new comments" stub so
+ *  the worker still gets a deterministic task entry. */
+function buildReviewTaskBody(
+  comments: {
+    body: string;
+    createdAt: string;
+    user: { name: string; email: string | null } | null;
+  }[],
+  url: string,
+): string {
+  if (comments.length === 0) {
+    return `No non-Ralph reviewer comments were found on ${url}. Recheck the issue manually before continuing.`;
+  }
+  const blocks = comments.map((c) => {
+    const author = c.user?.name ?? "unknown";
+    return `**${author}** — ${c.createdAt}\n\n${c.body.trim()}`;
+  });
+  return [
+    `Reviewer comments left on the Linear issue (${url}):`,
+    "",
+    ...blocks,
+    "",
+    "Address every concrete request above. If a comment is ambiguous, note",
+    "your interpretation in proposal.md `## Steering` before acting.",
+  ].join("\n");
+}
+
 /** Build a flat marker list across many SetIndicators (used for exclusion). */
 function unionMarkers(...sets: (SetIndicator | undefined)[]): Marker[] {
   const out: Marker[] = [];
@@ -238,6 +275,14 @@ export function buildAgentCoordinator(
   // filter for `getTodo` doesn't already match in-progress issues.
   const excludeFromTodo = unionMarkers(
     indicators.setDone,
+    indicators.setError,
+    indicators.setConflicted,
+  );
+  // Review filter must not catch issues already in flight or quarantined.
+  // We intentionally do NOT exclude setDone markers — review is the way
+  // to re-pick a done issue.
+  const excludeFromReview = unionMarkers(
+    indicators.setInProgress,
     indicators.setError,
     indicators.setConflicted,
   );
@@ -455,7 +500,10 @@ export function buildAgentCoordinator(
     const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch } = await setupWorktree(issue);
 
     let changeName: string;
-    if (mode === "fresh") {
+    // Mode classification: only `fresh` re-scaffolds. resume / conflict-fix /
+    // review all reuse the existing change directory.
+    const isFresh = mode === "fresh";
+    if (isFresh) {
       // Fetch comments to embed in proposal — only on fresh runs to avoid
       // the round-trip cost on every resume/fix.
       let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
@@ -488,7 +536,27 @@ export function buildAgentCoordinator(
     issueByChange.set(changeName, issue);
     if (branch) branchByChange.set(changeName, branch);
 
-    if (mode === "conflict-fix") {
+    if (mode === "review") {
+      const wtLayout = projectLayout(workerCwd);
+      const tasksFile = join(wtLayout.changeDir(changeName), "tasks.md");
+      let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
+      try {
+        comments = await fetchIssueComments(apiKey, issue.id);
+      } catch (err) {
+        onLog(
+          `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+      const reviewerComments = comments.filter((c) => !isRalphComment(c.body));
+      const body = buildReviewTaskBody(reviewerComments, issue.url);
+      try {
+        await prependFixTask(tasksFile, "Address reviewer comments", body);
+      } catch (err) {
+        onLog(`! could not prepend review task: ${(err as Error).message}`, "red");
+      }
+      await reactivateState(wtLayout.stateFile(changeName), changeName);
+    } else if (mode === "conflict-fix") {
       // Prepend a fix-conflicts task and reactivate the loop's state file
       // so the worker picks it up first. The post-task pipeline already
       // handles push (with hook-fix retry) → PR update.
@@ -830,6 +898,7 @@ export function buildAgentCoordinator(
       fetchTodo: () => fetchByGet(indicators.getTodo, excludeFromTodo),
       fetchInProgress: () => fetchByGet(indicators.getInProgress, []),
       fetchConflicted: () => fetchByGet(indicators.getConflicted, []),
+      fetchReview: () => fetchByGet(indicators.getReview, excludeFromReview),
       fetchDoneCandidates,
       prepare,
       spawnWorker,
@@ -864,6 +933,7 @@ export function buildAgentCoordinator(
       ...(indicators.clearConflicted !== undefined
         ? { clearConflicted: indicators.clearConflicted }
         : {}),
+      ...(indicators.clearReview !== undefined ? { clearReview: indicators.clearReview } : {}),
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
@@ -900,6 +970,11 @@ function describeIndicators(
   if (indicators.getConflicted) {
     parts.push(
       `conflicted=[${indicators.getConflicted.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
+    );
+  }
+  if (indicators.getReview) {
+    parts.push(
+      `review=[${indicators.getReview.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
     );
   }
   return parts.join(", ");

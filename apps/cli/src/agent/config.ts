@@ -33,28 +33,32 @@ const IndicatorsSchema = z
     getTodo: GetIndicatorSchema.optional(),
     getInProgress: GetIndicatorSchema.optional(),
     getConflicted: GetIndicatorSchema.optional(),
+    getReview: GetIndicatorSchema.optional(),
     setInProgress: SetIndicatorSchema.optional(),
     setDone: SetIndicatorSchema.optional(),
     setError: SetIndicatorSchema.optional(),
     setConflicted: SetIndicatorSchema.optional(),
     clearConflicted: SetIndicatorSchema.optional(),
+    clearReview: SetIndicatorSchema.optional(),
   })
   .superRefine((value, ctx) => {
-    // clearConflicted only meaningfully removes labels — Linear statuses
-    // are mutually exclusive (you set one to leave another), so removing a
-    // status marker is nonsensical. Validate at parse time so misconfigs
-    // surface immediately.
-    const clear = value.clearConflicted;
-    if (!clear) return;
-    const markers = "apply" in clear ? clear.apply : [clear];
-    for (const m of markers) {
-      if (m.type !== "label") {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["clearConflicted"],
-          message: "clearConflicted markers must be label-typed (status removal is not supported)",
-        });
-        return;
+    // clearConflicted / clearReview only meaningfully remove labels —
+    // Linear statuses are mutually exclusive (you set one to leave another),
+    // so removing a status marker is nonsensical. Validate at parse time
+    // so misconfigs surface immediately.
+    for (const key of ["clearConflicted", "clearReview"] as const) {
+      const clear = value[key];
+      if (!clear) continue;
+      const markers = "apply" in clear ? clear.apply : [clear];
+      for (const m of markers) {
+        if (m.type !== "label") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: `${key} markers must be label-typed (status removal is not supported)`,
+          });
+          break;
+        }
       }
     }
   });
@@ -241,6 +245,10 @@ const DEFAULT_CONFIG_TEMPLATE = `{
       // Issues whose PR has a merge conflict (Ralph will attempt a re-fix run).
       // "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflict" }] },
 
+      // Done issues with new review comments to address (Ralph will re-open
+      // and prepend a task that ingests the non-Ralph comments).
+      // "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
+
       // Applied when Ralph picks up an issue.
       // "setInProgress": { "type": "label", "value": "ralph:in-progress" },
 
@@ -254,7 +262,10 @@ const DEFAULT_CONFIG_TEMPLATE = `{
       // "setConflicted": { "type": "label", "value": "ralph:conflict" },
 
       // Label removed once the conflict is fixed (status removal is not supported here).
-      // "clearConflicted": { "type": "label", "value": "ralph:conflict" }
+      // "clearConflicted": { "type": "label", "value": "ralph:conflict" },
+
+      // Label removed when Ralph picks up a review-mode issue (status removal not supported).
+      // "clearReview": { "type": "label", "value": "ralph:review" }
     }
   }
 }
