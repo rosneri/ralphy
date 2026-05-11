@@ -17,7 +17,7 @@ export interface PrepareResult {
   prUrl?: string;
 }
 
-export type SpawnMode = "fresh" | "resume" | "conflict-fix";
+export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";
 
 export interface CoordinatorDeps {
   /** Issues to pick up. Empty array if `getTodo` isn't configured. */
@@ -26,6 +26,9 @@ export interface CoordinatorDeps {
   fetchInProgress: () => Promise<LinearIssue[]>;
   /** Issues already labeled conflicted (re-fix). Empty array if not configured. */
   fetchConflicted: () => Promise<LinearIssue[]>;
+  /** Done issues flagged for review follow-up (new reviewer comments).
+   *  Empty array if `getReview` isn't configured. */
+  fetchReview: () => Promise<LinearIssue[]>;
   /** Issues with `setDone` applied that ralph should scan for PR conflicts.
    *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
   fetchDoneCandidates: () => Promise<LinearIssue[]>;
@@ -62,6 +65,7 @@ interface CoordinatorOptions {
   setError?: SetIndicator | undefined;
   setConflicted?: SetIndicator | undefined;
   clearConflicted?: SetIndicator | undefined;
+  clearReview?: SetIndicator | undefined;
   postComments?: boolean | undefined;
   commentEveryIterations?: number | undefined;
   /** Stop picking up new issues once this many have been started this run (0 = unlimited). */
@@ -132,11 +136,13 @@ export class AgentCoordinator {
     let todo: LinearIssue[] = [];
     let inProgress: LinearIssue[] = [];
     let conflicted: LinearIssue[] = [];
+    let review: LinearIssue[] = [];
     try {
-      [todo, inProgress, conflicted] = await Promise.all([
+      [todo, inProgress, conflicted, review] = await Promise.all([
         this.deps.fetchTodo(),
         this.deps.fetchInProgress(),
         this.deps.fetchConflicted(),
+        this.deps.fetchReview(),
       ]);
     } catch (err) {
       this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
@@ -144,9 +150,9 @@ export class AgentCoordinator {
       return { found: 0, added: 0 };
     }
 
-    if (todo.length + inProgress.length + conflicted.length > 0) {
+    if (todo.length + inProgress.length + conflicted.length + review.length > 0) {
       this.deps.onLog(
-        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted`,
+        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review`,
         "gray",
       );
     }
@@ -189,7 +195,17 @@ export class AgentCoordinator {
       this.deps.onLog(`  ↳ ${issue.identifier} queued (conflict-fix)`, "gray");
     }
 
-    // 3. Fresh todo.
+    // 3. Review follow-up: done issues with new reviewer comments.
+    for (const issue of review) {
+      if (atTicketLimit()) break;
+      if (!eligible(issue.id)) continue;
+      this.queue.push({ issue, mode: "review" });
+      queuedIds.add(issue.id);
+      added += 1;
+      this.deps.onLog(`  ↳ ${issue.identifier} queued (review)`, "gray");
+    }
+
+    // 4. Fresh todo.
     for (const issue of todo) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
@@ -207,7 +223,8 @@ export class AgentCoordinator {
       const modeRank: Record<SpawnMode, number> = {
         resume: 0,
         "conflict-fix": 1,
-        fresh: 2,
+        review: 2,
+        fresh: 3,
       };
       this.queue.sort((a, b) => {
         const pa = a.issue.priority === 0 ? Infinity : a.issue.priority;
@@ -221,7 +238,7 @@ export class AgentCoordinator {
     await this.scanDoneForConflicts();
     await this.reportProgress();
 
-    const found = todo.length + inProgress.length + conflicted.length;
+    const found = todo.length + inProgress.length + conflicted.length + review.length;
     return { found, added };
   }
 
@@ -399,8 +416,8 @@ export class AgentCoordinator {
 
     // Apply setInProgress BEFORE spawning so a same-second re-poll doesn't
     // see the issue as still-todo. Skip for resume (already in progress).
-    // Conflict-fix mode also applies it so the issue stays tracked if the
-    // agent restarts mid-fix (setConflicted label may have failed to apply).
+    // Conflict-fix and review modes also apply it so the issue moves out
+    // of its prior status (done/conflicted) immediately on pickup.
     if (mode !== "resume" && this.opts.setInProgress) {
       try {
         await this.deps.applyIndicator(issue, this.opts.setInProgress);
@@ -415,6 +432,39 @@ export class AgentCoordinator {
           issue_identifier: issue.identifier,
           error: (err as Error).message,
         });
+      }
+    }
+
+    // Review mode: remove the trigger label so the same comments don't
+    // re-fire on the next poll. Best-effort.
+    if (mode === "review" && this.opts.clearReview) {
+      try {
+        await this.deps.removeIndicator(issue, this.opts.clearReview);
+        this.deps.onLog(`  ${issue.identifier}: clearReview applied`, "gray");
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear clearReview failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        capture("agent_indicator_failed", {
+          indicator: "clearReview",
+          issue_identifier: issue.identifier,
+          error: (err as Error).message,
+        });
+      }
+    }
+
+    if (mode === "review" && this.opts.postComments !== false) {
+      try {
+        await this.deps.postComment(
+          issue,
+          `🔁 Ralph picked up new review comments. Tracking change: \`${prep.changeName}\``,
+        );
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear review comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
       }
     }
 

@@ -40,6 +40,7 @@ interface DepsResult {
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
   setConflicted: (issues: LinearIssue[]) => void;
+  setReview: (issues: LinearIssue[]) => void;
   setDoneCandidates: (issues: LinearIssue[]) => void;
 }
 
@@ -54,12 +55,14 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
   let conflicted: LinearIssue[] = [];
+  let review: LinearIssue[] = [];
   let doneCandidates: LinearIssue[] = [];
 
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => inProgress),
     fetchConflicted: mock(async () => conflicted),
+    fetchReview: mock(async () => review),
     fetchDoneCandidates: mock(async () => doneCandidates),
     prepare: mock(async (i: LinearIssue, _mode: SpawnMode) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
@@ -112,6 +115,9 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     setConflicted: (xs) => {
       conflicted = xs;
+    },
+    setReview: (xs) => {
+      review = xs;
     },
     setDoneCandidates: (xs) => {
       doneCandidates = xs;
@@ -379,6 +385,48 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     await coord.pollOnce();
     await tick();
     expect(observed).toContain("conflict-fix");
+  });
+
+  test("getReview issues route through prepare(review) and clearReview is applied", async () => {
+    const reviewIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setReview([reviewIssue]);
+    const observed: SpawnMode[] = [];
+    ctx.deps.prepare = async (i, mode) => {
+      observed.push(mode);
+      return { changeName: `change-${i.identifier.toLowerCase()}` };
+    };
+    const clearReview: SetIndicator = { type: "label", value: "ralph:review" };
+    const setInProgress: SetIndicator = { type: "status", value: "In Progress" };
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setInProgress,
+      clearReview,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(observed).toContain("review");
+    // setInProgress applied (review pulls a done issue back into progress)
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setInProgress });
+    // clearReview removed so the same trigger doesn't re-fire next poll
+    expect(ctx.removes).toContainEqual({ id: "a", ind: clearReview });
+    // review pickup comment posted
+    expect(ctx.comments.some((c) => c.body.includes("review comments"))).toBe(true);
+  });
+
+  test("review success re-applies setDone (treated like fresh-mode completion)", async () => {
+    const reviewIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setReview([reviewIssue]);
+    const setDone: SetIndicator = { type: "status", value: "Done" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+    expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeDefined();
   });
 
   test("conflict-fix success applies clearConflicted and skips setDone", async () => {

@@ -173,6 +173,7 @@ A default `ralphy.config.json` is written on first run with every defaulted sett
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
       "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
       "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflicted" }] },
+      "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
       "setInProgress": { "type": "status", "value": "In Progress" },
       "setDone": {
         "apply": [
@@ -183,6 +184,7 @@ A default `ralphy.config.json` is written on first run with every defaulted sett
       "setError": { "type": "label", "value": "ralph:error" },
       "setConflicted": { "type": "label", "value": "ralph:conflicted" },
       "clearConflicted": { "type": "label", "value": "ralph:conflicted" },
+      "clearReview": { "type": "label", "value": "ralph:review" },
     },
   },
   "useWorktree": true,
@@ -205,9 +207,11 @@ A default `ralphy.config.json` is written on first run with every defaulted sett
 
 Linear is the source of truth for which issues Ralph has touched. Each `linear.indicators` key names a lifecycle event:
 
-- `getTodo` / `getInProgress` / `getConflicted` — `{ filter: [...] }` selectors used to find issues to pick up, resume, or repair.
+- `getTodo` / `getInProgress` / `getConflicted` / `getReview` — `{ filter: [...] }` selectors used to find issues to pick up, resume, repair, or follow up on after review.
 - `setInProgress` / `setDone` / `setError` / `setConflicted` — single marker `{ type, value }` or `{ apply: [...] }` for multi-marker.
-- `clearConflicted` — labels to remove once a conflicted PR is fixed (status removal is not supported).
+- `clearConflicted` / `clearReview` — labels to remove once a conflicted PR is fixed or a review-mode issue is picked back up (status removal is not supported).
+
+**Review follow-ups.** When a Linear issue is in a "done" state and a reviewer adds the `getReview` marker (typically a label like `ralph:review` after leaving comments), Ralph picks it up, applies `setInProgress`, removes the `clearReview` label so the same trigger doesn't re-fire, fetches the comment thread, filters out Ralph's own comments, and prepends those reviewer comments as a new task at the top of `tasks.md`. The worker addresses them in the same change branch and `setDone` is re-applied on success.
 
 Marker types are `"label"` or `"status"`. Combine markers under `apply` when one event needs to set multiple — e.g. `setDone` flipping a status _and_ adding a "shipped" label.
 
