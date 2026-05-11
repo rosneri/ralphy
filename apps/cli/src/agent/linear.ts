@@ -95,8 +95,18 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
       else where.and = [{ state: current }, noStatus];
     }
     if (labels.length > 0) {
-      // "every label is not in [...]" — Linear supports `labels.every`.
-      where.labels = { ...(where.labels as object | undefined), every: { name: { nin: labels } } };
+      // Linear silently drops the labels filter when both `some` and `every`
+      // are present on the same `labels` object (verified empirically). Combine
+      // them through `and:` instead so both constraints actually apply.
+      const includeLabels = where.labels as Record<string, unknown> | undefined;
+      const excludeLabels = { every: { name: { nin: labels } } };
+      if (includeLabels === undefined) {
+        where.labels = excludeLabels;
+      } else {
+        const existingAnd = (where.and as Record<string, unknown>[] | undefined) ?? [];
+        where.and = [...existingAnd, { labels: includeLabels }, { labels: excludeLabels }];
+        delete where.labels;
+      }
     }
   }
 

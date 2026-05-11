@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { getStorage } from "@ralphy/context";
+import { worktreesDir } from "../agent/worktree";
 
 /**
  * Count checked and unchecked task items in a markdown file.
@@ -37,7 +38,7 @@ function buildRows(statesDir: string, projectRoot?: string): TaskRow[] {
   // was used in agent mode, per-task state lives inside the worktree).
   const sources: { dir: string; label: string }[] = [{ dir: statesDir, label: "main" }];
   if (projectRoot) {
-    const worktreesRoot = join(projectRoot, ".ralph", "worktrees");
+    const worktreesRoot = worktreesDir(projectRoot);
     for (const wt of storage.list(worktreesRoot)) {
       sources.push({
         dir: join(worktreesRoot, wt, ".ralph", "tasks"),
