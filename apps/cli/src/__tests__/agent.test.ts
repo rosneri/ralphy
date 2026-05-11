@@ -342,6 +342,28 @@ describe("agent/linear", () => {
     });
   });
 
+  test("fetchOpenIssues combines include label + exclude label via and: (Linear drops same-object some+every)", async () => {
+    let captured: { variables: { filter: Record<string, unknown> } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200 });
+    });
+
+    await fetchOpenIssues("k", {
+      include: [
+        { type: "status", value: "Todo" },
+        { type: "label", value: "Ralphy" },
+      ],
+      exclude: [{ type: "label", value: "ralph:error" }],
+    });
+    const filter = captured!.variables.filter;
+    expect(filter.labels).toBeUndefined();
+    expect(filter.and).toEqual([
+      { labels: { some: { name: { in: ["Ralphy"] } } } },
+      { labels: { every: { name: { nin: ["ralph:error"] } } } },
+    ]);
+  });
+
   test("fetchOpenIssues handles assignee email vs id", async () => {
     let captured: { variables: { filter: Record<string, unknown> } } | null = null;
     mockFetch(async (req) => {

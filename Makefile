@@ -60,7 +60,7 @@ configure-mcp:
 
 init-openspec:
 	@echo "  Initializing OpenSpec..."
-	@cd "$(BASE_PATH)" && bunx openspec init --tools none --force
+	@cd "$(BASE_PATH)" && bunx @fission-ai/openspec init --tools none --force
 	@echo "  ✓ OpenSpec initialized"
 
 configure-package:
