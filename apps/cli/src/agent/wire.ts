@@ -496,6 +496,7 @@ export function buildAgentCoordinator(
       const proc = Bun.spawn({
         cmd: ["sh", "-c", cmd],
         cwd,
+        env: { ...process.env, WORKSPACE_ROOT: projectRoot },
         stdout: "ignore",
         stderr: "pipe",
         stdin: "ignore",
