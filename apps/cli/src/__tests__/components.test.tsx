@@ -460,12 +460,15 @@ describe("App", () => {
     delete process.env["LINEAR_API_KEY"];
     // AgentMode's catch handler calls process.exit(1) after ~300ms; mock it so
     // the timer doesn't kill the bun test process during coverage generation.
-    const originalExit = process.exit;
+    const originalDescriptor = Object.getOwnPropertyDescriptor(process, "exit");
     let capturedExitCode: number | undefined;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (process as any).exit = (code?: number) => {
-      capturedExitCode = code;
-    };
+    Object.defineProperty(process, "exit", {
+      value: (code?: number) => {
+        capturedExitCode = code;
+      },
+      writable: true,
+      configurable: true,
+    });
     try {
       await withStorage(async () => {
         const { frames } = render(
@@ -485,8 +488,9 @@ describe("App", () => {
         expect(capturedExitCode).toBe(1);
       });
     } finally {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (process as any).exit = originalExit;
+      if (originalDescriptor) {
+        Object.defineProperty(process, "exit", originalDescriptor);
+      }
       if (prevKey !== undefined) process.env["LINEAR_API_KEY"] = prevKey;
     }
   });
