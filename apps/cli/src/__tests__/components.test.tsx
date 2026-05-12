@@ -458,6 +458,13 @@ describe("App", () => {
   test("agent mode renders AgentMode (exits gracefully without LINEAR_API_KEY)", async () => {
     const prevKey = process.env["LINEAR_API_KEY"];
     delete process.env["LINEAR_API_KEY"];
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (process.stderr as any).write = (chunk: string | Uint8Array, ...rest: unknown[]) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+      return (origWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
+    };
     try {
       await withStorage(async () => {
         const { frames } = render(
@@ -471,9 +478,10 @@ describe("App", () => {
         await new Promise((r) => setTimeout(r, 50));
         const text = frames.join("\n");
         expect(text).toContain("agent mode");
-        expect(text).toContain("LINEAR_API_KEY not set");
+        expect(stderrChunks.join("")).toContain("LINEAR_API_KEY not set");
       });
     } finally {
+      process.stderr.write = origWrite;
       if (prevKey !== undefined) process.env["LINEAR_API_KEY"] = prevKey;
     }
   });
