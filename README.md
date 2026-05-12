@@ -148,6 +148,7 @@ Linear is the source of truth for which issues Ralph has touched. The `linear.in
 | `getInProgress`   | `{filter: Marker[]}`            | Issues to resume after restart                                                  |
 | `getConflicted`   | `{filter: Marker[]}`            | Issues whose PR is conflicted (re-fix run)                                      |
 | `getReview`       | `{filter: Marker[]}`            | Done issues flagged for review follow-up                                        |
+| `getAutoMerge`    | `{filter: Marker[]}`            | Issues whose PR should be auto-merged once required checks pass                 |
 | `setInProgress`   | `Marker` or `{apply: Marker[]}` | Applied when a worker spawns (any non-resume mode)                              |
 | `setDone`         | `Marker` or `{apply: Marker[]}` | Applied on clean exit                                                           |
 | `setError`        | `Marker` or `{apply: Marker[]}` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
@@ -167,6 +168,7 @@ Example `ralphy.config.json`:
   "model": "opus",
   "useWorktree": true,
   "createPrOnSuccess": true,
+  "autoMergeStrategy": "squash",
   "fixCiOnFailure": true,
   "linear": {
     "team": "ENG",
@@ -182,6 +184,7 @@ Example `ralphy.config.json`:
       "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
       "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflicted" }] },
       "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
+      "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
       "setInProgress": { "type": "status", "value": "In Progress" },
       "setDone": {
         "apply": [
@@ -225,13 +228,14 @@ Done issues whose PR `gh pr view --json mergeable` reports as `CONFLICTING` get 
 
 ### PR + CI integration
 
-| Flag / config                         | Behavior                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `createPrOnSuccess` / `--create-pr`   | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`.                                                                                                                  |
-| `fixCiOnFailure` / `--fix-ci`         | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed. |
-| `ciPollIntervalSeconds`               | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                              |
-| `ignoreCiChecks`                      | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                     |
-| `codeReviewTrigger` / `--code-review` | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                         |
+| Flag / config                         | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createPrOnSuccess` / `--create-pr`   | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                     |
+| `getAutoMerge` indicator              | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal — the CI/conflict watch loop continues. |
+| `fixCiOnFailure` / `--fix-ci`         | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed.                                                        |
+| `ciPollIntervalSeconds`               | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                                                                                     |
+| `ignoreCiChecks`                      | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
+| `codeReviewTrigger` / `--code-review` | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
 
 ### Worktrees, setup, teardown
 
