@@ -495,17 +495,21 @@ describe("agent/linear", () => {
   });
 
   test("fetchIssueLabels returns label nodes scoped by team", async () => {
-    let captured: { variables: { team: string } } | null = null;
+    const teamVariables: { team?: string }[] = [];
     mockFetch(async (req) => {
-      captured = await req.json();
+      const body = (await req.json()) as { query: string; variables: { team?: string } };
+      const isTeamQuery = body.query.includes("$team: String!");
+      if (isTeamQuery) teamVariables.push(body.variables);
       return new Response(
         JSON.stringify({
           data: {
             issueLabels: {
-              nodes: [
-                { id: "l1", name: "ralphy-done", parent: null },
-                { id: "l2", name: "needs-review", parent: null },
-              ],
+              nodes: isTeamQuery
+                ? [
+                    { id: "l1", name: "ralphy-done", parent: null },
+                    { id: "l2", name: "needs-review", parent: null },
+                  ]
+                : [],
             },
           },
         }),
@@ -513,34 +517,64 @@ describe("agent/linear", () => {
       );
     });
     const labels = await fetchIssueLabels("k", "ENG");
-    expect(captured!.variables).toEqual({ team: "ENG" });
+    expect(teamVariables[0]).toEqual({ team: "ENG" });
     expect(labels).toHaveLength(2);
-    expect(labels[0]!.name).toBe("ralphy-done");
+    const names = labels.map((l) => l.name).sort();
+    expect(names).toEqual(["needs-review", "ralphy-done"]);
   });
 
   test("fetchIssueLabels joins parent name with colon for namespaced labels", async () => {
-    mockFetch(
-      async () =>
-        new Response(
-          JSON.stringify({
-            data: {
-              issueLabels: {
-                nodes: [
-                  { id: "l3", name: "error", parent: { name: "ralph" } },
-                  { id: "l4", name: "in-progress", parent: { name: "ralph" } },
-                  { id: "l5", name: "Bug", parent: null },
-                ],
-              },
+    mockFetch(async (req) => {
+      const body = (await req.json()) as { query: string };
+      const isTeamQuery = body.query.includes("$team: String!");
+      return new Response(
+        JSON.stringify({
+          data: {
+            issueLabels: {
+              nodes: isTeamQuery
+                ? [
+                    { id: "l3", name: "error", parent: { name: "ralph" } },
+                    { id: "l4", name: "in-progress", parent: { name: "ralph" } },
+                    { id: "l5", name: "Bug", parent: null },
+                  ]
+                : [],
             },
-          }),
-          { status: 200 },
-        ),
-    );
+          },
+        }),
+        { status: 200 },
+      );
+    });
     const labels = await fetchIssueLabels("k", "ENG");
     expect(labels).toHaveLength(3);
-    expect(labels[0]!.name).toBe("ralph:error");
-    expect(labels[1]!.name).toBe("ralph:in-progress");
-    expect(labels[2]!.name).toBe("Bug");
+    const names = labels.map((l) => l.name).sort();
+    expect(names).toEqual(["Bug", "ralph:error", "ralph:in-progress"]);
+  });
+
+  test("fetchIssueLabels merges workspace-scoped labels with team-scoped", async () => {
+    mockFetch(async (req) => {
+      const body = (await req.json()) as { query: string };
+      const isTeamQuery = body.query.includes("$team: String!");
+      return new Response(
+        JSON.stringify({
+          data: {
+            issueLabels: {
+              nodes: isTeamQuery
+                ? [{ id: "team-1", name: "team-only", parent: null }]
+                : [
+                    { id: "ws-1", name: "ralph:conflict", parent: null },
+                    { id: "ws-2", name: "ralph", parent: null },
+                  ],
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const labels = await fetchIssueLabels("k", "ENG");
+    const byName = new Map(labels.map((l) => [l.name, l.id]));
+    expect(byName.get("team-only")).toBe("team-1");
+    expect(byName.get("ralph:conflict")).toBe("ws-1");
+    expect(byName.get("ralph")).toBe("ws-2");
   });
 
   test("addLabelToIssue posts an issueAddLabel mutation", async () => {

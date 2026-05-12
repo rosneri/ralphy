@@ -398,7 +398,16 @@ export function buildAgentCoordinator(
       onLog(`  created Linear label '${name}' for team ${t}`, "gray");
       return newId;
     } catch (err) {
-      onLog(`! Linear label '${name}' creation threw: ${(err as Error).message}`, "yellow");
+      // Linear returns errors as a `messages` array on the rejected
+      // promise; show them inline so the user can see e.g. "Label name
+      // already exists" instead of just "Linear API returned errors".
+      const e = err as Error & { messages?: string[] };
+      const detail = e.messages?.length ? ` — ${e.messages.join("; ")}` : "";
+      onLog(`! Linear label '${name}' creation threw: ${e.message}${detail}`, "yellow");
+      // On any failure, drop the label cache for this team so a stale
+      // miss doesn't persist; the next attempt re-queries Linear and
+      // may now see the label that was concurrently created elsewhere.
+      labelCache.delete(t);
       return null;
     }
   }
@@ -407,16 +416,26 @@ export function buildAgentCoordinator(
     if (m.type === "status") {
       const id = await resolveStateId(issue, m.value);
       if (!id) {
-        onLog(`! Linear status '${m.value}' not found for ${issue.identifier}`, "yellow");
-        return;
+        const err = new Error("Linear status not found") as Error & {
+          status?: string;
+          issue?: string;
+        };
+        err.status = m.value;
+        err.issue = issue.identifier;
+        throw err;
       }
       await updateIssueState(apiKey, issue.id, id);
       onLog(`  → ${issue.identifier} status='${m.value}'`, "gray");
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
-        onLog(`! Linear label '${m.value}' could not be created for ${issue.identifier}`, "yellow");
-        return;
+        const err = new Error("Linear label could not be resolved") as Error & {
+          label?: string;
+          issue?: string;
+        };
+        err.label = m.value;
+        err.issue = issue.identifier;
+        throw err;
       }
       await addLabelToIssue(apiKey, issue.id, id);
       onLog(`  → ${issue.identifier} +label='${m.value}'`, "gray");

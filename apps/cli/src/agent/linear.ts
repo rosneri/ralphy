@@ -284,18 +284,39 @@ interface IssueLabelNode {
  *  Namespaced labels (e.g. parent "ralph", name "error") are returned with
  *  a colon-joined key ("ralph:error") so config references match. */
 export async function fetchIssueLabels(apiKey: string, teamKey: string): Promise<IssueLabel[]> {
-  const query = `query Labels($team: String!) {
+  // Two queries — Linear separates team-scoped and workspace-scoped
+  // labels. A label like `ralph:conflict` can exist at either level,
+  // and the team-only fetch used to miss workspace-level labels, which
+  // triggered a creation attempt that Linear then rejected. Merge both
+  // sets, team labels winning on conflict (more specific).
+  const teamQuery = `query Labels($team: String!) {
     issueLabels(filter: { team: { key: { eq: $team } } }, first: 250) {
       nodes { id name parent { name } }
     }
   }`;
-  const data = await linearRequest<{ issueLabels: { nodes: IssueLabelNode[] } }>(apiKey, query, {
-    team: teamKey,
-  });
-  return data.issueLabels.nodes.map((l) => ({
-    id: l.id,
-    name: l.parent ? `${l.parent.name}:${l.name}` : l.name,
-  }));
+  const workspaceQuery = `query WorkspaceLabels {
+    issueLabels(filter: { team: { null: true } }, first: 250) {
+      nodes { id name parent { name } }
+    }
+  }`;
+  const [teamData, workspaceData] = await Promise.all([
+    linearRequest<{ issueLabels: { nodes: IssueLabelNode[] } }>(apiKey, teamQuery, {
+      team: teamKey,
+    }),
+    linearRequest<{ issueLabels: { nodes: IssueLabelNode[] } }>(apiKey, workspaceQuery, {}).catch(
+      () => ({ issueLabels: { nodes: [] as IssueLabelNode[] } }),
+    ),
+  ]);
+  const seen = new Map<string, IssueLabel>();
+  for (const l of workspaceData.issueLabels.nodes) {
+    const name = l.parent ? `${l.parent.name}:${l.name}` : l.name;
+    seen.set(name.toLowerCase(), { id: l.id, name });
+  }
+  for (const l of teamData.issueLabels.nodes) {
+    const name = l.parent ? `${l.parent.name}:${l.name}` : l.name;
+    seen.set(name.toLowerCase(), { id: l.id, name });
+  }
+  return [...seen.values()];
 }
 
 /** Fetch the UUID of a team by its key (e.g. "ENG"). Returns null if not found. */
