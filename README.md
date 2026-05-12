@@ -156,7 +156,15 @@ Linear is the source of truth for which issues Ralph has touched. The `linear.in
 | `clearConflicted` | `Marker` or `{apply: Marker[]}` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
 | `clearReview`     | `Marker` or `{apply: Marker[]}` | Label(s) removed when a review pickup happens (status removal is not supported) |
 
-A `Marker` is `{type: "label", value: "ralph:foo"}` or `{type: "status", value: "In Progress"}`. Combine with `apply` when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label.
+A `Marker` is one of three types:
+
+| Marker type    | Example value         | Effect                                                                                                                                                                                                                                    |
+| -------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"label"`      | `"ralph:in-progress"` | Adds or removes a Linear label on the issue                                                                                                                                                                                               |
+| `"status"`     | `"In Progress"`       | Updates the Linear workflow status of the issue                                                                                                                                                                                           |
+| `"attachment"` | `"In Progress"`       | Upserts a single **Ralphy** attachment on the issue; `value` becomes the subtitle. The same entry is reused across every lifecycle transition — Ralph creates it on first apply and edits it on subsequent ones, so the issue stays tidy. |
+
+Combine with `apply` when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label _and_ updating the attachment subtitle.
 
 Example `ralphy.config.json`:
 

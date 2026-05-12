@@ -153,7 +153,9 @@ const HELP_TEXT = [
   "                          Keys: getTodo, getInProgress, getConflicted, getReview, getAutoMerge,",
   "                                setInProgress, setDone, setError, setConflicted,",
   "                                clearConflicted, clearReview",
-  "                          Types: label, status",
+  "                          Types: label, status, attachment",
+  "                          --indicator setInProgress:attachment:In Progress",
+  "                          (attachment upserts a single 'Ralphy' entry; value = subtitle)",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
   "  --code-review           Watch open tracked PRs for unresolved review comments and prepend a code-review task",
@@ -200,8 +202,8 @@ function parseIndicatorArg(raw: string): { key: keyof Indicators; marker: Marker
     err.key = key;
     throw err;
   }
-  if (type !== "label" && type !== "status") {
-    const err = new Error("indicator type must be 'label' or 'status'") as Error & {
+  if (type !== "label" && type !== "status" && type !== "attachment") {
+    const err = new Error("indicator type must be 'label', 'status', or 'attachment'") as Error & {
       type?: string;
     };
     err.type = type;

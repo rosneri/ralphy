@@ -12,6 +12,7 @@ import {
   addIssueComment,
   fetchIssueComments,
   fetchIssueAttachments,
+  upsertRalphyAttachment,
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
@@ -416,6 +417,9 @@ export function buildAgentCoordinator(
       }
       await updateIssueState(apiKey, issue.id, id);
       onLog(`  → ${issue.identifier} status='${m.value}'`, "gray");
+    } else if (m.type === "attachment") {
+      await upsertRalphyAttachment(apiKey, issue.id, issue.url, m.value);
+      onLog(`  → ${issue.identifier} attachment='${m.value}'`, "gray");
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
