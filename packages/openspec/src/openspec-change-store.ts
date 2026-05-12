@@ -1,20 +1,16 @@
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { readdir, mkdir } from "node:fs/promises";
 import type { ChangeStore, ValidationResult } from "@ralphy/change-store";
+import { resolveOpenspecBin } from "./openspec-bin";
 
 type RunResult = { status: number | null; stdout: string; stderr: string };
-
-function resolveOpenspecBin(): string {
-  const pkgJsonPath = Bun.resolveSync("@fission-ai/openspec/package.json", import.meta.dir);
-  return join(dirname(pkgJsonPath), "bin", "openspec.js");
-}
 
 function runOpenspec(args: string[], options: { inherit?: boolean } = {}): RunResult {
   const stdio = options.inherit
     ? (["inherit", "inherit", "inherit"] as const)
     : (["ignore", "pipe", "pipe"] as const);
   const proc = Bun.spawnSync({
-    cmd: [process.execPath, resolveOpenspecBin(), ...args],
+    cmd: [process.execPath, resolveOpenspecBin(import.meta.dir), ...args],
     stdio: stdio as ["inherit", "inherit", "inherit"] | ["ignore", "pipe", "pipe"],
   });
   const decoder = new TextDecoder();

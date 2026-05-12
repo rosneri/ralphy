@@ -1,6 +1,6 @@
 {
   "name": "@neriros/ralphy",
-  "version": "2.21.1",
+  "version": "2.21.2",
   "description": "An iterative AI task execution framework. Orchestrates multi-phase autonomous work using Claude or Codex engines.",
   "keywords": [
     "agent",
@@ -56,10 +56,12 @@
     "copy-assets": "bun scripts/copy-assets.ts",
     "prepublishOnly": "bun run build:publish"
   },
+  "dependencies": {
+    "@fission-ai/openspec": "latest"
+  },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
-    "@fission-ai/openspec": "latest",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nx/devkit": "^22.7.1",
     "@nx/js": "^22.7.1",

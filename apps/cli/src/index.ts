@@ -8,7 +8,7 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
   process.exit(1);
 }
 
-import { resolve, join, dirname } from "node:path";
+import { resolve, join } from "node:path";
 import { exists, mkdir, rm } from "node:fs/promises";
 import { render } from "ink";
 import { createElement } from "react";
@@ -18,6 +18,7 @@ import { App } from "./components/App";
 import { projectLayout } from "@ralphy/core/layout";
 import { worktreesDir } from "./agent/worktree";
 import { runDebug } from "./debug";
+import { resolveOpenspecBin } from "@ralphy/openspec";
 import * as telemetry from "@ralphy/telemetry";
 
 /**
@@ -73,11 +74,7 @@ try {
 
   if (args.mode === "init") {
     await mkdir(statesDir, { recursive: true });
-    const openspecBin = join(
-      dirname(Bun.resolveSync("@fission-ai/openspec/package.json", import.meta.dir)),
-      "bin",
-      "openspec.js",
-    );
+    const openspecBin = resolveOpenspecBin(import.meta.dir);
     Bun.spawnSync({
       cmd: [process.execPath, openspecBin, "init", "--tools", "none", "--force"],
       stdio: ["inherit", "inherit", "inherit"],
