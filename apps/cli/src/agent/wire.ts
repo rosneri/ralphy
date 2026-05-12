@@ -366,7 +366,13 @@ export function buildAgentCoordinator(
     }
     const existing = map.get(name.toLowerCase());
     if (existing) return existing;
-    // Label doesn't exist — create it (nested under a group if name is "group:child").
+    // Label doesn't exist — create it as a single flat label with the
+    // literal name (including any colon). We used to split `ralph:foo`
+    // into a parent `ralph` group + child `foo`, but if `ralph` already
+    // existed as a non-group label Linear rejected the child create
+    // with "parent label is not a group". Flat creation is simpler and
+    // always works; `fetchIssueLabels` still joins `parent.name + ":" +
+    // name` so an existing nested `ralph:foo` matches on lookup.
     try {
       let teamId = teamIdCache.get(t);
       if (!teamId) {
@@ -375,25 +381,7 @@ export function buildAgentCoordinator(
         teamId = fetched;
         teamIdCache.set(t, teamId);
       }
-      const colonIdx = name.indexOf(":");
-      let parentId: string | undefined;
-      let childName = name;
-      if (colonIdx > 0) {
-        const groupName = name.slice(0, colonIdx);
-        childName = name.slice(colonIdx + 1);
-        // Resolve or create the parent group label.
-        const existingGroup = map.get(groupName.toLowerCase());
-        if (existingGroup) {
-          parentId = existingGroup;
-        } else {
-          const groupId = await createIssueLabel(apiKey, teamId, groupName);
-          if (groupId) {
-            map.set(groupName.toLowerCase(), groupId);
-            parentId = groupId;
-          }
-        }
-      }
-      const newId = await createIssueLabel(apiKey, teamId, childName, parentId);
+      const newId = await createIssueLabel(apiKey, teamId, name);
       if (!newId) return null;
       map.set(name.toLowerCase(), newId);
       onLog(`  created Linear label '${name}' for team ${t}`, "gray");
