@@ -21,7 +21,12 @@ import {
   type LinearIssue,
   type LinearFilterSpec,
 } from "./linear";
-import { AgentCoordinator, type SpawnMode, type PrepareResult } from "./coordinator";
+import {
+  AgentCoordinator,
+  type SpawnMode,
+  type PrepareResult,
+  type MentionTrigger,
+} from "./coordinator";
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
 import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
@@ -214,6 +219,29 @@ function buildReviewTaskBody(
     "",
     "Address every concrete request above. If a comment is ambiguous, note",
     "your interpretation in proposal.md `## Steering` before acting.",
+  ].join("\n");
+}
+
+/** Format a single mention as the prepended task body. Includes the
+ *  comment author, timestamp, source, and a permalink so the worker can
+ *  cross-reference if more context is needed. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildMentionTaskBody(trigger: MentionTrigger, issueUrl: string): string {
+  const sourceLabel = trigger.source === "github" ? "GitHub PR" : "Linear issue";
+  const permalink = trigger.url ?? issueUrl;
+  const header = `${trigger.author ?? "unknown"} — ${trigger.createdAt} (${sourceLabel})`;
+  return [
+    `An @ralphy mention was left on ${sourceLabel} (${permalink}):`,
+    "",
+    `**${header}**`,
+    "",
+    trigger.body.trim(),
+    "",
+    "Treat this comment as the next concrete request. If it's ambiguous,",
+    "note your interpretation in proposal.md `## Steering` before acting.",
   ].join("\n");
 }
 
@@ -496,7 +524,11 @@ export function buildAgentCoordinator(
     return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
   }
 
-  async function prepare(issue: LinearIssue, mode: SpawnMode): Promise<PrepareResult> {
+  async function prepare(
+    issue: LinearIssue,
+    mode: SpawnMode,
+    trigger?: MentionTrigger,
+  ): Promise<PrepareResult> {
     const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch } = await setupWorktree(issue);
 
     let changeName: string;
@@ -539,19 +571,30 @@ export function buildAgentCoordinator(
     if (mode === "review") {
       const wtLayout = projectLayout(workerCwd);
       const tasksFile = join(wtLayout.changeDir(changeName), "tasks.md");
-      let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
-      try {
-        comments = await fetchIssueComments(apiKey, issue.id);
-      } catch (err) {
-        onLog(
-          `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
+      let body: string;
+      let heading: string;
+      if (trigger) {
+        heading =
+          trigger.source === "github"
+            ? "Address GitHub @ralphy mention"
+            : "Address Linear @ralphy mention";
+        body = buildMentionTaskBody(trigger, issue.url);
+      } else {
+        heading = "Address reviewer comments";
+        let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
+        try {
+          comments = await fetchIssueComments(apiKey, issue.id);
+        } catch (err) {
+          onLog(
+            `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+        const reviewerComments = comments.filter((c) => !isRalphComment(c.body));
+        body = buildReviewTaskBody(reviewerComments, issue.url);
       }
-      const reviewerComments = comments.filter((c) => !isRalphComment(c.body));
-      const body = buildReviewTaskBody(reviewerComments, issue.url);
       try {
-        await prependFixTask(tasksFile, "Address reviewer comments", body);
+        await prependFixTask(tasksFile, heading, body);
       } catch (err) {
         onLog(`! could not prepend review task: ${(err as Error).message}`, "red");
       }
@@ -893,12 +936,173 @@ export function buildAgentCoordinator(
     return fetchOpenIssues(apiKey, { team, assignee, include, exclude });
   }
 
+  /**
+   * Scan done-issue comments (Linear + linked GitHub PR) for unprocessed
+   * `@<handle>` mentions. A mention is unprocessed when its createdAt is
+   * newer than the latest Ralph "🔁 picked up" comment on the Linear
+   * issue (Linear is the single source of truth for "last processed",
+   * regardless of where the mention came from).
+   *
+   * Best-effort: any failure (Linear API, gh CLI missing, malformed PR URL)
+   * logs and is skipped — never throws into the poll loop.
+   */
+  async function fetchMentions(): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> {
+    if (!cfg.linear.mentionTrigger) return [];
+    const handle = cfg.linear.mentionHandle;
+    let candidates: LinearIssue[] = [];
+    try {
+      candidates = await fetchDoneCandidates();
+    } catch (err) {
+      onLog(`! mention scan: fetchDoneCandidates failed: ${(err as Error).message}`, "yellow");
+      return [];
+    }
+    const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+    for (const issue of candidates) {
+      let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
+      try {
+        comments = await fetchIssueComments(apiKey, issue.id);
+      } catch (err) {
+        onLog(
+          `! mention scan: Linear comments failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        continue;
+      }
+      const lastRalphPickup = findLastRalphPickupISO(comments);
+      // Linear-side mentions newer than lastRalphPickup.
+      for (const c of comments) {
+        if (isRalphComment(c.body)) continue;
+        if (!containsHandle(c.body, handle)) continue;
+        if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
+        out.push({
+          issue,
+          trigger: {
+            source: "linear",
+            body: c.body,
+            createdAt: c.createdAt,
+            ...(c.user?.name ? { author: c.user.name } : {}),
+            url: issue.url,
+          },
+        });
+        break; // one trigger per issue per poll is enough
+      }
+      if (out.length > 0 && out[out.length - 1]!.issue.id === issue.id) continue;
+
+      // GitHub-side mentions on the linked PR (if any).
+      const prUrl = await resolvePrUrlForIssue(issue);
+      if (!prUrl) continue;
+      const ghComments = await fetchPrIssueComments(prUrl);
+      for (const c of ghComments) {
+        if (!containsHandle(c.body, handle)) continue;
+        if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
+        out.push({
+          issue,
+          trigger: {
+            source: "github",
+            body: c.body,
+            createdAt: c.createdAt,
+            ...(c.author ? { author: c.author } : {}),
+            url: c.url,
+          },
+        });
+        break;
+      }
+    }
+    return out;
+  }
+
+  /** Newest ISO timestamp from Ralph's `🔁 picked up` review acks, or null. */
+  function findLastRalphPickupISO(comments: { body: string; createdAt: string }[]): string | null {
+    let latest: string | null = null;
+    for (const c of comments) {
+      if (!/^🔁\s*Ralph picked up/.test(c.body.trimStart())) continue;
+      if (latest === null || c.createdAt > latest) latest = c.createdAt;
+    }
+    return latest;
+  }
+
+  function containsHandle(body: string, handle: string): boolean {
+    const re = new RegExp(`(^|\\s|[^A-Za-z0-9_])${escapeRegex(handle)}\\b`, "i");
+    return re.test(body);
+  }
+
+  /** Resolve the PR URL for an issue's tracked change, if any. Uses the
+   *  same lookup path as the conflict scanner but returns null silently. */
+  async function resolvePrUrlForIssue(issue: LinearIssue): Promise<string | null> {
+    const changeName = changeNameForIssue(issue);
+    if (prUnavailable.has(changeName)) return null;
+    const cached = prByChange.get(changeName);
+    if (cached) return cached;
+    const branch = branchForChange(changeName);
+    try {
+      const res = await cmdRunner.run(
+        [
+          "gh",
+          "pr",
+          "list",
+          "--head",
+          branch,
+          "--state",
+          "all",
+          "--json",
+          "url",
+          "--jq",
+          ".[0].url // empty",
+        ],
+        projectRoot,
+      );
+      const found = res.stdout.trim();
+      if (!found) {
+        prUnavailable.add(changeName);
+        return null;
+      }
+      prByChange.set(changeName, found);
+      return found;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Fetch issue-level comments on a PR (i.e. the conversation tab).
+   *  Review-thread comments aren't included — they're tied to specific
+   *  diff hunks and are out of scope for this trigger. */
+  async function fetchPrIssueComments(
+    prUrl: string,
+  ): Promise<{ body: string; createdAt: string; author?: string; url: string }[]> {
+    const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(prUrl);
+    if (!m) return [];
+    const [, owner, repo, num] = m;
+    try {
+      const res = await cmdRunner.run(
+        [
+          "gh",
+          "api",
+          `repos/${owner}/${repo}/issues/${num}/comments`,
+          "--jq",
+          "[.[] | {body: .body, createdAt: .created_at, author: .user.login, url: .html_url}]",
+        ],
+        projectRoot,
+      );
+      const parsed = JSON.parse(res.stdout || "[]") as {
+        body: string;
+        createdAt: string;
+        author?: string;
+        url: string;
+      }[];
+      return parsed;
+    } catch (err) {
+      onLog(`! mention scan: gh comments failed for ${prUrl}: ${(err as Error).message}`, "yellow");
+      return [];
+    }
+  }
+
   const coord = new AgentCoordinator(
     {
       fetchTodo: () => fetchByGet(indicators.getTodo, excludeFromTodo),
       fetchInProgress: () => fetchByGet(indicators.getInProgress, []),
       fetchConflicted: () => fetchByGet(indicators.getConflicted, []),
       fetchReview: () => fetchByGet(indicators.getReview, excludeFromReview),
+      fetchMentions,
       fetchDoneCandidates,
       prepare,
       spawnWorker,

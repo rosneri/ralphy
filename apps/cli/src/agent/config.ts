@@ -100,6 +100,15 @@ const RalphyConfigSchema = z
         // Post a progress update on the Linear issue every N task
         // iterations. 0 disables. Requires postComments to be true.
         updateEveryIterations: z.number().int().nonnegative().default(10),
+        // When true, the agent scans comments on done issues for
+        // `@ralphy` mentions (Linear comments + linked GitHub PR
+        // comments) and queues the mentioning issue as a review run
+        // with the mention text as the task. Idempotency: a mention is
+        // considered unprocessed when its createdAt > the latest Ralph
+        // "🔁 picked up" comment on the Linear issue.
+        mentionTrigger: z.boolean().default(false),
+        // The handle to scan for. Case-insensitive. Defaults to "@ralphy".
+        mentionHandle: z.string().default("@ralphy"),
         /**
          * Action map. Keys name the lifecycle event; values are typed
          * markers (label/status) to query or apply. See {@link IndicatorsSchema}.
@@ -107,7 +116,13 @@ const RalphyConfigSchema = z
         indicators: IndicatorsSchema.default({}),
       })
       .strict()
-      .default({ postComments: true, updateEveryIterations: 10, indicators: {} }),
+      .default({
+        postComments: true,
+        updateEveryIterations: 10,
+        mentionTrigger: false,
+        mentionHandle: "@ralphy",
+        indicators: {},
+      }),
   })
   .default({
     concurrency: 1,
@@ -117,7 +132,13 @@ const RalphyConfigSchema = z
     enableManualTest: false,
     engine: "claude",
     model: "opus",
-    linear: { postComments: true, updateEveryIterations: 10, indicators: {} },
+    linear: {
+      postComments: true,
+      updateEveryIterations: 10,
+      mentionTrigger: false,
+      mentionHandle: "@ralphy",
+      indicators: {},
+    },
   });
 
 export type RalphyConfig = z.infer<typeof RalphyConfigSchema>;
@@ -231,6 +252,12 @@ const DEFAULT_CONFIG_TEMPLATE = `{
 
     // Post a progress update every N iterations. 0 disables. Requires postComments.
     "updateEveryIterations": 10,
+
+    // Watch done-issue Linear comments AND their linked GitHub PR comments
+    // for "@ralphy" mentions. New mentions enqueue the issue as a review run
+    // with the mention text as the prepended task.
+    "mentionTrigger": false,
+    // "mentionHandle": "@ralphy",
 
     // Indicators map Ralph lifecycle events to Linear labels/statuses.
     // WARNING: activating indicators will query AND mutate your Linear workspace.
