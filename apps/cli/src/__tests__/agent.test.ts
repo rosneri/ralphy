@@ -8,6 +8,7 @@ import {
   fetchOpenIssues,
   addIssueComment,
   fetchIssueComments,
+  fetchIssueAttachments,
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
@@ -480,6 +481,42 @@ describe("agent/linear", () => {
   test("fetchIssueComments returns [] when issue is null", async () => {
     mockFetch(async () => new Response(JSON.stringify({ data: { issue: null } }), { status: 200 }));
     expect(await fetchIssueComments("k", "missing")).toEqual([]);
+  });
+
+  test("fetchIssueAttachments returns attachment nodes for the issue", async () => {
+    let captured: { variables: { id: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(
+        JSON.stringify({
+          data: {
+            issue: {
+              attachments: {
+                nodes: [
+                  {
+                    id: "a1",
+                    url: "https://github.com/o/r/pull/42",
+                    sourceType: "github",
+                    title: "feat: thing",
+                  },
+                  { id: "a2", url: "https://other.example", sourceType: null, title: null },
+                ],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const out = await fetchIssueAttachments("k", "issue-1");
+    expect(captured!.variables).toEqual({ id: "issue-1" });
+    expect(out).toHaveLength(2);
+    expect(out[0]!.url).toBe("https://github.com/o/r/pull/42");
+  });
+
+  test("fetchIssueAttachments returns [] when issue is null", async () => {
+    mockFetch(async () => new Response(JSON.stringify({ data: { issue: null } }), { status: 200 }));
+    expect(await fetchIssueAttachments("k", "missing")).toEqual([]);
   });
 
   test("updateIssueState posts an issueUpdate mutation with stateId", async () => {

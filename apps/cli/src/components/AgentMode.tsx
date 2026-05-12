@@ -611,11 +611,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   <Text dimColor>│</Text>
                   <Text dimColor>found</Text>
                   <Text color="white">{pollStatus.lastFound}</Text>
-                  <Text dimColor>│</Text>
-                  <Text dimColor>new</Text>
-                  <Text color={pollStatus.lastAdded! > 0 ? "green" : "white"}>
-                    {pollStatus.lastAdded}
-                  </Text>
                   {pollStatus.lastBuckets && (
                     <>
                       <Text dimColor>│</Text>
@@ -646,7 +641,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   {secsToNextPoll !== null && (
                     <>
                       <Text dimColor>│</Text>
-                      <Text dimColor>next in</Text>
+                      <Text dimColor>↺</Text>
                       <Text color="gray">{secsToNextPoll}s</Text>
                     </>
                   )}

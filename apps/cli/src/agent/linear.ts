@@ -239,6 +239,35 @@ export async function fetchIssueComments(
   return data.issue?.comments.nodes ?? [];
 }
 
+interface LinearAttachment {
+  id: string;
+  url: string;
+  sourceType: string | null;
+  title: string | null;
+}
+
+/** Fetch attachments on an issue. Linear's GitHub integration auto-creates
+ *  attachments pointing at any PR that references the Linear identifier
+ *  in its title/body/branch, so this is the canonical way to find a
+ *  ralph-managed PR — more reliable than a GitHub-side branch lookup that
+ *  can drift after a title edit. Ordered newest-first by Linear. */
+export async function fetchIssueAttachments(
+  apiKey: string,
+  issueId: string,
+): Promise<LinearAttachment[]> {
+  const query = `query IssueAttachments($id: String!) {
+    issue(id: $id) {
+      attachments(first: 25) {
+        nodes { id url sourceType title }
+      }
+    }
+  }`;
+  const data = await linearRequest<{
+    issue: { attachments?: { nodes?: LinearAttachment[] } } | null;
+  }>(apiKey, query, { id: issueId });
+  return data.issue?.attachments?.nodes ?? [];
+}
+
 /** Fetch all workflow states for a given team key (e.g. "ENG"). */
 export async function fetchWorkflowStates(
   apiKey: string,
