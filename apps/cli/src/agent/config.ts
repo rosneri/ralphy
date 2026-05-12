@@ -34,6 +34,7 @@ const IndicatorsSchema = z
     getInProgress: GetIndicatorSchema.optional(),
     getConflicted: GetIndicatorSchema.optional(),
     getReview: GetIndicatorSchema.optional(),
+    getAutoMerge: GetIndicatorSchema.optional(),
     setInProgress: SetIndicatorSchema.optional(),
     setDone: SetIndicatorSchema.optional(),
     setError: SetIndicatorSchema.optional(),
@@ -85,6 +86,7 @@ const RalphyConfigSchema = z
     appendPrompt: z.string().optional(),
     createPrOnSuccess: z.boolean().default(false),
     prBaseBranch: z.string().default("main"),
+    autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
     fixCiOnFailure: z.boolean().default(false),
     maxCiFixAttempts: z.number().int().positive().default(5),
     ciPollIntervalSeconds: z.number().int().positive().default(30),
@@ -233,8 +235,13 @@ const DEFAULT_CONFIG_TEMPLATE = `{
   // Open a pull request after a task succeeds.
   "createPrOnSuccess": false,
 
-  // Base branch for pull requests.
+  // Base branch for pull requests. Override per-issue by labelling the
+  // Linear issue with "ralph:branch:<branch-name>".
   "prBaseBranch": "main",
+
+  // Merge strategy used when GitHub auto-merge is enabled (see getAutoMerge
+  // indicator below). One of "squash", "merge", "rebase".
+  "autoMergeStrategy": "squash",
 
   // Let the agent attempt to fix CI failures after a PR is created.
   "fixCiOnFailure": false,
@@ -296,6 +303,11 @@ const DEFAULT_CONFIG_TEMPLATE = `{
       // Done issues with new review comments to address (Ralph will re-open
       // and prepend a task that ingests the non-Ralph comments).
       // "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
+
+      // Issues opted in for auto-merge: when an issue matches, Ralph enables
+      // GitHub auto-merge ("gh pr merge --auto --<autoMergeStrategy>") right
+      // after opening the PR so the PR merges as soon as required checks pass.
+      // "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
 
       // Applied when Ralph picks up an issue.
       // "setInProgress": { "type": "label", "value": "ralph:in-progress" },

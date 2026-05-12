@@ -214,6 +214,8 @@ function phaseColor(phase: string): string {
     case "ci-poll":
     case "ci-fix":
       return "blue";
+    case "auto-merge-enabled":
+      return "green";
     case "teardown":
     case "cleanup":
       return "gray";

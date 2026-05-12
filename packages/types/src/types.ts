@@ -113,6 +113,9 @@ export interface Indicators {
   getConflicted?: GetIndicator;
   /** Done issues with new reviewer comments that need a follow-up run. */
   getReview?: GetIndicator;
+  /** Issues opted in for auto-merge: when matched, the agent enables
+   *  GitHub auto-merge on the PR immediately after creation. */
+  getAutoMerge?: GetIndicator;
   /** Marker(s) applied when a worker spawns. */
   setInProgress?: SetIndicator;
   /** Marker(s) applied on clean success. */

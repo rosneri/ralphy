@@ -137,9 +137,11 @@ describe("runPostTask — CI fix reactivates state", () => {
         useWorktree: false,
         wantPr: true,
         wantFixCi: true,
+        wantAutoMerge: false,
         cfg: {
           teardownScript: null,
           prBaseBranch: "main",
+          autoMergeStrategy: "squash" as const,
           maxCiFixAttempts: 3,
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
@@ -199,9 +201,11 @@ describe("runPostTask — teardown", () => {
         useWorktree: false,
         wantPr: false,
         wantFixCi: false,
+        wantAutoMerge: false,
         cfg: {
           teardownScript: "echo done",
           prBaseBranch: "main",
+          autoMergeStrategy: "squash" as const,
           maxCiFixAttempts: 3,
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
@@ -241,9 +245,11 @@ describe("runPrPhase — isolation", () => {
         stateFilePath: "/tmp/.ralph-state.json",
         issue: null,
         wantFixCi: false,
+        wantAutoMerge: false,
         cfg: {
           teardownScript: null,
           prBaseBranch: "main",
+          autoMergeStrategy: "squash" as const,
           maxCiFixAttempts: 3,
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
@@ -360,9 +366,11 @@ describe("runPostTask — conflict-check loop termination", () => {
         useWorktree: false,
         wantPr: true,
         wantFixCi: true,
+        wantAutoMerge: false,
         cfg: {
           teardownScript: null,
           prBaseBranch: "main",
+          autoMergeStrategy: "squash" as const,
           maxCiFixAttempts: 5,
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
@@ -387,5 +395,164 @@ describe("runPostTask — conflict-check loop termination", () => {
     // once final scan after CI green) — not spin forever.
     expect(phases).toContain("done");
     expect(conflictCheckCalls).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("runPrPhase — base branch override + auto-merge", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-pr-flags-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const baseCfg = {
+    teardownScript: null,
+    prBaseBranch: "main",
+    autoMergeStrategy: "squash" as const,
+    maxCiFixAttempts: 3,
+    ciPollIntervalSeconds: 0,
+    cleanupWorktreeOnSuccess: false,
+    ignoreCiChecks: [],
+  };
+
+  test("ralph:branch:<name> label overrides cfg.prBaseBranch when creating the PR", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/77";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline release/2026..HEAD": { stdout: "abc some work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    const issue: LinearIssue = { ...FAKE_ISSUE, labels: ["ralph:branch:release/2026"] };
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(code).toBe(0);
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall).toBeDefined();
+    expect(createCall[createCall.indexOf("--base") + 1]).toBe("release/2026");
+    expect(
+      calls.find((c) => c.join(" ").startsWith("git log --oneline main..HEAD")),
+    ).toBeUndefined();
+  });
+
+  test("wantAutoMerge=true invokes gh pr merge --auto --squash right after PR creation", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/77";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc some work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh pr merge": { stdout: "" },
+    });
+
+    const phases: string[] = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: true,
+        cfg: baseCfg,
+      },
+      { cmd, log: () => {}, emit: (p) => phases.push(p), respawnWorker: async () => 0 },
+    );
+
+    expect(code).toBe(0);
+    const mergeCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")!;
+    expect(mergeCall).toBeDefined();
+    expect(mergeCall).toContain("--auto");
+    expect(mergeCall).toContain("--squash");
+    expect(mergeCall).toContain(prUrl);
+    expect(phases).toContain("auto-merge-enabled");
+  });
+
+  test("wantAutoMerge=false does not call gh pr merge", async () => {
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc some work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/owner/repo/pull/1" },
+    });
+
+    await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
+  });
+
+  test("auto-merge failure does not fail the phase", async () => {
+    const { cmd } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc some work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/owner/repo/pull/2" },
+      "gh pr merge": { throw: true, stderr: "auto-merge not allowed" },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: true,
+        cfg: baseCfg,
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(code).toBe(0);
   });
 });
