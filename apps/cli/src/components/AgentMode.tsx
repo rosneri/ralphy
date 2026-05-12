@@ -644,31 +644,28 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               </Text>
               {pollStatus.lastAt !== null && (
                 <>
-                  <Text dimColor>│</Text>
-                  <Text dimColor>found</Text>
-                  <Text color="white">{pollStatus.lastFound}</Text>
                   {pollStatus.lastBuckets && (
                     <>
                       <Text dimColor>│</Text>
                       <Text dimColor>todo</Text>
                       <Text color="white">{pollStatus.lastBuckets.todo}</Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>resume</Text>
+                      <Text dimColor>res</Text>
                       <Text color={pollStatus.lastBuckets.inProgress > 0 ? "cyan" : "white"}>
                         {pollStatus.lastBuckets.inProgress}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>conflict</Text>
+                      <Text dimColor>conf</Text>
                       <Text color={pollStatus.lastBuckets.conflicted > 0 ? "red" : "white"}>
                         {pollStatus.lastBuckets.conflicted}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>review</Text>
+                      <Text dimColor>rev</Text>
                       <Text color={pollStatus.lastBuckets.review > 0 ? "yellow" : "white"}>
                         {pollStatus.lastBuckets.review}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>mention</Text>
+                      <Text dimColor>@</Text>
                       <Text color={pollStatus.lastBuckets.mentions > 0 ? "magenta" : "white"}>
                         {pollStatus.lastBuckets.mentions}
                       </Text>
