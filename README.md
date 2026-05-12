@@ -181,10 +181,16 @@ Example `ralphy.config.json`:
     "codeReviewStaleHours": 24,
     "indicators": {
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
-      "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
-      "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflicted" }] },
+      "getInProgress": {
+        "filter": [{ "type": "status", "value": "In Progress" }],
+      },
+      "getConflicted": {
+        "filter": [{ "type": "label", "value": "ralph:conflicted" }],
+      },
       "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
-      "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
+      "getAutoMerge": {
+        "filter": [{ "type": "label", "value": "ralph:auto-merge" }],
+      },
       "setInProgress": { "type": "status", "value": "In Progress" },
       "setDone": {
         "apply": [
@@ -243,6 +249,9 @@ With `useWorktree: true` (or `--worktree`) each task runs in an isolated worktre
 
 - **`setupScript`** — `sh -c`-run inside the worktree right after scaffolding (e.g. `bun install`, `cp .env.example .env`).
 - **`teardownScript`** — `sh -c`-run after the loop exits and (optional) worktree cleanup.
+
+Both scripts receive `WORKSPACE_ROOT` in their environment — the absolute path to the origin repository (the parent of the worktree). Use it to reference project-root files from inside a worktree, e.g. `cp "$WORKSPACE_ROOT/.env.example" .env`.
+
 - **`cleanupWorktreeOnSuccess`** — remove the worktree on clean exit. Failed workers always keep their worktree + branch for human inspection.
 
 Both scripts log failures but never block the loop. **`appendPrompt`** (or `--prompt` in agent mode) is appended to every scaffolded `proposal.md` under `## Additional instructions` — use it for cross-cutting guidance every task should see.
