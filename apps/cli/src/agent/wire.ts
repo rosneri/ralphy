@@ -470,9 +470,11 @@ export function buildAgentCoordinator(
    *  by the conflict-scan step. Volatile — repopulated on next poll if
    *  the worker recreates a PR. */
   const prByChange = new Map<string, string>();
-  /** changeNames whose PR is known to be gone (merged + branch deleted).
-   *  Skipped by conflict-scan thereafter. */
-  const prUnavailable = new Set<string>();
+  /** changeNames whose PR discovery recently failed → expires-at ms. Soft
+   *  cache (10 minutes) so a transient `gh` failure or a branch-name
+   *  mismatch doesn't permanently silence the conflict scan. */
+  const prUnavailable = new Map<string, number>();
+  const PR_UNAVAILABLE_TTL_MS = 10 * 60 * 1000;
   /** prUrl → last reviewer-ping ms timestamp. Prevents re-pinging within
    *  `codeReviewStaleHours`. Resets on agent restart (best-effort dedup). */
   const stalePingedAt = new Map<string, number>();
@@ -902,52 +904,118 @@ export function buildAgentCoordinator(
     issue: LinearIssue,
   ): Promise<{ url: string; conflicting: boolean } | null> {
     const changeName = changeNameForIssue(issue);
-    if (prUnavailable.has(changeName)) return null;
+    if (isPrUnavailable(changeName)) return null;
 
-    const branch = branchForChange(changeName);
-    let prUrl = prByChange.get(changeName);
+    let prUrl: string | undefined = prByChange.get(changeName);
     if (!prUrl) {
-      // Discover via gh (one-shot).
+      const found = await discoverPrUrl(issue, changeName);
+      if (!found) return null;
+      prUrl = found;
+      prByChange.set(changeName, prUrl);
+    }
+
+    // GitHub computes mergeability asynchronously; the scan path used to
+    // accept the first UNKNOWN as "not conflicting" and silently move on
+    // until the next poll, which would re-issue gh and again hit UNKNOWN.
+    // Retry up to 3 times (6s total) before giving up for this poll.
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await cmdRunner.run(
-          [
-            "gh",
-            "pr",
-            "list",
-            "--head",
-            branch,
-            "--state",
-            "open",
-            "--json",
-            "url",
-            "--jq",
-            ".[0].url // empty",
-          ],
+          ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
           projectRoot,
         );
-        const found = res.stdout.trim();
-        if (!found) {
-          prUnavailable.add(changeName);
-          return null;
+        const mergeable = res.stdout.trim();
+        if (mergeable !== "UNKNOWN") {
+          return { url: prUrl, conflicting: mergeable === "CONFLICTING" };
         }
-        prUrl = found;
-        prByChange.set(changeName, prUrl);
-      } catch {
-        prUnavailable.add(changeName);
+      } catch (err) {
+        onLog(`! gh pr view ${prUrl} failed (conflict scan): ${(err as Error).message}`, "yellow");
         return null;
       }
+      await new Promise<void>((r) => setTimeout(r, 2000));
+    }
+    onLog(
+      `  ${issue.identifier}: mergeability still UNKNOWN after retries (${prUrl}) — will recheck next poll`,
+      "gray",
+    );
+    return null;
+  }
+
+  /** Soft-TTL helpers for the prUnavailable cache. */
+  function isPrUnavailable(changeName: string): boolean {
+    const expiry = prUnavailable.get(changeName);
+    if (expiry === undefined) return false;
+    if (Date.now() >= expiry) {
+      prUnavailable.delete(changeName);
+      return false;
+    }
+    return true;
+  }
+  function markPrUnavailable(changeName: string): void {
+    prUnavailable.set(changeName, Date.now() + PR_UNAVAILABLE_TTL_MS);
+  }
+
+  /**
+   * Discover the PR URL for an issue. Tries three strategies in order:
+   *   1. `--head ralph/<changeName>` (the branch ralphy creates)
+   *   2. `--search "<linear-identifier>" in:title` (handles branch-name
+   *      drift after a title edit, or PRs whose branch was renamed)
+   *   3. fall through to null + soft TTL cache.
+   * Each failure logs once so the dashboard surfaces what's happening.
+   */
+  async function discoverPrUrl(issue: LinearIssue, changeName: string): Promise<string | null> {
+    const branch = branchForChange(changeName);
+    const tryGh = async (args: string[]): Promise<string | null> => {
+      try {
+        const res = await cmdRunner.run(args, projectRoot);
+        const found = res.stdout.trim();
+        return found || null;
+      } catch (err) {
+        onLog(
+          `! gh ${args[1] ?? ""} failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        return null;
+      }
+    };
+
+    const byBranch = await tryGh([
+      "gh",
+      "pr",
+      "list",
+      "--head",
+      branch,
+      "--state",
+      "open",
+      "--json",
+      "url",
+      "--jq",
+      ".[0].url // empty",
+    ]);
+    if (byBranch) return byBranch;
+
+    const byIdentifier = await tryGh([
+      "gh",
+      "pr",
+      "list",
+      "--search",
+      `${issue.identifier} in:title state:open`,
+      "--json",
+      "url",
+      "--jq",
+      ".[0].url // empty",
+    ]);
+    if (byIdentifier) {
+      onLog(`  ${issue.identifier}: PR discovered via title search (${byIdentifier})`, "gray");
+      return byIdentifier;
     }
 
-    try {
-      const res = await cmdRunner.run(
-        ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
-        projectRoot,
-      );
-      const mergeable = res.stdout.trim();
-      return { url: prUrl, conflicting: mergeable === "CONFLICTING" };
-    } catch {
-      return null;
-    }
+    onLog(
+      `  ${issue.identifier}: no open PR found on head=${branch} or title-search; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
+      "gray",
+    );
+    markPrUnavailable(changeName);
+    return null;
   }
 
   // setDone candidates for conflict scan: include = setDone marker(s),
@@ -1273,41 +1341,17 @@ export function buildAgentCoordinator(
     return re.test(body);
   }
 
-  /** Resolve the PR URL for an issue's tracked change, if any. Uses the
-   *  same lookup path as the conflict scanner but returns null silently. */
+  /** Resolve the PR URL for an issue's tracked change, if any. Reuses the
+   *  conflict-scan discovery so branch-name drift falls back to title
+   *  search. Returns null silently for non-tracked PRs. */
   async function resolvePrUrlForIssue(issue: LinearIssue): Promise<string | null> {
     const changeName = changeNameForIssue(issue);
-    if (prUnavailable.has(changeName)) return null;
+    if (isPrUnavailable(changeName)) return null;
     const cached = prByChange.get(changeName);
     if (cached) return cached;
-    const branch = branchForChange(changeName);
-    try {
-      const res = await cmdRunner.run(
-        [
-          "gh",
-          "pr",
-          "list",
-          "--head",
-          branch,
-          "--state",
-          "all",
-          "--json",
-          "url",
-          "--jq",
-          ".[0].url // empty",
-        ],
-        projectRoot,
-      );
-      const found = res.stdout.trim();
-      if (!found) {
-        prUnavailable.add(changeName);
-        return null;
-      }
-      prByChange.set(changeName, found);
-      return found;
-    } catch {
-      return null;
-    }
+    const found = await discoverPrUrl(issue, changeName);
+    if (found) prByChange.set(changeName, found);
+    return found;
   }
 
   /** Fetch issue-level comments on a PR (i.e. the conversation tab).
