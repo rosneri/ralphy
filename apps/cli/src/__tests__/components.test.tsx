@@ -365,6 +365,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
+    debug: false,
     ...overrides,
   };
 }
@@ -372,7 +373,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
 describe("App", () => {
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
-  test("list mode renders TaskList", () =>
+  test("list mode renders empty (handled outside Ink in index.ts)", () =>
     withStorage(() => {
       mkdirSync(tempDir, { recursive: true });
       const { lastFrame } = render(
@@ -383,7 +384,9 @@ describe("App", () => {
           projectRoot={tempDir}
         />,
       );
-      expect(lastFrame()!).toContain("No incomplete tasks");
+      // list is handled in index.ts via runList() before Ink renders; the
+      // App fallback for the "list" case renders nothing.
+      expect(lastFrame()).toBe("");
     }));
 
   test("status mode without name shows error", async () => {

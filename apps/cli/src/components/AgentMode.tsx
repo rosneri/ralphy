@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
@@ -861,10 +860,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 <Text color="white" bold>
                   {iter}
                 </Text>
-                <Text dimColor>│</Text>
-                {meta?.logFile && (
-                  <Link url={pathToFileURL(meta.logFile).href} label="LOG" color="gray" />
-                )}
               </Box>
 
               {/* ── Task progress bar ───────────────────────── */}

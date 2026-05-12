@@ -82,6 +82,8 @@ export interface ParsedArgs {
   jsonOutput: boolean;
   /** Debug mode: override the project root directory (default: cwd walk). */
   projectRoot?: string | undefined;
+  /** List mode: enable per-ticket diagnostics for --name <identifier>. */
+  debug: boolean;
 }
 
 const VALID_MODES = new Set<string>(["task", "list", "status", "init", "agent", "clean", "debug"]);
@@ -116,7 +118,7 @@ const HELP_TEXT = [
   "",
   "Commands:",
   "  task                    Run or resume a task",
-  "  list                    List active changes",
+  "  list                    List active changes (with Linear tickets + PRs when configured)",
   "  status                  Show detailed change status",
   "  init                    Initialize OpenSpec in current directory",
   "  agent                   Poll Linear for new tasks and run loops concurrently",
@@ -161,6 +163,10 @@ const HELP_TEXT = [
   "  --code-review           Watch open tracked PRs for unresolved review comments and prepend a code-review task",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
+  "",
+  "",
+  "List mode options:",
+  "  --debug --name <id>     Explain why a Linear ticket was not picked up",
   "",
   "  --help, -h              Show this help message",
   "",
@@ -257,6 +263,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     maxTickets: 0,
     projectRoot: undefined,
     jsonOutput: false,
+    debug: false,
   };
 
   let expectModel = false;
@@ -465,6 +472,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--project-root":
         expectProjectRoot = true;
+        break;
+      case "--debug":
+        result.debug = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

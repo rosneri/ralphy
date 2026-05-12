@@ -45,15 +45,30 @@ interface LinearNode {
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
 }
 
-function partition(markers: Marker[]): { statuses: string[]; labels: string[] } {
+interface Partitioned {
+  statuses: string[];
+  labels: string[];
+  /** Attachment marker values — matched against the Ralphy attachment
+   *  `subtitle` field (the agent always sets `title: "Ralphy"`). */
+  attachmentSubtitles: string[];
+}
+
+function partition(markers: Marker[]): Partitioned {
   const statuses: string[] = [];
   const labels: string[] = [];
+  const attachmentSubtitles: string[] = [];
   for (const m of markers) {
     if (m.type === "status") statuses.push(m.value);
-    else labels.push(m.value);
+    else if (m.type === "label") labels.push(m.value);
+    else attachmentSubtitles.push(m.value);
   }
-  return { statuses, labels };
+  return { statuses, labels, attachmentSubtitles };
 }
+
+/** Title used on every Ralphy-managed attachment (set in
+ *  `upsertRalphyAttachment`). All `type:"attachment"` markers are matched
+ *  against the subtitle of an attachment that bears this title. */
+const RALPHY_ATTACHMENT_TITLE_FILTER = "Ralphy";
 
 /**
  * Build the Linear `IssueFilter` GraphQL variable. `include` is all-of
@@ -73,10 +88,20 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
 
   const inc = spec.include ?? [];
   if (inc.length > 0) {
-    const { statuses, labels } = partition(inc);
+    const { statuses, labels, attachmentSubtitles } = partition(inc);
     const branches: Record<string, unknown>[] = [];
     if (statuses.length > 0) branches.push({ state: { name: { in: statuses } } });
     if (labels.length > 0) branches.push({ labels: { some: { name: { in: labels } } } });
+    if (attachmentSubtitles.length > 0) {
+      branches.push({
+        attachments: {
+          some: {
+            title: { eq: RALPHY_ATTACHMENT_TITLE_FILTER },
+            subtitle: { in: attachmentSubtitles },
+          },
+        },
+      });
+    }
     for (const b of branches) Object.assign(where, b);
   } else {
     // Default: open issues only (preserves prior behavior when no
@@ -86,7 +111,23 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
 
   const exc = spec.exclude ?? [];
   if (exc.length > 0) {
-    const { statuses, labels } = partition(exc);
+    const { statuses, labels, attachmentSubtitles: excludedSubtitles } = partition(exc);
+    if (excludedSubtitles.length > 0) {
+      const existingAnd = (where.and as Record<string, unknown>[] | undefined) ?? [];
+      where.and = [
+        ...existingAnd,
+        {
+          attachments: {
+            every: {
+              or: [
+                { title: { neq: RALPHY_ATTACHMENT_TITLE_FILTER } },
+                { subtitle: { nin: excludedSubtitles } },
+              ],
+            },
+          },
+        },
+      ];
+    }
     if (statuses.length > 0) {
       // Merge with any existing state constraint via `and:`.
       const current = where.state as Record<string, unknown> | undefined;
@@ -494,9 +535,14 @@ export function issueMatchesGetIndicator(
   if (!indicator || indicator.filter.length === 0) return false;
   const labels = new Set(issue.labels.map((l) => l.toLowerCase()));
   const stateName = issue.state.name.toLowerCase();
-  return indicator.filter.some((m) =>
-    m.type === "label" ? labels.has(m.value.toLowerCase()) : stateName === m.value.toLowerCase(),
-  );
+  return indicator.filter.some((m) => {
+    if (m.type === "label") return labels.has(m.value.toLowerCase());
+    if (m.type === "status") return stateName === m.value.toLowerCase();
+    // attachment markers can only be verified via a separate API call
+    // (LinearIssue's pick doesn't carry attachments). Callers that need
+    // attachment-based matching should query attachments themselves.
+    return false;
+  });
 }
 
 /** Remove a label from an issue. No-op if the issue does not bear it. */

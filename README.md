@@ -66,7 +66,7 @@ ralph task --name fix-auth --prompt "Fix the JWT validation bug" --claude opus -
 ralph task --name fix-auth
 
 # Inspect
-ralph list                    # all tasks (table)
+ralph list                    # local tasks + Linear tickets per indicator bucket (with linked PR URLs)
 ralph status --name fix-auth  # one task (details)
 ```
 
@@ -315,6 +315,14 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 | `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)         |
 | `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task |
 | `--json-output`           | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)         |
+
+**List-mode flags**
+
+| Option                | Behavior                                                                                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--debug --name <id>` | Diagnose why a Linear ticket (e.g. `ENG-42`) is not being picked up — checks team, assignee, include / exclude markers, and blocked-by relations against every configured `get*` indicator. |
+
+`ralph list` reads `ralphy.config.json` and, when `LINEAR_API_KEY` is set, fetches every issue matching each configured `getTodo` / `getInProgress` / `getConflicted` / `getReview` / `getAutoMerge` indicator using the same include / exclude rules as `ralph agent`. For each ticket it also resolves the linked GitHub PR URL from Linear attachments.
 
 **`--max-tickets`.** Caps how many issues ralph picks up in a single agent run. Once the limit is hit the coordinator stops enqueuing new work; in-flight workers continue to completion, and the dashboard header shows `│ tickets ≤N`. The limit resets each restart.
 
