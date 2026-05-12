@@ -44,6 +44,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
+    debug: false,
     ...overrides,
   };
 }

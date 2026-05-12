@@ -4,7 +4,6 @@ import { Text, useApp } from "ink";
 import type { ParsedArgs } from "../cli";
 import { readState } from "@ralphy/core/state";
 import { getStorage } from "@ralphy/context";
-import { TaskList } from "./TaskList";
 import { TaskStatus } from "./TaskStatus";
 import { TaskLoop } from "./TaskLoop";
 import { AgentMode } from "./AgentMode";
@@ -90,7 +89,12 @@ function TaskModeWrapper({ args, statesDir, tasksDir, projectRoot }: TaskModeWra
 export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
   switch (args.mode) {
     case "list":
-      return <TaskList statesDir={statesDir} projectRoot={projectRoot} />;
+      // Handled in index.ts before render; should not reach here.
+      return (
+        <ExitAfterRender>
+          <Text></Text>
+        </ExitAfterRender>
+      );
 
     case "agent":
       return (

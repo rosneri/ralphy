@@ -18,6 +18,7 @@ import { App } from "./components/App";
 import { projectLayout } from "@ralphy/core/layout";
 import { worktreesDir } from "./agent/worktree";
 import { runDebug } from "./debug";
+import { runList } from "./list";
 import { resolveOpenspecBin } from "@ralphy/openspec";
 import * as telemetry from "@ralphy/telemetry";
 
@@ -32,6 +33,30 @@ async function findProjectRoot(): Promise<string> {
     dir = resolve(dir, "..");
   }
   return process.cwd();
+}
+
+/**
+ * Ensure `<projectRoot>/.ralph/.gitignore` exists and ignores the local
+ * `bin/` directory (where `cli.js` / `mcp.js` get dropped when the package
+ * postinstall script runs inside a worktree). Without this, those binaries
+ * show up as untracked changes in `git status` and slip into commits.
+ * Creates the parent `.ralph` directory if missing. Idempotent: leaves
+ * existing `.gitignore` contents alone when `bin` is already listed.
+ */
+async function ensureRalphGitignore(projectRoot: string): Promise<void> {
+  const ralphDir = join(projectRoot, ".ralph");
+  await mkdir(ralphDir, { recursive: true });
+  const gitignorePath = join(ralphDir, ".gitignore");
+  const file = Bun.file(gitignorePath);
+  if (await file.exists()) {
+    const existing = await file.text();
+    const lines = existing.split("\n").map((l) => l.trim());
+    if (lines.includes("bin") || lines.includes("bin/")) return;
+    const next = existing.endsWith("\n") ? `${existing}bin\n` : `${existing}\nbin\n`;
+    await Bun.write(gitignorePath, next);
+    return;
+  }
+  await Bun.write(gitignorePath, "bin\n");
 }
 
 await telemetry.init();
@@ -74,12 +99,28 @@ try {
 
   if (args.mode === "init") {
     await mkdir(statesDir, { recursive: true });
+    await ensureRalphGitignore(projectRoot);
     const openspecBin = resolveOpenspecBin(import.meta.dir);
     Bun.spawnSync({
       cmd: [process.execPath, openspecBin, "init", "--tools", "none", "--force"],
       stdio: ["inherit", "inherit", "inherit"],
       cwd: process.cwd(),
     });
+  }
+
+  if (args.mode === "list") {
+    await runWithContext(createDefaultContext(), async () => {
+      await runList({
+        statesDir,
+        projectRoot: args.projectRoot ?? projectRoot,
+        linearTeamOverride: args.linearTeam,
+        linearAssigneeOverride: args.linearAssignee,
+        debug: args.debug,
+        name: args.name,
+      });
+    });
+    await telemetry.shutdown();
+    process.exit(process.exitCode ?? 0);
   }
 
   if (args.mode === "debug") {
@@ -157,12 +198,13 @@ try {
   if (args.mode === "task" && args.name) {
     await mkdir(join(statesDir, args.name), { recursive: true });
     await mkdir(join(tasksDir, args.name), { recursive: true });
+    await ensureRalphGitignore(projectRoot);
   }
 
   if (args.mode === "agent") {
     await mkdir(statesDir, { recursive: true });
     await mkdir(tasksDir, { recursive: true });
-    await mkdir(join(projectRoot, ".ralph"), { recursive: true });
+    await ensureRalphGitignore(projectRoot);
   }
 
   if (args.mode === "agent" && args.jsonOutput) {
