@@ -171,6 +171,8 @@ A default `ralphy.config.json` is written on first run with every defaulted sett
     "updateEveryIterations": 10,
     "mentionTrigger": true,
     "mentionHandle": "@ralphy",
+    "codeReviewTrigger": true,
+    "codeReviewStaleHours": 24,
     "indicators": {
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
       "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
@@ -217,6 +219,8 @@ Linear is the source of truth for which issues Ralph has touched. Each `linear.i
 
 **`@ralphy` mention trigger.** Set `linear.mentionTrigger: true` (default `false`) to scan done-issue comments on both Linear and their linked GitHub PR for `@ralphy` mentions (configurable via `linear.mentionHandle`). New mentions enqueue the issue as a review run with the mention text used verbatim as the prepended task. Idempotency: a mention is considered processed when its `createdAt` is older than the most recent Ralph `🔁 picked up` comment on the Linear issue, so the same comment never re-fires across polls. Requires the `gh` CLI authenticated for the GitHub side.
 
+**Code-review iteration.** Set `linear.codeReviewTrigger: true` (or pass `--code-review`) to watch open, unmerged, unapproved tracked PRs for unresolved review-thread comments. When any unresolved thread has activity newer than Ralph's last `🔁 picked up` ack, the issue is queued as a review run whose prepended task is a digest of every unresolved thread plus instructions: fix-and-push for comments Ralph agrees with (resolve the thread after the commit lands), or reply on GitHub with reasoning for ones it disagrees with. The cycle repeats every poll until the PR is approved or merged. If the reviewer has been silent for more than `linear.codeReviewStaleHours` (default 24) while Ralph is the last actor, a one-shot `@`-mention ping comment is posted on the GitHub PR.
+
 Marker types are `"label"` or `"status"`. Combine markers under `apply` when one event needs to set multiple — e.g. `setDone` flipping a status _and_ adding a "shipped" label.
 
 #### Per-task git worktrees
@@ -260,17 +264,18 @@ Failed workers (non-zero exit) are not marked processed, so they'll be retried o
 
 ### Agent mode flags
 
-| Option                    | Description                                                                   |
-| ------------------------- | ----------------------------------------------------------------------------- |
-| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                  |
-| `--linear-assignee <id>`  | Filter by assignee (user id, email, or `me`)                                  |
-| `--poll-interval <s>`     | Seconds between Linear polls (default: 60)                                    |
-| `--concurrency <n>`       | Max concurrent task loops (default: 1)                                        |
-| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (0 = unlimited) |
-| `--worktree`              | Run each task in its own git worktree                                         |
-| `--indicator <k>:<t>:<v>` | Override a `linear.indicators` entry; repeatable (e.g. `setDone:status:Done`) |
-| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)         |
-| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)  |
+| Option                    | Description                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                         |
+| `--linear-assignee <id>`  | Filter by assignee (user id, email, or `me`)                                         |
+| `--poll-interval <s>`     | Seconds between Linear polls (default: 60)                                           |
+| `--concurrency <n>`       | Max concurrent task loops (default: 1)                                               |
+| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (0 = unlimited)        |
+| `--worktree`              | Run each task in its own git worktree                                                |
+| `--indicator <k>:<t>:<v>` | Override a `linear.indicators` entry; repeatable (e.g. `setDone:status:Done`)        |
+| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)                |
+| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)         |
+| `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task |
 
 #### `--max-tickets`
 

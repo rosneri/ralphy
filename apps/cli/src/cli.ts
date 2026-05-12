@@ -74,6 +74,8 @@ export interface ParsedArgs {
   indicators: Partial<Indicators>;
   createPr: boolean;
   fixCi: boolean;
+  /** Agent mode: enable the code-review trigger (overrides config). */
+  codeReview: boolean;
   /** Agent mode: stop picking up new issues after this many have been started (0 = unlimited). */
   maxTickets: number;
   /** Agent mode: emit JSONL to stdout instead of rendering the Ink dashboard. */
@@ -152,6 +154,7 @@ const HELP_TEXT = [
   "                          Types: label, status",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
+  "  --code-review           Watch open tracked PRs for unresolved review comments and prepend a code-review task",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
   "",
@@ -247,6 +250,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     indicators: {},
     createPr: false,
     fixCi: false,
+    codeReview: false,
     maxTickets: 0,
     projectRoot: undefined,
     jsonOutput: false,
@@ -443,6 +447,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--fix-ci":
         result.fixCi = true;
+        break;
+      case "--code-review":
+        result.codeReview = true;
         break;
       case "--json-output":
         result.jsonOutput = true;

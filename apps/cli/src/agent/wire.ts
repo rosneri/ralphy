@@ -230,6 +230,27 @@ function escapeRegex(s: string): string {
 }
 
 function buildMentionTaskBody(trigger: MentionTrigger, issueUrl: string): string {
+  if (trigger.source === "github-review") {
+    // Body was pre-built as a digest by fetchCodeReviewThreads — frame it
+    // with the resolution workflow so the worker knows the contract.
+    return [
+      `Open code-review on ${trigger.url ?? issueUrl} has unresolved comments:`,
+      "",
+      trigger.body.trim(),
+      "",
+      "For every comment above, decide:",
+      "- If you agree, fix the code, commit, and push. The push will surface",
+      "  the new commit on the PR; the worker should then resolve the thread",
+      "  via `gh api graphql` (`resolveReviewThread`) — see GitHub docs.",
+      "- If you disagree, post a polite reply on the thread explaining your",
+      "  reasoning via `gh api repos/{owner}/{repo}/pulls/{num}/comments/{id}/replies`,",
+      "  and leave the thread unresolved.",
+      "",
+      "When this round is done the loop exits; the agent will re-poll the",
+      "PR on the next cycle and pick up any new reviewer activity until the",
+      "PR is approved or merged.",
+    ].join("\n");
+  }
   const sourceLabel = trigger.source === "github" ? "GitHub PR" : "Linear issue";
   const permalink = trigger.url ?? issueUrl;
   const header = `${trigger.author ?? "unknown"} — ${trigger.createdAt} (${sourceLabel})`;
@@ -452,6 +473,9 @@ export function buildAgentCoordinator(
   /** changeNames whose PR is known to be gone (merged + branch deleted).
    *  Skipped by conflict-scan thereafter. */
   const prUnavailable = new Set<string>();
+  /** prUrl → last reviewer-ping ms timestamp. Prevents re-pinging within
+   *  `codeReviewStaleHours`. Resets on agent restart (best-effort dedup). */
+  const stalePingedAt = new Map<string, number>();
 
   const useWorktree = args.worktree || cfg.useWorktree;
 
@@ -947,7 +971,9 @@ export function buildAgentCoordinator(
    * logs and is skipped — never throws into the poll loop.
    */
   async function fetchMentions(): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> {
-    if (!cfg.linear.mentionTrigger) return [];
+    const wantMention = cfg.linear.mentionTrigger;
+    const wantCodeReview = args.codeReview || cfg.linear.codeReviewTrigger;
+    if (!wantMention && !wantCodeReview) return [];
     const handle = cfg.linear.mentionHandle;
     let candidates: LinearIssue[] = [];
     try {
@@ -957,6 +983,7 @@ export function buildAgentCoordinator(
       return [];
     }
     const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+    const queued = new Set<string>();
     for (const issue of candidates) {
       let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
       try {
@@ -969,46 +996,266 @@ export function buildAgentCoordinator(
         continue;
       }
       const lastRalphPickup = findLastRalphPickupISO(comments);
-      // Linear-side mentions newer than lastRalphPickup.
-      for (const c of comments) {
-        if (isRalphComment(c.body)) continue;
-        if (!containsHandle(c.body, handle)) continue;
-        if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
-        out.push({
-          issue,
-          trigger: {
-            source: "linear",
-            body: c.body,
-            createdAt: c.createdAt,
-            ...(c.user?.name ? { author: c.user.name } : {}),
-            url: issue.url,
-          },
-        });
-        break; // one trigger per issue per poll is enough
-      }
-      if (out.length > 0 && out[out.length - 1]!.issue.id === issue.id) continue;
 
-      // GitHub-side mentions on the linked PR (if any).
+      if (wantMention) {
+        for (const c of comments) {
+          if (isRalphComment(c.body)) continue;
+          if (!containsHandle(c.body, handle)) continue;
+          if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
+          out.push({
+            issue,
+            trigger: {
+              source: "linear",
+              body: c.body,
+              createdAt: c.createdAt,
+              ...(c.user?.name ? { author: c.user.name } : {}),
+              url: issue.url,
+            },
+          });
+          queued.add(issue.id);
+          break;
+        }
+        if (queued.has(issue.id)) continue;
+      }
+
+      // Anything below needs a tracked PR.
       const prUrl = await resolvePrUrlForIssue(issue);
       if (!prUrl) continue;
-      const ghComments = await fetchPrIssueComments(prUrl);
-      for (const c of ghComments) {
-        if (!containsHandle(c.body, handle)) continue;
-        if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
-        out.push({
-          issue,
-          trigger: {
-            source: "github",
-            body: c.body,
-            createdAt: c.createdAt,
-            ...(c.author ? { author: c.author } : {}),
-            url: c.url,
-          },
-        });
-        break;
+
+      if (wantMention) {
+        const ghComments = await fetchPrIssueComments(prUrl);
+        for (const c of ghComments) {
+          if (!containsHandle(c.body, handle)) continue;
+          if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
+          out.push({
+            issue,
+            trigger: {
+              source: "github",
+              body: c.body,
+              createdAt: c.createdAt,
+              ...(c.author ? { author: c.author } : {}),
+              url: c.url,
+            },
+          });
+          queued.add(issue.id);
+          break;
+        }
+        if (queued.has(issue.id)) continue;
+      }
+
+      if (wantCodeReview) {
+        const trigger = await scanCodeReview(issue, prUrl, lastRalphPickup);
+        if (trigger) {
+          out.push({ issue, trigger });
+          queued.add(issue.id);
+        }
       }
     }
     return out;
+  }
+
+  /**
+   * Inspect an open PR for unresolved review-thread comments. Returns a
+   * `github-review` trigger if there is at least one reviewer comment
+   * newer than Ralph's last `🔁 picked up` ack. Otherwise, if the PR is
+   * stalled (Ralph is the last actor, > codeReviewStaleHours since the
+   * reviewer's most recent activity), posts a one-shot ping comment on
+   * the GitHub PR and returns null.
+   *
+   * Best-effort throughout — any failure logs and returns null so the
+   * caller continues with the next candidate.
+   */
+  async function scanCodeReview(
+    issue: LinearIssue,
+    prUrl: string,
+    lastRalphPickup: string | null,
+  ): Promise<MentionTrigger | null> {
+    const state = await fetchPrReviewState(prUrl);
+    if (!state || !state.isOpen || state.merged || state.approved) return null;
+    const unresolved = state.threads.filter((t) => !t.isResolved && t.comments.length > 0);
+    if (unresolved.length === 0) return null;
+    const newestReviewerActivity = unresolved.reduce<string>((acc, t) => {
+      const last = t.comments[t.comments.length - 1]!.createdAt;
+      return last > acc ? last : acc;
+    }, "");
+    if (!lastRalphPickup || newestReviewerActivity > lastRalphPickup) {
+      const body = unresolved
+        .map((t) => {
+          const head = t.path ? `_${t.path}${t.line ? `:${t.line}` : ""}_` : "_(general)_";
+          const lines = t.comments.map(
+            (c) =>
+              `> **${c.author ?? "reviewer"}** (${c.createdAt})\n>\n> ${c.body.trim().replace(/\n/g, "\n> ")}`,
+          );
+          return [head, "", ...lines].join("\n");
+        })
+        .join("\n\n---\n\n");
+      return {
+        source: "github-review",
+        body,
+        createdAt: newestReviewerActivity || new Date().toISOString(),
+        ...(state.lastReviewer ? { author: state.lastReviewer } : {}),
+        url: prUrl,
+      };
+    }
+    await maybePingStaleReviewer(issue, prUrl, state, newestReviewerActivity);
+    return null;
+  }
+
+  /** Post a single GitHub PR ping comment when Ralph has been waiting on
+   *  a reviewer for >codeReviewStaleHours. Idempotent via prByPinged. */
+  async function maybePingStaleReviewer(
+    issue: LinearIssue,
+    prUrl: string,
+    state: PrReviewState,
+    newestReviewerActivity: string,
+  ): Promise<void> {
+    const staleHours = cfg.linear.codeReviewStaleHours;
+    if (staleHours <= 0) return;
+    const reviewer = state.requestedReviewer ?? state.lastReviewer;
+    if (!reviewer) return;
+    const lastPinged = stalePingedAt.get(prUrl);
+    const now = Date.now();
+    if (lastPinged && now - lastPinged < staleHours * 3600_000) return;
+    const elapsedH = newestReviewerActivity
+      ? (now - Date.parse(newestReviewerActivity)) / 3600_000
+      : Infinity;
+    if (elapsedH < staleHours) return;
+    const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(prUrl);
+    if (!m) return;
+    const [, owner, repo, num] = m;
+    const body = `🔔 @${reviewer} — Ralph has been waiting ${elapsedH.toFixed(0)}h on a re-review for ${prUrl}. Could you take another look when you have a moment?`;
+    try {
+      await cmdRunner.run(
+        ["gh", "api", `repos/${owner}/${repo}/issues/${num}/comments`, "-f", `body=${body}`],
+        projectRoot,
+      );
+      stalePingedAt.set(prUrl, now);
+      onLog(`  ${issue.identifier}: pinged reviewer @${reviewer} on ${prUrl}`, "gray");
+    } catch (err) {
+      onLog(`! reviewer ping failed for ${prUrl}: ${(err as Error).message}`, "yellow");
+    }
+  }
+
+  interface PrReviewThreadComment {
+    author?: string;
+    body: string;
+    createdAt: string;
+    url?: string;
+  }
+  interface PrReviewThread {
+    isResolved: boolean;
+    path?: string;
+    line?: number;
+    comments: PrReviewThreadComment[];
+  }
+  interface PrReviewState {
+    isOpen: boolean;
+    merged: boolean;
+    approved: boolean;
+    threads: PrReviewThread[];
+    requestedReviewer?: string;
+    lastReviewer?: string;
+  }
+
+  /** Query the PR's review state + threads via the GraphQL endpoint.
+   *  Returns null on any error so the scan loop continues. */
+  async function fetchPrReviewState(prUrl: string): Promise<PrReviewState | null> {
+    const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(prUrl);
+    if (!m) return null;
+    const [, owner, repo, num] = m;
+    const query = `query($owner:String!,$repo:String!,$num:Int!){
+      repository(owner:$owner,name:$repo){
+        pullRequest(number:$num){
+          state merged reviewDecision
+          reviewRequests(first:5){nodes{requestedReviewer{... on User{login}}}}
+          latestReviews(first:5){nodes{author{login} state submittedAt}}
+          reviewThreads(first:50){nodes{
+            isResolved path line
+            comments(first:20){nodes{body author{login} createdAt url}}
+          }}
+        }
+      }
+    }`;
+    try {
+      const res = await cmdRunner.run(
+        [
+          "gh",
+          "api",
+          "graphql",
+          "-f",
+          `query=${query}`,
+          "-F",
+          `owner=${owner}`,
+          "-F",
+          `repo=${repo}`,
+          "-F",
+          `num=${num}`,
+        ],
+        projectRoot,
+      );
+      const parsed = JSON.parse(res.stdout) as {
+        data?: {
+          repository?: {
+            pullRequest?: {
+              state: string;
+              merged: boolean;
+              reviewDecision: string | null;
+              reviewRequests?: { nodes: { requestedReviewer?: { login?: string } | null }[] };
+              latestReviews?: {
+                nodes: { author?: { login?: string } | null; state: string; submittedAt: string }[];
+              };
+              reviewThreads?: {
+                nodes: {
+                  isResolved: boolean;
+                  path?: string | null;
+                  line?: number | null;
+                  comments: {
+                    nodes: {
+                      body: string;
+                      author?: { login?: string } | null;
+                      createdAt: string;
+                      url?: string;
+                    }[];
+                  };
+                }[];
+              };
+            } | null;
+          } | null;
+        };
+      };
+      const pr = parsed.data?.repository?.pullRequest;
+      if (!pr) return null;
+      const requested = pr.reviewRequests?.nodes
+        .map((n) => n.requestedReviewer?.login)
+        .filter((x): x is string => !!x)[0];
+      const latestReviews = pr.latestReviews?.nodes ?? [];
+      const lastReviewer = latestReviews
+        .slice()
+        .sort((a, b) => (b.submittedAt > a.submittedAt ? 1 : -1))
+        .map((n) => n.author?.login)
+        .filter((x): x is string => !!x)[0];
+      return {
+        isOpen: pr.state === "OPEN",
+        merged: pr.merged,
+        approved: pr.reviewDecision === "APPROVED",
+        threads: (pr.reviewThreads?.nodes ?? []).map((t) => ({
+          isResolved: t.isResolved,
+          ...(t.path ? { path: t.path } : {}),
+          ...(t.line != null ? { line: t.line } : {}),
+          comments: t.comments.nodes.map((c) => ({
+            ...(c.author?.login ? { author: c.author.login } : {}),
+            body: c.body,
+            createdAt: c.createdAt,
+            ...(c.url ? { url: c.url } : {}),
+          })),
+        })),
+        ...(requested ? { requestedReviewer: requested } : {}),
+        ...(lastReviewer ? { lastReviewer } : {}),
+      };
+    } catch (err) {
+      onLog(`! gh graphql review-state failed for ${prUrl}: ${(err as Error).message}`, "yellow");
+      return null;
+    }
   }
 
   /** Newest ISO timestamp from Ralph's `🔁 picked up` review acks, or null. */
