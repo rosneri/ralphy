@@ -29,6 +29,22 @@ Ship a code change end-to-end through this repo's release workflow. Follow these
 
 Edit code, add/update tests, and update README if any user-facing behavior changes. Match the existing style — see neighboring files.
 
+**README is required when** the change touches any of:
+
+- A new or renamed `ralphy.config.json` field (root or under `linear.*` / `linear.indicators.*`). Update the indicator table at the top of `### Linear indicators` AND the example `ralphy.config.json` block AND the `### PR + CI integration` table — whichever applies.
+- A new or renamed CLI flag, mode, or `--indicator` key.
+- A new Linear label / status convention Ralph reacts to (e.g. `ralph:branch:<name>`, `ralph:auto-merge`). Document the label _and_ what config it ties to.
+- A new lifecycle phase, post-task action, or external command Ralph runs (e.g. `gh pr merge`).
+- Behavior change to an existing user-visible feature (PR creation, CI fix loop, conflict scan, worktree cleanup, etc.).
+
+Search the README before claiming "no README update needed":
+
+```bash
+grep -nE '<new-flag>|<new-config-key>|<new-label>' README.md
+```
+
+Empty grep + user-visible feature = README is stale. Skip the update only for pure internal refactors, test-only changes, or fixes that don't alter documented behavior.
+
 ## 2. Run every CI gate locally before pushing
 
 CI runs the same suite remotely; finding failures here saves a round-trip. Run them in this order from the repo root:
