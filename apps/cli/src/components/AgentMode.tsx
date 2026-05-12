@@ -406,8 +406,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     }
 
     void init().catch((err: unknown) => {
-      process.stderr.write(`\nError: ${err instanceof Error ? err.message : String(err)}\n`);
-      exit();
+      appendLog(`! ${err instanceof Error ? err.message : String(err)}`, "red");
+      // Delay exit so React can render the error in the logs panel before unmounting.
+      setTimeout(() => {
+        exit();
+        setTimeout(() => process.exit(1), 200);
+      }, 100);
     });
 
     let shuttingDown = false;
