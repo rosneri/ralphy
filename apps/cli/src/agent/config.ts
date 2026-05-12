@@ -10,10 +10,7 @@ const GetIndicatorSchema = z.object({
   filter: z.array(MarkerSchema).default([]),
 });
 
-const SetIndicatorSchema = z.union([
-  MarkerSchema,
-  z.object({ apply: z.array(MarkerSchema).min(1) }),
-]);
+const SetIndicatorSchema = z.union([z.array(MarkerSchema).min(1), MarkerSchema]);
 
 /**
  * Linear is the single source of truth for which issues Ralph has touched.
@@ -50,7 +47,7 @@ const IndicatorsSchema = z
     for (const key of ["clearConflicted", "clearReview"] as const) {
       const clear = value[key];
       if (!clear) continue;
-      const markers = "apply" in clear ? clear.apply : [clear];
+      const markers = Array.isArray(clear) ? clear : [clear];
       for (const m of markers) {
         if (m.type !== "label") {
           ctx.addIssue({
@@ -176,8 +173,28 @@ export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfi
     return RalphyConfigSchema.parse({});
   }
   const text = await file.text();
-  const raw = JSON.parse(stripJsonComments(text));
-  return RalphyConfigSchema.parse(raw);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stripJsonComments(text));
+  } catch (error) {
+    throw new Error(
+      `ralphy.config.json is not valid JSON.\n` +
+        `  File: ${path}\n` +
+        `  ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `Run \`ralph init\` to see the full default config with all available settings.`,
+    );
+  }
+  const result = RalphyConfigSchema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `  • ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("\n");
+    throw new Error(
+      `ralphy.config.json has invalid settings:\n${issues}\n\n` +
+        `Run \`ralph init\` to see the full default config with all available settings.`,
+    );
+  }
+  return result.data;
 }
 
 /**
@@ -309,18 +326,18 @@ const DEFAULT_CONFIG_TEMPLATE = `{
       // after opening the PR so the PR merges as soon as required checks pass.
       // "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
 
-      // Applied when Ralph picks up an issue.
+      // Applied when Ralph picks up an issue. Single marker or array of markers.
       // "setInProgress": { "type": "label", "value": "ralph:in-progress" },
-      // — or use attachment type to stamp a single "Ralphy" entry on the issue:
       // "setInProgress": { "type": "attachment", "value": "In Progress" },
+      // "setInProgress": [{ "type": "status", "value": "In Progress" }, { "type": "attachment", "value": "In Progress" }],
 
       // Applied on clean success.
       // "setDone": { "type": "status", "value": "In Review" },
-      // "setDone": { "type": "attachment", "value": "Done" },
+      // "setDone": [{ "type": "status", "value": "In Review" }, { "type": "attachment", "value": "Done" }],
 
       // Applied when the task exits with an error (quarantine signal).
       // "setError": { "type": "label", "value": "ralph:error" },
-      // "setError": { "type": "attachment", "value": "Error" },
+      // "setError": [{ "type": "label", "value": "ralph:error" }, { "type": "attachment", "value": "Error" }],
 
       // Applied when a PR merge conflict is detected.
       // "setConflicted": { "type": "label", "value": "ralph:conflict" },

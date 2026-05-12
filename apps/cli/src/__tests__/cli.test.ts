@@ -227,12 +227,10 @@ describe("parseArgs", () => {
         { type: "label", value: "ready" },
       ],
     });
-    expect(result.indicators.setDone).toEqual({
-      apply: [
-        { type: "status", value: "Done" },
-        { type: "label", value: "shipped" },
-      ],
-    });
+    expect(result.indicators.setDone).toEqual([
+      { type: "status", value: "Done" },
+      { type: "label", value: "shipped" },
+    ]);
   });
 
   test("--indicator rejects unknown key / type / empty value", async () => {
@@ -262,7 +260,7 @@ describe("parseArgs", () => {
     expect(result.indicators.setDone).toEqual({ type: "attachment", value: "Done" });
   });
 
-  test("--indicator merges attachment with other types into apply[]", async () => {
+  test("--indicator merges attachment with other types into an array", async () => {
     const result = await parseArgs([
       "agent",
       "--indicator",
@@ -270,12 +268,10 @@ describe("parseArgs", () => {
       "--indicator",
       "setDone:attachment:Completed",
     ]);
-    expect(result.indicators.setDone).toEqual({
-      apply: [
-        { type: "status", value: "Done" },
-        { type: "attachment", value: "Completed" },
-      ],
-    });
+    expect(result.indicators.setDone).toEqual([
+      { type: "status", value: "Done" },
+      { type: "attachment", value: "Completed" },
+    ]);
   });
 
   test("indicators default to empty object", async () => {

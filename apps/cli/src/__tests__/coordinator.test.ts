@@ -365,12 +365,10 @@ describe("AgentCoordinator — set/clear indicators", () => {
 
   test("multi-marker setDone applies both markers in sequence", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
-    const setDone: SetIndicator = {
-      apply: [
-        { type: "status", value: "Done" },
-        { type: "label", value: "shipped" },
-      ],
-    };
+    const setDone: SetIndicator = [
+      { type: "status", value: "Done" },
+      { type: "label", value: "shipped" },
+    ];
     // The coordinator passes the SetIndicator to applyIndicator as-is;
     // unpacking is wire's job. So we just observe the call shape.
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone });

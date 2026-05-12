@@ -221,10 +221,9 @@ function mergeIndicator(bag: Partial<Indicators>, key: keyof Indicators, marker:
     (bag as Record<string, GetIndicator>)[key] = { filter };
   } else {
     const existing = bag[key] as SetIndicator | undefined;
-    let next: SetIndicator;
-    if (!existing) next = marker;
-    else if ("apply" in existing) next = { apply: [...existing.apply, marker] };
-    else next = { apply: [existing, marker] };
+    const next: SetIndicator = existing
+      ? [...(Array.isArray(existing) ? existing : [existing]), marker]
+      : marker;
     (bag as Record<string, SetIndicator>)[key] = next;
   }
 }

@@ -69,7 +69,7 @@ describe("agent/config", () => {
           indicators: {
             getTodo: { filter: [{ type: "status", value: "Todo" }] },
             setDone: { type: "status", value: "Done" },
-            setError: { apply: [{ type: "label", value: "ralph:error" }] },
+            setError: [{ type: "label", value: "ralph:error" }],
           },
         },
       }),
@@ -81,20 +81,25 @@ describe("agent/config", () => {
       filter: [{ type: "status", value: "Todo" }],
     });
     expect(cfg.linear.indicators.setDone).toEqual({ type: "status", value: "Done" });
-    expect(cfg.linear.indicators.setError).toEqual({
-      apply: [{ type: "label", value: "ralph:error" }],
-    });
+    expect(cfg.linear.indicators.setError).toEqual([{ type: "label", value: "ralph:error" }]);
   });
 
-  test("loadRalphyConfig rejects unknown linear keys", async () => {
+  test("loadRalphyConfig rejects invalid JSON with pretty error", async () => {
+    await Bun.write(join(tempDir, "ralphy.config.json"), "{ not valid json }");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("not valid JSON");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
+  });
+
+  test("loadRalphyConfig rejects unknown linear keys with pretty error", async () => {
     await Bun.write(
       join(tempDir, "ralphy.config.json"),
       JSON.stringify({ linear: { statuses: ["Todo"], doneLabel: "shipped" } }),
     );
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow();
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
-  test("loadRalphyConfig rejects status-typed clearConflicted", async () => {
+  test("loadRalphyConfig rejects status-typed clearConflicted with pretty error", async () => {
     await Bun.write(
       join(tempDir, "ralphy.config.json"),
       JSON.stringify({
@@ -105,7 +110,8 @@ describe("agent/config", () => {
         },
       }),
     );
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow();
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
   test("ensureRalphyConfig creates file with defaults when missing", async () => {
