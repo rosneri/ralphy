@@ -23,8 +23,11 @@ export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";
  *  comment that should become the next task verbatim, so the worker
  *  doesn't have to guess which of N comments matters. */
 export interface MentionTrigger {
-  /** Where the mention was authored. */
-  source: "linear" | "github";
+  /** Where the trigger originated.
+   *  - "linear" / "github": an `@<handle>` mention on a comment.
+   *  - "github-review": one or more unresolved review-thread comments on
+   *     an open, unapproved PR. Body carries a pre-built digest. */
+  source: "linear" | "github" | "github-review";
   /** Comment body (verbatim, including the @ralphy handle). */
   body: string;
   /** ISO timestamp — used for idempotency / logging. */
@@ -504,7 +507,9 @@ export class AgentCoordinator {
       const sourceTag = trigger
         ? trigger.source === "github"
           ? " (GitHub @mention)"
-          : " (Linear @mention)"
+          : trigger.source === "github-review"
+            ? " (GitHub code review)"
+            : " (Linear @mention)"
         : "";
       try {
         await this.deps.postComment(

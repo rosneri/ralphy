@@ -105,6 +105,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     indicators: {},
     createPr: false,
     fixCi: false,
+    codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
     ...overrides,

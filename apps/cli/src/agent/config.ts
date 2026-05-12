@@ -109,6 +109,17 @@ const RalphyConfigSchema = z
         mentionTrigger: z.boolean().default(false),
         // The handle to scan for. Case-insensitive. Defaults to "@ralphy".
         mentionHandle: z.string().default("@ralphy"),
+        // When true, the agent scans open, unmerged, unapproved tracked
+        // PRs for unresolved review-thread comments. Newer-than-pickup
+        // comments enqueue the issue as a code-review run with a digest
+        // of every unresolved thread as the prepended task. If the PR
+        // is stalled (Ralph is the last actor) for more than
+        // `codeReviewStaleHours`, a one-shot reviewer ping is posted on
+        // the GitHub PR with the reviewer's @-handle.
+        codeReviewTrigger: z.boolean().default(false),
+        // Hours of reviewer silence before Ralph nudges the reviewer
+        // back to the PR. Only fires while `codeReviewTrigger` is on.
+        codeReviewStaleHours: z.number().nonnegative().default(24),
         /**
          * Action map. Keys name the lifecycle event; values are typed
          * markers (label/status) to query or apply. See {@link IndicatorsSchema}.
@@ -121,6 +132,8 @@ const RalphyConfigSchema = z
         updateEveryIterations: 10,
         mentionTrigger: false,
         mentionHandle: "@ralphy",
+        codeReviewTrigger: false,
+        codeReviewStaleHours: 24,
         indicators: {},
       }),
   })
@@ -137,6 +150,8 @@ const RalphyConfigSchema = z
       updateEveryIterations: 10,
       mentionTrigger: false,
       mentionHandle: "@ralphy",
+      codeReviewTrigger: false,
+      codeReviewStaleHours: 24,
       indicators: {},
     },
   });
@@ -258,6 +273,12 @@ const DEFAULT_CONFIG_TEMPLATE = `{
     // with the mention text as the prepended task.
     "mentionTrigger": false,
     // "mentionHandle": "@ralphy",
+
+    // Watch open tracked PRs for unresolved review-thread comments and
+    // prepend a code-review task. Pings the reviewer on the GitHub PR
+    // when stalled for more than codeReviewStaleHours.
+    "codeReviewTrigger": false,
+    "codeReviewStaleHours": 24,
 
     // Indicators map Ralph lifecycle events to Linear labels/statuses.
     // WARNING: activating indicators will query AND mutate your Linear workspace.

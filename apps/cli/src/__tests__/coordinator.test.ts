@@ -452,6 +452,28 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     ).toBe(true);
   });
 
+  test("github-review trigger annotates the pickup comment with Code review", async () => {
+    const issueA = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setMentions([
+      {
+        issue: issueA,
+        trigger: {
+          source: "github-review",
+          body: "_src/foo.ts:42_\n\n> **reviewer** (2026-05-12T09:00:00Z)\n>\n> rename this",
+          createdAt: "2026-05-12T09:00:00Z",
+          author: "reviewer-1",
+          url: "https://github.com/o/r/pull/1",
+        },
+      },
+    ]);
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.comments.some((c) => c.body.includes("GitHub code review"))).toBe(true);
+  });
+
   test("@ralphy mention from Linear annotates the pickup comment with Linear @mention", async () => {
     const issueA = issue("a", "ENG-1");
     const ctx = makeDeps();
