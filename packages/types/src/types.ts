@@ -102,8 +102,8 @@ export interface GetIndicator {
   filter: Marker[];
 }
 
-/** Single marker, or `{apply: [...]}` for multiple in one transition. */
-export type SetIndicator = Marker | { apply: Marker[] };
+/** Single marker or array of markers to apply in one transition. */
+export type SetIndicator = Marker | Marker[];
 
 /**
  * Action-name → indicator map. All keys optional; missing keys mean
@@ -137,7 +137,7 @@ export interface Indicators {
 
 /** Convenience: extract the marker list applied by a SetIndicator. */
 export function markersOf(set: SetIndicator): Marker[] {
-  return "apply" in set ? set.apply : [set];
+  return Array.isArray(set) ? set : [set];
 }
 
 // --- Phase config ---

@@ -173,8 +173,8 @@ interface BuildAgentCoordinatorResult {
 
 /**
  * Resolve the effective Indicators map: CLI overrides replace config keys
- * one-by-one. Repeated CLI flags for the same key collapse into
- * `{apply: [...]}`. CLI is authoritative when present. Strips `undefined`
+ * one-by-one. Repeated CLI flags for the same key collapse into a `Marker[]`.
+ * CLI is authoritative when present. Strips `undefined`
  * values from the merged record (exactOptionalPropertyTypes).
  */
 function mergeIndicators(cfg: Record<string, unknown>, cli: Partial<Indicators>): Indicators {
@@ -461,7 +461,7 @@ export function buildAgentCoordinator(
   ): Promise<LinearIssue[]> {
     if (!inc) return [];
     // GetIndicator carries its filter list directly.
-    const include = "filter" in inc ? inc.filter : [];
+    const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     if (include.length === 0) return [];
     const spec: LinearFilterSpec = {
       team,
