@@ -146,7 +146,7 @@ describe("AgentCoordinator — todo polling", () => {
     await coord.init();
 
     const result = await coord.pollOnce();
-    expect(result).toEqual({ found: 3, added: 3 });
+    expect({ found: result.found, added: result.added }).toEqual({ found: 3, added: 3 });
     await tick();
 
     expect(coord.activeCount).toBe(2);
@@ -199,7 +199,9 @@ describe("AgentCoordinator — todo polling", () => {
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
     const r = await coord.pollOnce();
-    expect(r).toEqual({ found: 0, added: 0 });
+    expect(r.found).toBe(0);
+    expect(r.added).toBe(0);
+    expect(r.buckets).toEqual({ todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 });
     expect(ctx.logs.some((l) => l.text.includes("Linear poll failed: network down"))).toBe(true);
   });
 
@@ -216,7 +218,8 @@ describe("AgentCoordinator — todo polling", () => {
     expect(ctx.workers.get("change-eng-1")!.killed).toBe(true);
 
     const r = await coord.pollOnce();
-    expect(r).toEqual({ found: 0, added: 0 });
+    expect(r.found).toBe(0);
+    expect(r.added).toBe(0);
   });
 
   test("getters expose live counts and worker descriptors", async () => {
@@ -248,6 +251,35 @@ describe("AgentCoordinator — todo polling", () => {
     expect(ctx.workers.has("change-eng-1")).toBe(true);
     expect(ctx.workers.has("change-eng-2")).toBe(false);
     expect(ctx.logs.some((l) => l.text.includes("ENG-2") && l.text.includes("blocked"))).toBe(true);
+  });
+
+  test("pollOnce returns per-bucket counts for the dashboard", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1"), issue("b", "ENG-2")] });
+    ctx.setInProgress([issue("c", "ENG-3")]);
+    ctx.setConflicted([issue("d", "ENG-4")]);
+    ctx.setReview([issue("e", "ENG-5")]);
+    ctx.setMentions([
+      {
+        issue: issue("f", "ENG-6"),
+        trigger: {
+          source: "linear",
+          body: "@ralphy please look",
+          createdAt: "2026-05-12T00:00:00Z",
+        },
+      },
+    ]);
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    const r = await coord.pollOnce();
+    await tick();
+    expect(r.buckets).toEqual({
+      todo: 2,
+      inProgress: 1,
+      conflicted: 1,
+      review: 1,
+      mentions: 1,
+    });
+    expect(r.found).toBe(6);
   });
 
   test("maxTickets caps how many issues are started this run", async () => {

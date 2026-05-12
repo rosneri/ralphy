@@ -245,7 +245,7 @@ Both scripts log failures but never block the loop. **`appendPrompt`** (or `--pr
 
 ### Dashboard and logs
 
-The terminal dashboard shows three always-visible panels: **RALPH AGENT** (engine/model, concurrency, poll interval, active limits, feature flags, Linear filter), **POLL STATUS + WORKERS** (last-poll counts, next-poll countdown, active/queued totals), and **TASKS tab bar** (numbered worker tabs — `Tab` / `← →` / `1-9` to switch).
+The terminal dashboard shows three always-visible panels: **RALPH AGENT** (engine/model, concurrency, poll interval, active limits, feature flags, Linear filter), **POLL STATUS + WORKERS** (last-poll bucket breakdown — `todo · resume · conflict · review · mention` (each colored when nonzero) — plus `new` and next-poll countdown, active/queued totals), and **TASKS tab bar** (numbered worker tabs — `Tab` / `← →` / `1-9` to switch).
 
 Each worker card shows: priority badge + identifier + title + mode badge, `↗ LINEAR`, `↗ PR`, `▶ TASK` (first unchecked task from `tasks.md`, refreshed every second), `PHASE` with color + elapsed time, `⏵ CMD` when a shell command is in flight, `LOG` path for `tail -f`, and `─ OUTPUT ─` with live stdout/stderr.
 
