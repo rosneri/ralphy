@@ -1,4 +1,4 @@
-import type { Marker } from "@ralphy/types";
+import type { GetIndicator, Marker } from "@ralphy/types";
 
 export interface LinearIssue {
   id: string;
@@ -400,6 +400,36 @@ export async function addLabelToIssue(
     id: issueId,
     labelId,
   });
+}
+
+const BRANCH_LABEL_PREFIX = "ralph:branch:";
+
+/** Extract the per-issue PR base branch from a `ralph:branch:<name>` label.
+ *  Returns the suffix (trimmed) when present, otherwise undefined. The
+ *  prefix match is case-insensitive but the suffix is returned verbatim so
+ *  git refs keep their original casing. */
+export function baseBranchFromLabels(labels: string[]): string | undefined {
+  for (const label of labels) {
+    if (label.toLowerCase().startsWith(BRANCH_LABEL_PREFIX)) {
+      const value = label.slice(BRANCH_LABEL_PREFIX.length).trim();
+      if (value) return value;
+    }
+  }
+  return undefined;
+}
+
+/** Does an already-fetched issue match a get-indicator? Used to decide
+ *  per-issue opt-ins (e.g. auto-merge) without re-querying Linear. */
+export function issueMatchesGetIndicator(
+  issue: Pick<LinearIssue, "labels" | "state">,
+  indicator: GetIndicator | undefined,
+): boolean {
+  if (!indicator || indicator.filter.length === 0) return false;
+  const labels = new Set(issue.labels.map((l) => l.toLowerCase()));
+  const stateName = issue.state.name.toLowerCase();
+  return indicator.filter.some((m) =>
+    m.type === "label" ? labels.has(m.value.toLowerCase()) : stateName === m.value.toLowerCase(),
+  );
 }
 
 /** Remove a label from an issue. No-op if the issue does not bear it. */

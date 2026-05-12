@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { prependFixTask } from "@ralphy/core/tasks-md";
-import type { LinearIssue } from "./linear";
+import { baseBranchFromLabels, type LinearIssue } from "./linear";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
@@ -28,9 +28,11 @@ interface PostTaskInput {
   useWorktree: boolean;
   wantPr: boolean;
   wantFixCi: boolean;
+  wantAutoMerge: boolean;
   cfg: {
     teardownScript: string | null;
     prBaseBranch: string;
+    autoMergeStrategy: "squash" | "merge" | "rebase";
     maxCiFixAttempts: number;
     ciPollIntervalSeconds: number;
     cleanupWorktreeOnSuccess: boolean;
@@ -55,6 +57,7 @@ export type PostTaskPhase =
   | "push-retry"
   | "rebasing"
   | "pr-create"
+  | "auto-merge-enabled"
   | "conflict-check"
   | "conflict-fix-inner"
   | "ci-poll"
@@ -93,6 +96,9 @@ interface PostTaskCtx {
   changeName: string;
   cwd: string;
   branch: string;
+  /** Effective PR base for this issue. Either cfg.prBaseBranch or a
+   *  per-issue override from a `ralph:branch:<name>` Linear label. */
+  base: string;
   changeDir: string;
   stateFilePath: string;
   cfg: PostTaskInput["cfg"];
@@ -196,6 +202,7 @@ async function createPrWithRetry(
   ctx: PostTaskCtx,
   issue: LinearIssue,
 ): Promise<{ pr: Awaited<ReturnType<typeof createPullRequest>>; gaveUp: boolean }> {
+  const base = ctx.base;
   const maxAttempts = ctx.cfg.maxCiFixAttempts;
   let hookFixAttempt = 0;
   let nonFfRebaseAttempted = false;
@@ -204,10 +211,7 @@ async function createPrWithRetry(
   while (true) {
     try {
       ctx.emit("pr-create", "git push + gh pr create");
-      pr = await createPullRequest(
-        { cwd: ctx.cwd, branch: ctx.branch, issue, base: ctx.cfg.prBaseBranch },
-        ctx.cmd,
-      );
+      pr = await createPullRequest({ cwd: ctx.cwd, branch: ctx.branch, issue, base }, ctx.cmd);
       return { pr, gaveUp: false };
     } catch (err) {
       const e = err as Error & { stderr?: string; stdout?: string; code?: number };
@@ -393,10 +397,10 @@ async function fixConflictsAndCiLoop(
           ctx,
           "Resolve PR merge conflicts",
           [
-            `The PR ${prUrl} has merge conflicts with \`${ctx.cfg.prBaseBranch}\`.`,
+            `The PR ${prUrl} has merge conflicts with \`${ctx.base}\`.`,
             "",
             "Steps:",
-            `1. \`git fetch origin ${ctx.cfg.prBaseBranch}\` then rebase or merge \`${ctx.cfg.prBaseBranch}\` into the current branch.`,
+            `1. \`git fetch origin ${ctx.base}\` then rebase or merge \`${ctx.base}\` into the current branch.`,
             "2. Resolve conflicts in the files git lists.",
             "3. Stage and commit the resolution.",
           ].join("\n"),
@@ -493,6 +497,7 @@ interface PrPhaseInput {
   stateFilePath: string;
   issue: LinearIssue | null;
   wantFixCi: boolean;
+  wantAutoMerge: boolean;
   cfg: PostTaskInput["cfg"];
 }
 
@@ -517,7 +522,17 @@ interface PrPhaseDeps {
  * CI_FAILED_EXIT on failure.
  */
 export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
-  const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantFixCi, cfg } = input;
+  const {
+    changeName,
+    cwd,
+    branch,
+    changeDir,
+    stateFilePath,
+    issue,
+    wantFixCi,
+    wantAutoMerge,
+    cfg,
+  } = input;
   const { cmd, log, emit, respawnWorker, registerPr, checkPrConflict } = deps;
 
   if (!branch || !issue) {
@@ -528,10 +543,17 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     return PR_FAILED_EXIT;
   }
 
+  const labelBase = baseBranchFromLabels(issue.labels);
+  const base = labelBase ?? cfg.prBaseBranch;
+  if (labelBase && labelBase !== cfg.prBaseBranch) {
+    log(`  base branch override from label: ${labelBase}`, "gray");
+  }
+
   const ctx: PostTaskCtx = {
     changeName,
     cwd,
     branch,
+    base,
     changeDir,
     stateFilePath,
     cfg,
@@ -556,12 +578,23 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);
   if (prGaveUp) return PR_FAILED_EXIT;
   if (!pr) {
-    log(`  no commits ahead of ${cfg.prBaseBranch} — skipping PR`, "gray");
+    log(`  no commits ahead of ${base} — skipping PR`, "gray");
     return 0;
   }
 
   log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
   registerPr?.(changeName, pr.url);
+
+  if (wantAutoMerge) {
+    try {
+      await cmd.run(["gh", "pr", "merge", pr.url, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
+      log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${pr.url}`, "green");
+      emit("auto-merge-enabled", cfg.autoMergeStrategy);
+    } catch (err) {
+      const e = err as Error & { stderr?: string };
+      log(`! failed to enable auto-merge on ${pr.url}: ${e.stderr?.trim() || e.message}`, "yellow");
+    }
+  }
 
   return fixConflictsAndCiLoop(ctx, pr.url, wantFixCi, checkPrConflict);
 }
@@ -703,6 +736,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     useWorktree,
     wantPr,
     wantFixCi,
+    wantAutoMerge,
     cfg,
     respawnWorker,
   } = input;
@@ -714,7 +748,17 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
   }
   if (effectiveCode === 0 && wantPr) {
     effectiveCode = await runPrPhase(
-      { changeName, cwd, branch, changeDir, stateFilePath, issue, wantFixCi, cfg },
+      {
+        changeName,
+        cwd,
+        branch,
+        changeDir,
+        stateFilePath,
+        issue,
+        wantFixCi,
+        wantAutoMerge,
+        cfg,
+      },
       {
         cmd,
         log,

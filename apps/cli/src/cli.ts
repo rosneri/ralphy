@@ -93,6 +93,7 @@ const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getInProgress",
   "getConflicted",
   "getReview",
+  "getAutoMerge",
   "setInProgress",
   "setDone",
   "setError",
@@ -105,6 +106,7 @@ const GET_KEYS = new Set<keyof Indicators>([
   "getInProgress",
   "getConflicted",
   "getReview",
+  "getAutoMerge",
 ]);
 
 const HELP_TEXT = [
@@ -148,7 +150,7 @@ const HELP_TEXT = [
   "                          --indicator getTodo:status:Todo",
   "                          --indicator setDone:label:shipped",
   "                          --indicator setDone:status:Done   (combined with above → multi-marker)",
-  "                          Keys: getTodo, getInProgress, getConflicted, getReview,",
+  "                          Keys: getTodo, getInProgress, getConflicted, getReview, getAutoMerge,",
   "                                setInProgress, setDone, setError, setConflicted,",
   "                                clearConflicted, clearReview",
   "                          Types: label, status",

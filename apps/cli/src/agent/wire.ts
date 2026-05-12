@@ -19,6 +19,7 @@ import {
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
+  issueMatchesGetIndicator,
   type LinearIssue,
   type LinearFilterSpec,
 } from "./linear";
@@ -833,6 +834,10 @@ export function buildAgentCoordinator(
 
     const wantPr = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
+    const issueForChange = issueByChange.get(changeName);
+    const wantAutoMerge = issueForChange
+      ? issueMatchesGetIndicator(issueForChange, indicators.getAutoMerge)
+      : false;
     const wrapped = handle.exited.then(async (code) => {
       const workerLayout = projectLayout(cwd);
       const effectiveCode = await runPostTask(
@@ -848,9 +853,11 @@ export function buildAgentCoordinator(
           useWorktree,
           wantPr,
           wantFixCi,
+          wantAutoMerge,
           cfg: {
             teardownScript: cfg.teardownScript ?? null,
             prBaseBranch: cfg.prBaseBranch,
+            autoMergeStrategy: cfg.autoMergeStrategy,
             maxCiFixAttempts: cfg.maxCiFixAttempts,
             ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
             cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
