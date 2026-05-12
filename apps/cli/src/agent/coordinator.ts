@@ -19,6 +19,22 @@ export interface PrepareResult {
 
 export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";
 
+/** Per-issue review trigger emitted by mention scanning. Carries the
+ *  comment that should become the next task verbatim, so the worker
+ *  doesn't have to guess which of N comments matters. */
+export interface MentionTrigger {
+  /** Where the mention was authored. */
+  source: "linear" | "github";
+  /** Comment body (verbatim, including the @ralphy handle). */
+  body: string;
+  /** ISO timestamp — used for idempotency / logging. */
+  createdAt: string;
+  /** Author display name (Linear) or login (GitHub), if known. */
+  author?: string;
+  /** Permalink to the comment (GitHub URL or Linear issue URL). */
+  url?: string;
+}
+
 export interface CoordinatorDeps {
   /** Issues to pick up. Empty array if `getTodo` isn't configured. */
   fetchTodo: () => Promise<LinearIssue[]>;
@@ -29,15 +45,24 @@ export interface CoordinatorDeps {
   /** Done issues flagged for review follow-up (new reviewer comments).
    *  Empty array if `getReview` isn't configured. */
   fetchReview: () => Promise<LinearIssue[]>;
+  /** Done issues with new `@ralphy` mentions on Linear or their tracked
+   *  GitHub PR. Empty array if mention scanning is disabled. */
+  fetchMentions: () => Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
   /** Issues with `setDone` applied that ralph should scan for PR conflicts.
    *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
   fetchDoneCandidates: () => Promise<LinearIssue[]>;
   /**
    * Side-effect: scaffold (fresh), resume worktree (resume), or prepend
-   * conflict-fix task + reactivate state (conflict-fix). Returns the
-   * change name and (for conflict-fix) the PR URL.
+   * conflict-fix / review task + reactivate state. Returns the change
+   * name and (for conflict-fix) the PR URL. When `trigger` is supplied
+   * (review mode + mention scan), wire uses the trigger body verbatim
+   * as the task content instead of fetching all non-Ralph comments.
    */
-  prepare: (issue: LinearIssue, mode: SpawnMode) => Promise<PrepareResult>;
+  prepare: (
+    issue: LinearIssue,
+    mode: SpawnMode,
+    trigger?: MentionTrigger,
+  ) => Promise<PrepareResult>;
   /** Spawn the worker subprocess for `changeName`. */
   spawnWorker: (changeName: string, issue: LinearIssue) => WorkerHandle;
   /** Apply a SetIndicator (label add and/or status set) to the issue. */
@@ -88,7 +113,7 @@ export class AgentCoordinator {
   /** Issues whose prepare step is in flight (between dequeue and spawn). */
   private pendingIds = new Set<string>();
   /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
-  private queue: { issue: LinearIssue; mode: SpawnMode }[] = [];
+  private queue: { issue: LinearIssue; mode: SpawnMode; trigger?: MentionTrigger }[] = [];
   private stopped = false;
   /** Issues we've already detected as conflicted in this process — guards
    *  against re-posting the conflict comment every poll. Cleared once
@@ -137,12 +162,14 @@ export class AgentCoordinator {
     let inProgress: LinearIssue[] = [];
     let conflicted: LinearIssue[] = [];
     let review: LinearIssue[] = [];
+    let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
     try {
-      [todo, inProgress, conflicted, review] = await Promise.all([
+      [todo, inProgress, conflicted, review, mentions] = await Promise.all([
         this.deps.fetchTodo(),
         this.deps.fetchInProgress(),
         this.deps.fetchConflicted(),
         this.deps.fetchReview(),
+        this.deps.fetchMentions(),
       ]);
     } catch (err) {
       this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
@@ -150,9 +177,9 @@ export class AgentCoordinator {
       return { found: 0, added: 0 };
     }
 
-    if (todo.length + inProgress.length + conflicted.length + review.length > 0) {
+    if (todo.length + inProgress.length + conflicted.length + review.length + mentions.length > 0) {
       this.deps.onLog(
-        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review`,
+        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention`,
         "gray",
       );
     }
@@ -205,6 +232,20 @@ export class AgentCoordinator {
       this.deps.onLog(`  ↳ ${issue.identifier} queued (review)`, "gray");
     }
 
+    // 3b. @ralphy mention triggers — Linear / GitHub comments newer than
+    //     Ralph's last review-pickup ack. The trigger body becomes the task.
+    for (const { issue, trigger } of mentions) {
+      if (atTicketLimit()) break;
+      if (!eligible(issue.id)) continue;
+      this.queue.push({ issue, mode: "review", trigger });
+      queuedIds.add(issue.id);
+      added += 1;
+      this.deps.onLog(
+        `  ↳ ${issue.identifier} queued (review via ${trigger.source} mention)`,
+        "gray",
+      );
+    }
+
     // 4. Fresh todo.
     for (const issue of todo) {
       if (atTicketLimit()) break;
@@ -238,7 +279,8 @@ export class AgentCoordinator {
     await this.scanDoneForConflicts();
     await this.reportProgress();
 
-    const found = todo.length + inProgress.length + conflicted.length + review.length;
+    const found =
+      todo.length + inProgress.length + conflicted.length + review.length + mentions.length;
     return { found, added };
   }
 
@@ -386,14 +428,18 @@ export class AgentCoordinator {
     ) {
       const next = this.queue.shift()!;
       this.pendingIds.add(next.issue.id);
-      void this.launchWorker(next.issue, next.mode);
+      void this.launchWorker(next.issue, next.mode, next.trigger);
     }
   }
 
-  private async launchWorker(issue: LinearIssue, mode: SpawnMode): Promise<void> {
+  private async launchWorker(
+    issue: LinearIssue,
+    mode: SpawnMode,
+    trigger?: MentionTrigger,
+  ): Promise<void> {
     let prep: PrepareResult;
     try {
-      prep = await this.deps.prepare(issue, mode);
+      prep = await this.deps.prepare(issue, mode, trigger);
     } catch (err) {
       this.pendingIds.delete(issue.id);
       this.deps.onLog(
@@ -455,10 +501,15 @@ export class AgentCoordinator {
     }
 
     if (mode === "review" && this.opts.postComments !== false) {
+      const sourceTag = trigger
+        ? trigger.source === "github"
+          ? " (GitHub @mention)"
+          : " (Linear @mention)"
+        : "";
       try {
         await this.deps.postComment(
           issue,
-          `🔁 Ralph picked up new review comments. Tracking change: \`${prep.changeName}\``,
+          `🔁 Ralph picked up new review comments${sourceTag}. Tracking change: \`${prep.changeName}\``,
         );
       } catch (err) {
         this.deps.onLog(

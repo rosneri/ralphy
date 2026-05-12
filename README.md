@@ -169,6 +169,8 @@ A default `ralphy.config.json` is written on first run with every defaulted sett
     "assignee": "me",
     "postComments": true,
     "updateEveryIterations": 10,
+    "mentionTrigger": true,
+    "mentionHandle": "@ralphy",
     "indicators": {
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
       "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
@@ -212,6 +214,8 @@ Linear is the source of truth for which issues Ralph has touched. Each `linear.i
 - `clearConflicted` / `clearReview` — labels to remove once a conflicted PR is fixed or a review-mode issue is picked back up (status removal is not supported).
 
 **Review follow-ups.** When a Linear issue is in a "done" state and a reviewer adds the `getReview` marker (typically a label like `ralph:review` after leaving comments), Ralph picks it up, applies `setInProgress`, removes the `clearReview` label so the same trigger doesn't re-fire, fetches the comment thread, filters out Ralph's own comments, and prepends those reviewer comments as a new task at the top of `tasks.md`. The worker addresses them in the same change branch and `setDone` is re-applied on success.
+
+**`@ralphy` mention trigger.** Set `linear.mentionTrigger: true` (default `false`) to scan done-issue comments on both Linear and their linked GitHub PR for `@ralphy` mentions (configurable via `linear.mentionHandle`). New mentions enqueue the issue as a review run with the mention text used verbatim as the prepended task. Idempotency: a mention is considered processed when its `createdAt` is older than the most recent Ralph `🔁 picked up` comment on the Linear issue, so the same comment never re-fires across polls. Requires the `gh` CLI authenticated for the GitHub side.
 
 Marker types are `"label"` or `"status"`. Combine markers under `apply` when one event needs to set multiple — e.g. `setDone` flipping a status _and_ adding a "shipped" label.
 

@@ -1,5 +1,10 @@
 import { describe, expect, test, mock } from "bun:test";
-import { AgentCoordinator, type CoordinatorDeps, type SpawnMode } from "../agent/coordinator";
+import {
+  AgentCoordinator,
+  type CoordinatorDeps,
+  type SpawnMode,
+  type MentionTrigger,
+} from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import type { SetIndicator } from "@ralphy/types";
 
@@ -41,6 +46,7 @@ interface DepsResult {
   setInProgress: (issues: LinearIssue[]) => void;
   setConflicted: (issues: LinearIssue[]) => void;
   setReview: (issues: LinearIssue[]) => void;
+  setMentions: (mentions: { issue: LinearIssue; trigger: MentionTrigger }[]) => void;
   setDoneCandidates: (issues: LinearIssue[]) => void;
 }
 
@@ -56,6 +62,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   let inProgress: LinearIssue[] = [];
   let conflicted: LinearIssue[] = [];
   let review: LinearIssue[] = [];
+  let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
   let doneCandidates: LinearIssue[] = [];
 
   const deps: CoordinatorDeps = {
@@ -63,8 +70,9 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     fetchInProgress: mock(async () => inProgress),
     fetchConflicted: mock(async () => conflicted),
     fetchReview: mock(async () => review),
+    fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
-    prepare: mock(async (i: LinearIssue, _mode: SpawnMode) => ({
+    prepare: mock(async (i: LinearIssue, _mode: SpawnMode, _trigger?: MentionTrigger) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
     spawnWorker: mock((changeName: string) => {
@@ -118,6 +126,9 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     setReview: (xs) => {
       review = xs;
+    },
+    setMentions: (xs) => {
+      mentions = xs;
     },
     setDoneCandidates: (xs) => {
       doneCandidates = xs;
@@ -413,6 +424,52 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     expect(ctx.removes).toContainEqual({ id: "a", ind: clearReview });
     // review pickup comment posted
     expect(ctx.comments.some((c) => c.body.includes("review comments"))).toBe(true);
+  });
+
+  test("@ralphy mention queues review with the trigger forwarded to prepare", async () => {
+    const issueA = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    const trigger: MentionTrigger = {
+      source: "github",
+      body: "@ralphy please refactor the parser",
+      createdAt: "2026-05-12T10:00:00Z",
+      author: "reviewer-1",
+      url: "https://github.com/o/r/pull/1#issuecomment-123",
+    };
+    ctx.setMentions([{ issue: issueA, trigger }]);
+    const seen: { mode: SpawnMode; trigger?: MentionTrigger }[] = [];
+    ctx.deps.prepare = async (i, mode, t) => {
+      seen.push({ mode, ...(t ? { trigger: t } : {}) });
+      return { changeName: `change-${i.identifier.toLowerCase()}` };
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(seen).toContainEqual({ mode: "review", trigger });
+    expect(
+      ctx.comments.some((c) => c.body.includes("GitHub @mention") && c.body.includes("picked up")),
+    ).toBe(true);
+  });
+
+  test("@ralphy mention from Linear annotates the pickup comment with Linear @mention", async () => {
+    const issueA = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setMentions([
+      {
+        issue: issueA,
+        trigger: {
+          source: "linear",
+          body: "@ralphy can you add tests",
+          createdAt: "2026-05-12T11:00:00Z",
+        },
+      },
+    ]);
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.comments.some((c) => c.body.includes("Linear @mention"))).toBe(true);
   });
 
   test("review success re-applies setDone (treated like fresh-mode completion)", async () => {
