@@ -142,19 +142,19 @@ The cycle repeats every poll. For code-review-iteration in particular, `setDone`
 
 Linear is the source of truth for which issues Ralph has touched. The `linear.indicators` map declares how Ralph queries and mutates Linear at each lifecycle event. All keys are optional; an unset key means "Ralph doesn't perform that action".
 
-| Key               | Type                            | Purpose                                                                         |
-| ----------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| `getTodo`         | `{filter: Marker[]}`            | Issues to pick up (fresh)                                                       |
-| `getInProgress`   | `{filter: Marker[]}`            | Issues to resume after restart                                                  |
-| `getConflicted`   | `{filter: Marker[]}`            | Issues whose PR is conflicted (re-fix run)                                      |
-| `getReview`       | `{filter: Marker[]}`            | Done issues flagged for review follow-up                                        |
-| `getAutoMerge`    | `{filter: Marker[]}`            | Issues whose PR should be auto-merged once required checks pass                 |
-| `setInProgress`   | `Marker` or `{apply: Marker[]}` | Applied when a worker spawns (any non-resume mode)                              |
-| `setDone`         | `Marker` or `{apply: Marker[]}` | Applied on clean exit                                                           |
-| `setError`        | `Marker` or `{apply: Marker[]}` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
-| `setConflicted`   | `Marker` or `{apply: Marker[]}` | Applied when a done-PR is detected as conflicted                                |
-| `clearConflicted` | `Marker` or `{apply: Marker[]}` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
-| `clearReview`     | `Marker` or `{apply: Marker[]}` | Label(s) removed when a review pickup happens (status removal is not supported) |
+| Key               | Type                   | Purpose                                                                         |
+| ----------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| `getTodo`         | `{filter: Marker[]}`   | Issues to pick up (fresh)                                                       |
+| `getInProgress`   | `{filter: Marker[]}`   | Issues to resume after restart                                                  |
+| `getConflicted`   | `{filter: Marker[]}`   | Issues whose PR is conflicted (re-fix run)                                      |
+| `getReview`       | `{filter: Marker[]}`   | Done issues flagged for review follow-up                                        |
+| `getAutoMerge`    | `{filter: Marker[]}`   | Issues whose PR should be auto-merged once required checks pass                 |
+| `setInProgress`   | `Marker` or `Marker[]` | Applied when a worker spawns (any non-resume mode)                              |
+| `setDone`         | `Marker` or `Marker[]` | Applied on clean exit                                                           |
+| `setError`        | `Marker` or `Marker[]` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
+| `setConflicted`   | `Marker` or `Marker[]` | Applied when a done-PR is detected as conflicted                                |
+| `clearConflicted` | `Marker` or `Marker[]` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
+| `clearReview`     | `Marker` or `Marker[]` | Label(s) removed when a review pickup happens (status removal is not supported) |
 
 A `Marker` is one of three types:
 
@@ -164,7 +164,7 @@ A `Marker` is one of three types:
 | `"status"`     | `"In Progress"`       | Updates the Linear workflow status of the issue                                                                                                                                                                                           |
 | `"attachment"` | `"In Progress"`       | Upserts a single **Ralphy** attachment on the issue; `value` becomes the subtitle. The same entry is reused across every lifecycle transition — Ralph creates it on first apply and edits it on subsequent ones, so the issue stays tidy. |
 
-Combine with `apply` when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label _and_ updating the attachment subtitle.
+Use an array when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label _and_ updating the attachment subtitle.
 
 Example `ralphy.config.json`:
 
@@ -200,12 +200,10 @@ Example `ralphy.config.json`:
         "filter": [{ "type": "label", "value": "ralph:auto-merge" }],
       },
       "setInProgress": { "type": "status", "value": "In Progress" },
-      "setDone": {
-        "apply": [
-          { "type": "status", "value": "In Review" },
-          { "type": "label", "value": "ralphy-done" },
-        ],
-      },
+      "setDone": [
+        { "type": "status", "value": "In Review" },
+        { "type": "label", "value": "ralphy-done" },
+      ],
       "setError": { "type": "label", "value": "ralph:error" },
       "setConflicted": { "type": "label", "value": "ralph:conflicted" },
       "clearConflicted": { "type": "label", "value": "ralph:conflicted" },
