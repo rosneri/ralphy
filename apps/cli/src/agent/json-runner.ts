@@ -136,12 +136,46 @@ export async function runAgentJson({
   void tick();
 
   await new Promise<void>((resolve) => {
-    const onSig = () => {
+    let shuttingDown = false;
+    const onSig = (): void => {
+      if (shuttingDown) {
+        process.exit(130);
+      }
+      shuttingDown = true;
       cancelled = true;
       emit({ type: "stopped" });
       coord.stop();
       if (pollTimer) clearTimeout(pollTimer);
-      resolve();
+
+      const start = Date.now();
+      let warned = false;
+      const wait = setInterval(() => {
+        const active = coord.activeCount;
+        const elapsed = Date.now() - start;
+        if (active === 0) {
+          clearInterval(wait);
+          resolve();
+          return;
+        }
+        if (!warned && elapsed >= 5000) {
+          warned = true;
+          emit({
+            type: "log",
+            text: `! ${active} worker(s) still running after 5s — forcing exit at 10s`,
+            level: "warn",
+          });
+        }
+        if (elapsed >= 10_000) {
+          clearInterval(wait);
+          emit({
+            type: "log",
+            text: `! ${active} worker(s) did not exit within 10s — forcing process exit`,
+            level: "warn",
+          });
+          resolve();
+          setTimeout(() => process.exit(1), 50);
+        }
+      }, 100);
     };
     process.once("SIGINT", onSig);
     process.once("SIGTERM", onSig);

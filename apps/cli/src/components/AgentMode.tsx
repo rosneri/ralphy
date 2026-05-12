@@ -407,12 +407,48 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
     void init();
 
-    const onSig = () => {
+    let shuttingDown = false;
+    const onSig = (): void => {
+      if (shuttingDown) {
+        // Second signal — operator wants out now. 130 = SIGINT-style exit.
+        process.exit(130);
+      }
+      shuttingDown = true;
       cancelled = true;
       appendLog("stopping agent — sending SIGTERM to workers", "yellow");
       coordRef.current?.stop();
       if (pollTimer) clearTimeout(pollTimer);
-      exit();
+
+      const start = Date.now();
+      let warned = false;
+      const waitForWorkers = setInterval(() => {
+        const active = coordRef.current?.activeCount ?? 0;
+        const elapsed = Date.now() - start;
+        if (active === 0) {
+          clearInterval(waitForWorkers);
+          exit();
+          // Ink unmount + Linear API client may keep pending handles
+          // open; force the process down so the operator actually sees
+          // the shell prompt return.
+          setTimeout(() => process.exit(0), 200);
+          return;
+        }
+        if (!warned && elapsed >= 5000) {
+          warned = true;
+          appendLog(
+            `! ${active} worker${active === 1 ? "" : "s"} still running after 5s — forcing exit at 10s (press Ctrl-C again to exit now)`,
+            "red",
+          );
+        }
+        if (elapsed >= 10_000) {
+          clearInterval(waitForWorkers);
+          appendLog(
+            `! ${active} worker${active === 1 ? "" : "s"} did not exit within 10s — forcing process exit`,
+            "red",
+          );
+          setTimeout(() => process.exit(1), 50);
+        }
+      }, 100);
     };
     process.on("SIGINT", onSig);
     process.on("SIGTERM", onSig);
@@ -593,7 +629,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           <LabeledBox
             label="POLL STATUS"
             borderColor="gray"
-            width={termWidth - 30}
+            width={termWidth - 13}
             paddingX={1}
             flexDirection="column"
           >
@@ -654,19 +690,19 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           <LabeledBox
             label="WORKERS"
             borderColor="gray"
-            width={29}
+            width={12}
             paddingX={1}
             flexDirection="column"
           >
-            <Box gap={3}>
+            <Box gap={2}>
               <Box gap={1}>
-                <Text dimColor>active</Text>
+                <Text dimColor>A</Text>
                 <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
                   {activeCount}
                 </Text>
               </Box>
               <Box gap={1}>
-                <Text dimColor>queued</Text>
+                <Text dimColor>Q</Text>
                 <Text color={(coord?.queuedCount ?? 0 > 0) ? "yellow" : "gray"} bold>
                   {coord?.queuedCount ?? 0}
                 </Text>
