@@ -458,6 +458,17 @@ describe("App", () => {
   test("agent mode renders AgentMode (exits gracefully without LINEAR_API_KEY)", async () => {
     const prevKey = process.env["LINEAR_API_KEY"];
     delete process.env["LINEAR_API_KEY"];
+    // AgentMode's catch handler calls process.exit(1) after ~300ms; mock it so
+    // the timer doesn't kill the bun test process during coverage generation.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(process, "exit");
+    let capturedExitCode: number | undefined;
+    Object.defineProperty(process, "exit", {
+      value: (code?: number) => {
+        capturedExitCode = code;
+      },
+      writable: true,
+      configurable: true,
+    });
     try {
       await withStorage(async () => {
         const { frames } = render(
@@ -468,12 +479,18 @@ describe("App", () => {
             projectRoot={tempDir}
           />,
         );
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 150));
         const text = frames.join("\n");
         expect(text).toContain("agent mode");
         expect(text).toContain("LINEAR_API_KEY not set");
+        // Wait for the force-exit timer (100ms + 200ms) to fire against the mock.
+        await new Promise((r) => setTimeout(r, 250));
+        expect(capturedExitCode).toBe(1);
       });
     } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(process, "exit", originalDescriptor);
+      }
       if (prevKey !== undefined) process.env["LINEAR_API_KEY"] = prevKey;
     }
   });

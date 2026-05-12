@@ -312,9 +312,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
       const apiKey = process.env["LINEAR_API_KEY"];
       if (!apiKey) {
-        appendLog("! LINEAR_API_KEY not set — cannot poll Linear", "red");
-        exit();
-        return;
+        throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
       const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
@@ -407,7 +405,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       void tick();
     }
 
-    void init();
+    void init().catch((err: unknown) => {
+      appendLog(`! ${err instanceof Error ? err.message : String(err)}`, "red");
+      // Delay exit so React can render the error in the logs panel before unmounting.
+      setTimeout(() => {
+        exit();
+        setTimeout(() => process.exit(1), 200);
+      }, 100);
+    });
 
     let shuttingDown = false;
     const onSig = (): void => {
