@@ -276,7 +276,21 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     lastAdded: number | null;
     lastAt: number | null;
     filterDesc: string;
-  }>({ state: "idle", lastFound: null, lastAdded: null, lastAt: null, filterDesc: "" });
+    lastBuckets: {
+      todo: number;
+      inProgress: number;
+      conflicted: number;
+      review: number;
+      mentions: number;
+    } | null;
+  }>({
+    state: "idle",
+    lastFound: null,
+    lastAdded: null,
+    lastAt: null,
+    filterDesc: "",
+    lastBuckets: null,
+  });
 
   function appendLog(text: string, color?: string, workerLogFile?: string) {
     setLogs((prev) => [...prev, { id: nextId(), text, color }]);
@@ -372,7 +386,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       const tick = async () => {
         if (cancelled) return;
         setPollStatus((p) => ({ ...p, state: "polling", filterDesc }));
-        const { found, added } = await coord.pollOnce();
+        const { found, added, buckets } = await coord.pollOnce();
         if (cancelled) return;
         if (added > 0) {
           appendLog(`  ${added} new issue${added === 1 ? "" : "s"} queued (found ${found} open)`);
@@ -383,6 +397,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           lastAdded: added,
           lastAt: Date.now(),
           filterDesc,
+          lastBuckets: buckets,
         });
         nextPollAtRef.current = Date.now() + pollInterval * 1000;
         pollTimer = setTimeout(tick, pollInterval * 1000);
@@ -596,15 +611,37 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   <Text dimColor>│</Text>
                   <Text dimColor>found</Text>
                   <Text color="white">{pollStatus.lastFound}</Text>
-                  <Text dimColor>│</Text>
-                  <Text dimColor>new</Text>
-                  <Text color={pollStatus.lastAdded! > 0 ? "green" : "white"}>
-                    {pollStatus.lastAdded}
-                  </Text>
+                  {pollStatus.lastBuckets && (
+                    <>
+                      <Text dimColor>│</Text>
+                      <Text dimColor>todo</Text>
+                      <Text color="white">{pollStatus.lastBuckets.todo}</Text>
+                      <Text dimColor>·</Text>
+                      <Text dimColor>resume</Text>
+                      <Text color={pollStatus.lastBuckets.inProgress > 0 ? "cyan" : "white"}>
+                        {pollStatus.lastBuckets.inProgress}
+                      </Text>
+                      <Text dimColor>·</Text>
+                      <Text dimColor>conflict</Text>
+                      <Text color={pollStatus.lastBuckets.conflicted > 0 ? "red" : "white"}>
+                        {pollStatus.lastBuckets.conflicted}
+                      </Text>
+                      <Text dimColor>·</Text>
+                      <Text dimColor>review</Text>
+                      <Text color={pollStatus.lastBuckets.review > 0 ? "yellow" : "white"}>
+                        {pollStatus.lastBuckets.review}
+                      </Text>
+                      <Text dimColor>·</Text>
+                      <Text dimColor>mention</Text>
+                      <Text color={pollStatus.lastBuckets.mentions > 0 ? "magenta" : "white"}>
+                        {pollStatus.lastBuckets.mentions}
+                      </Text>
+                    </>
+                  )}
                   {secsToNextPoll !== null && (
                     <>
                       <Text dimColor>│</Text>
-                      <Text dimColor>next in</Text>
+                      <Text dimColor>↺</Text>
                       <Text color="gray">{secsToNextPoll}s</Text>
                     </>
                   )}

@@ -19,6 +19,28 @@ export interface PrepareResult {
 
 export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";
 
+/** Per-bucket counts surfaced by `pollOnce` for the dashboard / JSON
+ *  output. `found` is the sum across buckets and `added` is how many
+ *  the coordinator actually enqueued this tick (after eligibility,
+ *  dependency, and ticket-cap checks). */
+interface PollBuckets {
+  todo: number;
+  inProgress: number;
+  conflicted: number;
+  review: number;
+  mentions: number;
+}
+interface PollResult {
+  found: number;
+  added: number;
+  buckets: PollBuckets;
+}
+const emptyPollResult = (): PollResult => ({
+  found: 0,
+  added: 0,
+  buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 },
+});
+
 /** Per-issue review trigger emitted by mention scanning. Carries the
  *  comment that should become the next task verbatim, so the worker
  *  doesn't have to guess which of N comments matters. */
@@ -158,8 +180,8 @@ export class AgentCoordinator {
    *
    *  Returns counts for status display.
    */
-  async pollOnce(): Promise<{ found: number; added: number }> {
-    if (this.stopped) return { found: 0, added: 0 };
+  async pollOnce(): Promise<PollResult> {
+    if (this.stopped) return emptyPollResult();
 
     let todo: LinearIssue[] = [];
     let inProgress: LinearIssue[] = [];
@@ -177,7 +199,7 @@ export class AgentCoordinator {
     } catch (err) {
       this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
       capture("agent_linear_poll_failed", { error: (err as Error).message });
-      return { found: 0, added: 0 };
+      return emptyPollResult();
     }
 
     if (todo.length + inProgress.length + conflicted.length + review.length + mentions.length > 0) {
@@ -282,9 +304,16 @@ export class AgentCoordinator {
     await this.scanDoneForConflicts();
     await this.reportProgress();
 
+    const buckets: PollBuckets = {
+      todo: todo.length,
+      inProgress: inProgress.length,
+      conflicted: conflicted.length,
+      review: review.length,
+      mentions: mentions.length,
+    };
     const found =
-      todo.length + inProgress.length + conflicted.length + review.length + mentions.length;
-    return { found, added };
+      buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
+    return { found, added, buckets };
   }
 
   /** Returns true if all `blockedByIds` are not present in `inProgress`/

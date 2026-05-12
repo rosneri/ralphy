@@ -217,6 +217,9 @@ class FakeLinear {
     if (q.includes("TeamId") || (q.includes("teams") && q.includes("key"))) {
       return new Response(JSON.stringify({ data: { teams: { nodes: [{ id: "team-fake-id" }] } } }));
     }
+    if (q.includes("IssueAttachments") || q.includes("attachments(first")) {
+      return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }));
+    }
     if (q.includes("issue(id")) {
       // fetchIssueComments
       return new Response(JSON.stringify({ data: { issue: { comments: { nodes: [] } } } }));

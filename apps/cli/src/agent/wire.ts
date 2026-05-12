@@ -11,6 +11,7 @@ import {
   fetchOpenIssues,
   addIssueComment,
   fetchIssueComments,
+  fetchIssueAttachments,
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
@@ -398,7 +399,16 @@ export function buildAgentCoordinator(
       onLog(`  created Linear label '${name}' for team ${t}`, "gray");
       return newId;
     } catch (err) {
-      onLog(`! Linear label '${name}' creation threw: ${(err as Error).message}`, "yellow");
+      // Linear returns errors as a `messages` array on the rejected
+      // promise; show them inline so the user can see e.g. "Label name
+      // already exists" instead of just "Linear API returned errors".
+      const e = err as Error & { messages?: string[] };
+      const detail = e.messages?.length ? ` — ${e.messages.join("; ")}` : "";
+      onLog(`! Linear label '${name}' creation threw: ${e.message}${detail}`, "yellow");
+      // On any failure, drop the label cache for this team so a stale
+      // miss doesn't persist; the next attempt re-queries Linear and
+      // may now see the label that was concurrently created elsewhere.
+      labelCache.delete(t);
       return null;
     }
   }
@@ -407,16 +417,26 @@ export function buildAgentCoordinator(
     if (m.type === "status") {
       const id = await resolveStateId(issue, m.value);
       if (!id) {
-        onLog(`! Linear status '${m.value}' not found for ${issue.identifier}`, "yellow");
-        return;
+        const err = new Error("Linear status not found") as Error & {
+          status?: string;
+          issue?: string;
+        };
+        err.status = m.value;
+        err.issue = issue.identifier;
+        throw err;
       }
       await updateIssueState(apiKey, issue.id, id);
       onLog(`  → ${issue.identifier} status='${m.value}'`, "gray");
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
-        onLog(`! Linear label '${m.value}' could not be created for ${issue.identifier}`, "yellow");
-        return;
+        const err = new Error("Linear label could not be resolved") as Error & {
+          label?: string;
+          issue?: string;
+        };
+        err.label = m.value;
+        err.issue = issue.identifier;
+        throw err;
       }
       await addLabelToIssue(apiKey, issue.id, id);
       onLog(`  → ${issue.identifier} +label='${m.value}'`, "gray");
@@ -956,11 +976,14 @@ export function buildAgentCoordinator(
   }
 
   /**
-   * Discover the PR URL for an issue. Tries three strategies in order:
-   *   1. `--head ralph/<changeName>` (the branch ralphy creates)
-   *   2. `--search "<linear-identifier>" in:title` (handles branch-name
-   *      drift after a title edit, or PRs whose branch was renamed)
-   *   3. fall through to null + soft TTL cache.
+   * Discover the PR URL for an issue. Tries two strategies in order:
+   *   1. `gh pr list --head ralph/<changeName>` — the branch ralphy
+   *      creates. Cheap and works while branch naming is intact.
+   *   2. Linear attachments — Linear's GitHub integration auto-attaches
+   *      the PR URL to the issue when the PR references the Linear
+   *      identifier (title / body / branch / commit). Canonical fallback
+   *      that handles branch-name drift, manual renames, or PRs opened
+   *      by hand outside ralph's worktree path.
    * Each failure logs once so the dashboard surfaces what's happening.
    */
   async function discoverPrUrl(issue: LinearIssue, changeName: string): Promise<string | null> {
@@ -994,28 +1017,37 @@ export function buildAgentCoordinator(
     ]);
     if (byBranch) return byBranch;
 
-    const byIdentifier = await tryGh([
-      "gh",
-      "pr",
-      "list",
-      "--search",
-      `${issue.identifier} in:title state:open`,
-      "--json",
-      "url",
-      "--jq",
-      ".[0].url // empty",
-    ]);
-    if (byIdentifier) {
-      onLog(`  ${issue.identifier}: PR discovered via title search (${byIdentifier})`, "gray");
-      return byIdentifier;
+    const fromLinear = await discoverPrUrlFromLinear(issue);
+    if (fromLinear) {
+      onLog(`  ${issue.identifier}: PR discovered via Linear attachment (${fromLinear})`, "gray");
+      return fromLinear;
     }
 
     onLog(
-      `  ${issue.identifier}: no open PR found on head=${branch} or title-search; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
+      `  ${issue.identifier}: no open PR found on head=${branch} or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
       "gray",
     );
     markPrUnavailable(changeName);
     return null;
+  }
+
+  /** Pull GitHub PR URLs off the issue's Linear attachments. Linear's
+   *  GitHub integration creates these automatically when a PR references
+   *  the Linear identifier. Returns the newest matching PR URL, or null. */
+  async function discoverPrUrlFromLinear(issue: LinearIssue): Promise<string | null> {
+    try {
+      const attachments = await fetchIssueAttachments(apiKey, issue.id);
+      const match = attachments.find((a) =>
+        /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(a.url),
+      );
+      return match?.url ?? null;
+    } catch (err) {
+      onLog(
+        `! Linear attachments fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+      return null;
+    }
   }
 
   // setDone candidates for conflict scan: include = setDone marker(s),
