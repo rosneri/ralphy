@@ -74,6 +74,8 @@
     "tmpl",
     "unpushed",
     "unstarted",
+    "upsert",
+    "upserts",
     "worktree",
     "worktrees",
     "zaudu",
