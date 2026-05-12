@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 const MarkerSchema = z.object({
-  type: z.enum(["label", "status"]),
+  type: z.enum(["label", "status", "attachment"]),
   value: z.string().min(1),
 });
 
@@ -311,12 +311,16 @@ const DEFAULT_CONFIG_TEMPLATE = `{
 
       // Applied when Ralph picks up an issue.
       // "setInProgress": { "type": "label", "value": "ralph:in-progress" },
+      // — or use attachment type to stamp a single "Ralphy" entry on the issue:
+      // "setInProgress": { "type": "attachment", "value": "In Progress" },
 
       // Applied on clean success.
       // "setDone": { "type": "status", "value": "In Review" },
+      // "setDone": { "type": "attachment", "value": "Done" },
 
       // Applied when the task exits with an error (quarantine signal).
       // "setError": { "type": "label", "value": "ralph:error" },
+      // "setError": { "type": "attachment", "value": "Error" },
 
       // Applied when a PR merge conflict is detected.
       // "setConflicted": { "type": "label", "value": "ralph:conflict" },

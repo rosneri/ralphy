@@ -250,6 +250,34 @@ describe("parseArgs", () => {
     );
   });
 
+  test("--indicator accepts attachment type and value with spaces", async () => {
+    const result = await parseArgs([
+      "agent",
+      "--indicator",
+      "setInProgress:attachment:In Progress",
+      "--indicator",
+      "setDone:attachment:Done",
+    ]);
+    expect(result.indicators.setInProgress).toEqual({ type: "attachment", value: "In Progress" });
+    expect(result.indicators.setDone).toEqual({ type: "attachment", value: "Done" });
+  });
+
+  test("--indicator merges attachment with other types into apply[]", async () => {
+    const result = await parseArgs([
+      "agent",
+      "--indicator",
+      "setDone:status:Done",
+      "--indicator",
+      "setDone:attachment:Completed",
+    ]);
+    expect(result.indicators.setDone).toEqual({
+      apply: [
+        { type: "status", value: "Done" },
+        { type: "attachment", value: "Completed" },
+      ],
+    });
+  });
+
   test("indicators default to empty object", async () => {
     const result = await parseArgs(["agent"]);
     expect(result.indicators).toEqual({});

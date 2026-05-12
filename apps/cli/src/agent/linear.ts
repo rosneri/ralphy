@@ -246,6 +246,73 @@ interface LinearAttachment {
   title: string | null;
 }
 
+/** Fixed title used for the ralphy status attachment so upserts can find it. */
+const RALPHY_ATTACHMENT_TITLE = "Ralphy";
+
+/** Create a new Ralphy status attachment on an issue. The `subtitle` reflects
+ *  the current lifecycle phase (e.g. "In Progress", "Done", "Error"). Returns
+ *  the id of the newly created attachment. */
+export async function createRalphyAttachment(
+  apiKey: string,
+  issueId: string,
+  issueUrl: string,
+  subtitle: string,
+): Promise<string> {
+  const mutation = `mutation CreateAttachment(
+    $issueId: String!, $url: String!, $title: String!, $subtitle: String!
+  ) {
+    attachmentCreate(input: { issueId: $issueId, url: $url, title: $title, subtitle: $subtitle }) {
+      success
+      attachment { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    attachmentCreate: { success: boolean; attachment: { id: string } | null };
+  }>(apiKey, mutation, {
+    issueId,
+    url: issueUrl,
+    title: RALPHY_ATTACHMENT_TITLE,
+    subtitle,
+  });
+  const attachmentId = data.attachmentCreate.attachment?.id;
+  if (!attachmentId) throw new Error("attachmentCreate returned no attachment id");
+  return attachmentId;
+}
+
+/** Update the subtitle of an existing attachment. */
+export async function updateAttachmentSubtitle(
+  apiKey: string,
+  attachmentId: string,
+  subtitle: string,
+): Promise<void> {
+  const mutation = `mutation UpdateAttachment($id: String!, $subtitle: String!) {
+    attachmentUpdate(id: $id, input: { subtitle: $subtitle }) { success }
+  }`;
+  await linearRequest<{ attachmentUpdate: { success: boolean } }>(apiKey, mutation, {
+    id: attachmentId,
+    subtitle,
+  });
+}
+
+/** Upsert the Ralphy status attachment on an issue: find the existing one by
+ *  title and update its subtitle, or create a new one when none exists. The
+ *  same attachment entry is reused across all lifecycle transitions so the
+ *  issue stays tidy — one status row, always up-to-date. */
+export async function upsertRalphyAttachment(
+  apiKey: string,
+  issueId: string,
+  issueUrl: string,
+  subtitle: string,
+): Promise<void> {
+  const attachments = await fetchIssueAttachments(apiKey, issueId);
+  const existing = attachments.find((a) => a.title === RALPHY_ATTACHMENT_TITLE);
+  if (existing) {
+    await updateAttachmentSubtitle(apiKey, existing.id, subtitle);
+  } else {
+    await createRalphyAttachment(apiKey, issueId, issueUrl, subtitle);
+  }
+}
+
 /** Fetch attachments on an issue. Linear's GitHub integration auto-creates
  *  attachments pointing at any PR that references the Linear identifier
  *  in its title/body/branch, so this is the canonical way to find a
