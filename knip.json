@@ -38,6 +38,9 @@
     "packages/context": {
       "entry": ["src/**/*.ts"]
     },
+    "packages/log": {
+      "entry": ["src/**/*.ts"]
+    },
     "packages/core": {
       "entry": ["src/**/*.ts!"]
     },
