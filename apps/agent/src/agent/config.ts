@@ -1,4 +1,4 @@
-import { ensureWorkflow, loadWorkflow, workflowPath, type WorkflowConfig } from "@ralphy/workflow";
+import { ensureWorkflow, loadWorkflow, type WorkflowConfig } from "@ralphy/workflow";
 
 /**
  * Re-export the workflow config under the legacy name so existing callers
@@ -14,8 +14,4 @@ export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfi
 
 export async function ensureRalphyConfig(projectRoot: string): Promise<string> {
   return ensureWorkflow(projectRoot);
-}
-
-export function ralphyConfigPath(projectRoot: string): string {
-  return workflowPath(projectRoot);
 }

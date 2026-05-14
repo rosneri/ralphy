@@ -162,7 +162,7 @@ function extractDefaultBody(): string {
 
 /**
  * Render the workflow body against a context. Convenience wrapper used by
- * the agent scaffolder to produce the per-iteration prompt addendum.
+ * the agent prompt builder to produce the per-iteration prompt addendum.
  */
 export function renderWorkflowPrompt(
   workflow: ParsedWorkflow,

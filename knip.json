@@ -61,6 +61,9 @@
     },
     "packages/telemetry": {
       "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
+    },
+    "packages/workflow": {
+      "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
     }
   }
 }

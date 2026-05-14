@@ -148,12 +148,20 @@ function parse(tokens: Token[]): Node[] {
         } else if (inner.startsWith("for ")) {
           i++;
           const m = inner.match(/^for\s+(\w+)\s+in\s+(.+)$/);
-          if (!m) throw new Error(`Bad for-tag: {% ${inner} %}`);
+          if (!m) {
+            const err = new Error("Bad for-tag") as Error & { tag?: string };
+            err.tag = inner;
+            throw err;
+          }
           const body = parseBlock((x) => x === "endfor");
           i++; // consume endfor
           nodes.push({ kind: "for", varName: m[1]!, expr: m[2]!.trim(), body });
         } else {
-          throw new Error(`Unknown tag: {% ${inner} %}`);
+          {
+            const err = new Error("Unknown tag") as Error & { tag?: string };
+            err.tag = inner;
+            throw err;
+          }
         }
       }
     }
