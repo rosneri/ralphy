@@ -30,15 +30,27 @@ interface PollBuckets {
   review: number;
   mentions: number;
 }
+/** Per-status counts across the done-candidate PRs scanned this tick.
+ *  Surfaced in the dashboard so operators can see at a glance how many
+ *  shipped PRs are mergeable, blocked by merge conflicts, or red on CI. */
+export interface PrStatusCounts {
+  mergeable: number;
+  conflicted: number;
+  ciFailed: number;
+}
+export type PrStatus = "mergeable" | "conflicted" | "ci_failed" | "unknown";
 interface PollResult {
   found: number;
   added: number;
   buckets: PollBuckets;
+  prStatus: PrStatusCounts;
 }
+const emptyPrStatus = (): PrStatusCounts => ({ mergeable: 0, conflicted: 0, ciFailed: 0 });
 const emptyPollResult = (): PollResult => ({
   found: 0,
   added: 0,
   buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 },
+  prStatus: emptyPrStatus(),
 });
 
 /** Per-issue review trigger emitted by mention scanning. Carries the
@@ -98,9 +110,11 @@ export interface CoordinatorDeps {
   postComment: (issue: LinearIssue, body: string) => Promise<void>;
   /** Fetch existing Linear comments — used for "started" idempotency. */
   fetchComments: (issueId: string) => Promise<{ body: string }[]>;
-  /** Check if a known PR has merge conflicts. Returns null if no PR is
-   *  known for this issue (e.g. branch deleted, never created). */
-  checkPrConflict: (issue: LinearIssue) => Promise<{ url: string; conflicting: boolean } | null>;
+  /** Check the status of a known PR — mergeable, conflicted, or red on CI.
+   *  Returns null if no PR is known for this issue (branch deleted, never
+   *  created). `unknown` is used when GitHub hasn't computed mergeability
+   *  yet or `gh` failed; the caller skips acting on it. */
+  checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatus } | null>;
   onLog: (text: string, color?: string) => void;
   onWorkersChanged: () => void;
   /** Returns the current iteration count for an active worker (for
@@ -301,7 +315,7 @@ export class AgentCoordinator {
     }
 
     this.spawnNext();
-    await this.scanDoneForConflicts();
+    const prStatus = await this.scanDoneForConflicts();
     await this.reportProgress();
 
     const buckets: PollBuckets = {
@@ -313,7 +327,7 @@ export class AgentCoordinator {
     };
     const found =
       buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
-    return { found, added, buckets };
+    return { found, added, buckets, prStatus };
   }
 
   /** Returns true if all `blockedByIds` are not present in `inProgress`/
@@ -386,32 +400,37 @@ export class AgentCoordinator {
    * post a Linear comment (once per detection), and enqueue the issue
    * for a conflict-fix run.
    */
-  private async scanDoneForConflicts(): Promise<void> {
-    if (!this.opts.setConflicted) return; // can't mark conflicted → can't act
+  private async scanDoneForConflicts(): Promise<PrStatusCounts> {
+    const counts = emptyPrStatus();
+    if (!this.opts.setConflicted) return counts; // can't mark conflicted → can't act
     let candidates: LinearIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
     } catch (err) {
       this.deps.onLog(`! conflict scan fetch failed: ${(err as Error).message}`, "yellow");
-      return;
+      return counts;
     }
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) return counts;
 
     for (const issue of candidates) {
       if (this.workers.some((w) => w.issueId === issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
       if (this.queue.some((q) => q.issue.id === issue.id)) continue;
-      let pr: { url: string; conflicting: boolean } | null;
+      let pr: { url: string; status: PrStatus } | null;
       try {
-        pr = await this.deps.checkPrConflict(issue);
+        pr = await this.deps.checkPrStatus(issue);
       } catch (err) {
         this.deps.onLog(
-          `! PR conflict check failed for ${issue.identifier}: ${(err as Error).message}`,
+          `! PR status check failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
         continue;
       }
-      if (!pr || !pr.conflicting) continue;
+      if (!pr) continue;
+      if (pr.status === "mergeable") counts.mergeable += 1;
+      else if (pr.status === "conflicted") counts.conflicted += 1;
+      else if (pr.status === "ci_failed") counts.ciFailed += 1;
+      if (pr.status !== "conflicted") continue;
       const alreadyNotified = this.conflictNotified.has(issue.id);
       if (alreadyNotified) continue;
       capture("agent_conflict_detected", { issue_identifier: issue.identifier });
@@ -450,6 +469,7 @@ export class AgentCoordinator {
     }
 
     this.spawnNext();
+    return counts;
   }
 
   spawnNext(): void {
