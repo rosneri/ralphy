@@ -429,5 +429,4 @@ describe("App", () => {
     expect(frame).toContain("--name is required");
     process.exitCode = 0;
   });
-
 });
