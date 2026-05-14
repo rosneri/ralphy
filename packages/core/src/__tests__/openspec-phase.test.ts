@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deriveOpenSpecPhase, isStubArtifact } from "../openspec-phase";
+import { deriveOpenSpecPhase, isStubArtifact } from "../openspec/phase";
 
 describe("isStubArtifact", () => {
   test("null is a stub", () => {

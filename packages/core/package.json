@@ -12,7 +12,7 @@
     "./tasks-md": "./src/tasks-md.ts",
     "./layout": "./src/layout.ts",
     "./progress": "./src/progress.ts",
-    "./openspec-phase": "./src/openspec-phase.ts"
+    "./openspec-phase": "./src/openspec/phase.ts"
   },
   "dependencies": {
     "@ralphy/content": "workspace:*",

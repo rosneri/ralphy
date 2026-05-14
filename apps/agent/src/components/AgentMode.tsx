@@ -948,7 +948,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     </Text>
                   )}
                   <Text color="white">
-                    {trunc(currentTask, termWidth - 14 - (openspecPhase ? openspecPhase.length + 11 : 0))}
+                    {trunc(
+                      currentTask,
+                      termWidth - 14 - (openspecPhase ? openspecPhase.length + 11 : 0),
+                    )}
                   </Text>
                 </Box>
               )}
