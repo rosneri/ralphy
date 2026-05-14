@@ -46,12 +46,10 @@ describe("agent parseArgs", () => {
         { type: "label", value: "ready" },
       ],
     });
-    expect(result.indicators.setDone).toEqual({
-      apply: [
-        { type: "status", value: "Done" },
-        { type: "label", value: "shipped" },
-      ],
-    });
+    expect(result.indicators.setDone).toEqual([
+      { type: "status", value: "Done" },
+      { type: "label", value: "shipped" },
+    ]);
   });
 
   test("--indicator rejects unknown key / type / empty value", async () => {

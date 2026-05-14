@@ -9,7 +9,7 @@ import {
 
 export { VERSION };
 
-export type LoopMode = "task" | "list" | "status" | "init" | "clean" | "debug";
+export type LoopMode = "task" | "status" | "init" | "clean" | "debug";
 
 export interface ParsedArgs extends CommonArgs {
   mode: LoopMode;
@@ -20,7 +20,7 @@ export interface ParsedArgs extends CommonArgs {
   fromAgent: boolean;
 }
 
-const VALID_MODES = new Set<string>(["task", "list", "status", "init", "clean", "debug"]);
+const VALID_MODES = new Set<string>(["task", "status", "init", "clean", "debug"]);
 
 const HELP_TEXT = [
   `ralphy loop v${VERSION}`,
@@ -29,7 +29,6 @@ const HELP_TEXT = [
   "",
   "Commands:",
   "  task                    Run or resume a task",
-  "  list                    List active changes",
   "  status                  Show detailed change status",
   "  init                    Initialize OpenSpec in current directory",
   "  clean                   Remove worktree, branch, openspec change, and task state for --name",
@@ -56,7 +55,6 @@ const HELP_TEXT = [
   "Examples:",
   '  ralphy loop task --name my-feature --prompt "Add dark mode"',
   "  ralphy loop task --name my-feature --claude sonnet --max-iterations 10",
-  "  ralphy loop list",
   "  ralphy loop status --name my-feature",
   "  ralphy loop init",
 ].join("\n");

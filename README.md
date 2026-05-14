@@ -66,7 +66,7 @@ ralphy loop task --name fix-auth --prompt "Fix the JWT validation bug" --claude 
 ralphy loop task --name fix-auth
 
 # Inspect
-ralphy loop list                    # all tasks (table)
+ralphy agent list                    # local tasks + Linear tickets per indicator bucket (with linked PR URLs)
 ralphy loop status --name fix-auth  # one task (details)
 ```
 
@@ -74,7 +74,7 @@ Engine defaults to Claude Opus. Common safeguards: `--max-iterations`, `--max-co
 
 ## Agent mode
 
-`ralphy agent` polls Linear, runs up to N concurrent task loops, and (optionally) opens PRs, watches CI, and iterates with reviewers. Requires `LINEAR_API_KEY`.
+`ralph agent` polls Linear, runs up to N concurrent task loops, and (optionally) opens PRs, watches CI, and iterates with reviewers. Requires `LINEAR_API_KEY`.
 
 ```bash
 export LINEAR_API_KEY=lin_api_xxx
@@ -142,21 +142,29 @@ The cycle repeats every poll. For code-review-iteration in particular, `setDone`
 
 Linear is the source of truth for which issues Ralph has touched. The `linear.indicators` map declares how Ralph queries and mutates Linear at each lifecycle event. All keys are optional; an unset key means "Ralph doesn't perform that action".
 
-| Key               | Type                            | Purpose                                                                         |
-| ----------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| `getTodo`         | `{filter: Marker[]}`            | Issues to pick up (fresh)                                                       |
-| `getInProgress`   | `{filter: Marker[]}`            | Issues to resume after restart                                                  |
-| `getConflicted`   | `{filter: Marker[]}`            | Issues whose PR is conflicted (re-fix run)                                      |
-| `getReview`       | `{filter: Marker[]}`            | Done issues flagged for review follow-up                                        |
-| `getAutoMerge`    | `{filter: Marker[]}`            | Issues whose PR should be auto-merged once required checks pass                 |
-| `setInProgress`   | `Marker` or `{apply: Marker[]}` | Applied when a worker spawns (any non-resume mode)                              |
-| `setDone`         | `Marker` or `{apply: Marker[]}` | Applied on clean exit                                                           |
-| `setError`        | `Marker` or `{apply: Marker[]}` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
-| `setConflicted`   | `Marker` or `{apply: Marker[]}` | Applied when a done-PR is detected as conflicted                                |
-| `clearConflicted` | `Marker` or `{apply: Marker[]}` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
-| `clearReview`     | `Marker` or `{apply: Marker[]}` | Label(s) removed when a review pickup happens (status removal is not supported) |
+| Key               | Type                   | Purpose                                                                         |
+| ----------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| `getTodo`         | `{filter: Marker[]}`   | Issues to pick up (fresh)                                                       |
+| `getInProgress`   | `{filter: Marker[]}`   | Issues to resume after restart                                                  |
+| `getConflicted`   | `{filter: Marker[]}`   | Issues whose PR is conflicted (re-fix run)                                      |
+| `getReview`       | `{filter: Marker[]}`   | Done issues flagged for review follow-up                                        |
+| `getAutoMerge`    | `{filter: Marker[]}`   | Issues whose PR should be auto-merged once required checks pass                 |
+| `setInProgress`   | `Marker` or `Marker[]` | Applied when a worker spawns (any non-resume mode)                              |
+| `setDone`         | `Marker` or `Marker[]` | Applied on clean exit                                                           |
+| `setError`        | `Marker` or `Marker[]` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
+| `setConflicted`   | `Marker` or `Marker[]` | Applied when a done-PR is detected as conflicted                                |
+| `clearConflicted` | `Marker` or `Marker[]` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
+| `clearReview`     | `Marker` or `Marker[]` | Label(s) removed when a review pickup happens (status removal is not supported) |
 
-A `Marker` is `{type: "label", value: "ralph:foo"}` or `{type: "status", value: "In Progress"}`. Combine with `apply` when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label.
+A `Marker` is one of three types:
+
+| Marker type    | Example value         | Effect                                                                                                                                                                                                                                    |
+| -------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"label"`      | `"ralph:in-progress"` | Adds or removes a Linear label on the issue                                                                                                                                                                                               |
+| `"status"`     | `"In Progress"`       | Updates the Linear workflow status of the issue                                                                                                                                                                                           |
+| `"attachment"` | `"In Progress"`       | Upserts a single **Ralphy** attachment on the issue; `value` becomes the subtitle. The same entry is reused across every lifecycle transition — Ralph creates it on first apply and edits it on subsequent ones, so the issue stays tidy. |
+
+Use an array when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label _and_ updating the attachment subtitle.
 
 Example `ralphy.config.json`:
 
@@ -181,17 +189,21 @@ Example `ralphy.config.json`:
     "codeReviewStaleHours": 24,
     "indicators": {
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
-      "getInProgress": { "filter": [{ "type": "status", "value": "In Progress" }] },
-      "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflicted" }] },
-      "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
-      "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
-      "setInProgress": { "type": "status", "value": "In Progress" },
-      "setDone": {
-        "apply": [
-          { "type": "status", "value": "In Review" },
-          { "type": "label", "value": "ralphy-done" },
-        ],
+      "getInProgress": {
+        "filter": [{ "type": "status", "value": "In Progress" }],
       },
+      "getConflicted": {
+        "filter": [{ "type": "label", "value": "ralph:conflicted" }],
+      },
+      "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
+      "getAutoMerge": {
+        "filter": [{ "type": "label", "value": "ralph:auto-merge" }],
+      },
+      "setInProgress": { "type": "status", "value": "In Progress" },
+      "setDone": [
+        { "type": "status", "value": "In Review" },
+        { "type": "label", "value": "ralphy-done" },
+      ],
       "setError": { "type": "label", "value": "ralph:error" },
       "setConflicted": { "type": "label", "value": "ralph:conflicted" },
       "clearConflicted": { "type": "label", "value": "ralph:conflicted" },
@@ -228,14 +240,15 @@ Done issues whose PR `gh pr view --json mergeable` reports as `CONFLICTING` get 
 
 ### PR + CI integration
 
-| Flag / config                         | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createPrOnSuccess` / `--create-pr`   | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                     |
-| `getAutoMerge` indicator              | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal — the CI/conflict watch loop continues. |
-| `fixCiOnFailure` / `--fix-ci`         | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed.                                                        |
-| `ciPollIntervalSeconds`               | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                                                                                     |
-| `ignoreCiChecks`                      | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
-| `codeReviewTrigger` / `--code-review` | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
+| Flag / config                            | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createPrOnSuccess` / `--create-pr`      | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                     |
+| `stackPrsOnDependencies` / `--stack-prs` | When the Linear issue is blocked by another issue (`blocked_by` relation) that has exactly one open GitHub PR, open this PR against that blocker's head branch instead of `prBaseBranch`. Resolves the blocker's PR via Linear's auto-attachment + `gh pr view --json state,headRefName`. Falls back to `prBaseBranch` when zero / multiple blockers (or PRs) match. A `ralph:branch:<name>` label still wins.      |
+| `getAutoMerge` indicator                 | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal — the CI/conflict watch loop continues. |
+| `fixCiOnFailure` / `--fix-ci`            | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed.                                                        |
+| `ciPollIntervalSeconds`                  | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                                                                                     |
+| `ignoreCiChecks`                         | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
+| `codeReviewTrigger` / `--code-review`    | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
 
 ### Worktrees, setup, teardown
 
@@ -243,6 +256,9 @@ With `useWorktree: true` (or `--worktree`) each task runs in an isolated worktre
 
 - **`setupScript`** — `sh -c`-run inside the worktree right after scaffolding (e.g. `bun install`, `cp .env.example .env`).
 - **`teardownScript`** — `sh -c`-run after the loop exits and (optional) worktree cleanup.
+
+Both scripts receive `WORKSPACE_ROOT` in their environment — the absolute path to the origin repository (the parent of the worktree). Use it to reference project-root files from inside a worktree, e.g. `cp "$WORKSPACE_ROOT/.env.example" .env`.
+
 - **`cleanupWorktreeOnSuccess`** — remove the worktree on clean exit. Failed workers always keep their worktree + branch for human inspection.
 
 Both scripts log failures but never block the loop. **`appendPrompt`** (or `--prompt` in agent mode) is appended to every scaffolded `proposal.md` under `## Additional instructions` — use it for cross-cutting guidance every task should see.
@@ -287,19 +303,28 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 
 **Agent-mode flags**
 
-| Option                    | Behavior                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                         |
-| `--linear-assignee <id>`  | Assignee filter (user id, email, or `me`)                                            |
-| `--poll-interval <s>`     | Seconds between Linear polls (default `60`)                                          |
-| `--concurrency <n>`       | Max concurrent task loops (default `1`)                                              |
-| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (`0` = unlimited)      |
-| `--worktree`              | Run each task in its own git worktree                                                |
-| `--indicator <k>:<t>:<v>` | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)      |
-| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)                |
-| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)         |
-| `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task |
-| `--json-output`           | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)         |
+| Option                    | Behavior                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                                 |
+| `--linear-assignee <id>`  | Assignee filter (user id, email, or `me`)                                                    |
+| `--poll-interval <s>`     | Seconds between Linear polls (default `60`)                                                  |
+| `--concurrency <n>`       | Max concurrent task loops (default `1`)                                                      |
+| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (`0` = unlimited)              |
+| `--worktree`              | Run each task in its own git worktree                                                        |
+| `--indicator <k>:<t>:<v>` | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)              |
+| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)                        |
+| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)                 |
+| `--stack-prs`             | Open the PR against a blocker issue's open-PR head branch when present (needs `--create-pr`) |
+| `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task         |
+| `--json-output`           | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)                 |
+
+**List-mode flags**
+
+| Option                | Behavior                                                                                                                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--debug --name <id>` | Diagnose why a Linear ticket (e.g. `ENG-42`) is not being picked up — checks team, assignee, include / exclude markers, and blocked-by relations against every configured `get*` indicator. |
+
+`ralph list` reads `ralphy.config.json` and, when `LINEAR_API_KEY` is set, fetches every issue matching each configured `getTodo` / `getInProgress` / `getConflicted` / `getReview` / `getAutoMerge` indicator using the same include / exclude rules as `ralph agent`. For each ticket it also resolves the linked GitHub PR URL from Linear attachments.
 
 **`--max-tickets`.** Caps how many issues ralph picks up in a single agent run. Once the limit is hit the coordinator stops enqueuing new work; in-flight workers continue to completion, and the dashboard header shows `│ tickets ≤N`. The limit resets each restart.
 

@@ -361,20 +361,6 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
 describe("App", () => {
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
-  test("list mode renders TaskList", () =>
-    withStorage(() => {
-      mkdirSync(tempDir, { recursive: true });
-      const { lastFrame } = render(
-        <App
-          args={makeArgs({ mode: "list" })}
-          statesDir={tempDir}
-          tasksDir={tempDir}
-          projectRoot={tempDir}
-        />,
-      );
-      expect(lastFrame()!).toContain("No incomplete tasks");
-    }));
-
   test("status mode without name shows error", async () => {
     const { frames } = withStorage(() =>
       render(

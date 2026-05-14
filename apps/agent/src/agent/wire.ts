@@ -12,6 +12,7 @@ import {
   addIssueComment,
   fetchIssueComments,
   fetchIssueAttachments,
+  upsertRalphyAttachment,
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
@@ -172,8 +173,8 @@ interface BuildAgentCoordinatorResult {
 
 /**
  * Resolve the effective Indicators map: CLI overrides replace config keys
- * one-by-one. Repeated CLI flags for the same key collapse into
- * `{apply: [...]}`. CLI is authoritative when present. Strips `undefined`
+ * one-by-one. Repeated CLI flags for the same key collapse into a `Marker[]`.
+ * CLI is authoritative when present. Strips `undefined`
  * values from the merged record (exactOptionalPropertyTypes).
  */
 function mergeIndicators(cfg: Record<string, unknown>, cli: Partial<Indicators>): Indicators {
@@ -416,6 +417,9 @@ export function buildAgentCoordinator(
       }
       await updateIssueState(apiKey, issue.id, id);
       onLog(`  → ${issue.identifier} status='${m.value}'`, "gray");
+    } else if (m.type === "attachment") {
+      await upsertRalphyAttachment(apiKey, issue.id, issue.url, m.value);
+      onLog(`  → ${issue.identifier} attachment='${m.value}'`, "gray");
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
@@ -457,7 +461,7 @@ export function buildAgentCoordinator(
   ): Promise<LinearIssue[]> {
     if (!inc) return [];
     // GetIndicator carries its filter list directly.
-    const include = "filter" in inc ? inc.filter : [];
+    const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     if (include.length === 0) return [];
     const spec: LinearFilterSpec = {
       team,
@@ -496,6 +500,7 @@ export function buildAgentCoordinator(
       const proc = Bun.spawn({
         cmd: ["sh", "-c", cmd],
         cwd,
+        env: { ...process.env, WORKSPACE_ROOT: projectRoot },
         stdout: "ignore",
         stderr: "pipe",
         stdin: "ignore",
@@ -863,6 +868,7 @@ export function buildAgentCoordinator(
             ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
             cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
             ignoreCiChecks: cfg.ignoreCiChecks,
+            stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
           },
           respawnWorker: respawn,
         },
@@ -898,6 +904,8 @@ export function buildAgentCoordinator(
             }
             return false; // still UNKNOWN after retries — assume not conflicting
           },
+          resolveDependencyBaseBranch: (issue) =>
+            resolveDependencyBaseBranch(issue, tracedCmd, cwd),
         },
       );
       cwdByChange.delete(changeName);
@@ -1024,6 +1032,80 @@ export function buildAgentCoordinator(
       "gray",
     );
     markPrUnavailable(changeName);
+    return null;
+  }
+
+  /**
+   * Resolve the head branch of a blocker's single open GitHub PR for a given
+   * issue. Used by the post-task PR phase when `stackPrsOnDependencies` is on:
+   * a new PR is opened against this branch instead of `prBaseBranch` so the
+   * dependent change stacks on top of its dependency.
+   *
+   * Returns null when there are zero or multiple blockers with open PRs, when
+   * a blocker has multiple open PRs, or when any lookup fails — callers fall
+   * back to the configured base branch in those cases.
+   */
+  async function resolveDependencyBaseBranch(
+    issue: LinearIssue,
+    runner: CmdRunner,
+    runnerCwd: string,
+  ): Promise<string | null> {
+    const blockerIds = issue.blockedByIds;
+    if (blockerIds.length === 0) return null;
+
+    const candidates: string[] = [];
+    for (const blockerId of blockerIds) {
+      let attachments;
+      try {
+        attachments = await fetchIssueAttachments(apiKey, blockerId);
+      } catch (err) {
+        onLog(
+          `! could not fetch attachments for blocker ${blockerId} of ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        continue;
+      }
+      const prUrls = attachments
+        .map((a) => a.url)
+        .filter((url) => /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url));
+      const openHeads: string[] = [];
+      for (const url of prUrls) {
+        try {
+          const res = await runner.run(
+            ["gh", "pr", "view", url, "--json", "state,headRefName", "--jq", "."],
+            runnerCwd,
+          );
+          const parsed = JSON.parse(res.stdout.trim()) as {
+            state?: string;
+            headRefName?: string;
+          };
+          if (parsed.state === "OPEN" && parsed.headRefName) {
+            openHeads.push(parsed.headRefName);
+          }
+        } catch (err) {
+          onLog(
+            `! gh pr view failed for ${url} (blocker of ${issue.identifier}): ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
+      if (openHeads.length === 1) {
+        candidates.push(openHeads[0] as string);
+      } else if (openHeads.length > 1) {
+        onLog(
+          `  ${issue.identifier}: blocker ${blockerId} has ${openHeads.length} open PRs — skipping dependency base resolution`,
+          "gray",
+        );
+      }
+    }
+
+    if (candidates.length === 1) return candidates[0] as string;
+    if (candidates.length > 1) {
+      onLog(
+        `  ${issue.identifier}: ${candidates.length} blockers have open PRs — falling back to default base`,
+        "gray",
+      );
+    }
     return null;
   }
 

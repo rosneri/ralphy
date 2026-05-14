@@ -16,9 +16,9 @@ describe("parseArgs", () => {
   });
 
   test("parses mode as first positional argument", async () => {
-    expect((await parseArgs(["list"])).mode).toBe("list");
     expect((await parseArgs(["status"])).mode).toBe("status");
     expect((await parseArgs(["init"])).mode).toBe("init");
+    expect((await parseArgs(["clean"])).mode).toBe("clean");
   });
 
   test("parses --name flag", async () => {

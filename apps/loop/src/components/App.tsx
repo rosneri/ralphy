@@ -4,7 +4,6 @@ import { Text, useApp } from "ink";
 import type { ParsedArgs } from "../cli";
 import { readState } from "@ralphy/core/state";
 import { getStorage } from "@ralphy/context";
-import { TaskList } from "./TaskList";
 import { TaskStatus } from "./TaskStatus";
 import { TaskLoop } from "./TaskLoop";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
@@ -64,11 +63,8 @@ function TaskModeWrapper({ args, statesDir, tasksDir }: TaskModeWrapperProps) {
   );
 }
 
-export function App({ args, statesDir, tasksDir, projectRoot }: AppProps) {
+export function App({ args, statesDir, tasksDir }: AppProps) {
   switch (args.mode) {
-    case "list":
-      return <TaskList statesDir={statesDir} projectRoot={projectRoot} />;
-
     case "status": {
       if (!args.name) {
         return <ErrorMessage message="Error: --name is required for status mode" />;

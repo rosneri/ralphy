@@ -90,15 +90,20 @@ export type State = z.infer<typeof StateSchema>;
 // name or a Linear workflow-state name; `getX` indicators carry an any-of
 // filter built from markers; `setX` indicators apply one or more markers.
 
-export type Marker = { type: "label"; value: string } | { type: "status"; value: string };
+export type Marker =
+  | { type: "label"; value: string }
+  | { type: "status"; value: string }
+  /** Upserts a single "Ralphy" attachment on the issue; `value` becomes the
+   *  attachment subtitle so each lifecycle transition updates the same entry. */
+  | { type: "attachment"; value: string };
 
 /** Any-of filter: an issue matches if ANY listed marker matches. */
 export interface GetIndicator {
   filter: Marker[];
 }
 
-/** Single marker, or `{apply: [...]}` for multiple in one transition. */
-export type SetIndicator = Marker | { apply: Marker[] };
+/** Single marker or array of markers to apply in one transition. */
+export type SetIndicator = Marker | Marker[];
 
 /**
  * Action-name → indicator map. All keys optional; missing keys mean
@@ -132,7 +137,7 @@ export interface Indicators {
 
 /** Convenience: extract the marker list applied by a SetIndicator. */
 export function markersOf(set: SetIndicator): Marker[] {
-  return "apply" in set ? set.apply : [set];
+  return Array.isArray(set) ? set : [set];
 }
 
 // --- Phase config ---

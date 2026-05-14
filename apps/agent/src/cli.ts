@@ -10,7 +10,12 @@ import {
 
 export { VERSION };
 
+export type AgentMode = "agent" | "list";
+
 export interface ParsedArgs extends CommonArgs {
+  mode: AgentMode;
+  /** Identifier used in list mode (--name <ticket>). */
+  name: string;
   linearTeam: string;
   linearAssignee: string;
   pollInterval: number;
@@ -21,6 +26,9 @@ export interface ParsedArgs extends CommonArgs {
   indicators: Partial<Indicators>;
   createPr: boolean;
   fixCi: boolean;
+  /** Open the PR against a blocker's open-PR head branch when the Linear
+   *  issue is blocked-by another issue with a single open GitHub PR. */
+  stackPrs: boolean;
   /** Enable the code-review trigger (overrides config). */
   codeReview: boolean;
   /** Stop picking up new issues after this many have been started (0 = unlimited). */
@@ -31,7 +39,11 @@ export interface ParsedArgs extends CommonArgs {
   prompt: string;
   /** Enable manual testing phase passthrough for the inner loop. */
   manualTest: boolean;
+  /** List mode: enable per-ticket diagnostics for --name <identifier>. */
+  debug: boolean;
 }
+
+const VALID_MODES = new Set<string>(["agent", "list"]);
 
 const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getTodo",
@@ -57,12 +69,14 @@ const GET_KEYS = new Set<keyof Indicators>([
 const HELP_TEXT = [
   `ralphy agent v${VERSION}`,
   "",
-  "Usage: ralphy agent [options]",
+  "Usage: ralphy agent [command] [options]",
   "",
-  "Poll Linear for new tasks and run loops concurrently.",
-  "Requires LINEAR_API_KEY env var.",
+  "Commands:",
+  "  (default)               Poll Linear and run task loops concurrently (requires LINEAR_API_KEY)",
+  "  list                    List active changes + Linear tickets per indicator bucket",
   "",
   "Options:",
+  "  --name <id>             Change name / ticket identifier (list / debug filter)",
   "  --prompt <text>         Task description appended to every scaffolded proposal",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",
@@ -86,17 +100,23 @@ const HELP_TEXT = [
   "                          Keys: getTodo, getInProgress, getConflicted, getReview, getAutoMerge,",
   "                                setInProgress, setDone, setError, setConflicted,",
   "                                clearConflicted, clearReview",
-  "                          Types: label, status",
+  "                          Types: label, status, attachment",
+  "                          --indicator setInProgress:attachment:In Progress",
+  "                          (attachment upserts a single 'Ralphy' entry; value = subtitle)",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
+  "  --stack-prs             Base the PR on a blocker issue's open-PR head branch when present (needs --create-pr)",
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
-  "  --json-output           Emit JSONL to stdout instead of the Ink dashboard",
+  "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
+  "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
   "  --help, -h              Show this help message",
   "",
   "Examples:",
   "  ralphy agent --indicator getTodo:status:Todo --indicator setDone:status:Done",
   "  ralphy agent --worktree --create-pr --max-tickets 5",
+  "  ralphy agent list",
+  "  ralphy agent list --debug --name ENG-123",
 ].join("\n");
 
 export function printHelp(): void {
@@ -124,8 +144,8 @@ function parseIndicatorArg(raw: string): { key: keyof Indicators; marker: Marker
     err.key = key;
     throw err;
   }
-  if (type !== "label" && type !== "status") {
-    const err = new Error("indicator type must be 'label' or 'status'") as Error & {
+  if (type !== "label" && type !== "status" && type !== "attachment") {
+    const err = new Error("indicator type must be 'label', 'status', or 'attachment'") as Error & {
       type?: string;
     };
     err.type = type;
@@ -142,10 +162,9 @@ function mergeIndicator(bag: Partial<Indicators>, key: keyof Indicators, marker:
     (bag as Record<string, GetIndicator>)[key] = { filter };
   } else {
     const existing = bag[key] as SetIndicator | undefined;
-    let next: SetIndicator;
-    if (!existing) next = marker;
-    else if ("apply" in existing) next = { apply: [...existing.apply, marker] };
-    else next = { apply: [existing, marker] };
+    const next: SetIndicator = existing
+      ? [...(Array.isArray(existing) ? existing : [existing]), marker]
+      : marker;
     (bag as Record<string, SetIndicator>)[key] = next;
   }
 }
@@ -154,22 +173,27 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   const common = initialCommonArgs();
   const result: ParsedArgs = {
     ...common,
+    mode: "agent",
+    name: "",
     linearTeam: "",
     linearAssignee: "",
-    pollInterval: 60,
-    concurrency: 1,
+    pollInterval: 0,
+    concurrency: 0,
     worktree: false,
     indicators: {},
     createPr: false,
     fixCi: false,
+    stackPrs: false,
     codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
     prompt: "",
     manualTest: false,
+    debug: false,
   };
 
   const state = emptyParseState();
+  let expectName = false;
   let expectLinearTeam = false;
   let expectLinearAssignee = false;
   let expectPollInterval = false;
@@ -180,6 +204,11 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectPromptFile = false;
 
   for (const arg of argv) {
+    if (expectName) {
+      result.name = arg;
+      expectName = false;
+      continue;
+    }
     if (expectLinearTeam) {
       result.linearTeam = arg;
       expectLinearTeam = false;
@@ -225,6 +254,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     if (parseCommonArg(arg, result, state)) continue;
 
     switch (arg) {
+      case "--name":
+        expectName = true;
+        break;
       case "--prompt":
         expectPrompt = true;
         break;
@@ -258,6 +290,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       case "--fix-ci":
         result.fixCi = true;
         break;
+      case "--stack-prs":
+        result.stackPrs = true;
+        break;
       case "--code-review":
         result.codeReview = true;
         break;
@@ -267,8 +302,16 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
       case "--manual-test":
         result.manualTest = true;
         break;
+      case "--debug":
+        result.debug = true;
+        break;
       default:
-        throw new Error("Unknown argument. Run 'ralphy agent --help' for usage information.");
+        if (VALID_MODES.has(arg)) {
+          result.mode = arg as AgentMode;
+        } else {
+          throw new Error("Unknown argument. Run 'ralphy agent --help' for usage information.");
+        }
+        break;
     }
   }
 

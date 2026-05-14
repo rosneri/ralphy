@@ -28,6 +28,21 @@ export async function main(argv: string[]): Promise<number> {
   const statesDir = layout.statesDir;
   const tasksDir = layout.tasksDir;
 
+  if (args.mode === "list") {
+    const { runList } = await import("./list");
+    await runWithContext(createDefaultContext(), async () => {
+      await runList({
+        statesDir,
+        projectRoot,
+        linearTeamOverride: args.linearTeam,
+        linearAssigneeOverride: args.linearAssignee,
+        debug: args.debug,
+        name: args.name,
+      });
+    });
+    return typeof process.exitCode === "number" ? process.exitCode : 0;
+  }
+
   await mkdir(statesDir, { recursive: true });
   await mkdir(tasksDir, { recursive: true });
   await mkdir(join(projectRoot, ".ralph"), { recursive: true });

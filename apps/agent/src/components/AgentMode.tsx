@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
 import { AgentCoordinator } from "../agent/coordinator";
@@ -312,9 +311,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
       const apiKey = process.env["LINEAR_API_KEY"];
       if (!apiKey) {
-        appendLog("! LINEAR_API_KEY not set — cannot poll Linear", "red");
-        exit();
-        return;
+        throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
       const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
@@ -407,7 +404,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       void tick();
     }
 
-    void init();
+    void init().catch((err: unknown) => {
+      appendLog(`! ${err instanceof Error ? err.message : String(err)}`, "red");
+      // Delay exit so React can render the error in the logs panel before unmounting.
+      setTimeout(() => {
+        exit();
+        setTimeout(() => process.exit(1), 200);
+      }, 100);
+    });
 
     let shuttingDown = false;
     const onSig = (): void => {
@@ -861,10 +865,6 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 <Text color="white" bold>
                   {iter}
                 </Text>
-                <Text dimColor>│</Text>
-                {meta?.logFile && (
-                  <Link url={pathToFileURL(meta.logFile).href} label="LOG" color="gray" />
-                )}
               </Box>
 
               {/* ── Task progress bar ───────────────────────── */}

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 const MarkerSchema = z.object({
-  type: z.enum(["label", "status"]),
+  type: z.enum(["label", "status", "attachment"]),
   value: z.string().min(1),
 });
 
@@ -10,10 +10,7 @@ const GetIndicatorSchema = z.object({
   filter: z.array(MarkerSchema).default([]),
 });
 
-const SetIndicatorSchema = z.union([
-  MarkerSchema,
-  z.object({ apply: z.array(MarkerSchema).min(1) }),
-]);
+const SetIndicatorSchema = z.union([z.array(MarkerSchema).min(1), MarkerSchema]);
 
 /**
  * Linear is the single source of truth for which issues Ralph has touched.
@@ -50,7 +47,7 @@ const IndicatorsSchema = z
     for (const key of ["clearConflicted", "clearReview"] as const) {
       const clear = value[key];
       if (!clear) continue;
-      const markers = "apply" in clear ? clear.apply : [clear];
+      const markers = Array.isArray(clear) ? clear : [clear];
       for (const m of markers) {
         if (m.type !== "label") {
           ctx.addIssue({
@@ -86,6 +83,12 @@ const RalphyConfigSchema = z
     appendPrompt: z.string().optional(),
     createPrOnSuccess: z.boolean().default(false),
     prBaseBranch: z.string().default("main"),
+    // When true, a new PR is opened against the head branch of a blocker's
+    // open PR (resolved via Linear "blocked_by" relations + the blocker's
+    // auto-attached GitHub PR) instead of `prBaseBranch`. Falls back to
+    // `prBaseBranch` when the blocker has zero or multiple open PRs.
+    // A `ralph:branch:<name>` label still wins over this resolution.
+    stackPrsOnDependencies: z.boolean().default(false),
     autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
     fixCiOnFailure: z.boolean().default(false),
     maxCiFixAttempts: z.number().int().positive().default(5),
@@ -176,8 +179,28 @@ export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfi
     return RalphyConfigSchema.parse({});
   }
   const text = await file.text();
-  const raw = JSON.parse(stripJsonComments(text));
-  return RalphyConfigSchema.parse(raw);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stripJsonComments(text));
+  } catch (error) {
+    throw new Error(
+      `ralphy.config.json is not valid JSON.\n` +
+        `  File: ${path}\n` +
+        `  ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `Run \`ralph init\` to see the full default config with all available settings.`,
+    );
+  }
+  const result = RalphyConfigSchema.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((issue) => `  • ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("\n");
+    throw new Error(
+      `ralphy.config.json has invalid settings:\n${issues}\n\n` +
+        `Run \`ralph init\` to see the full default config with all available settings.`,
+    );
+  }
+  return result.data;
 }
 
 /**
@@ -238,6 +261,12 @@ const DEFAULT_CONFIG_TEMPLATE = `{
   // Base branch for pull requests. Override per-issue by labelling the
   // Linear issue with "ralph:branch:<branch-name>".
   "prBaseBranch": "main",
+
+  // When true, if the Linear issue is blocked by another issue whose
+  // single open GitHub PR can be resolved (via Linear's auto-attachment),
+  // open this PR against that blocker's head branch instead of prBaseBranch.
+  // A "ralph:branch:<name>" label on the issue still wins over this.
+  "stackPrsOnDependencies": false,
 
   // Merge strategy used when GitHub auto-merge is enabled (see getAutoMerge
   // indicator below). One of "squash", "merge", "rebase".
@@ -309,14 +338,18 @@ const DEFAULT_CONFIG_TEMPLATE = `{
       // after opening the PR so the PR merges as soon as required checks pass.
       // "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
 
-      // Applied when Ralph picks up an issue.
+      // Applied when Ralph picks up an issue. Single marker or array of markers.
       // "setInProgress": { "type": "label", "value": "ralph:in-progress" },
+      // "setInProgress": { "type": "attachment", "value": "In Progress" },
+      // "setInProgress": [{ "type": "status", "value": "In Progress" }, { "type": "attachment", "value": "In Progress" }],
 
       // Applied on clean success.
       // "setDone": { "type": "status", "value": "In Review" },
+      // "setDone": [{ "type": "status", "value": "In Review" }, { "type": "attachment", "value": "Done" }],
 
       // Applied when the task exits with an error (quarantine signal).
       // "setError": { "type": "label", "value": "ralph:error" },
+      // "setError": [{ "type": "label", "value": "ralph:error" }, { "type": "attachment", "value": "Error" }],
 
       // Applied when a PR merge conflict is detected.
       // "setConflicted": { "type": "label", "value": "ralph:conflict" },

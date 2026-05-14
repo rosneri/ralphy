@@ -134,13 +134,11 @@ describe("markersOf", () => {
     expect(markersOf(m)).toEqual([m]);
   });
 
-  test("returns the apply array for a multi-marker SetIndicator", () => {
-    const set: SetIndicator = {
-      apply: [
-        { type: "status", value: "Done" },
-        { type: "label", value: "shipped" },
-      ],
-    };
+  test("returns the array as-is for a multi-marker SetIndicator", () => {
+    const set: SetIndicator = [
+      { type: "status", value: "Done" },
+      { type: "label", value: "shipped" },
+    ];
     expect(markersOf(set)).toEqual([
       { type: "status", value: "Done" },
       { type: "label", value: "shipped" },

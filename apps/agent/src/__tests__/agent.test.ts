@@ -9,6 +9,9 @@ import {
   addIssueComment,
   fetchIssueComments,
   fetchIssueAttachments,
+  createRalphyAttachment,
+  updateAttachmentSubtitle,
+  upsertRalphyAttachment,
   fetchWorkflowStates,
   updateIssueState,
   fetchIssueLabels,
@@ -66,7 +69,7 @@ describe("agent/config", () => {
           indicators: {
             getTodo: { filter: [{ type: "status", value: "Todo" }] },
             setDone: { type: "status", value: "Done" },
-            setError: { apply: [{ type: "label", value: "ralph:error" }] },
+            setError: [{ type: "label", value: "ralph:error" }],
           },
         },
       }),
@@ -78,20 +81,25 @@ describe("agent/config", () => {
       filter: [{ type: "status", value: "Todo" }],
     });
     expect(cfg.linear.indicators.setDone).toEqual({ type: "status", value: "Done" });
-    expect(cfg.linear.indicators.setError).toEqual({
-      apply: [{ type: "label", value: "ralph:error" }],
-    });
+    expect(cfg.linear.indicators.setError).toEqual([{ type: "label", value: "ralph:error" }]);
   });
 
-  test("loadRalphyConfig rejects unknown linear keys", async () => {
+  test("loadRalphyConfig rejects invalid JSON with pretty error", async () => {
+    await Bun.write(join(tempDir, "ralphy.config.json"), "{ not valid json }");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("not valid JSON");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
+  });
+
+  test("loadRalphyConfig rejects unknown linear keys with pretty error", async () => {
     await Bun.write(
       join(tempDir, "ralphy.config.json"),
       JSON.stringify({ linear: { statuses: ["Todo"], doneLabel: "shipped" } }),
     );
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow();
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
-  test("loadRalphyConfig rejects status-typed clearConflicted", async () => {
+  test("loadRalphyConfig rejects status-typed clearConflicted with pretty error", async () => {
     await Bun.write(
       join(tempDir, "ralphy.config.json"),
       JSON.stringify({
@@ -102,7 +110,8 @@ describe("agent/config", () => {
         },
       }),
     );
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow();
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
   test("ensureRalphyConfig creates file with defaults when missing", async () => {
@@ -687,5 +696,120 @@ describe("agent/linear", () => {
     );
     const id = await createIssueLabel("k", "team-uuid-1", "ralph:in-progress");
     expect(id).toBeNull();
+  });
+
+  test("createRalphyAttachment posts attachmentCreate and returns new attachment id", async () => {
+    let captured: {
+      variables: { issueId: string; url: string; title: string; subtitle: string };
+    } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(
+        JSON.stringify({
+          data: { attachmentCreate: { success: true, attachment: { id: "att-1" } } },
+        }),
+        { status: 200 },
+      );
+    });
+    const id = await createRalphyAttachment(
+      "k",
+      "issue-uuid-1",
+      "https://linear.app/eng/issue/ENG-42",
+      "In Progress",
+    );
+    expect(captured!.variables).toEqual({
+      issueId: "issue-uuid-1",
+      url: "https://linear.app/eng/issue/ENG-42",
+      title: "Ralphy",
+      subtitle: "In Progress",
+    });
+    expect(id).toBe("att-1");
+  });
+
+  test("createRalphyAttachment throws when attachment is null", async () => {
+    mockFetch(
+      async () =>
+        new Response(
+          JSON.stringify({ data: { attachmentCreate: { success: false, attachment: null } } }),
+          { status: 200 },
+        ),
+    );
+    await expect(
+      createRalphyAttachment("k", "issue-uuid-1", "https://linear.app/eng/issue/ENG-42", "Done"),
+    ).rejects.toThrow("attachmentCreate returned no attachment id");
+  });
+
+  test("updateAttachmentSubtitle posts attachmentUpdate with new subtitle", async () => {
+    let captured: { variables: { id: string; subtitle: string } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { attachmentUpdate: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await updateAttachmentSubtitle("k", "att-1", "Done");
+    expect(captured!.variables).toEqual({ id: "att-1", subtitle: "Done" });
+  });
+
+  test("upsertRalphyAttachment updates existing Ralphy attachment when found", async () => {
+    const requests: string[] = [];
+    mockFetch(async (req) => {
+      const body = (await req.json()) as { query: string; variables: Record<string, unknown> };
+      if (body.query.includes("IssueAttachments")) {
+        requests.push("fetch");
+        return new Response(
+          JSON.stringify({
+            data: {
+              issue: {
+                attachments: {
+                  nodes: [
+                    { id: "att-existing", url: "https://x", sourceType: null, title: "Ralphy" },
+                  ],
+                },
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      requests.push("update");
+      return new Response(JSON.stringify({ data: { attachmentUpdate: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await upsertRalphyAttachment(
+      "k",
+      "issue-uuid-1",
+      "https://linear.app/eng/issue/ENG-42",
+      "Done",
+    );
+    expect(requests).toEqual(["fetch", "update"]);
+  });
+
+  test("upsertRalphyAttachment creates new attachment when none exists", async () => {
+    const requests: string[] = [];
+    mockFetch(async (req) => {
+      const body = (await req.json()) as { query: string; variables: Record<string, unknown> };
+      if (body.query.includes("IssueAttachments")) {
+        requests.push("fetch");
+        return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }), {
+          status: 200,
+        });
+      }
+      requests.push("create");
+      return new Response(
+        JSON.stringify({
+          data: { attachmentCreate: { success: true, attachment: { id: "att-new" } } },
+        }),
+        { status: 200 },
+      );
+    });
+    await upsertRalphyAttachment(
+      "k",
+      "issue-uuid-1",
+      "https://linear.app/eng/issue/ENG-42",
+      "In Progress",
+    );
+    expect(requests).toEqual(["fetch", "create"]);
   });
 });

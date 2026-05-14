@@ -45,15 +45,30 @@ interface LinearNode {
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
 }
 
-function partition(markers: Marker[]): { statuses: string[]; labels: string[] } {
+interface Partitioned {
+  statuses: string[];
+  labels: string[];
+  /** Attachment marker values — matched against the Ralphy attachment
+   *  `subtitle` field (the agent always sets `title: "Ralphy"`). */
+  attachmentSubtitles: string[];
+}
+
+function partition(markers: Marker[]): Partitioned {
   const statuses: string[] = [];
   const labels: string[] = [];
+  const attachmentSubtitles: string[] = [];
   for (const m of markers) {
     if (m.type === "status") statuses.push(m.value);
-    else labels.push(m.value);
+    else if (m.type === "label") labels.push(m.value);
+    else attachmentSubtitles.push(m.value);
   }
-  return { statuses, labels };
+  return { statuses, labels, attachmentSubtitles };
 }
+
+/** Title used on every Ralphy-managed attachment (set in
+ *  `upsertRalphyAttachment`). All `type:"attachment"` markers are matched
+ *  against the subtitle of an attachment that bears this title. */
+const RALPHY_ATTACHMENT_TITLE_FILTER = "Ralphy";
 
 /**
  * Build the Linear `IssueFilter` GraphQL variable. `include` is all-of
@@ -73,10 +88,20 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
 
   const inc = spec.include ?? [];
   if (inc.length > 0) {
-    const { statuses, labels } = partition(inc);
+    const { statuses, labels, attachmentSubtitles } = partition(inc);
     const branches: Record<string, unknown>[] = [];
     if (statuses.length > 0) branches.push({ state: { name: { in: statuses } } });
     if (labels.length > 0) branches.push({ labels: { some: { name: { in: labels } } } });
+    if (attachmentSubtitles.length > 0) {
+      branches.push({
+        attachments: {
+          some: {
+            title: { eq: RALPHY_ATTACHMENT_TITLE_FILTER },
+            subtitle: { in: attachmentSubtitles },
+          },
+        },
+      });
+    }
     for (const b of branches) Object.assign(where, b);
   } else {
     // Default: open issues only (preserves prior behavior when no
@@ -86,7 +111,23 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
 
   const exc = spec.exclude ?? [];
   if (exc.length > 0) {
-    const { statuses, labels } = partition(exc);
+    const { statuses, labels, attachmentSubtitles: excludedSubtitles } = partition(exc);
+    if (excludedSubtitles.length > 0) {
+      const existingAnd = (where.and as Record<string, unknown>[] | undefined) ?? [];
+      where.and = [
+        ...existingAnd,
+        {
+          attachments: {
+            every: {
+              or: [
+                { title: { neq: RALPHY_ATTACHMENT_TITLE_FILTER } },
+                { subtitle: { nin: excludedSubtitles } },
+              ],
+            },
+          },
+        },
+      ];
+    }
     if (statuses.length > 0) {
       // Merge with any existing state constraint via `and:`.
       const current = where.state as Record<string, unknown> | undefined;
@@ -244,6 +285,73 @@ interface LinearAttachment {
   url: string;
   sourceType: string | null;
   title: string | null;
+}
+
+/** Fixed title used for the ralphy status attachment so upserts can find it. */
+const RALPHY_ATTACHMENT_TITLE = "Ralphy";
+
+/** Create a new Ralphy status attachment on an issue. The `subtitle` reflects
+ *  the current lifecycle phase (e.g. "In Progress", "Done", "Error"). Returns
+ *  the id of the newly created attachment. */
+export async function createRalphyAttachment(
+  apiKey: string,
+  issueId: string,
+  issueUrl: string,
+  subtitle: string,
+): Promise<string> {
+  const mutation = `mutation CreateAttachment(
+    $issueId: String!, $url: String!, $title: String!, $subtitle: String!
+  ) {
+    attachmentCreate(input: { issueId: $issueId, url: $url, title: $title, subtitle: $subtitle }) {
+      success
+      attachment { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    attachmentCreate: { success: boolean; attachment: { id: string } | null };
+  }>(apiKey, mutation, {
+    issueId,
+    url: issueUrl,
+    title: RALPHY_ATTACHMENT_TITLE,
+    subtitle,
+  });
+  const attachmentId = data.attachmentCreate.attachment?.id;
+  if (!attachmentId) throw new Error("attachmentCreate returned no attachment id");
+  return attachmentId;
+}
+
+/** Update the subtitle of an existing attachment. */
+export async function updateAttachmentSubtitle(
+  apiKey: string,
+  attachmentId: string,
+  subtitle: string,
+): Promise<void> {
+  const mutation = `mutation UpdateAttachment($id: String!, $subtitle: String!) {
+    attachmentUpdate(id: $id, input: { subtitle: $subtitle }) { success }
+  }`;
+  await linearRequest<{ attachmentUpdate: { success: boolean } }>(apiKey, mutation, {
+    id: attachmentId,
+    subtitle,
+  });
+}
+
+/** Upsert the Ralphy status attachment on an issue: find the existing one by
+ *  title and update its subtitle, or create a new one when none exists. The
+ *  same attachment entry is reused across all lifecycle transitions so the
+ *  issue stays tidy — one status row, always up-to-date. */
+export async function upsertRalphyAttachment(
+  apiKey: string,
+  issueId: string,
+  issueUrl: string,
+  subtitle: string,
+): Promise<void> {
+  const attachments = await fetchIssueAttachments(apiKey, issueId);
+  const existing = attachments.find((a) => a.title === RALPHY_ATTACHMENT_TITLE);
+  if (existing) {
+    await updateAttachmentSubtitle(apiKey, existing.id, subtitle);
+  } else {
+    await createRalphyAttachment(apiKey, issueId, issueUrl, subtitle);
+  }
 }
 
 /** Fetch attachments on an issue. Linear's GitHub integration auto-creates
@@ -427,9 +535,14 @@ export function issueMatchesGetIndicator(
   if (!indicator || indicator.filter.length === 0) return false;
   const labels = new Set(issue.labels.map((l) => l.toLowerCase()));
   const stateName = issue.state.name.toLowerCase();
-  return indicator.filter.some((m) =>
-    m.type === "label" ? labels.has(m.value.toLowerCase()) : stateName === m.value.toLowerCase(),
-  );
+  return indicator.filter.some((m) => {
+    if (m.type === "label") return labels.has(m.value.toLowerCase());
+    if (m.type === "status") return stateName === m.value.toLowerCase();
+    // attachment markers can only be verified via a separate API call
+    // (LinearIssue's pick doesn't carry attachments). Callers that need
+    // attachment-based matching should query attachments themselves.
+    return false;
+  });
 }
 
 /** Remove a label from an issue. No-op if the issue does not bear it. */

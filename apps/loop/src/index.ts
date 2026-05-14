@@ -10,6 +10,28 @@ import { parseArgs, printHelp } from "./cli";
 import { App } from "./components/App";
 import { runDebug } from "./debug";
 
+/**
+ * Ensure `<projectRoot>/.ralph/.gitignore` exists and ignores the local
+ * `bin/` directory (where shell.js / mcp.js get dropped when the package
+ * postinstall script runs inside a worktree). Without this, those binaries
+ * show up as untracked changes in `git status` and slip into commits.
+ */
+async function ensureRalphGitignore(projectRoot: string): Promise<void> {
+  const ralphDir = join(projectRoot, ".ralph");
+  await mkdir(ralphDir, { recursive: true });
+  const gitignorePath = join(ralphDir, ".gitignore");
+  const file = Bun.file(gitignorePath);
+  if (await file.exists()) {
+    const existing = await file.text();
+    const lines = existing.split("\n").map((l) => l.trim());
+    if (lines.includes("bin") || lines.includes("bin/")) return;
+    const next = existing.endsWith("\n") ? `${existing}bin\n` : `${existing}\nbin\n`;
+    await Bun.write(gitignorePath, next);
+    return;
+  }
+  await Bun.write(gitignorePath, "bin\n");
+}
+
 export async function main(argv: string[]): Promise<number> {
   if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
     printHelp();
@@ -32,6 +54,7 @@ export async function main(argv: string[]): Promise<number> {
 
   if (args.mode === "init") {
     await mkdir(statesDir, { recursive: true });
+    await ensureRalphGitignore(projectRoot);
     const openspecBin = resolveOpenspecBin(import.meta.dir);
     Bun.spawnSync({
       cmd: [process.execPath, openspecBin, "init", "--tools", "none", "--force"],
@@ -109,6 +132,7 @@ export async function main(argv: string[]): Promise<number> {
   if (args.mode === "task" && args.name) {
     await mkdir(join(statesDir, args.name), { recursive: true });
     await mkdir(join(tasksDir, args.name), { recursive: true });
+    await ensureRalphGitignore(projectRoot);
   }
 
   await runWithContext(createDefaultContext(), async () => {
