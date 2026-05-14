@@ -1,3 +1,60 @@
+## Fix failing CI checks (2026-05-14T18:05:09.046Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25876640372 ---
+ci Unused dependency check ﻿2026-05-14T18:03:41.0529519Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-14T18:03:41.0529862Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-14T18:03:41.0565800Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-14T18:03:41.0566068Z env:
+ci Unused dependency check 2026-05-14T18:03:41.0566338Z NX_BASE: ba3ce3306a1881d4ae43a776ff7cb12db67d9a3c
+ci Unused dependency check 2026-05-14T18:03:41.0566875Z NX_HEAD: 144e34d87bb083a0b404f97c603f6dca90387910
+ci Unused dependency check 2026-05-14T18:03:41.0567206Z ##[endgroup]
+ci Unused dependency check 2026-05-14T18:03:41.0928744Z $ knip
+ci Unused dependency check 2026-05-14T18:03:43.9709219Z [93m[4mUnused dependencies[24m[39m (3)
+ci Unused dependency check 2026-05-14T18:03:43.9718847Z @inkjs/ui apps/agent/package.json:10:6
+ci Unused dependency check 2026-05-14T18:03:43.9719334Z @ralphy/engine apps/agent/package.json:14:6
+ci Unused dependency check 2026-05-14T18:03:43.9719964Z @ralphy/openspec apps/agent/package.json:16:6
+ci Unused dependency check 2026-05-14T18:03:43.9720659Z [93m[4mUnused devDependencies[24m[39m (1)
+ci Unused dependency check 2026-05-14T18:03:43.9721069Z ink-testing-library apps/agent/package.json:27:6
+ci Unused dependency check 2026-05-14T18:03:43.9721509Z [93m[4mUnlisted dependencies[24m[39m (1)
+ci Unused dependency check 2026-05-14T18:03:43.9721865Z react apps/shell/tsconfig.json
+ci Unused dependency check 2026-05-14T18:03:43.9727437Z [33m[4mConfiguration hints[24m (2)[39m
+ci Unused dependency check 2026-05-14T18:03:43.9730043Z src/index.ts apps/agent knip.json [90mRemove redundant [97mentry[90m pattern[39m
+ci Unused dependency check 2026-05-14T18:03:43.9731226Z src/index.ts apps/loop knip.json [90mRemove redundant [97mentry[90m pattern[39m
+ci Unused dependency check 2026-05-14T18:03:43.9976638Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-14T18:03:43.9988099Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-14T18:03:44.4214235Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-14T18:03:44.4214841Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-14T18:03:44.4260839Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-14T18:03:44.4261233Z env:
+ci Test affected files + coverage 2026-05-14T18:03:44.4261590Z NX_BASE: ba3ce3306a1881d4ae43a776ff7cb12db67d9a3c
+ci Test affected files + coverage 2026-05-14T18:03:44.4262137Z NX_HEAD: 144e34d87bb083a0b404f97c603f6dca90387910
+ci Test affected files + coverage 2026-05-14T18:03:44.4262598Z ##[endgroup]
+ci Test affected files + coverage 2026-05-14T18:03:44.4342936Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-14T18:03:44.4584942Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-14T18:03:44.4585233Z
+ci Test affected files + coverage 2026-05-14T18:03:46.6503276Z loop: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-14T18:03:46.6503795Z apps/loop/src/**tests**/components.test.tsx
+ci Test affected files + coverage 2026-05-14T18:03:46.6504157Z
+ci Test affected files + coverage 2026-05-14T18:03:46.6520557Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-14T18:03:46.6617723Z
+ci Test affected files + coverage 2026-05-14T18:03:46.6618422Z ##[group]src/**tests**/FeedLine.test.tsx:
+ci Test affected files + coverage 2026-05-14T18:03:46.8258967Z (pass) FeedLine > renders session event [21.19ms]
+ci Test affected files + coverage 2026-05-14T18:03:46.8296658Z (pass) FeedLine > renders session-unknown event [3.83ms]
+ci Test affected files + coverage 2026-05-14T18:03:46.8315976Z (pass) FeedLine > renders agent event [1.94ms]
+ci Test affected files + coverage 2026-05-14T18:03:46.8335202Z (pass) FeedLine > ren
+…[truncated 124693 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-14T18:00:36.463Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
