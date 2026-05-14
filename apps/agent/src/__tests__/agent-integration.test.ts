@@ -524,28 +524,25 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
       return linear.handle(body);
     }) as typeof fetch;
 
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({
-        concurrency: 1,
-        useWorktree: false,
-        createPrOnSuccess: false,
-        linear: {
-          team: "ENG",
-          postComments: false,
-          updateEveryIterations: 0,
-          indicators: {
-            getTodo: { filter: [{ type: "status", value: "Todo" }] },
-            getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
-            setInProgress: { type: "status", value: "In Progress" },
-            setDone: { type: "status", value: "Done" },
-            setError: { type: "label", value: "ralph:error" },
-            setConflicted: { type: "label", value: "ralph:conflicted" },
-            clearConflicted: { type: "label", value: "ralph:conflicted" },
-          },
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+          setError: { type: "label", value: "ralph:error" },
+          setConflicted: { type: "label", value: "ralph:conflicted" },
+          clearConflicted: { type: "label", value: "ralph:conflicted" },
         },
-      }),
-    );
+      },
+    });
     const cfg = await loadRalphyConfig(tempDir);
     const args = await parseArgs([]);
 
