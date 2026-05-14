@@ -45,26 +45,62 @@ describe("worktree helpers", () => {
     expect(branchForChange("eng-42-dark-mode")).toBe("ralph/eng-42-dark-mode");
   });
 
-  test("createWorktree creates a new branch + worktree when neither exists", async () => {
+  test("createWorktree fetches origin and roots a new branch at origin/<base>", async () => {
     const { runner, calls } = makeRunner({
       "worktree list --porcelain": { stdout: "" },
       "rev-parse --verify --quiet refs/heads/ralph/eng-1": { throw: true },
     });
-    const handle = await createWorktree("/proj", "eng-1", runner);
+    const handle = await createWorktree("/proj", "eng-1", "main", runner);
     const expected = join(expectedWtRoot("/proj"), "eng-1");
     expect(handle.cwd).toBe(expected);
     expect(handle.branch).toBe("ralph/eng-1");
+    const fetchCall = calls.find((c) => c.args[0] === "fetch");
+    expect(fetchCall?.args).toEqual(["fetch", "origin", "main"]);
     const lastCall = calls[calls.length - 1]!;
-    expect(lastCall.args).toEqual(["worktree", "add", "-b", "ralph/eng-1", expected]);
+    expect(lastCall.args).toEqual([
+      "worktree",
+      "add",
+      "-b",
+      "ralph/eng-1",
+      expected,
+      "origin/main",
+    ]);
   });
 
-  test("createWorktree reuses an existing branch (no -b)", async () => {
+  test("createWorktree honors a non-default base branch", async () => {
+    const { runner, calls } = makeRunner({
+      "worktree list --porcelain": { stdout: "" },
+      "rev-parse --verify --quiet refs/heads/ralph/eng-9": { throw: true },
+    });
+    await createWorktree("/proj", "eng-9", "release/2026", runner);
+    const expected = join(expectedWtRoot("/proj"), "eng-9");
+    expect(calls.map((c) => c.args)).toEqual([
+      ["worktree", "list", "--porcelain"],
+      ["rev-parse", "--verify", "--quiet", "refs/heads/ralph/eng-9"],
+      ["fetch", "origin", "release/2026"],
+      ["worktree", "add", "-b", "ralph/eng-9", expected, "origin/release/2026"],
+    ]);
+  });
+
+  test("createWorktree fails loudly when fetch fails (no silent fallback to HEAD)", async () => {
+    const { runner, calls } = makeRunner({
+      "worktree list --porcelain": { stdout: "" },
+      "rev-parse --verify --quiet refs/heads/ralph/eng-x": { throw: true },
+      "fetch origin main": { throw: true },
+    });
+    await expect(createWorktree("/proj", "eng-x", "main", runner)).rejects.toThrow();
+    // The worktree add must not run after a failed fetch.
+    expect(calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")).toBeUndefined();
+  });
+
+  test("createWorktree reuses an existing branch without fetching or rebasing", async () => {
     const { runner, calls } = makeRunner({
       "worktree list --porcelain": { stdout: "" },
       "rev-parse --verify --quiet refs/heads/ralph/eng-2": { stdout: "abc123" },
     });
-    await createWorktree("/proj", "eng-2", runner);
+    await createWorktree("/proj", "eng-2", "main", runner);
     const expected = join(expectedWtRoot("/proj"), "eng-2");
+    expect(calls.find((c) => c.args[0] === "fetch")).toBeUndefined();
     const addCall = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")!;
     expect(addCall.args).toEqual(["worktree", "add", expected, "ralph/eng-2"]);
   });
@@ -74,7 +110,7 @@ describe("worktree helpers", () => {
     const { runner, calls } = makeRunner({
       "worktree list --porcelain": { stdout: `worktree ${path}\nbranch refs/heads/ralph/eng-3\n` },
     });
-    const handle = await createWorktree("/proj", "eng-3", runner);
+    const handle = await createWorktree("/proj", "eng-3", "main", runner);
     expect(handle.cwd).toBe(path);
     // Only the list call should have happened — no add, no rev-parse.
     expect(calls).toHaveLength(1);
@@ -153,7 +189,7 @@ describe("worktree helpers", () => {
       "worktree list --porcelain": { stdout: "" },
       "rev-parse --verify --quiet refs/heads/ralph/x": { throw: true },
     });
-    const handle = await createWorktree("/a/b", "x", runner);
+    const handle = await createWorktree("/a/b", "x", "main", runner);
     expect(handle.cwd).toBe(join(homedir(), ".ralph", "b", "worktrees", "x"));
   });
 });
