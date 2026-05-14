@@ -104,6 +104,56 @@ describe("agent parseArgs", () => {
     expect(result.engine).toBe("claude");
     expect(result.model).toBe("sonnet");
   });
+
+  test("parses --name, --prompt, --max-tickets, and mode argument", async () => {
+    const result = await parseArgs([
+      "list",
+      "--name",
+      "ENG-1",
+      "--prompt",
+      "hello",
+      "--max-tickets",
+      "3",
+    ]);
+    expect(result.mode).toBe("list");
+    expect(result.name).toBe("ENG-1");
+    expect(result.prompt).toBe("hello");
+    expect(result.maxTickets).toBe(3);
+  });
+
+  test("parses --prompt-file by reading file contents", async () => {
+    const tmp = `/tmp/ralphy-prompt-${Date.now()}.txt`;
+    await Bun.write(tmp, "from file");
+    const result = await parseArgs(["--prompt-file", tmp]);
+    expect(result.prompt).toBe("from file");
+  });
+
+  test("parses remaining boolean flags", async () => {
+    const result = await parseArgs([
+      "--fix-ci",
+      "--stack-prs",
+      "--code-review",
+      "--json-output",
+      "--manual-test",
+      "--debug",
+    ]);
+    expect(result.fixCi).toBe(true);
+    expect(result.stackPrs).toBe(true);
+    expect(result.codeReview).toBe(true);
+    expect(result.jsonOutput).toBe(true);
+    expect(result.manualTest).toBe(true);
+    expect(result.debug).toBe(true);
+  });
+
+  test("rejects unknown argument with helpful hint", async () => {
+    await expect(parseArgs(["--no-such-flag"])).rejects.toThrow("Unknown argument");
+  });
+
+  test("--indicator with only one colon rejects with expects key:type:value", async () => {
+    await expect(parseArgs(["--indicator", "setDone:label"])).rejects.toThrow(
+      "expects key:type:value",
+    );
+  });
 });
 
 describe("agent printHelp", () => {
