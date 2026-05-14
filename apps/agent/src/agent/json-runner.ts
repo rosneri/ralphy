@@ -128,9 +128,9 @@ export async function runAgentJson({
   const tick = async () => {
     if (cancelled) return;
     emit({ type: "poll_start" });
-    const { found, added, buckets } = await coord.pollOnce();
+    const { found, added, buckets, prStatus } = await coord.pollOnce();
     if (cancelled) return;
-    emit({ type: "poll_done", found, added, buckets });
+    emit({ type: "poll_done", found, added, buckets, prStatus });
     pollTimer = setTimeout(tick, pollInterval * 1000);
   };
   void tick();

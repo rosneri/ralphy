@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
 import { prependFixTask } from "@ralphy/core/tasks-md";
+import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { ParsedArgs } from "../cli";
@@ -33,6 +34,7 @@ import {
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
 import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
+import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
@@ -587,7 +589,28 @@ export function buildAgentCoordinator(
           "yellow",
         );
       }
-      const appendPrompt = args.prompt || cfg.appendPrompt || "";
+      // Render the WORKFLOW.md body as a per-issue prompt addendum so
+      // editing the workflow template changes the prompt without a code
+      // change. Failure is non-fatal — we still scaffold with cfg.appendPrompt.
+      let workflowPrompt = "";
+      try {
+        const workflow = await loadWorkflow(projectRoot);
+        workflowPrompt = renderWorkflowPrompt(workflow, {
+          issue: {
+            identifier: issue.identifier,
+            title: issue.title,
+            description: issue.description ?? "",
+            url: issue.url,
+          },
+          attempt: 1,
+          last_error: "",
+        }).trim();
+      } catch (err) {
+        onLog(`! workflow render failed: ${(err as Error).message}`, "yellow");
+      }
+      const appendPrompt = [args.prompt || cfg.appendPrompt || "", workflowPrompt]
+        .filter(Boolean)
+        .join("\n\n");
       changeName = await scaffoldChangeForIssue(
         scaffoldTasksDir,
         scaffoldStatesDir,
@@ -869,6 +892,7 @@ export function buildAgentCoordinator(
             cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
             ignoreCiChecks: cfg.ignoreCiChecks,
             stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
+            neverTouch: cfg.boundaries.never_touch,
             manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
           },
           respawnWorker: respawn,
@@ -921,13 +945,15 @@ export function buildAgentCoordinator(
   }
 
   /**
-   * Look up the PR for a given issue and ask `gh` whether it's conflicting
-   * with main. Returns null when no PR can be found (branch deleted, never
-   * created, etc.) — caller skips.
+   * Look up the PR for a given issue and resolve its status. The scan path
+   * cares about three buckets: `conflicted` (merge conflicts with main),
+   * `ci_failed` (CI checks are red), and `mergeable` (everything else
+   * — clean to merge as far as GitHub is concerned). Returns null when no
+   * PR can be found (branch deleted, never created, etc.) — caller skips.
    */
-  async function checkPrConflict(
+  async function checkPrStatus(
     issue: LinearIssue,
-  ): Promise<{ url: string; conflicting: boolean } | null> {
+  ): Promise<{ url: string; status: import("./coordinator").PrStatus } | null> {
     const changeName = changeNameForIssue(issue);
     if (isPrUnavailable(changeName)) return null;
 
@@ -943,27 +969,40 @@ export function buildAgentCoordinator(
     // accept the first UNKNOWN as "not conflicting" and silently move on
     // until the next poll, which would re-issue gh and again hit UNKNOWN.
     // Retry up to 3 times (6s total) before giving up for this poll.
+    let mergeable: string | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const res = await cmdRunner.run(
           ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
           projectRoot,
         );
-        const mergeable = res.stdout.trim();
-        if (mergeable !== "UNKNOWN") {
-          return { url: prUrl, conflicting: mergeable === "CONFLICTING" };
+        const m = res.stdout.trim();
+        if (m !== "UNKNOWN") {
+          mergeable = m;
+          break;
         }
       } catch (err) {
-        onLog(`! gh pr view ${prUrl} failed (conflict scan): ${(err as Error).message}`, "yellow");
-        return null;
+        onLog(`! gh pr view ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
+        return { url: prUrl, status: "unknown" };
       }
       await new Promise<void>((r) => setTimeout(r, 2000));
     }
-    onLog(
-      `  ${issue.identifier}: mergeability still UNKNOWN after retries (${prUrl}) — will recheck next poll`,
-      "gray",
-    );
-    return null;
+    if (mergeable === null) {
+      onLog(
+        `  ${issue.identifier}: mergeability still UNKNOWN after retries (${prUrl}) — will recheck next poll`,
+        "gray",
+      );
+      return { url: prUrl, status: "unknown" };
+    }
+    if (mergeable === "CONFLICTING") return { url: prUrl, status: "conflicted" };
+
+    try {
+      const ci = await getPrChecksStatus(prUrl, cmdRunner, projectRoot);
+      if (ci.bucket === "fail") return { url: prUrl, status: "ci_failed" };
+    } catch (err) {
+      onLog(`! gh pr checks ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
+    }
+    return { url: prUrl, status: "mergeable" };
   }
 
   /** Soft-TTL helpers for the prUnavailable cache. */
@@ -1515,7 +1554,7 @@ export function buildAgentCoordinator(
         const c = await fetchIssueComments(apiKey, issueId);
         return c.map((x) => ({ body: x.body }));
       },
-      checkPrConflict,
+      checkPrStatus,
       onLog,
       onWorkersChanged,
       getIterationCount: async (changeName) => {

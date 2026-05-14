@@ -40,7 +40,10 @@ interface DepsResult {
   applies: { id: string; ind: SetIndicator }[];
   removes: { id: string; ind: SetIndicator }[];
   comments: { id: string; body: string }[];
-  conflictByIssue: Map<string, { url: string; conflicting: boolean } | null>;
+  conflictByIssue: Map<
+    string,
+    { url: string; status: "mergeable" | "conflicted" | "ci_failed" | "unknown" } | null
+  >;
   /** Update what fetchTodo returns on the next call. */
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
@@ -56,7 +59,10 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   const applies: { id: string; ind: SetIndicator }[] = [];
   const removes: { id: string; ind: SetIndicator }[] = [];
   const comments: { id: string; body: string }[] = [];
-  const conflictByIssue = new Map<string, { url: string; conflicting: boolean } | null>();
+  const conflictByIssue = new Map<
+    string,
+    { url: string; status: "mergeable" | "conflicted" | "ci_failed" | "unknown" } | null
+  >();
 
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
@@ -100,7 +106,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
       comments.push({ id: i.id, body });
     },
     fetchComments: async () => [],
-    checkPrConflict: async (i) => conflictByIssue.get(i.id) ?? null,
+    checkPrStatus: async (i) => conflictByIssue.get(i.id) ?? null,
     onLog: (text, color) => {
       logs.push(color !== undefined ? { text, color } : { text });
     },
@@ -565,7 +571,7 @@ describe("AgentCoordinator — conflict scan", () => {
     const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
-    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", conflicting: true });
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const setConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
     await coord.init();
@@ -582,7 +588,7 @@ describe("AgentCoordinator — conflict scan", () => {
     const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
-    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", conflicting: true });
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const setConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
     await coord.init();
@@ -602,7 +608,7 @@ describe("AgentCoordinator — conflict scan", () => {
     const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
-    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", conflicting: true });
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 }); // no setConflicted
     await coord.init();
     await coord.pollOnce();
@@ -610,6 +616,35 @@ describe("AgentCoordinator — conflict scan", () => {
     expect(ctx.applies).toEqual([]);
     expect(ctx.comments).toEqual([]);
     expect(ctx.workers.size).toBe(0);
+  });
+
+  test("pollOnce aggregates PR status counts across done candidates", async () => {
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([
+      issue("a", "ENG-1"),
+      issue("b", "ENG-2"),
+      issue("c", "ENG-3"),
+      issue("d", "ENG-4"),
+    ]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    ctx.conflictByIssue.set("b", { url: "https://gh/pr/2", status: "mergeable" as const });
+    ctx.conflictByIssue.set("c", { url: "https://gh/pr/3", status: "conflicted" as const });
+    ctx.conflictByIssue.set("d", { url: "https://gh/pr/4", status: "ci_failed" as const });
+    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, setConflicted });
+    await coord.init();
+    const r = await coord.pollOnce();
+    expect(r.prStatus).toEqual({ mergeable: 2, conflicted: 1, ciFailed: 1 });
+  });
+
+  test("pollOnce returns zero PR status counts when conflict scan disabled", async () => {
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([issue("a", "ENG-1")]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    const r = await coord.pollOnce();
+    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 0 });
   });
 });
 

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { prependFixTask } from "@ralphy/core/tasks-md";
+import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
 import { baseBranchFromLabels, type LinearIssue } from "./linear";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
@@ -38,6 +39,9 @@ interface PostTaskInput {
     cleanupWorktreeOnSuccess: boolean;
     ignoreCiChecks: string[];
     stackPrsOnDependencies: boolean;
+    /** Globs the agent is forbidden from modifying. Pre-PR check fails the
+     *  iteration with a clear error when any committed file matches. */
+    neverTouch: string[];
     /** When the repo has `allow_auto_merge: false`, poll the PR after CI
      *  passes and merge it via plain `gh pr merge` instead of silently
      *  giving up on the requested auto-merge. Defaults to true. */
@@ -556,6 +560,38 @@ interface PrPhaseInput {
   cfg: PostTaskInput["cfg"];
 }
 
+/**
+ * Pre-PR boundary check. Compares the change set (relative to the base
+ * branch) against `boundaries.never_touch`. Returns the list of forbidden
+ * files that the agent modified anyway, or an empty array when clean.
+ */
+async function findNeverTouchViolations(
+  cmd: CmdRunner,
+  cwd: string,
+  base: string,
+  neverTouch: string[],
+): Promise<{ file: string; pattern: string }[]> {
+  if (neverTouch.length === 0) return [];
+  let raw = "";
+  try {
+    const r = await cmd.run(["git", "diff", "--name-only", `origin/${base}...HEAD`], cwd);
+    raw = r.stdout;
+  } catch {
+    // Fall back to local base ref when origin/<base> isn't fetched.
+    try {
+      const r = await cmd.run(["git", "diff", "--name-only", `${base}...HEAD`], cwd);
+      raw = r.stdout;
+    } catch {
+      return [];
+    }
+  }
+  const files = raw
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return findBoundaryViolations(files, neverTouch);
+}
+
 /** Deps consumed only by the PR phase. */
 interface PrPhaseDeps {
   cmd: CmdRunner;
@@ -654,6 +690,15 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     }
   } catch (err) {
     log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
+  }
+
+  const violations = await findNeverTouchViolations(cmd, cwd, base, cfg.neverTouch);
+  if (violations.length > 0) {
+    log(`! ${changeName} modified files inside boundaries.never_touch — aborting PR:`, "red");
+    for (const v of violations) {
+      log(`    ${v.file} (matched: ${v.pattern})`, "red");
+    }
+    return PR_FAILED_EXIT;
   }
 
   const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);

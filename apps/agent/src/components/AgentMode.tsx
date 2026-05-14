@@ -6,6 +6,7 @@ import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agen
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
 import { countProgress } from "@ralphy/core/progress";
+import { deriveOpenSpecPhase, type OpenSpecPhase } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
 
 interface AgentModeProps {
@@ -38,6 +39,7 @@ interface WorkerMeta {
   phaseStartedAt: number;
   currentTask: string | null;
   taskProgress: { checked: number; total: number } | null;
+  openspecPhase: OpenSpecPhase | null;
   prUrl: string | null;
   currentCmd: { argv: string[]; startedAt: number } | null;
   tail: string[];
@@ -235,6 +237,21 @@ function phaseColor(phase: string): string {
   }
 }
 
+function openspecPhaseColor(phase: OpenSpecPhase): string {
+  switch (phase) {
+    case "proposal":
+      return "magenta";
+    case "design":
+      return "blue";
+    case "tasks":
+      return "cyan";
+    case "implement":
+      return "yellow";
+    case "done":
+      return "green";
+  }
+}
+
 function workerBorderColor(phase: string): string {
   switch (phase) {
     case "working":
@@ -292,6 +309,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       review: number;
       mentions: number;
     } | null;
+    lastPrStatus: {
+      mergeable: number;
+      conflicted: number;
+      ciFailed: number;
+    } | null;
   }>({
     state: "idle",
     lastFound: null,
@@ -299,6 +321,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     lastAt: null,
     filterDesc: "",
     lastBuckets: null,
+    lastPrStatus: null,
   });
 
   function appendLog(text: string, color?: string, workerLogFile?: string) {
@@ -344,6 +367,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             phaseStartedAt: Date.now(),
             currentTask: null,
             taskProgress: null,
+            openspecPhase: null,
             prUrl: null,
             currentCmd: null,
             tail: [],
@@ -393,7 +417,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       const tick = async () => {
         if (cancelled) return;
         setPollStatus((p) => ({ ...p, state: "polling", filterDesc }));
-        const { found, added, buckets } = await coord.pollOnce();
+        const { found, added, buckets, prStatus } = await coord.pollOnce();
         if (cancelled) return;
         if (added > 0) {
           appendLog(`  ${added} new issue${added === 1 ? "" : "s"} queued (found ${found} open)`);
@@ -405,6 +429,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           lastAt: Date.now(),
           filterDesc,
           lastBuckets: buckets,
+          lastPrStatus: prStatus,
         });
         nextPollAtRef.current = Date.now() + pollInterval * 1000;
         pollTimer = setTimeout(tick, pollInterval * 1000);
@@ -498,16 +523,27 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           if (meta.changeDir) {
             try {
               const tasksFile = Bun.file(join(meta.changeDir, "tasks.md"));
-              if (await tasksFile.exists()) {
-                const text = await tasksFile.text();
-                const match = text.match(/^- \[ \] (.+)$/m);
+              const proposalFile = Bun.file(join(meta.changeDir, "proposal.md"));
+              const designFile = Bun.file(join(meta.changeDir, "design.md"));
+              const [tasksText, proposalText, designText] = await Promise.all([
+                tasksFile.exists().then((ok) => (ok ? tasksFile.text() : null)),
+                proposalFile.exists().then((ok) => (ok ? proposalFile.text() : null)),
+                designFile.exists().then((ok) => (ok ? designFile.text() : null)),
+              ]);
+              if (tasksText !== null) {
+                const match = tasksText.match(/^- \[ \] (.+)$/m);
                 meta.currentTask = match?.[1]?.trim() ?? null;
-                const { checked, total } = countProgress(text);
+                const { checked, total } = countProgress(tasksText);
                 meta.taskProgress = total > 0 ? { checked, total } : null;
               }
+              meta.openspecPhase = deriveOpenSpecPhase({
+                proposal: proposalText,
+                design: designText,
+                tasks: tasksText,
+              });
             } catch (err) {
               console.error(
-                `Failed to read tasks.md for worker '${changeName}' (may not exist yet):`,
+                `Failed to read change artifacts for worker '${changeName}' (may not exist yet):`,
                 err,
               );
             }
@@ -551,13 +587,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   );
 
   // Compute tail lines for the focused worker to fill available height.
-  // logs-box(0 or visibleLogLines+2) + header-box(5) + poll-row(5)
+  // logs-box(0 or visibleLogLines+2) + header-box(5) + poll-row(6)
   //   + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
   const tasksBoxLines = activeCount > 1 ? 5 : 0;
   const visibleLogLines = Math.min(logs.length, MAX_LOG_VIEWPORT_LINES);
   const logsBoxLines = logs.length > 0 ? visibleLogLines + 2 : 0;
-  const FIXED_OVERHEAD = logsBoxLines + 5 + 5 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  const FIXED_OVERHEAD = logsBoxLines + 5 + 6 + tasksBoxLines + 8 + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
@@ -642,11 +678,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
         {/* ── Poll status + queue ─────────────────────────────── */}
         <Box flexDirection="row" gap={1} marginTop={0} width={termWidth}>
-          {/* Poll status */}
+          {/* Poll status — two lines: issue buckets, then PR statuses */}
           <LabeledBox
             label="POLL STATUS"
             borderColor="gray"
-            width={termWidth - 13}
+            width={termWidth - 15}
             paddingX={1}
             flexDirection="column"
           >
@@ -698,29 +734,47 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </>
               )}
             </Box>
+            {pollStatus.lastAt !== null && pollStatus.lastPrStatus && (
+              <Box gap={2}>
+                <Text dimColor>PRs</Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>mergeable</Text>
+                <Text color={pollStatus.lastPrStatus.mergeable > 0 ? "green" : "white"}>
+                  {pollStatus.lastPrStatus.mergeable}
+                </Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>conflicted</Text>
+                <Text color={pollStatus.lastPrStatus.conflicted > 0 ? "red" : "white"}>
+                  {pollStatus.lastPrStatus.conflicted}
+                </Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>ci-failed</Text>
+                <Text color={pollStatus.lastPrStatus.ciFailed > 0 ? "red" : "white"}>
+                  {pollStatus.lastPrStatus.ciFailed}
+                </Text>
+              </Box>
+            )}
           </LabeledBox>
 
-          {/* Worker queue summary */}
+          {/* Worker queue summary — active and queued on their own lines */}
           <LabeledBox
             label="WORKERS"
             borderColor="gray"
-            width={12}
+            width={14}
             paddingX={1}
             flexDirection="column"
           >
-            <Box gap={2}>
-              <Box gap={1}>
-                <Text dimColor>A</Text>
-                <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
-                  {activeCount}
-                </Text>
-              </Box>
-              <Box gap={1}>
-                <Text dimColor>Q</Text>
-                <Text color={(coord?.queuedCount ?? 0 > 0) ? "yellow" : "gray"} bold>
-                  {coord?.queuedCount ?? 0}
-                </Text>
-              </Box>
+            <Box gap={1}>
+              <Text dimColor>act</Text>
+              <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
+                {activeCount}
+              </Text>
+            </Box>
+            <Box gap={1}>
+              <Text dimColor>queue</Text>
+              <Text color={(coord?.queuedCount ?? 0) > 0 ? "yellow" : "gray"} bold>
+                {coord?.queuedCount ?? 0}
+              </Text>
             </Box>
           </LabeledBox>
         </Box>
@@ -780,6 +834,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const prUrl = meta?.prUrl ?? null;
           const currentTask = meta?.currentTask ?? null;
           const taskProgress = meta?.taskProgress ?? null;
+          const openspecPhase = meta?.openspecPhase ?? null;
 
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
@@ -827,6 +882,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 {currentTask && (
                   <>
                     <Text dimColor>│</Text>
+                    {openspecPhase && (
+                      <Text color={openspecPhaseColor(openspecPhase)}>[{openspecPhase}]</Text>
+                    )}
                     <Text dimColor>▶ {trunc(currentTask, 40)}</Text>
                   </>
                 )}
@@ -909,7 +967,17 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   <Text color="yellow" bold>
                     ▶ TASK
                   </Text>
-                  <Text color="white">{trunc(currentTask, termWidth - 14)}</Text>
+                  {openspecPhase && (
+                    <Text color={openspecPhaseColor(openspecPhase)} bold>
+                      [phase: {openspecPhase}]
+                    </Text>
+                  )}
+                  <Text color="white">
+                    {trunc(
+                      currentTask,
+                      termWidth - 14 - (openspecPhase ? openspecPhase.length + 11 : 0),
+                    )}
+                  </Text>
                 </Box>
               )}
 
