@@ -1,3 +1,15 @@
+## Resolve PR merge conflicts (2026-05-14T19:32:09.495Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+The PR for this change has merge conflicts with `main`.
+Steps:
+1. `git fetch origin main` then rebase or merge `main` into the current branch.
+2. Resolve conflicts in the files git lists.
+3. Stage and commit the resolution.
+```
+
 ## Fix failing CI checks (2026-05-14T18:25:57.390Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
