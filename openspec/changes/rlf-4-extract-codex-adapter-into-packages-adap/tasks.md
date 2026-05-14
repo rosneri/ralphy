@@ -1,3 +1,41 @@
+## Fix failing CI checks (2026-05-14T18:47:24.751Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25878764425 ---
+ci Unused dependency check ﻿2026-05-14T18:46:06.6756017Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-14T18:46:06.6756356Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-14T18:46:06.6792986Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-14T18:46:06.6793255Z env:
+ci Unused dependency check 2026-05-14T18:46:06.6793493Z NX_BASE: ba3ce3306a1881d4ae43a776ff7cb12db67d9a3c
+ci Unused dependency check 2026-05-14T18:46:06.6793841Z NX_HEAD: caa7fef13e57dbdaa90cbed2a6bf11e81b235ff6
+ci Unused dependency check 2026-05-14T18:46:06.6794566Z ##[endgroup]
+ci Unused dependency check 2026-05-14T18:46:06.6876405Z $ knip
+ci Unused dependency check 2026-05-14T18:46:09.6469343Z [93m[4mUnused files[24m[39m (1)
+ci Unused dependency check 2026-05-14T18:46:09.6478386Z packages/adapter-codex/src/**tests**/adapter.test.ts
+ci Unused dependency check 2026-05-14T18:46:09.6479210Z [93m[4mUnused dependencies[24m[39m (3)
+ci Unused dependency check 2026-05-14T18:46:09.6481848Z @inkjs/ui apps/agent/package.json:10:6
+ci Unused dependency check 2026-05-14T18:46:09.6482688Z @ralphy/engine apps/agent/package.json:14:6
+ci Unused dependency check 2026-05-14T18:46:09.6483321Z @ralphy/openspec apps/agent/package.json:16:6
+ci Unused dependency check 2026-05-14T18:46:09.6484044Z [93m[4mUnused devDependencies[24m[39m (1)
+ci Unused dependency check 2026-05-14T18:46:09.6484685Z ink-testing-library apps/agent/package.json:27:6
+ci Unused dependency check 2026-05-14T18:46:09.6485482Z [93m[4mUnlisted dependencies[24m[39m (1)
+ci Unused dependency check 2026-05-14T18:46:09.6486044Z react apps/shell/tsconfig.json
+ci Unused dependency check 2026-05-14T18:46:09.6490535Z [33m[4mConfiguration hints[24m (2)[39m
+ci Unused dependency check 2026-05-14T18:46:09.6494613Z src/index.ts apps/agent knip.json [90mRemove redundant [97mentry[90m pattern[39m
+ci Unused dependency check 2026-05-14T18:46:09.6495894Z src/index.ts apps/loop knip.json [90mRemove redundant [97mentry[90m pattern[39m
+ci Unused dependency check 2026-05-14T18:46:09.6728470Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-14T18:46:09.6739647Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-14T18:44:11.351Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
