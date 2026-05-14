@@ -1,4 +1,7 @@
-import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { FeedEvent } from "../feed-events";
 
 // ─── Shared mock spawn ────────────────────────────────────────────
@@ -139,6 +142,163 @@ describe("claudeAgent.run", () => {
     });
 
     expect(result.rateLimited).toBe(true);
+  });
+
+  test("passes --resume when resumeSessionId provided", async () => {
+    setupProc([INIT, RESULT]);
+
+    await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      resumeSessionId: "prev-session",
+      onFeedEvent: () => {},
+    });
+
+    const call = spawnMock.mock.calls[0]![0];
+    expect(call.cmd).toContain("--resume");
+    expect(call.cmd).toContain("prev-session");
+  });
+
+  test("kills immediately when signal is already aborted (SIGTERM exit normalized to 0)", async () => {
+    setupProc([INIT, RESULT], 143);
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+      signal: controller.signal,
+    });
+
+    expect(mockProc.kill).toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("kills when signal aborts mid-run via addEventListener", async () => {
+    setupProc([INIT], 137);
+    const controller = new AbortController();
+
+    const runPromise = claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+      signal: controller.signal,
+    });
+
+    controller.abort();
+    const result = await runPromise;
+
+    expect(mockProc.kill).toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+describe("claudeAgent.run (interactive)", () => {
+  let taskDir: string;
+
+  beforeEach(() => {
+    spawnMock.mockClear();
+    taskDir = mkdtempSync(join(tmpdir(), "engine-interactive-test-"));
+  });
+
+  afterEach(() => {
+    rmSync(taskDir, { recursive: true, force: true });
+  });
+
+  function setupInteractiveMock(exitCode = 0) {
+    mockProc = {
+      stdin: {
+        write: mock(() => {}),
+        flush: mock(() => Promise.resolve()),
+        end: mock(() => {}),
+      },
+      stdout: makeStream([]),
+      stderr: makeStream([]),
+      exited: Promise.resolve(exitCode),
+      kill: mock(() => {}),
+    };
+  }
+
+  test("spawns claude with inherited stdio", async () => {
+    setupInteractiveMock(0);
+
+    const result = await claudeAgent.run({
+      model: "test-model",
+      prompt: "interactive prompt",
+      interactive: true,
+      taskDir,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.usage).toBeNull();
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const call = spawnMock.mock.calls[0]![0];
+    expect(call.cmd[0]).toBe("claude");
+    expect(call.cmd).toContain("--model");
+    expect(call.cmd).toContain("test-model");
+    expect(call.cmd).toContain("--dangerously-skip-permissions");
+    expect(call.stdin).toBe("inherit");
+    expect(call.stdout).toBe("inherit");
+    expect(call.stderr).toBe("inherit");
+  });
+
+  test("writes prompt to taskDir and cleans up", async () => {
+    setupInteractiveMock(0);
+
+    await claudeAgent.run({
+      model: "test",
+      prompt: "my interactive prompt",
+      interactive: true,
+      taskDir,
+      onFeedEvent: () => {},
+    });
+
+    expect(existsSync(join(taskDir, "_interactive_prompt.md"))).toBe(false);
+  });
+
+  test("returns exitCode 0 when _interactive_done file exists", async () => {
+    setupInteractiveMock(1);
+    writeFileSync(join(taskDir, "_interactive_done"), "");
+
+    const result = await claudeAgent.run({
+      model: "test",
+      prompt: "test",
+      interactive: true,
+      taskDir,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.usage).toBeNull();
+  });
+
+  test("returns actual exitCode when no _interactive_done file", async () => {
+    setupInteractiveMock(1);
+
+    const result = await claudeAgent.run({
+      model: "test",
+      prompt: "test",
+      interactive: true,
+      taskDir,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("creates temp dir when no taskDir provided", async () => {
+    setupInteractiveMock(0);
+
+    const result = await claudeAgent.run({
+      model: "test",
+      prompt: "test",
+      interactive: true,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.usage).toBeNull();
   });
 });
 
