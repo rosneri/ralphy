@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { FeedEvent } from "../feed-events";
 import type { IterationUsage } from "@ralphy/types";
-import { handleEngineFailure, runEngine, consumeEngineEvents } from "../engine";
-import { createScriptedAdapter } from "../adapters/scripted";
+import { handleEngineFailure, runEngine } from "../engine";
+import { createScriptedAgent } from "../agents/scripted";
 
-// Engine-level tests run against a scripted adapter that emits a canned
+// Engine-level tests run against a scripted Agent that emits a canned
 // FeedEvent sequence. No subprocess is spawned; tests do not touch
-// `Bun.spawn` or `Bun.spawnSync`. Adapter-internal (spawn-based) behavior
-// is covered in engine-spawn.test.ts.
+// `Bun.spawn` or `Bun.spawnSync`. Spawn-based agent behavior is covered
+// in agents.test.ts.
 
 // ─── handleEngineFailure ─────────────────────────────────────────
 
@@ -43,7 +43,7 @@ describe("handleEngineFailure", () => {
   });
 });
 
-// ─── Scripted adapter fixtures ───────────────────────────────────
+// ─── Scripted agent fixtures ─────────────────────────────────────
 
 const sampleUsage: IterationUsage = {
   cost_usd: 0.01,
@@ -73,11 +73,11 @@ function resultEvent(usage: IterationUsage = sampleUsage): FeedEvent {
   };
 }
 
-// ─── runEngine + scripted adapter ────────────────────────────────
+// ─── runEngine + scripted agent ──────────────────────────────────
 
-describe("runEngine (scripted adapter)", () => {
-  test("captures full session id from adapter", async () => {
-    const adapter = createScriptedAdapter({
+describe("runEngine (scripted agent)", () => {
+  test("captures full session id from agent", async () => {
+    const agent = createScriptedAgent({
       events: [sessionEvent(), resultEvent()],
       sessionId: "full-session-id-abcd1234567890",
       usage: sampleUsage,
@@ -87,15 +87,15 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: () => {},
     });
 
     expect(result.sessionId).toBe("full-session-id-abcd1234567890");
   });
 
-  test("aggregates usage from adapter", async () => {
-    const adapter = createScriptedAdapter({
+  test("aggregates usage from agent", async () => {
+    const agent = createScriptedAgent({
       events: [sessionEvent(), textEvent("hi"), resultEvent()],
       usage: sampleUsage,
     });
@@ -105,7 +105,7 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: (e) => events.push(e),
     });
 
@@ -115,7 +115,7 @@ describe("runEngine (scripted adapter)", () => {
   });
 
   test("detects rate-limit text in feed events", async () => {
-    const adapter = createScriptedAdapter({
+    const agent = createScriptedAgent({
       events: [
         sessionEvent(),
         textEvent("You've hit your limit, please try again later."),
@@ -128,7 +128,7 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: () => {},
     });
 
@@ -136,7 +136,7 @@ describe("runEngine (scripted adapter)", () => {
   });
 
   test("does not flag rate-limit on unrelated text", async () => {
-    const adapter = createScriptedAdapter({
+    const agent = createScriptedAgent({
       events: [sessionEvent(), textEvent("All good."), resultEvent()],
       usage: sampleUsage,
     });
@@ -145,15 +145,15 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: () => {},
     });
 
     expect(result.rateLimited).toBe(false);
   });
 
-  test("aborting via signal kills the adapter and normalizes exit 143", async () => {
-    const adapter = createScriptedAdapter({
+  test("aborting via signal kills the agent and normalizes exit 143", async () => {
+    const agent = createScriptedAgent({
       events: [sessionEvent(), textEvent("streaming..."), textEvent("more...")],
       exitCode: 0,
       killedExitCode: 143,
@@ -165,7 +165,7 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       signal: controller.signal,
       onFeedEvent: () => {},
     });
@@ -175,12 +175,12 @@ describe("runEngine (scripted adapter)", () => {
     controller.abort();
 
     const result = await promise;
-    expect(adapter.wasKilled()).toBe(true);
+    expect(agent.wasKilled()).toBe(true);
     expect(result.exitCode).toBe(0); // 143 normalized because intentional kill
   });
 
   test("aborting before run starts kills and exits cleanly", async () => {
-    const adapter = createScriptedAdapter({
+    const agent = createScriptedAgent({
       events: [sessionEvent(), resultEvent()],
       killedExitCode: 137,
       usage: sampleUsage,
@@ -192,17 +192,17 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       signal: controller.signal,
       onFeedEvent: () => {},
     });
 
-    expect(adapter.wasKilled()).toBe(true);
+    expect(agent.wasKilled()).toBe(true);
     expect(result.exitCode).toBe(0); // 137 normalized because intentional kill
   });
 
   test("non-zero exit (no kill) is preserved", async () => {
-    const adapter = createScriptedAdapter({
+    const agent = createScriptedAgent({
       events: [sessionEvent()], // no result event, process exits 1
       exitCode: 1,
     });
@@ -211,7 +211,7 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: () => {},
     });
 
@@ -220,8 +220,8 @@ describe("runEngine (scripted adapter)", () => {
   });
 
   test("unintentional SIGTERM (143) is preserved", async () => {
-    // Adapter is never killed by us; exit code 143 should not be normalized.
-    const adapter = createScriptedAdapter({
+    // Agent is never killed by us; exit code 143 should not be normalized.
+    const agent = createScriptedAgent({
       events: [sessionEvent()],
       exitCode: 143,
     });
@@ -230,15 +230,15 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: () => {},
     });
 
     expect(result.exitCode).toBe(143);
   });
 
-  test("claude engine kills adapter at first result and stops consuming", async () => {
-    const adapter = createScriptedAdapter({
+  test("claude agent stops at first result and skips later events", async () => {
+    const agent = createScriptedAgent({
       events: [
         sessionEvent(),
         textEvent("hello"),
@@ -254,17 +254,17 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: (e) => seen.push(e),
     });
 
-    expect(adapter.wasKilled()).toBe(true);
+    expect(agent.wasKilled()).toBe(true);
     expect(seen.map((e) => e.type)).toEqual(["session", "text", "result"]);
     expect(seen.find((e) => e.type === "text" && e.text === "should-not-appear")).toBeUndefined();
   });
 
   test("result-error also stops claude stream", async () => {
-    const adapter = createScriptedAdapter({
+    const agent = createScriptedAgent({
       events: [
         sessionEvent(),
         { type: "result-error", message: "boom" } as FeedEvent,
@@ -277,15 +277,16 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: (e) => seen.push(e),
     });
 
     expect(seen.find((e) => e.type === "text")).toBeUndefined();
   });
 
-  test("codex engine consumes the full stream (no result-based kill)", async () => {
-    const adapter = createScriptedAdapter({
+  test("codex agent consumes the full stream (no result-based kill)", async () => {
+    const agent = createScriptedAgent({
+      engine: "codex",
       events: [
         { type: "session", model: "codex-test", sessionId: "codex123" } as FeedEvent,
         { type: "turn-start" } as FeedEvent,
@@ -295,22 +296,20 @@ describe("runEngine (scripted adapter)", () => {
     });
 
     const seen: FeedEvent[] = [];
-    const result = await runEngine({
+    await runEngine({
       engine: "codex",
       model: "codex-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onFeedEvent: (e) => seen.push(e),
     });
 
     expect(seen.map((e) => e.type)).toEqual(["session", "turn-start", "text", "turn-done"]);
-    expect(adapter.wasKilled()).toBe(false);
-    expect(result.exitCode).toBe(0);
-    expect(result.usage).toBeNull();
+    expect(agent.wasKilled()).toBe(false);
   });
 
   test("falls back to renderFeedEvent string output when no onFeedEvent given", async () => {
-    const adapter = createScriptedAdapter({
+    const agent = createScriptedAgent({
       events: [sessionEvent(), resultEvent()],
       usage: sampleUsage,
     });
@@ -320,38 +319,25 @@ describe("runEngine (scripted adapter)", () => {
       engine: "claude",
       model: "claude-test",
       prompt: "ignored",
-      adapter,
+      agent,
       onOutput: (line) => lines.push(line),
     });
 
     expect(lines.length).toBeGreaterThan(0);
   });
-});
-
-// ─── consumeEngineEvents direct unit tests ───────────────────────
-
-describe("consumeEngineEvents", () => {
-  test("returns null usage and sessionId when adapter provides none", async () => {
-    const adapter = createScriptedAdapter({ events: [textEvent("hi")] });
-
-    const result = await consumeEngineEvents(adapter, {
-      engine: "codex",
-      onFeedEvent: () => {},
-    });
-
-    expect(result.usage).toBeNull();
-    expect(result.sessionId).toBeNull();
-  });
 
   test("rate-limit detection is case-insensitive across patterns", async () => {
     const patterns = ["You've Hit Your Limit", "RATE LIMIT exceeded", "too many requests"];
     for (const text of patterns) {
-      const adapter = createScriptedAdapter({
+      const agent = createScriptedAgent({
         events: [textEvent(text), resultEvent()],
         usage: sampleUsage,
       });
-      const result = await consumeEngineEvents(adapter, {
+      const result = await runEngine({
         engine: "claude",
+        model: "claude-test",
+        prompt: "ignored",
+        agent,
         onFeedEvent: () => {},
       });
       expect(result.rateLimited).toBe(true);

@@ -1,0 +1,124 @@
+{
+  // How many tasks to run in parallel.
+  "concurrency": 2,
+
+  // Stop picking up new issues after N have been started this run. 0 = unlimited.
+  "maxTickets": 0,
+
+  // Strategy used when getAutoMerge matches: "squash" | "merge" | "rebase".
+  "autoMergeStrategy": "squash",
+
+  // Seconds between polls for new Linear issues (agent mode).
+  "pollIntervalSeconds": 60,
+
+  // Maximum iterations per task. 0 = unlimited.
+  "maxIterationsPerTask": 100,
+
+  // Maximum cost in USD per task. 0 = unlimited.
+  "maxCostUsdPerTask": 0,
+
+  // Maximum wall-clock minutes per task. 0 = unlimited.
+  "maxRuntimeMinutesPerTask": 0,
+
+  // Stop a task after this many consecutive identical failures.
+  "maxConsecutiveFailuresPerTask": 5,
+
+  // Seconds to wait between loop iterations (throttle).
+  "iterationDelaySeconds": 0,
+
+  // Log the raw engine stream to stdout.
+  "logRawStream": true,
+
+  // Pass --verbose to the ralph task sub-process.
+  "taskVerbose": false,
+
+  // Enable manual testing phase for each task (forwarded as --manual-test).
+  "enableManualTest": true,
+
+  // Run each task in an isolated git worktree.
+  "useWorktree": true,
+
+  // Delete the worktree after a successful task.
+  "cleanupWorktreeOnSuccess": false,
+
+  // Shell script to run inside the worktree before the task starts.
+  "setupScript": "bun install",
+
+  // Shell script to run inside the worktree after the task finishes.
+  // "teardownScript": "rm -rf node_modules",
+
+  // Extra text appended to every task prompt.
+  // "appendPrompt": "Always run tests before finishing.",
+
+  // Open a pull request after a task succeeds.
+  "createPrOnSuccess": true,
+
+  // Base branch for pull requests.
+  "prBaseBranch": "main",
+
+  // Let the agent attempt to fix CI failures after a PR is created.
+  "fixCiOnFailure": true,
+
+  // Maximum number of CI-fix attempts per task.
+  "maxCiFixAttempts": 10,
+
+  // Stack dependent issues' PRs onto the open PR of their blocker.
+  "stackPrsOnDependencies": true,
+
+  // Seconds between CI status polls.
+  "ciPollIntervalSeconds": 60,
+
+  // CI check names to ignore when polling PR status (case-insensitive).
+  // "ignoreCiChecks": ["Vercel", "codeql"],
+
+  // Underlying engine: "claude" or "codex".
+  "engine": "claude",
+
+  // Model tier: "haiku", "sonnet", or "opus".
+  "model": "opus",
+
+  "linear": {
+    // Linear team key to filter issues (e.g. "ENG"). Omit to match all teams.
+    "team": "RLF",
+
+    // Linear user to filter issues. Can be an email address or user ID.
+    // Omit to match issues regardless of assignee.
+    // "assignee": "neri.coder@gmail.com",
+
+    // Post progress comments on the Linear issue while a task is running.
+    "postComments": true,
+
+    // Post a progress update every N iterations. 0 disables. Requires postComments.
+    "updateEveryIterations": 10,
+
+    // Watch done-issue Linear comments AND their linked GitHub PR comments
+    // for "@ralphy" mentions. New mentions enqueue the issue as a review run
+    // with the mention text as the prepended task.
+    "mentionTrigger": true,
+    "mentionHandle": "@ralphy",
+
+    // Watch open tracked PRs for unresolved review-thread comments and
+    // prepend a code-review task. Pings the reviewer on the GitHub PR
+    // when stalled for more than codeReviewStaleHours.
+    "codeReviewTrigger": true,
+    "codeReviewStaleHours": 24,
+
+    "indicators": {
+      "getTodo": {
+        "filter": [{ "type": "status", "value": "Todo" }]
+      },
+      "getInProgress": {
+        "filter": [{ "type": "status", "value": "In Progress" }]
+      },
+      "getConflicted": { "filter": [{ "type": "label", "value": "ralph:conflict" }] },
+      "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
+      "getAutoMerge": { "filter": [{ "type": "label", "value": "ralph:auto-merge" }] },
+      "setInProgress": { "type": "status", "value": "In Progress" },
+      "setDone": { "type": "status", "value": "In Review" },
+      "setError": { "type": "label", "value": "ralph:error" },
+      "setConflicted": { "type": "label", "value": "ralph:conflict" },
+      "clearConflicted": { "type": "label", "value": "ralph:conflict" },
+      "clearReview": { "type": "label", "value": "ralph:review" }
+    }
+  }
+}

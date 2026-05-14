@@ -5,13 +5,13 @@
   "type": "module",
   "exports": {
     "./engine": "./src/engine.ts",
-    "./adapter": "./src/adapter.ts",
-    "./adapters/scripted": "./src/adapters/scripted.ts",
+    "./agents/scripted": "./src/agents/scripted.ts",
     "./formatters/claude-stream": "./src/formatters/claude-stream.ts",
     "./formatters/codex-stream": "./src/formatters/codex-stream.ts",
     "./feed-events": "./src/feed-events.ts"
   },
   "dependencies": {
+    "@ralphy/adapter-codex": "workspace:*",
     "@ralphy/output": "workspace:*",
     "@ralphy/types": "workspace:*"
   }

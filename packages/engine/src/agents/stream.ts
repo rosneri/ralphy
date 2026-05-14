@@ -1,3 +1,7 @@
+/**
+ * Yield newline-delimited chunks from a byte stream, decoding incrementally.
+ * Used by every adapter that consumes a CLI's stdout/stderr.
+ */
 export async function* streamLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();

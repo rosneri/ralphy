@@ -1,12 +1,10 @@
-import { spawn } from "./spawn";
-import { mkdtemp, unlink } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { createWriteStream, type WriteStream } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import { type Engine, type IterationUsage } from "@ralphy/types";
-import { type FeedEvent } from "./feed-events";
-import { type ConsumeResult, type EngineAdapter, consumeEngineEvents } from "./adapter";
-import { createClaudeAdapter } from "./adapters/claude";
-import { createCodexAdapter } from "./adapters/codex";
+import { type FeedEvent, renderFeedEvent } from "./feed-events";
+import { getAgent } from "./agents";
+import type { Agent, AgentRequest } from "./agents";
 
 export interface RunEngineOptions {
   engine: Engine;
@@ -26,14 +24,21 @@ export interface RunEngineOptions {
   /** Resume an existing Claude session instead of starting fresh. */
   resumeSessionId?: string;
   /**
-   * Inject a pre-built EngineAdapter (e.g. the scripted adapter) instead of
-   * spawning. Production callers should leave this unset; tests use it to
-   * exercise engine-level behavior without a subprocess.
+   * Inject a pre-built Agent (e.g. the scripted agent) instead of looking one
+   * up by `engine`. Production callers should leave this unset; tests use it
+   * to exercise engine-level behavior without a subprocess.
    */
-  adapter?: EngineAdapter;
+  agent?: Agent;
 }
 
-export type EngineResult = ConsumeResult;
+export interface EngineResult {
+  exitCode: number;
+  usage: IterationUsage | null;
+  /** Claude session ID, used for --resume on live steering. */
+  sessionId: string | null;
+  /** True when the engine hit an API rate / usage limit. */
+  rateLimited: boolean;
+}
 
 /**
  * Handle engine failure by exit code.
@@ -73,99 +78,59 @@ export function handleEngineFailure(exitCode: number): {
 }
 
 /**
- * Spawn Claude in interactive mode with inherited stdio.
- * The user can chat back and forth. Returns when the session ends.
- */
-async function runInteractive(
-  model: string,
-  prompt: string,
-  taskDir?: string,
-): Promise<EngineResult> {
-  const promptFile = taskDir
-    ? join(taskDir, "_interactive_prompt.md")
-    : join(await mkdtemp(join(tmpdir(), "ralph-")), "prompt.md");
-  await Bun.write(promptFile, prompt);
-
-  try {
-    const cmd = [
-      "claude",
-      "--model",
-      model,
-      "--dangerously-skip-permissions",
-      [
-        `Read the file ${promptFile} for background on the task.`,
-        `Start by using /plan mode. Ask the user clarifying questions to deeply understand the requirements,`,
-        `constraints, edge cases, and preferences. Do not rush — thorough understanding is the goal.`,
-        `Once the user is satisfied and approves, call the mcp__ralph__ralph_finish_interactive MCP tool with the task name`,
-        `and a comprehensive context summary of everything discussed: refined requirements, architectural decisions,`,
-        `constraints, edge cases, and user preferences.`,
-        `The automated loop will then run all phases (research, plan, exec, review) using this context.`,
-        `After calling mcp__ralph__ralph_finish_interactive, use /exit immediately.`,
-      ].join(" "),
-    ];
-
-    const proc = spawn({
-      cmd,
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-
-    const exitCode = await proc.exited;
-
-    const doneFile = taskDir ? join(taskDir, "_interactive_done") : null;
-    if (doneFile && (await Bun.file(doneFile).exists())) {
-      return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
-    }
-
-    return { exitCode, usage: null, sessionId: null, rateLimited: false };
-  } finally {
-    try {
-      await unlink(promptFile);
-    } catch {
-      // cleanup is best-effort
-    }
-  }
-}
-
-/**
- * Run the engine: build the appropriate adapter (or use the injected one),
- * stream events to the caller, and aggregate session/usage/exit state.
+ * Drive an agent through the App-Server Protocol boundary.
+ *
+ * `runEngine` is now a thin dispatcher: it picks the registered adapter
+ * for `opts.engine` (or uses an injected `opts.agent`), wires up callbacks
+ * (raw-line logging, string-fallback rendering), and forwards the request.
+ * All agent-specific wire-format knowledge lives in `agents/<name>.ts`.
  */
 export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
-  const { engine, model, prompt } = opts;
+  const agent = opts.agent ?? getAgent(opts.engine);
+  const write = opts.onOutput ?? ((l: string) => process.stdout.write(l + "\n"));
 
-  if (opts.interactive && engine === "claude") {
-    return runInteractive(model, prompt, opts.taskDir);
+  let rawWriter: WriteStream | null = null;
+  if (opts.logFlag && opts.logFile) {
+    await mkdir(dirname(opts.logFile), { recursive: true });
+    rawWriter = createWriteStream(opts.logFile, { flags: "a" });
+  }
+  const closeRaw = () =>
+    new Promise<void>((resolve) => {
+      if (!rawWriter) return resolve();
+      rawWriter.end(resolve);
+    });
+
+  const userOnFeedEvent = opts.onFeedEvent;
+  const onFeedEvent = (event: FeedEvent): void => {
+    if (userOnFeedEvent) {
+      userOnFeedEvent(event);
+    } else {
+      for (const l of renderFeedEvent(event)) {
+        write(l);
+      }
+    }
+  };
+
+  const request: AgentRequest = {
+    model: opts.model,
+    prompt: opts.prompt,
+    onFeedEvent,
+  };
+  if (opts.cwd !== undefined) request.cwd = opts.cwd;
+  if (opts.signal !== undefined) request.signal = opts.signal;
+  if (opts.resumeSessionId !== undefined) request.resumeSessionId = opts.resumeSessionId;
+  if (opts.interactive !== undefined) request.interactive = opts.interactive;
+  if (opts.taskDir !== undefined) request.taskDir = opts.taskDir;
+  if (rawWriter) {
+    request.onRawLine = (line: string) => {
+      rawWriter!.write(line + "\n");
+    };
   }
 
-  const adapter =
-    opts.adapter ??
-    (engine === "claude"
-      ? createClaudeAdapter({
-          model,
-          prompt,
-          ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : {}),
-          ...(opts.cwd ? { cwd: opts.cwd } : {}),
-          ...(opts.logFile ? { logFile: opts.logFile } : {}),
-          ...(opts.logFlag !== undefined ? { logFlag: opts.logFlag } : {}),
-        })
-      : createCodexAdapter({
-          prompt,
-          ...(opts.cwd ? { cwd: opts.cwd } : {}),
-          ...(opts.logFile ? { logFile: opts.logFile } : {}),
-          ...(opts.logFlag !== undefined ? { logFlag: opts.logFlag } : {}),
-        }));
-
-  return consumeEngineEvents(adapter, {
-    engine,
-    ...(opts.onFeedEvent ? { onFeedEvent: opts.onFeedEvent } : {}),
-    ...(opts.onOutput ? { onOutput: opts.onOutput } : {}),
-    ...(opts.signal ? { signal: opts.signal } : {}),
-  });
+  try {
+    const result = await agent.run(request);
+    return result;
+  } finally {
+    await closeRaw();
+  }
 }
-
-// Re-exports so package consumers can keep importing from "@ralphy/engine/engine".
-export { consumeEngineEvents } from "./adapter";
-export type { EngineAdapter, ConsumeOptions, ConsumeResult } from "./adapter";
-export type { IterationUsage };

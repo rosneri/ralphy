@@ -12,6 +12,9 @@
       "path": "./packages/context"
     },
     {
+      "path": "./packages/adapter-codex"
+    },
+    {
       "path": "./packages/engine"
     },
     {
