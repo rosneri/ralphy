@@ -69,11 +69,11 @@ describe("agent registry", () => {
   });
 
   test("getAgent throws for unknown engine name", () => {
-    expect(() => getAgent("nope" as unknown as Parameters<typeof getAgent>[0])).toThrow(
-      "Unknown agent",
-    );
+    // @ts-expect-error — testing runtime behavior for invalid engine name
+    expect(() => getAgent("nope")).toThrow("Unknown agent");
     try {
-      getAgent("missing" as unknown as Parameters<typeof getAgent>[0]);
+      // @ts-expect-error — testing runtime behavior for invalid engine name
+      getAgent("missing");
     } catch (err) {
       expect((err as Error & { agent?: string }).agent).toBe("missing");
     }

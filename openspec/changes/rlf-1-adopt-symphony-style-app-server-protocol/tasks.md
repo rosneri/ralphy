@@ -1,3 +1,34 @@
+## Fix failing CI checks (2026-05-14T18:15:27.412Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25877152936 ---
+ci No unsafe casts (as any / as unknown) ﻿2026-05-14T18:13:38.1887968Z ##[group]Run bash scripts/check-no-unsafe-casts.sh
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.1888891Z [36;1mbash scripts/check-no-unsafe-casts.sh[0m
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.1926018Z shell: /usr/bin/bash -e {0}
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.1926273Z env:
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.1926505Z NX_BASE: ba3ce3306a1881d4ae43a776ff7cb12db67d9a3c
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.1926845Z NX_HEAD: 17a61e21238e9881a6815dc047f2859b0ebfcc03
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.1927119Z ##[endgroup]
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2109669Z ✘ Found 2 unsafe cast(s):
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2109968Z
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2110989Z packages/engine/src/**tests**/agents.test.ts:72: expect(() => getAgent("nope" as unknown as Parameters<typeof getAgent>[0])).toThrow(
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2112711Z packages/engine/src/**tests**/agents.test.ts:76: getAgent("missing" as unknown as Parameters<typeof getAgent>[0]);
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2113509Z
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2114287Z The `as any` and `as unknown` casts bypass TypeScript's type system and are forbidden.
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2115334Z Fix each instance with proper type narrowing, generics, or Zod parsing.
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2116386Z There is no ignore mechanism — every instance must be fixed.
+ci No unsafe casts (as any / as unknown) 2026-05-14T18:13:38.2126672Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-14T18:10:22.029Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
