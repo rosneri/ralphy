@@ -36,15 +36,23 @@ export function branchForChange(changeName: string): string {
 
 /**
  * Create a new git worktree at `~/.ralph/<project>/worktrees/<changeName>` checked out
- * onto a fresh branch `ralph/<changeName>` rooted at the current HEAD of
- * `projectRoot`. Returns the absolute worktree path and branch name.
+ * onto a fresh branch `ralph/<changeName>`. When the branch is being created,
+ * `git fetch origin <baseBranch>` runs first and the new branch is rooted at
+ * `origin/<baseBranch>` — not the local HEAD of `projectRoot` — so a stale or
+ * dirty local checkout cannot leak into agent PRs. Returns the absolute
+ * worktree path and branch name.
  *
  * If a worktree at that path already exists, it is reused (treated as
- * resume). If the branch already exists locally, it is checked out as-is.
+ * resume). If the branch already exists locally, it is checked out as-is
+ * with no fetch and no silent rebase.
+ *
+ * Fails loudly when the fetch fails — better to surface a missing remote
+ * than to silently fall back to local HEAD.
  */
 export async function createWorktree(
   projectRoot: string,
   changeName: string,
+  baseBranch: string,
   runner: GitRunner,
 ): Promise<WorktreeHandle> {
   const dir = worktreesDir(projectRoot);
@@ -65,10 +73,13 @@ export async function createWorktree(
     branchExists = false;
   }
 
-  const cmd = branchExists
-    ? ["worktree", "add", cwd, branch]
-    : ["worktree", "add", "-b", branch, cwd];
-  await runner.run(cmd, projectRoot);
+  if (branchExists) {
+    await runner.run(["worktree", "add", cwd, branch], projectRoot);
+    return { cwd, branch };
+  }
+
+  await runner.run(["fetch", "origin", baseBranch], projectRoot);
+  await runner.run(["worktree", "add", "-b", branch, cwd, `origin/${baseBranch}`], projectRoot);
   return { cwd, branch };
 }
 

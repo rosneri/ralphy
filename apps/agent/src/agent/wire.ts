@@ -21,6 +21,7 @@ import {
   addLabelToIssue,
   removeLabelFromIssue,
   issueMatchesGetIndicator,
+  baseBranchFromLabels,
   type LinearIssue,
   type LinearFilterSpec,
 } from "./linear";
@@ -539,8 +540,9 @@ export function buildAgentCoordinator(
     let branch: string | null = null;
     if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
     const probeName = issue.identifier.toLowerCase();
+    const baseBranch = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
     try {
-      const wt = await createWorktree(projectRoot, probeName, gitRunner);
+      const wt = await createWorktree(projectRoot, probeName, baseBranch, gitRunner);
       workerCwd = wt.cwd;
       branch = wt.branch;
       const wtLayout = projectLayout(wt.cwd);
