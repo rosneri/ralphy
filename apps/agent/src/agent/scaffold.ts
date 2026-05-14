@@ -66,12 +66,12 @@ export async function scaffoldChangeForIssue(
   const tasks = [
     `# Tasks for ${issue.identifier}`,
     "",
-    "## Subtasks",
+    "## Planning",
     "",
-    `- [ ] Read the Linear issue at ${issue.url} and break it into concrete subtasks`,
-    `- [ ] Implement the changes described in proposal.md`,
-    `- [ ] Add or update tests covering the new behavior`,
-    `- [ ] Run \`bun run lint\` and \`bun run test\` and fix any failures`,
+    `- [ ] Read the Linear issue at ${issue.url} and research the codebase to understand the mission and its scope`,
+    `- [ ] Refine proposal.md with the problem statement, approach, and acceptance criteria derived from the research`,
+    `- [ ] Fill in design.md with the technical design (files to touch, data flow, edge cases)`,
+    `- [ ] Append an \`## Implementation\` section below with concrete mission-specific tasks derived from the plan (one \`- [ ] task\` per discrete unit of work, including tests and \`bun run lint\` / \`bun run test\`)`,
     "",
   ].join("\n");
 
