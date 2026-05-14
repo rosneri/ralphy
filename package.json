@@ -33,7 +33,7 @@
   ],
   "type": "module",
   "scripts": {
-    "ralph": "bun .ralph/bin/cli.js",
+    "ralphy": "bun .ralph/bin/shell.js",
     "lint": "oxlint --config .oxlintrc.json .",
     "lint:fix": "oxlint --config .oxlintrc.json --fix .",
     "fmt": "oxfmt --write .",
