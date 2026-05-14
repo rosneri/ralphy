@@ -1,0 +1,17 @@
+{
+  "name": "@ralphy/workflow",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/workflow.ts",
+    "./template": "./src/template.ts",
+    "./schema": "./src/schema.ts",
+    "./default": "./src/default.ts",
+    "./boundaries": "./src/boundaries.ts"
+  },
+  "dependencies": {
+    "yaml": "*",
+    "zod": "*"
+  }
+}

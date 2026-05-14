@@ -17,7 +17,12 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseArgs } from "../cli";
+import YAML from "yaml";
 import { loadRalphyConfig } from "../agent/config";
+
+async function writeWorkflow(dir: string, frontmatter: unknown): Promise<void> {
+  await Bun.write(join(dir, "WORKFLOW.md"), `---\n${YAML.stringify(frontmatter)}---\n`);
+}
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
@@ -368,28 +373,25 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     }) as typeof fetch;
 
     // Write a real config and parse args through the real CLI parser.
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({
-        concurrency: 1,
-        useWorktree: false, // simpler — no worktree dance in this test
-        createPrOnSuccess: false,
-        linear: {
-          team: "ENG",
-          postComments: true,
-          updateEveryIterations: 0,
-          indicators: {
-            getTodo: { filter: [{ type: "status", value: "Todo" }] },
-            getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
-            setInProgress: { type: "status", value: "In Progress" },
-            setDone: { type: "status", value: "Done" },
-            setError: { type: "label", value: "ralph:error" },
-            setConflicted: { type: "label", value: "ralph:conflicted" },
-            clearConflicted: { type: "label", value: "ralph:conflicted" },
-          },
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      linear: {
+        team: "ENG",
+        postComments: true,
+        updateEveryIterations: 0,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+          setError: { type: "label", value: "ralph:error" },
+          setConflicted: { type: "label", value: "ralph:conflicted" },
+          clearConflicted: { type: "label", value: "ralph:conflicted" },
         },
-      }),
-    );
+      },
+    });
     const cfg = await loadRalphyConfig(tempDir);
     const args = await parseArgs([]);
 
@@ -632,21 +634,18 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
       return linear.handle(body);
     }) as typeof fetch;
 
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({
-        useWorktree: false,
-        linear: {
-          team: "ENG",
-          postComments: false,
-          indicators: {
-            getTodo: { filter: [{ type: "status", value: "Todo" }] },
-            setInProgress: { type: "status", value: "In Progress" },
-            setError: { type: "label", value: "ralph:error" },
-          },
+    await writeWorkflow(tempDir, {
+      useWorktree: false,
+      linear: {
+        team: "ENG",
+        postComments: false,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setError: { type: "label", value: "ralph:error" },
         },
-      }),
-    );
+      },
+    });
     const cfg = await loadRalphyConfig(tempDir);
     const args = await parseArgs([]);
 

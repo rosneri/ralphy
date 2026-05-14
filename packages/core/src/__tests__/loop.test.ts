@@ -330,3 +330,57 @@ describe("buildTaskPrompt — tracking instruction", () => {
       expect(prompt).toContain(join(tempDir, "tasks.md"));
     }));
 });
+
+describe("buildTaskPrompt — manual testing phase", () => {
+  test("appends manual testing block when manualTest enabled and no unchecked tasks remain", () =>
+    withStorage(() => {
+      const state = { ...makeState(), manualTest: true };
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] all done\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("Manual Testing Phase");
+      expect(prompt).toContain("Identify critical manual test scenarios");
+    }));
+
+  test("omits manual testing block when ## Manual Testing section already exists", () =>
+    withStorage(() => {
+      const state = { ...makeState(), manualTest: true };
+      writeState(tempDir, state);
+      writeFileSync(
+        join(tempDir, "tasks.md"),
+        "## Done\n- [x] all done\n\n## Manual Testing\n- [x] verified\n",
+        "utf-8",
+      );
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("Manual Testing Phase");
+    }));
+
+  test("omits manual testing block when unchecked tasks remain", () =>
+    withStorage(() => {
+      const state = { ...makeState(), manualTest: true };
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Todo\n- [ ] not done\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("Manual Testing Phase");
+    }));
+});
+
+describe("buildTaskPrompt — createPr instructions", () => {
+  test("appends PR creation instructions when createPr is enabled", () =>
+    withStorage(() => {
+      const state = { ...makeState(), createPr: true };
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("git push -u origin HEAD");
+      expect(prompt).toContain("gh pr create");
+      expect(prompt).toContain(state.name);
+    }));
+
+  test("omits PR instructions when createPr is not set", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("gh pr create");
+    }));
+});

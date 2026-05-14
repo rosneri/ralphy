@@ -30,6 +30,12 @@
       "path": "./packages/version"
     },
     {
+      "path": "./packages/workflow"
+    },
+    {
+      "path": "./packages/agent-protocol"
+    },
+    {
       "path": "./apps/loop"
     },
     {

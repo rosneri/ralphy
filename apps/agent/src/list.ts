@@ -257,7 +257,7 @@ export async function runList(input: RunListInput): Promise<void> {
 
   if (!anyConfigured) {
     process.stdout.write(
-      "\nLinear: no get* indicators configured in ralphy.config.json — skipping ticket fetch.\n",
+      "\nLinear: no get* indicators configured in WORKFLOW.md — skipping ticket fetch.\n",
     );
     return;
   }

@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { prependFixTask } from "@ralphy/core/tasks-md";
+import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
 import { baseBranchFromLabels, type LinearIssue } from "./linear";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
@@ -38,6 +39,13 @@ interface PostTaskInput {
     cleanupWorktreeOnSuccess: boolean;
     ignoreCiChecks: string[];
     stackPrsOnDependencies: boolean;
+    /** Globs the agent is forbidden from modifying. Pre-PR check fails the
+     *  iteration with a clear error when any committed file matches. */
+    neverTouch: string[];
+    /** When the repo has `allow_auto_merge: false`, poll the PR after CI
+     *  passes and merge it via plain `gh pr merge` instead of silently
+     *  giving up on the requested auto-merge. Defaults to true. */
+    manualMergeWhenAutoMergeDisabled?: boolean;
   };
   /**
    * Re-spawn the worker with the same args used originally. Used by the
@@ -115,6 +123,53 @@ interface PostTaskCtx {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Detect whether the GitHub repo that owns `prUrl` has auto-merge enabled
+ * (`allow_auto_merge: true`). Returns:
+ *   - `true`  → repo allows auto-merge (use `gh pr merge --auto`)
+ *   - `false` → repo explicitly disables it (caller may fall back to polling)
+ *   - `null`  → could not determine (malformed URL, gh failure, unparseable
+ *               response). Caller treats this as "assume enabled" so we never
+ *               regress repos where the API call fails for unrelated reasons.
+ *
+ * Results are cached per repo across calls so a multi-PR run only pays the
+ * gh API hop once.
+ */
+const repoAutoMergeCache = new Map<string, boolean | null>();
+async function detectRepoAutoMergeAllowed(
+  prUrl: string,
+  cmd: CmdRunner,
+  cwd: string,
+  log: (text: string, color?: string) => void,
+): Promise<boolean | null> {
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(prUrl);
+  if (!m) return null;
+  const repoKey = `${m[1]}/${m[2]}`;
+  if (repoAutoMergeCache.has(repoKey)) return repoAutoMergeCache.get(repoKey) ?? null;
+  try {
+    const res = await cmd.run(["gh", "api", `repos/${repoKey}`, "--jq", ".allow_auto_merge"], cwd);
+    const out = res.stdout.trim().toLowerCase();
+    let result: boolean | null;
+    if (out === "true") result = true;
+    else if (out === "false") result = false;
+    else result = null;
+    repoAutoMergeCache.set(repoKey, result);
+    return result;
+  } catch (err) {
+    log(
+      `! could not detect repo auto-merge capability for ${repoKey}: ${(err as Error).message}`,
+      "yellow",
+    );
+    repoAutoMergeCache.set(repoKey, null);
+    return null;
+  }
+}
+
+/** Test-only: clear the per-repo auto-merge capability cache. */
+export function _resetRepoAutoMergeCache(): void {
+  repoAutoMergeCache.clear();
+}
 
 /**
  * The loop sets state.status="completed" once tasks.md has no unchecked
@@ -505,6 +560,38 @@ interface PrPhaseInput {
   cfg: PostTaskInput["cfg"];
 }
 
+/**
+ * Pre-PR boundary check. Compares the change set (relative to the base
+ * branch) against `boundaries.never_touch`. Returns the list of forbidden
+ * files that the agent modified anyway, or an empty array when clean.
+ */
+async function findNeverTouchViolations(
+  cmd: CmdRunner,
+  cwd: string,
+  base: string,
+  neverTouch: string[],
+): Promise<{ file: string; pattern: string }[]> {
+  if (neverTouch.length === 0) return [];
+  let raw = "";
+  try {
+    const r = await cmd.run(["git", "diff", "--name-only", `origin/${base}...HEAD`], cwd);
+    raw = r.stdout;
+  } catch {
+    // Fall back to local base ref when origin/<base> isn't fetched.
+    try {
+      const r = await cmd.run(["git", "diff", "--name-only", `${base}...HEAD`], cwd);
+      raw = r.stdout;
+    } catch {
+      return [];
+    }
+  }
+  const files = raw
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return findBoundaryViolations(files, neverTouch);
+}
+
 /** Deps consumed only by the PR phase. */
 interface PrPhaseDeps {
   cmd: CmdRunner;
@@ -605,6 +692,15 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
   }
 
+  const violations = await findNeverTouchViolations(cmd, cwd, base, cfg.neverTouch);
+  if (violations.length > 0) {
+    log(`! ${changeName} modified files inside boundaries.never_touch — aborting PR:`, "red");
+    for (const v of violations) {
+      log(`    ${v.file} (matched: ${v.pattern})`, "red");
+    }
+    return PR_FAILED_EXIT;
+  }
+
   const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);
   if (prGaveUp) return PR_FAILED_EXIT;
   if (!pr) {
@@ -615,18 +711,49 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
   registerPr?.(changeName, pr.url);
 
+  let manualMergePending = false;
   if (wantAutoMerge) {
-    try {
-      await cmd.run(["gh", "pr", "merge", pr.url, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
-      log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${pr.url}`, "green");
-      emit("auto-merge-enabled", cfg.autoMergeStrategy);
-    } catch (err) {
-      const e = err as Error & { stderr?: string };
-      log(`! failed to enable auto-merge on ${pr.url}: ${e.stderr?.trim() || e.message}`, "yellow");
+    const fallbackEnabled = cfg.manualMergeWhenAutoMergeDisabled !== false;
+    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(pr.url, cmd, cwd, log);
+
+    if (repoAllowsAutoMerge === false && fallbackEnabled) {
+      log(
+        `  repo has auto-merge disabled — will poll ${pr.url} and merge via gh pr merge once checks pass`,
+        "yellow",
+      );
+      manualMergePending = true;
+    } else {
+      try {
+        await cmd.run(["gh", "pr", "merge", pr.url, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
+        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${pr.url}`, "green");
+        emit("auto-merge-enabled", cfg.autoMergeStrategy);
+      } catch (err) {
+        const e = err as Error & { stderr?: string };
+        const detail = e.stderr?.trim() || e.message;
+        log(`! failed to enable auto-merge on ${pr.url}: ${detail}`, "yellow");
+        if (fallbackEnabled && /auto[- ]merge/i.test(detail)) {
+          log(`  falling back to manual merge after CI passes for ${pr.url}`, "yellow");
+          manualMergePending = true;
+        }
+      }
     }
   }
 
-  return fixConflictsAndCiLoop(ctx, pr.url, wantFixCi, checkPrConflict);
+  const ciResult = await fixConflictsAndCiLoop(ctx, pr.url, wantFixCi, checkPrConflict);
+  if (ciResult !== 0) return ciResult;
+
+  if (manualMergePending) {
+    try {
+      await cmd.run(["gh", "pr", "merge", pr.url, `--${cfg.autoMergeStrategy}`], cwd);
+      log(`  manually merged (${cfg.autoMergeStrategy}) ${pr.url}`, "green");
+      emit("auto-merge-enabled", `manual:${cfg.autoMergeStrategy}`);
+    } catch (err) {
+      const e = err as Error & { stderr?: string };
+      log(`! manual merge failed for ${pr.url}: ${e.stderr?.trim() || e.message}`, "yellow");
+    }
+  }
+
+  return 0;
 }
 
 /** Inputs consumed only by the worktree cleanup phase. */
