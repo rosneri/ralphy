@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
 import { prependFixTask } from "@ralphy/core/tasks-md";
+import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { ParsedArgs } from "../cli";
@@ -587,7 +588,28 @@ export function buildAgentCoordinator(
           "yellow",
         );
       }
-      const appendPrompt = args.prompt || cfg.appendPrompt || "";
+      // Render the WORKFLOW.md body as a per-issue prompt addendum so
+      // editing the workflow template changes the prompt without a code
+      // change. Failure is non-fatal — we still scaffold with cfg.appendPrompt.
+      let workflowPrompt = "";
+      try {
+        const workflow = await loadWorkflow(projectRoot);
+        workflowPrompt = renderWorkflowPrompt(workflow, {
+          issue: {
+            identifier: issue.identifier,
+            title: issue.title,
+            description: issue.description ?? "",
+            url: issue.url,
+          },
+          attempt: 1,
+          last_error: "",
+        }).trim();
+      } catch (err) {
+        onLog(`! workflow render failed: ${(err as Error).message}`, "yellow");
+      }
+      const appendPrompt = [args.prompt || cfg.appendPrompt || "", workflowPrompt]
+        .filter(Boolean)
+        .join("\n\n");
       changeName = await scaffoldChangeForIssue(
         scaffoldTasksDir,
         scaffoldStatesDir,
@@ -869,6 +891,7 @@ export function buildAgentCoordinator(
             cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
             ignoreCiChecks: cfg.ignoreCiChecks,
             stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
+            neverTouch: cfg.boundaries.never_touch,
           },
           respawnWorker: respawn,
         },

@@ -147,6 +147,7 @@ describe("runPostTask — CI fix reactivates state", () => {
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
           stackPrsOnDependencies: false,
+          neverTouch: [],
         },
         respawnWorker,
       },
@@ -212,6 +213,7 @@ describe("runPostTask — teardown", () => {
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
           stackPrsOnDependencies: false,
+          neverTouch: [],
         },
         respawnWorker: async () => 0,
       },
@@ -257,6 +259,7 @@ describe("runPrPhase — isolation", () => {
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
           stackPrsOnDependencies: false,
+          neverTouch: [],
         },
       },
       {
@@ -379,6 +382,7 @@ describe("runPostTask — conflict-check loop termination", () => {
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
           stackPrsOnDependencies: false,
+          neverTouch: [],
         },
         respawnWorker: async () => 0,
       },
@@ -432,6 +436,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
     cleanupWorktreeOnSuccess: false,
     ignoreCiChecks: [],
     stackPrsOnDependencies: false,
+    neverTouch: [],
   };
 
   test("ralph:branch:<name> label overrides cfg.prBaseBranch when creating the PR", async () => {
