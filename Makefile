@@ -26,11 +26,11 @@ install: build copy-bin copy-assets init-tasks configure-mcp configure-package i
 
 build:
 	@echo "Building..."
-	@bunx nx run-many --target=build --projects=cli,mcp --output-style=stream
+	@bunx nx run-many --target=build --projects=shell,mcp --output-style=stream
 
 copy-bin:
 	@mkdir -p "$(INSTALL_PATH)/bin"
-	@cp dist/cli/index.js "$(INSTALL_PATH)/bin/cli.js"
+	@cp dist/shell/index.js "$(INSTALL_PATH)/bin/cli.js"
 	@cp dist/mcp/index.js "$(INSTALL_PATH)/bin/mcp.js"
 	@echo "  ✓ Copied binaries"
 
