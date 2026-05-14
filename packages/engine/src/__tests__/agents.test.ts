@@ -67,6 +67,17 @@ describe("agent registry", () => {
     expect(AGENTS).toHaveProperty("claude");
     expect(AGENTS).toHaveProperty("codex");
   });
+
+  test("getAgent throws for unknown engine name", () => {
+    expect(() => getAgent("nope" as unknown as Parameters<typeof getAgent>[0])).toThrow(
+      "Unknown agent",
+    );
+    try {
+      getAgent("missing" as unknown as Parameters<typeof getAgent>[0]);
+    } catch (err) {
+      expect((err as Error & { agent?: string }).agent).toBe("missing");
+    }
+  });
 });
 
 // ─── Adapter contract: each adapter implements the same protocol ──
@@ -165,5 +176,39 @@ describe("codexAgent.run", () => {
     });
 
     expect(result.rateLimited).toBe(true);
+  });
+
+  test("kills immediately when signal is already aborted (SIGTERM exit normalized to 0)", async () => {
+    setupProc(['{"type":"turn.started"}'], 143);
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await codexAgent.run({
+      model: "codex-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+      signal: controller.signal,
+    });
+
+    expect(mockProc.kill).toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("kills when signal aborts mid-run via addEventListener", async () => {
+    setupProc(['{"type":"turn.started"}'], 137);
+    const controller = new AbortController();
+
+    const runPromise = codexAgent.run({
+      model: "codex-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+      signal: controller.signal,
+    });
+
+    controller.abort();
+    const result = await runPromise;
+
+    expect(mockProc.kill).toHaveBeenCalled();
+    expect(result.exitCode).toBe(0);
   });
 });
