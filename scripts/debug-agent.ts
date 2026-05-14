@@ -8,7 +8,7 @@
  *   bun scripts/debug-agent.ts --name <changeName> --project-root <dir>
  */
 
-import { runDebug } from "../apps/cli/src/agent/debug";
+import { runDebug } from "../apps/loop/src/debug";
 
 const argv = process.argv.slice(2);
 function flag(name: string): string | undefined {

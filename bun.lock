@@ -33,19 +33,47 @@
         "zod": "^3.25.76",
       },
     },
-    "apps/cli": {
-      "name": "@ralphy/cli",
+    "apps/agent": {
+      "name": "@ralphy/agent",
       "version": "0.0.0",
       "dependencies": {
         "@inkjs/ui": "^2.0.0",
+        "@ralphy/cli-args": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
         "@ralphy/log": "workspace:*",
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
+        "@ralphy/paths": "workspace:*",
         "@ralphy/telemetry": "workspace:*",
         "@ralphy/types": "workspace:*",
+        "@ralphy/version": "workspace:*",
+        "ink": "^5.1.0",
+        "react": "^18.3.1",
+      },
+      "devDependencies": {
+        "@types/react": "^18.3.18",
+        "ink-testing-library": "^4.0.0",
+        "react-devtools-core": "^7.0.1",
+      },
+    },
+    "apps/loop": {
+      "name": "@ralphy/loop",
+      "version": "0.0.0",
+      "dependencies": {
+        "@inkjs/ui": "^2.0.0",
+        "@ralphy/cli-args": "workspace:*",
+        "@ralphy/context": "workspace:*",
+        "@ralphy/core": "workspace:*",
+        "@ralphy/engine": "workspace:*",
+        "@ralphy/log": "workspace:*",
+        "@ralphy/openspec": "workspace:*",
+        "@ralphy/output": "workspace:*",
+        "@ralphy/paths": "workspace:*",
+        "@ralphy/telemetry": "workspace:*",
+        "@ralphy/types": "workspace:*",
+        "@ralphy/version": "workspace:*",
         "ink": "^5.1.0",
         "react": "^18.3.1",
       },
@@ -64,6 +92,16 @@
         "@ralphy/core": "workspace:*",
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
+      },
+    },
+    "apps/shell": {
+      "name": "@ralphy/shell",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/agent": "workspace:*",
+        "@ralphy/loop": "workspace:*",
+        "@ralphy/telemetry": "workspace:*",
+        "@ralphy/version": "workspace:*",
       },
     },
     "apps/ui": {
@@ -92,6 +130,13 @@
     "packages/change-store": {
       "name": "@ralphy/change-store",
       "version": "0.0.0",
+    },
+    "packages/cli-args": {
+      "name": "@ralphy/cli-args",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/types": "workspace:*",
+      },
     },
     "packages/content": {
       "name": "@ralphy/content",
@@ -137,6 +182,10 @@
       "name": "@ralphy/output",
       "version": "0.0.0",
     },
+    "packages/paths": {
+      "name": "@ralphy/paths",
+      "version": "0.0.0",
+    },
     "packages/telemetry": {
       "name": "@ralphy/telemetry",
       "version": "0.0.0",
@@ -146,6 +195,10 @@
     },
     "packages/types": {
       "name": "@ralphy/types",
+      "version": "0.0.0",
+    },
+    "packages/version": {
+      "name": "@ralphy/version",
       "version": "0.0.0",
     },
     "tools/generators/lib": {
@@ -708,9 +761,11 @@
 
     "@posthog/core": ["@posthog/core@1.25.2", "", {}, "sha512-h2FO7ut/BbfwpAXWpwdDHTzQgUo9ibDFEs6ZO+3cI3KPWQt5XwczK1OLAuPprcjm8T/jl0SH8jSFo5XdU4RbTg=="],
 
+    "@ralphy/agent": ["@ralphy/agent@workspace:apps/agent"],
+
     "@ralphy/change-store": ["@ralphy/change-store@workspace:packages/change-store"],
 
-    "@ralphy/cli": ["@ralphy/cli@workspace:apps/cli"],
+    "@ralphy/cli-args": ["@ralphy/cli-args@workspace:packages/cli-args"],
 
     "@ralphy/content": ["@ralphy/content@workspace:packages/content"],
 
@@ -724,17 +779,25 @@
 
     "@ralphy/log": ["@ralphy/log@workspace:packages/log"],
 
+    "@ralphy/loop": ["@ralphy/loop@workspace:apps/loop"],
+
     "@ralphy/mcp": ["@ralphy/mcp@workspace:apps/mcp"],
 
     "@ralphy/openspec": ["@ralphy/openspec@workspace:packages/openspec"],
 
     "@ralphy/output": ["@ralphy/output@workspace:packages/output"],
 
+    "@ralphy/paths": ["@ralphy/paths@workspace:packages/paths"],
+
+    "@ralphy/shell": ["@ralphy/shell@workspace:apps/shell"],
+
     "@ralphy/telemetry": ["@ralphy/telemetry@workspace:packages/telemetry"],
 
     "@ralphy/types": ["@ralphy/types@workspace:packages/types"],
 
     "@ralphy/ui": ["@ralphy/ui@workspace:apps/ui"],
+
+    "@ralphy/version": ["@ralphy/version@workspace:packages/version"],
 
     "@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.0-beta.27", "", {}, "sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA=="],
 

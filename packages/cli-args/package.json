@@ -1,0 +1,12 @@
+{
+  "name": "@ralphy/cli-args",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/common-args.ts"
+  },
+  "dependencies": {
+    "@ralphy/types": "workspace:*"
+  }
+}
