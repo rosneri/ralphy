@@ -57,7 +57,8 @@
     "prepublishOnly": "bun run build:publish"
   },
   "dependencies": {
-    "@fission-ai/openspec": "latest"
+    "@fission-ai/openspec": "latest",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",

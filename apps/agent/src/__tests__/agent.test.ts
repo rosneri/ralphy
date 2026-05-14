@@ -2,7 +2,13 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import YAML from "yaml";
 import { loadRalphyConfig, ensureRalphyConfig } from "../agent/config";
+
+function writeWorkflow(dir: string, frontmatter: unknown, body = ""): Promise<number> {
+  const yaml = typeof frontmatter === "string" ? frontmatter : YAML.stringify(frontmatter);
+  return Bun.write(join(dir, "WORKFLOW.md"), `---\n${yaml}---\n${body}`);
+}
 import { changeNameForIssue, scaffoldChangeForIssue } from "../agent/scaffold";
 import {
   fetchOpenIssues,
@@ -60,20 +66,17 @@ describe("agent/config", () => {
   });
 
   test("loadRalphyConfig reads indicator map", async () => {
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({
-        concurrency: 5,
-        linear: {
-          team: "ENG",
-          indicators: {
-            getTodo: { filter: [{ type: "status", value: "Todo" }] },
-            setDone: { type: "status", value: "Done" },
-            setError: [{ type: "label", value: "ralph:error" }],
-          },
+    await writeWorkflow(tempDir, {
+      concurrency: 5,
+      linear: {
+        team: "ENG",
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setDone: { type: "status", value: "Done" },
+          setError: [{ type: "label", value: "ralph:error" }],
         },
-      }),
-    );
+      },
+    });
     const cfg = await loadRalphyConfig(tempDir);
     expect(cfg.concurrency).toBe(5);
     expect(cfg.linear.team).toBe("ENG");
@@ -84,53 +87,59 @@ describe("agent/config", () => {
     expect(cfg.linear.indicators.setError).toEqual([{ type: "label", value: "ralph:error" }]);
   });
 
-  test("loadRalphyConfig rejects invalid JSON with pretty error", async () => {
-    await Bun.write(join(tempDir, "ralphy.config.json"), "{ not valid json }");
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("not valid JSON");
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
+  test("loadRalphyConfig rejects malformed frontmatter with pretty error", async () => {
+    await Bun.write(join(tempDir, "WORKFLOW.md"), "no frontmatter here");
+    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("frontmatter");
   });
 
   test("loadRalphyConfig rejects unknown linear keys with pretty error", async () => {
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({ linear: { statuses: ["Todo"], doneLabel: "shipped" } }),
-    );
+    await writeWorkflow(tempDir, { linear: { statuses: ["Todo"], doneLabel: "shipped" } });
     await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
     await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
   test("loadRalphyConfig rejects status-typed clearConflicted with pretty error", async () => {
-    await Bun.write(
-      join(tempDir, "ralphy.config.json"),
-      JSON.stringify({
-        linear: {
-          indicators: {
-            clearConflicted: { type: "status", value: "Done" },
-          },
+    await writeWorkflow(tempDir, {
+      linear: {
+        indicators: {
+          clearConflicted: { type: "status", value: "Done" },
         },
-      }),
-    );
+      },
+    });
     await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
     await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
-  test("ensureRalphyConfig creates file with defaults when missing", async () => {
+  test("loadRalphyConfig loads project / rules / boundaries blocks", async () => {
+    await writeWorkflow(tempDir, {
+      project: { name: "demo", language: "TypeScript" },
+      rules: ["never break the build"],
+      boundaries: { never_touch: ["dist/**"] },
+    });
+    const cfg = await loadRalphyConfig(tempDir);
+    expect(cfg.project.name).toBe("demo");
+    expect(cfg.rules).toEqual(["never break the build"]);
+    expect(cfg.boundaries.never_touch).toEqual(["dist/**"]);
+  });
+
+  test("ensureRalphyConfig creates WORKFLOW.md with defaults when missing", async () => {
     const path = await ensureRalphyConfig(tempDir);
     expect(existsSync(path)).toBe(true);
-    // The written file uses JSONC (// comments), so we parse it via the loader
-    // rather than raw JSON.parse.
+    expect(path.endsWith("WORKFLOW.md")).toBe(true);
     const cfg = await loadRalphyConfig(tempDir);
     expect(cfg.concurrency).toBe(1);
     expect(cfg.linear.indicators).toEqual({});
   });
 
   test("ensureRalphyConfig leaves existing file untouched", async () => {
-    const path = join(tempDir, "ralphy.config.json");
-    await Bun.write(path, JSON.stringify({ concurrency: 7 }));
+    const path = join(tempDir, "WORKFLOW.md");
+    await writeWorkflow(tempDir, { concurrency: 7 });
+    const before = readFileSync(path, "utf-8");
     const returned = await ensureRalphyConfig(tempDir);
     expect(returned).toBe(path);
-    const json = JSON.parse(readFileSync(path, "utf-8"));
-    expect(json.concurrency).toBe(7);
+    expect(readFileSync(path, "utf-8")).toBe(before);
+    const cfg = await loadRalphyConfig(tempDir);
+    expect(cfg.concurrency).toBe(7);
   });
 });
 
