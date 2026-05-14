@@ -10,6 +10,7 @@
     "./feed-events": "./src/feed-events.ts"
   },
   "dependencies": {
+    "@ralphy/adapter-codex": "workspace:*",
     "@ralphy/output": "workspace:*",
     "@ralphy/types": "workspace:*"
   }

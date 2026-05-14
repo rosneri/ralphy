@@ -34,6 +34,7 @@ interface SpawnOptions {
 const spawnMock = mock((_options: SpawnOptions): MockProc => mockProc);
 
 mock.module("../spawn", () => ({ spawn: spawnMock }));
+mock.module("@ralphy/adapter-codex/spawn", () => ({ spawn: spawnMock }));
 
 const { AGENTS, getAgent } = await import("../agents");
 const claudeAgent = getAgent("claude");

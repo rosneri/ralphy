@@ -47,6 +47,9 @@
     "packages/engine": {
       "entry": ["src/**/*.ts"]
     },
+    "packages/adapter-codex": {
+      "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
+    },
     "packages/openspec": {
       "entry": ["src/**/*.ts"]
     },

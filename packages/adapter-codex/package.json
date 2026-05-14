@@ -1,0 +1,14 @@
+{
+  "name": "@ralphy/adapter-codex",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./codex-stream": "./src/codex-stream.ts",
+    "./spawn": "./src/spawn.ts"
+  },
+  "dependencies": {
+    "@ralphy/types": "workspace:*"
+  }
+}
