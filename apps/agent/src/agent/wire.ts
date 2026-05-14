@@ -869,6 +869,7 @@ export function buildAgentCoordinator(
             cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
             ignoreCiChecks: cfg.ignoreCiChecks,
             stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
+            manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
           },
           respawnWorker: respawn,
         },

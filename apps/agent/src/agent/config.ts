@@ -90,6 +90,11 @@ const RalphyConfigSchema = z
     // A `ralph:branch:<name>` label still wins over this resolution.
     stackPrsOnDependencies: z.boolean().default(false),
     autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
+    // When the repo has GitHub auto-merge disabled (`allow_auto_merge: false`),
+    // fall back to polling the PR's mergeability and running a plain
+    // `gh pr merge` (no --auto) once required checks are green. Set false to
+    // keep the current behavior (warn once and never merge).
+    manualMergeWhenAutoMergeDisabled: z.boolean().default(true),
     fixCiOnFailure: z.boolean().default(false),
     maxCiFixAttempts: z.number().int().positive().default(5),
     ciPollIntervalSeconds: z.number().int().positive().default(30),
@@ -271,6 +276,11 @@ const DEFAULT_CONFIG_TEMPLATE = `{
   // Merge strategy used when GitHub auto-merge is enabled (see getAutoMerge
   // indicator below). One of "squash", "merge", "rebase".
   "autoMergeStrategy": "squash",
+
+  // When the repo has GitHub auto-merge disabled, fall back to polling the
+  // PR's mergeability and running a plain \`gh pr merge\` once required
+  // checks pass. Set false to keep the silent no-op behavior.
+  "manualMergeWhenAutoMergeDisabled": true,
 
   // Let the agent attempt to fix CI failures after a PR is created.
   "fixCiOnFailure": false,
