@@ -965,25 +965,37 @@ export function buildAgentCoordinator(
       prByChange.set(changeName, prUrl);
     }
 
-    // GitHub computes mergeability asynchronously; the scan path used to
-    // accept the first UNKNOWN as "not conflicting" and silently move on
-    // until the next poll, which would re-issue gh and again hit UNKNOWN.
-    // Retry up to 3 times (6s total) before giving up for this poll.
+    // GitHub only computes `mergeable` for OPEN PRs — for MERGED/CLOSED
+    // PRs it returns "UNKNOWN" permanently. Query `state` alongside
+    // `mergeable` so we can short-circuit non-OPEN PRs and cache them as
+    // unavailable; otherwise the scan would log "still UNKNOWN" forever.
+    // For genuinely-OPEN PRs, GitHub computes mergeability asynchronously,
+    // so we retry up to 3 times (6s total) before giving up for this poll.
     let mergeable: string | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
+      let state: string | undefined;
+      let m: string | undefined;
       try {
         const res = await cmdRunner.run(
-          ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
+          ["gh", "pr", "view", prUrl, "--json", "state,mergeable"],
           projectRoot,
         );
-        const m = res.stdout.trim();
-        if (m !== "UNKNOWN") {
-          mergeable = m;
-          break;
-        }
+        const parsed = JSON.parse(res.stdout) as { state?: string; mergeable?: string };
+        state = parsed.state;
+        m = parsed.mergeable;
       } catch (err) {
         onLog(`! gh pr view ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
         return { url: prUrl, status: "unknown" };
+      }
+      if (state && state !== "OPEN") {
+        // PR is MERGED/CLOSED — `mergeable` will never become known. Cache
+        // so subsequent polls don't even hit `gh` for this change.
+        markPrUnavailable(changeName);
+        return null;
+      }
+      if (m && m !== "UNKNOWN") {
+        mergeable = m;
+        break;
       }
       await new Promise<void>((r) => setTimeout(r, 2000));
     }
