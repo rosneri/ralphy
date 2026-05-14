@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseClaudeLine } from "@ralphy/adapter-claude/claude-stream";
+import { parseClaudeLine } from "../formatters/claude-stream";
 import type { IterationUsage } from "@ralphy/types";
 import type { FeedEvent } from "../feed-events";
 import {

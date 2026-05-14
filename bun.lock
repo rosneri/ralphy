@@ -123,13 +123,6 @@
         "vite": "^6.0.0",
       },
     },
-    "packages/adapter-claude": {
-      "name": "@ralphy/adapter-claude",
-      "version": "0.0.0",
-      "dependencies": {
-        "@ralphy/types": "workspace:*",
-      },
-    },
     "packages/change-store": {
       "name": "@ralphy/change-store",
       "version": "0.0.0",
@@ -165,7 +158,6 @@
       "name": "@ralphy/engine",
       "version": "0.0.0",
       "dependencies": {
-        "@ralphy/adapter-claude": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/types": "workspace:*",
       },
@@ -764,8 +756,6 @@
     "@oxlint/binding-win32-x64-msvc": ["@oxlint/binding-win32-x64-msvc@1.63.0", "", { "os": "win32", "cpu": "x64" }, "sha512-QeN/WELOfsXMeYwxvfgQrl6CbVftYUCZsGXHjXQd5Trccm8+i4gmtxaOui4xbJQaiDlviF8F3yLSBloQUeFsfA=="],
 
     "@posthog/core": ["@posthog/core@1.25.2", "", {}, "sha512-h2FO7ut/BbfwpAXWpwdDHTzQgUo9ibDFEs6ZO+3cI3KPWQt5XwczK1OLAuPprcjm8T/jl0SH8jSFo5XdU4RbTg=="],
-
-    "@ralphy/adapter-claude": ["@ralphy/adapter-claude@workspace:packages/adapter-claude"],
 
     "@ralphy/agent": ["@ralphy/agent@workspace:apps/agent"],
 

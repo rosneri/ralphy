@@ -12,9 +12,6 @@
       "path": "./packages/context"
     },
     {
-      "path": "./packages/adapter-claude"
-    },
-    {
       "path": "./packages/engine"
     },
     {

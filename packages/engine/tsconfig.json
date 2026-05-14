@@ -11,9 +11,6 @@
     },
     {
       "path": "../output"
-    },
-    {
-      "path": "../adapter-claude"
     }
   ]
 }

@@ -5,11 +5,11 @@
   "type": "module",
   "exports": {
     "./engine": "./src/engine.ts",
+    "./formatters/claude-stream": "./src/formatters/claude-stream.ts",
     "./formatters/codex-stream": "./src/formatters/codex-stream.ts",
     "./feed-events": "./src/feed-events.ts"
   },
   "dependencies": {
-    "@ralphy/adapter-claude": "workspace:*",
     "@ralphy/output": "workspace:*",
     "@ralphy/types": "workspace:*"
   }
