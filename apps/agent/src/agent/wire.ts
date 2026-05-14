@@ -938,23 +938,35 @@ export function buildAgentCoordinator(
       prByChange.set(changeName, prUrl);
     }
 
-    // GitHub computes mergeability asynchronously; the scan path used to
-    // accept the first UNKNOWN as "not conflicting" and silently move on
-    // until the next poll, which would re-issue gh and again hit UNKNOWN.
-    // Retry up to 3 times (6s total) before giving up for this poll.
+    // GitHub only computes `mergeable` for OPEN PRs — for MERGED/CLOSED
+    // PRs it returns "UNKNOWN" permanently. Query `state` alongside
+    // `mergeable` so we can short-circuit non-OPEN PRs and cache them as
+    // unavailable; otherwise the scan would log "still UNKNOWN" forever.
+    // For genuinely-OPEN PRs, GitHub computes mergeability asynchronously,
+    // so we retry up to 3 times (6s total) before giving up for this poll.
     for (let attempt = 0; attempt < 3; attempt++) {
+      let state: string | undefined;
+      let mergeable: string | undefined;
       try {
         const res = await cmdRunner.run(
-          ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
+          ["gh", "pr", "view", prUrl, "--json", "state,mergeable"],
           projectRoot,
         );
-        const mergeable = res.stdout.trim();
-        if (mergeable !== "UNKNOWN") {
-          return { url: prUrl, conflicting: mergeable === "CONFLICTING" };
-        }
+        const parsed = JSON.parse(res.stdout) as { state?: string; mergeable?: string };
+        state = parsed.state;
+        mergeable = parsed.mergeable;
       } catch (err) {
         onLog(`! gh pr view ${prUrl} failed (conflict scan): ${(err as Error).message}`, "yellow");
         return null;
+      }
+      if (state && state !== "OPEN") {
+        // PR is MERGED/CLOSED — `mergeable` will never become known. Cache
+        // so subsequent polls don't even hit `gh` for this change.
+        markPrUnavailable(changeName);
+        return null;
+      }
+      if (mergeable && mergeable !== "UNKNOWN") {
+        return { url: prUrl, conflicting: mergeable === "CONFLICTING" };
       }
       await new Promise<void>((r) => setTimeout(r, 2000));
     }

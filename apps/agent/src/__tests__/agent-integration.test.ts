@@ -239,11 +239,14 @@ function makeRunners(): {
   workers: Map<string, FakeWorker>;
   /** What `gh pr view --json mergeable` should report for the next call. */
   setMergeable: (changeName: string, mergeable: "MERGEABLE" | "CONFLICTING") => void;
+  /** What `gh pr view --json state` should report. Defaults to "OPEN". */
+  setPrState: (changeName: string, state: "OPEN" | "MERGED" | "CLOSED") => void;
   ghCalls: string[][];
   gitCalls: string[][];
 } {
   const workers = new Map<string, FakeWorker>();
   const mergeable = new Map<string, string>();
+  const prState = new Map<string, string>();
   const ghCalls: string[][] = [];
   const gitCalls: string[][] = [];
 
@@ -268,12 +271,16 @@ function makeRunners(): {
   const cmd: CmdRunner = {
     run: async (cmdArr, _cwd) => {
       ghCalls.push(cmdArr);
-      // gh pr view --json mergeable --jq .mergeable
+      // gh pr view --json state,mergeable
       if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "view") {
         const url = cmdArr[3] ?? "";
         // url looks like https://gh/pr/<changeName>; map back via mergeable map
         const cn = url.split("/").pop() ?? "";
-        return { stdout: mergeable.get(cn) ?? "MERGEABLE", stderr: "" };
+        const payload = {
+          state: prState.get(cn) ?? "OPEN",
+          mergeable: mergeable.get(cn) ?? "MERGEABLE",
+        };
+        return { stdout: JSON.stringify(payload), stderr: "" };
       }
       // gh pr list --head <branch> --state open ...
       if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "list") {
@@ -310,6 +317,9 @@ function makeRunners(): {
     workers,
     setMergeable: (cn, m) => {
       mergeable.set(cn, m);
+    },
+    setPrState: (cn, s) => {
+      prState.set(cn, s);
     },
     ghCalls,
     gitCalls,
@@ -484,6 +494,118 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     // path skips setDone).
     const doneCount = linear.statusMutations.filter((s) => s.statusName === "Done").length;
     expect(doneCount).toBe(1);
+  });
+
+  test("conflict scan short-circuits on merged/closed PRs and does not re-query", async () => {
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.labelIds.set("ralph:conflicted", "label-conf");
+    linear.labelIds.set("ralph:error", "label-err");
+    linear.add({
+      id: "uuid-eng-9",
+      identifier: "ENG-9",
+      title: "Already merged",
+      description: null,
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    });
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      return linear.handle(body);
+    }) as typeof fetch;
+
+    await Bun.write(
+      join(tempDir, "ralphy.config.json"),
+      JSON.stringify({
+        concurrency: 1,
+        useWorktree: false,
+        createPrOnSuccess: false,
+        linear: {
+          team: "ENG",
+          postComments: false,
+          updateEveryIterations: 0,
+          indicators: {
+            getTodo: { filter: [{ type: "status", value: "Todo" }] },
+            getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
+            setInProgress: { type: "status", value: "In Progress" },
+            setDone: { type: "status", value: "Done" },
+            setError: { type: "label", value: "ralph:error" },
+            setConflicted: { type: "label", value: "ralph:conflicted" },
+            clearConflicted: { type: "label", value: "ralph:conflicted" },
+          },
+        },
+      }),
+    );
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const { runners, workers, setPrState, ghCalls } = makeRunners();
+    const logs: string[] = [];
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: (text) => logs.push(text),
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+
+    // Drive the issue through the lifecycle into "Done" so the conflict
+    // scan considers it on the next poll.
+    await coord.pollOnce();
+    await tick();
+    const changeName = "eng-9-already-merged";
+    workers.get(changeName)!.resolve(0);
+    await tick();
+    expect(linear.issues.get("uuid-eng-9")!.state.name).toBe("Done");
+
+    // Simulate the PR having been merged outside ralph.
+    setPrState(changeName, "MERGED");
+
+    const prViewCallsBefore = ghCalls.filter(
+      (c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view",
+    ).length;
+
+    await coord.pollOnce();
+    await tick();
+
+    // No setConflicted label applied and no "still UNKNOWN" spam.
+    expect(
+      linear.labelMutations.some(
+        (m) => m.op === "add" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-9",
+      ),
+    ).toBe(false);
+    expect(logs.some((l) => l.includes("still UNKNOWN"))).toBe(false);
+
+    const prViewCallsAfterFirst = ghCalls.filter(
+      (c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view",
+    ).length;
+    expect(prViewCallsAfterFirst).toBeGreaterThan(prViewCallsBefore);
+
+    // Subsequent poll should skip `gh pr view` for this change (cached as
+    // unavailable) so we don't keep hammering the merged PR.
+    await coord.pollOnce();
+    await tick();
+    const prViewCallsAfterSecond = ghCalls.filter(
+      (c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view",
+    ).length;
+    expect(prViewCallsAfterSecond).toBe(prViewCallsAfterFirst);
   });
 
   test("worker non-zero exit applies setError; subsequent poll does not re-pick", async () => {
