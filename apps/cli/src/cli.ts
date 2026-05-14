@@ -74,6 +74,9 @@ export interface ParsedArgs {
   indicators: Partial<Indicators>;
   createPr: boolean;
   fixCi: boolean;
+  /** Agent mode: open the PR against a blocker's open-PR head branch when the
+   *  Linear issue is blocked-by another issue with a single open GitHub PR. */
+  stackPrs: boolean;
   /** Agent mode: enable the code-review trigger (overrides config). */
   codeReview: boolean;
   /** Agent mode: stop picking up new issues after this many have been started (0 = unlimited). */
@@ -160,6 +163,7 @@ const HELP_TEXT = [
   "                          (attachment upserts a single 'Ralphy' entry; value = subtitle)",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
+  "  --stack-prs             Base the PR on a blocker issue's open-PR head branch when present (needs --create-pr)",
   "  --code-review           Watch open tracked PRs for unresolved review comments and prepend a code-review task",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
@@ -259,6 +263,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     indicators: {},
     createPr: false,
     fixCi: false,
+    stackPrs: false,
     codeReview: false,
     maxTickets: 0,
     projectRoot: undefined,
@@ -457,6 +462,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--fix-ci":
         result.fixCi = true;
+        break;
+      case "--stack-prs":
+        result.stackPrs = true;
         break;
       case "--code-review":
         result.codeReview = true;

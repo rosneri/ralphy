@@ -146,6 +146,7 @@ describe("runPostTask — CI fix reactivates state", () => {
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
+          stackPrsOnDependencies: false,
         },
         respawnWorker,
       },
@@ -210,6 +211,7 @@ describe("runPostTask — teardown", () => {
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
+          stackPrsOnDependencies: false,
         },
         respawnWorker: async () => 0,
       },
@@ -254,6 +256,7 @@ describe("runPrPhase — isolation", () => {
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
+          stackPrsOnDependencies: false,
         },
       },
       {
@@ -375,6 +378,7 @@ describe("runPostTask — conflict-check loop termination", () => {
           ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
           ignoreCiChecks: [],
+          stackPrsOnDependencies: false,
         },
         respawnWorker: async () => 0,
       },
@@ -427,6 +431,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
     ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
     ignoreCiChecks: [],
+    stackPrsOnDependencies: false,
   };
 
   test("ralph:branch:<name> label overrides cfg.prBaseBranch when creating the PR", async () => {
@@ -554,5 +559,118 @@ describe("runPrPhase — base branch override + auto-merge", () => {
     );
 
     expect(code).toBe(0);
+  });
+
+  test("stackPrsOnDependencies uses resolver's branch when no label override", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/200";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline feature/blocker..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, stackPrsOnDependencies: true },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+        resolveDependencyBaseBranch: async () => "feature/blocker",
+      },
+    );
+
+    expect(code).toBe(0);
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall[createCall.indexOf("--base") + 1]).toBe("feature/blocker");
+  });
+
+  test("ralph:branch label still wins over stackPrsOnDependencies resolver", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/201";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline release/x..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    let resolverCalled = false;
+    const issue: LinearIssue = { ...FAKE_ISSUE, labels: ["ralph:branch:release/x"] };
+
+    await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, stackPrsOnDependencies: true },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+        resolveDependencyBaseBranch: async () => {
+          resolverCalled = true;
+          return "feature/blocker";
+        },
+      },
+    );
+
+    expect(resolverCalled).toBe(false);
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall[createCall.indexOf("--base") + 1]).toBe("release/x");
+  });
+
+  test("stackPrsOnDependencies falls back to cfg.prBaseBranch when resolver returns null", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/202";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, stackPrsOnDependencies: true },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+        resolveDependencyBaseBranch: async () => null,
+      },
+    );
+
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall[createCall.indexOf("--base") + 1]).toBe("main");
   });
 });

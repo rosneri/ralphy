@@ -83,6 +83,12 @@ const RalphyConfigSchema = z
     appendPrompt: z.string().optional(),
     createPrOnSuccess: z.boolean().default(false),
     prBaseBranch: z.string().default("main"),
+    // When true, a new PR is opened against the head branch of a blocker's
+    // open PR (resolved via Linear "blocked_by" relations + the blocker's
+    // auto-attached GitHub PR) instead of `prBaseBranch`. Falls back to
+    // `prBaseBranch` when the blocker has zero or multiple open PRs.
+    // A `ralph:branch:<name>` label still wins over this resolution.
+    stackPrsOnDependencies: z.boolean().default(false),
     autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
     fixCiOnFailure: z.boolean().default(false),
     maxCiFixAttempts: z.number().int().positive().default(5),
@@ -255,6 +261,12 @@ const DEFAULT_CONFIG_TEMPLATE = `{
   // Base branch for pull requests. Override per-issue by labelling the
   // Linear issue with "ralph:branch:<branch-name>".
   "prBaseBranch": "main",
+
+  // When true, if the Linear issue is blocked by another issue whose
+  // single open GitHub PR can be resolved (via Linear's auto-attachment),
+  // open this PR against that blocker's head branch instead of prBaseBranch.
+  // A "ralph:branch:<name>" label on the issue still wins over this.
+  "stackPrsOnDependencies": false,
 
   // Merge strategy used when GitHub auto-merge is enabled (see getAutoMerge
   // indicator below). One of "squash", "merge", "rebase".
