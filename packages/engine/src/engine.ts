@@ -7,7 +7,12 @@ import { tmpdir } from "node:os";
 import { type Engine, type IterationUsage } from "@ralphy/types";
 import { type FeedEvent, renderFeedEvent } from "./feed-events";
 import { parseClaudeLine } from "./formatters/claude-stream";
-import { parseCodexLine } from "./formatters/codex-stream";
+import {
+  createCodexAdapter,
+  type AgentAdapter,
+  type AgentAdapterOptions,
+  type AgentAdapterResult,
+} from "@ralphy/adapter-codex";
 
 export interface RunEngineOptions {
   engine: Engine;
@@ -74,9 +79,6 @@ export function handleEngineFailure(exitCode: number): {
   }
 }
 
-/**
- * Build the CLI arguments for the engine subprocess.
- */
 function buildClaudeArgs(model: string, resumeSessionId?: string): string[] {
   const args = [
     "-p",
@@ -94,17 +96,6 @@ function buildClaudeArgs(model: string, resumeSessionId?: string): string[] {
   return args;
 }
 
-function buildCodexArgs(): string[] {
-  return ["exec", "--json", "--color", "never", "--dangerously-bypass-approvals-and-sandbox", "-"];
-}
-
-/**
- * Spawn the engine CLI, pipe the prompt via stdin, and stream stdout
- * through the appropriate formatter. Prints formatted output to stdout
- * in real time.
- *
- * Returns the exit code and usage stats (for Claude).
- */
 /**
  * Spawn Claude in interactive mode with inherited stdio.
  * The user can chat back and forth. Returns when the session ends.
@@ -114,7 +105,6 @@ async function runInteractive(
   prompt: string,
   taskDir?: string,
 ): Promise<EngineResult> {
-  // Write prompt to a temp file in the task dir so Claude can read it
   const promptFile = taskDir
     ? join(taskDir, "_interactive_prompt.md")
     : join(await mkdtemp(join(tmpdir(), "ralph-")), "prompt.md");
@@ -147,8 +137,6 @@ async function runInteractive(
 
     const exitCode = await proc.exited;
 
-    // Check if the interactive session completed successfully via the MCP tool signal
-    // Keep the file — the loop uses it to avoid re-entering interactive mode
     const doneFile = taskDir ? join(taskDir, "_interactive_done") : null;
     if (doneFile && (await Bun.file(doneFile).exists())) {
       return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
@@ -187,6 +175,91 @@ async function* streamLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<
   }
 }
 
+const createClaudeAdapter: AgentAdapter = async (opts: AgentAdapterOptions) => {
+  const proc = spawn({
+    cmd: ["claude", ...buildClaudeArgs(opts.model, opts.resumeSessionId)],
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
+  });
+
+  let intentionalKill = false;
+  const killProc = (): void => {
+    intentionalKill = true;
+    proc.kill();
+  };
+
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      killProc();
+    } else {
+      opts.signal.addEventListener("abort", killProc, { once: true });
+    }
+  }
+
+  const stdin = proc.stdin as import("bun").FileSink;
+  stdin.write(new TextEncoder().encode(opts.prompt));
+  await stdin.flush();
+  stdin.end();
+
+  const writeRaw = (line: string) => {
+    if (opts.onRawLine) opts.onRawLine(line);
+  };
+
+  const claudeState = {
+    turnCount: 0,
+    toolCount: 0,
+    gotResult: false,
+    usage: null as IterationUsage | null,
+  };
+
+  let sessionId: string | null = null;
+  let detectedRateLimit = false;
+
+  const stdout = proc.stdout as ReadableStream<Uint8Array>;
+  for await (const line of streamLines(stdout)) {
+    writeRaw(line);
+    if (sessionId === null) {
+      try {
+        const parsed = JSON.parse(line);
+        if (parsed.type === "system" && parsed.subtype === "init" && parsed.session_id) {
+          sessionId = parsed.session_id as string;
+        }
+      } catch {
+        // not JSON, skip
+      }
+    }
+
+    for (const event of parseClaudeLine(line, claudeState)) {
+      if (event.type === "text" && isRateLimitText(event.text)) {
+        detectedRateLimit = true;
+      }
+      opts.onFeedEvent(event);
+    }
+    if (claudeState.gotResult) {
+      killProc();
+      break;
+    }
+  }
+
+  const exitCode = await proc.exited;
+  const wasIntentionalKill = intentionalKill && (exitCode === 143 || exitCode === 137);
+  const normalizedExitCode = wasIntentionalKill ? 0 : exitCode;
+
+  return {
+    exitCode: normalizedExitCode,
+    usage: claudeState.usage,
+    sessionId,
+    rateLimited: detectedRateLimit,
+  };
+};
+
+const adapters: Record<Engine, AgentAdapter> = {
+  claude: createClaudeAdapter,
+  codex: createCodexAdapter,
+};
+
 export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
   const { engine, model, prompt } = opts;
   const write = opts.onOutput ?? ((l: string) => process.stdout.write(l + "\n"));
@@ -194,44 +267,6 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
   if (opts.interactive && engine === "claude") {
     return runInteractive(model, prompt, opts.taskDir);
   }
-
-  const isClaude = engine === "claude";
-  const cmd = isClaude
-    ? ["claude", ...buildClaudeArgs(model, opts.resumeSessionId)]
-    : ["codex", ...buildCodexArgs()];
-
-  const proc = spawn({
-    cmd,
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: isClaude ? "inherit" : "pipe",
-    ...(opts.cwd ? { cwd: opts.cwd } : {}),
-  });
-
-  // Track whether *we* killed the process. Set at every kill site below,
-  // checked at exit-code normalization time. A SIGTERM/SIGKILL exit only
-  // normalizes to success when *we* asked for it — never because the OS
-  // or some external signal handler killed the process.
-  let intentionalKill = false;
-  const killProc = (): void => {
-    intentionalKill = true;
-    proc.kill();
-  };
-
-  // Kill the process if the abort signal fires
-  if (opts.signal) {
-    if (opts.signal.aborted) {
-      killProc();
-    } else {
-      opts.signal.addEventListener("abort", killProc, { once: true }); // v8 ignore
-    }
-  }
-
-  // Write prompt to stdin for both engines
-  const stdin = proc.stdin as import("bun").FileSink;
-  stdin.write(new TextEncoder().encode(prompt));
-  await stdin.flush();
-  stdin.end();
 
   let rawWriter: WriteStream | null = null;
   if (opts.logFlag && opts.logFile) {
@@ -248,8 +283,6 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     });
 
   const emit = opts.onFeedEvent;
-
-  // Emit a FeedEvent: either via structured callback or fall back to chalk string
   function emitEvent(event: FeedEvent): void {
     if (emit) {
       emit(event);
@@ -260,107 +293,25 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     }
   }
 
-  // Wire up abort signal for live steering
-  let aborted = false;
-  if (opts.signal) {
-    const onAbort = () => {
-      aborted = true;
-      killProc();
-    };
-    if (opts.signal.aborted) {
-      onAbort();
-    } else {
-      opts.signal.addEventListener("abort", onAbort, { once: true });
-    }
+  const adapter = adapters[engine];
+  const adapterOpts: AgentAdapterOptions = {
+    model,
+    prompt,
+    onFeedEvent: emitEvent,
+    onRawLine: writeRaw,
+  };
+  if (opts.cwd !== undefined) adapterOpts.cwd = opts.cwd;
+  if (opts.signal !== undefined) adapterOpts.signal = opts.signal;
+  if (opts.resumeSessionId !== undefined) adapterOpts.resumeSessionId = opts.resumeSessionId;
+
+  let result: AgentAdapterResult;
+  try {
+    result = await adapter(adapterOpts);
+  } finally {
+    await closeRaw();
   }
 
-  // Stream stdout line-by-line through the formatter
-  const stdout = proc.stdout as ReadableStream<Uint8Array>;
-  let usage: IterationUsage | null = null;
-  let sessionId: string | null = null;
-  let detectedRateLimit = false;
-
-  if (engine === "claude") {
-    const claudeState = {
-      turnCount: 0,
-      toolCount: 0,
-      gotResult: false,
-      usage: null as IterationUsage | null,
-    };
-
-    for await (const line of streamLines(stdout)) {
-      writeRaw(line);
-      // Capture full session_id from init event
-      if (sessionId === null) {
-        try {
-          const parsed = JSON.parse(line);
-          if (parsed.type === "system" && parsed.subtype === "init" && parsed.session_id) {
-            sessionId = parsed.session_id as string;
-          }
-        } catch {
-          // not JSON, skip
-        }
-      }
-
-      for (const event of parseClaudeLine(line, claudeState)) {
-        // Detect rate-limit messages from Claude
-        if (event.type === "text" && isRateLimitText(event.text)) {
-          detectedRateLimit = true;
-        }
-        emitEvent(event);
-      }
-      // Kill the process after the first result event — the agent is done.
-      // Without this, the CLI keeps the session alive and the agent wastes
-      // tokens responding to system reminders with idle "standing by" messages.
-      if (claudeState.gotResult) {
-        killProc();
-        break;
-      }
-    }
-
-    usage = claudeState.usage;
-  } else {
-    const codexState = {
-      printingText: false,
-      rateLimited: false,
-      pendingTools: 0,
-    };
-
-    for await (const line of streamLines(stdout)) {
-      writeRaw(line);
-      for (const event of parseCodexLine(line, codexState)) {
-        emitEvent(event);
-      }
-    }
-
-    // Also drain stderr for codex
-    if (proc.stderr) {
-      const stderr = proc.stderr as ReadableStream<Uint8Array>;
-      for await (const line of streamLines(stderr)) {
-        writeRaw(line);
-        for (const event of parseCodexLine(line, codexState)) {
-          emitEvent(event);
-        }
-      }
-    }
-  }
-
-  await closeRaw();
-
-  const exitCode = await proc.exited;
-
-  // Normalize exit code: a SIGTERM/SIGKILL exit is only treated as success
-  // when *we* killed the process (gotResult or abort). If the parser
-  // missed the result event, `intentionalKill` stays false and the
-  // process's natural exit code is preserved as a real failure signal.
-  // `aborted` is implied by `intentionalKill` (every aborted run goes
-  // through `killProc`); kept in the result type for callers.
-  const wasIntentionalKill = intentionalKill && (exitCode === 143 || exitCode === 137);
-  const normalizedExitCode = wasIntentionalKill ? 0 : exitCode;
-
-  void aborted; // surfaced via opts.signal; retained for future telemetry
-
-  return { exitCode: normalizedExitCode, usage, sessionId, rateLimited: detectedRateLimit };
+  return result;
 }
 
 /** Patterns that indicate the engine hit an API rate / usage limit. */

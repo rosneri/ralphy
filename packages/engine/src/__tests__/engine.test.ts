@@ -170,72 +170,6 @@ describe("runEngine", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  test("codex engine streams events", async () => {
-    setupMockProc([
-      '{"type":"thread.started","thread_id":"codex12345678"}',
-      '{"type":"turn.started"}',
-      '{"type":"response.output_text.delta","delta":"Hello codex"}',
-      '{"type":"turn.completed","usage":{"input_tokens":50,"output_tokens":30}}',
-    ]);
-
-    const events: FeedEvent[] = [];
-    const result = await runEngine({
-      engine: "codex",
-      model: "codex-test",
-      prompt: "test",
-      onFeedEvent: (e) => events.push(e),
-    });
-
-    expect(result.exitCode).toBe(0);
-    expect(result.usage).toBeNull();
-    expect(events.some((e) => e.type === "session")).toBe(true);
-    expect(events.some((e) => e.type === "turn-start")).toBe(true);
-    expect(events.some((e) => e.type === "text")).toBe(true);
-    expect(events.some((e) => e.type === "turn-done")).toBe(true);
-
-    // Verify spawn with codex args
-    const call = spawnMock.mock.calls[0]![0];
-    expect(call.cmd[0]).toBe("codex");
-    expect(call.cmd).toContain("exec");
-    expect(call.cmd).toContain("--json");
-    expect(call.cmd).toContain("--dangerously-bypass-approvals-and-sandbox");
-  });
-
-  test("codex engine drains stderr", async () => {
-    setupMockProc(
-      ['{"type":"thread.started","thread_id":"stderr_test"}', '{"type":"turn.completed"}'],
-      0,
-      ['{"type":"error","message":"stderr warning"}'],
-    );
-
-    const events: FeedEvent[] = [];
-    await runEngine({
-      engine: "codex",
-      model: "codex-test",
-      prompt: "test",
-      onFeedEvent: (e) => events.push(e),
-    });
-
-    expect(events.some((e) => e.type === "error" && e.message === "stderr warning")).toBe(true);
-  });
-
-  test("codex engine without onFeedEvent uses renderFeedEvent", async () => {
-    setupMockProc([
-      '{"type":"thread.started","thread_id":"nofeed_test"}',
-      '{"type":"turn.completed"}',
-    ]);
-
-    const outputLines: string[] = [];
-    await runEngine({
-      engine: "codex",
-      model: "codex-test",
-      prompt: "test",
-      onOutput: (line) => outputLines.push(line),
-    });
-
-    expect(outputLines.length).toBeGreaterThan(0);
-  });
-
   test("handles non-zero exit code", async () => {
     setupMockProc([INIT], 1);
 
@@ -309,23 +243,6 @@ describe("runEngine", () => {
     expect(call.stderr).toBe("inherit");
     expect(call.stdin).toBe("pipe");
     expect(call.stdout).toBe("pipe");
-  });
-
-  test("codex stderr is piped", async () => {
-    setupMockProc([
-      '{"type":"thread.started","thread_id":"pipe_test"}',
-      '{"type":"turn.completed"}',
-    ]);
-
-    await runEngine({
-      engine: "codex",
-      model: "test",
-      prompt: "test",
-      onFeedEvent: () => {},
-    });
-
-    const call = spawnMock.mock.calls[0]![0];
-    expect(call.stderr).toBe("pipe");
   });
 
   test("passes --resume flag when resumeSessionId is provided", async () => {
