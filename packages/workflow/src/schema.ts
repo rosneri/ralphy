@@ -93,6 +93,7 @@ export const WorkflowConfigSchema = z.object({
   prBaseBranch: z.string().default("main"),
   stackPrsOnDependencies: z.boolean().default(false),
   autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
+  manualMergeWhenAutoMergeDisabled: z.boolean().default(true),
   fixCiOnFailure: z.boolean().default(false),
   maxCiFixAttempts: z.number().int().positive().default(5),
   ciPollIntervalSeconds: z.number().int().positive().default(30),

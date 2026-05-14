@@ -7,6 +7,7 @@ import {
   runPrPhase,
   runWorktreeCleanupPhase,
   runTeardownPhase,
+  _resetRepoAutoMergeCache,
 } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
@@ -677,5 +678,185 @@ describe("runPrPhase — base branch override + auto-merge", () => {
 
     const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
     expect(createCall[createCall.indexOf("--base") + 1]).toBe("main");
+  });
+});
+
+describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-manual-merge-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+    _resetRepoAutoMergeCache();
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const baseCfg = {
+    teardownScript: null,
+    prBaseBranch: "main",
+    autoMergeStrategy: "squash" as const,
+    maxCiFixAttempts: 3,
+    ciPollIntervalSeconds: 0,
+    cleanupWorktreeOnSuccess: false,
+    ignoreCiChecks: [],
+    stackPrsOnDependencies: false,
+    neverTouch: [],
+  };
+
+  test("when allow_auto_merge=false, skips --auto and merges manually after CI green", async () => {
+    const prUrl = "https://github.com/owner/disabled/pull/5";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh api repos/owner/disabled": { stdout: "false\n" },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      "gh pr merge": { stdout: "" },
+    });
+
+    const phases: string[] = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: true,
+        wantAutoMerge: true,
+        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: (p, d) => phases.push(d ? `${p}:${d}` : p),
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
+    // No --auto invocation should have been made.
+    expect(mergeCalls.some((c) => c.includes("--auto"))).toBe(false);
+    // One manual-merge call (no --auto) should have happened.
+    const manual = mergeCalls.find((c) => !c.includes("--auto"));
+    expect(manual).toBeDefined();
+    expect(manual).toContain("--squash");
+    expect(manual).toContain(prUrl);
+    expect(phases).toContain("auto-merge-enabled:manual:squash");
+  });
+
+  test("when allow_auto_merge=true, uses native --auto and skips manual merge", async () => {
+    const prUrl = "https://github.com/owner/enabled/pull/5";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh api repos/owner/enabled": { stdout: "true\n" },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      "gh pr merge": { stdout: "" },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: true,
+        wantAutoMerge: true,
+        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(code).toBe(0);
+    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
+    expect(mergeCalls).toHaveLength(1);
+    expect(mergeCalls[0]).toContain("--auto");
+    expect(mergeCalls[0]).toContain("--squash");
+  });
+
+  test("when allow_auto_merge=false but flag disabled, behaves like the old silent no-op", async () => {
+    const prUrl = "https://github.com/owner/optout/pull/9";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh api repos/owner/optout": { stdout: "false\n" },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      "gh pr merge": { throw: true, stderr: "auto-merge is not allowed for this repository" },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: true,
+        wantAutoMerge: true,
+        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: false },
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(code).toBe(0);
+    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
+    // Old behavior: a single --auto call that fails and is logged as a warning.
+    expect(mergeCalls).toHaveLength(1);
+    expect(mergeCalls[0]).toContain("--auto");
+  });
+
+  test("wantAutoMerge=false never queries repo capability or merges", async () => {
+    const prUrl = "https://github.com/owner/nomerge/pull/1";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "api")).toBeUndefined();
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
   });
 });
