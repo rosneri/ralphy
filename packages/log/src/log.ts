@@ -3,7 +3,7 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { mkdir } from "node:fs/promises";
 
-export type LogType = "session" | "phase" | "coord" | "output";
+type LogType = "session" | "phase" | "coord" | "output";
 
 const ANSI_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
 
