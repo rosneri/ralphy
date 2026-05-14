@@ -6,6 +6,7 @@ import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agen
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
 import { countProgress } from "@ralphy/core/progress";
+import { deriveOpenSpecPhase, type OpenSpecPhase } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
 
 interface AgentModeProps {
@@ -38,6 +39,7 @@ interface WorkerMeta {
   phaseStartedAt: number;
   currentTask: string | null;
   taskProgress: { checked: number; total: number } | null;
+  openspecPhase: OpenSpecPhase | null;
   prUrl: string | null;
   currentCmd: { argv: string[]; startedAt: number } | null;
   tail: string[];
@@ -235,6 +237,21 @@ function phaseColor(phase: string): string {
   }
 }
 
+function openspecPhaseColor(phase: OpenSpecPhase): string {
+  switch (phase) {
+    case "proposal":
+      return "magenta";
+    case "design":
+      return "blue";
+    case "tasks":
+      return "cyan";
+    case "implement":
+      return "yellow";
+    case "done":
+      return "green";
+  }
+}
+
 function workerBorderColor(phase: string): string {
   switch (phase) {
     case "working":
@@ -344,6 +361,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
             phaseStartedAt: Date.now(),
             currentTask: null,
             taskProgress: null,
+            openspecPhase: null,
             prUrl: null,
             currentCmd: null,
             tail: [],
@@ -498,16 +516,27 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           if (meta.changeDir) {
             try {
               const tasksFile = Bun.file(join(meta.changeDir, "tasks.md"));
-              if (await tasksFile.exists()) {
-                const text = await tasksFile.text();
-                const match = text.match(/^- \[ \] (.+)$/m);
+              const proposalFile = Bun.file(join(meta.changeDir, "proposal.md"));
+              const designFile = Bun.file(join(meta.changeDir, "design.md"));
+              const [tasksText, proposalText, designText] = await Promise.all([
+                tasksFile.exists().then((ok) => (ok ? tasksFile.text() : null)),
+                proposalFile.exists().then((ok) => (ok ? proposalFile.text() : null)),
+                designFile.exists().then((ok) => (ok ? designFile.text() : null)),
+              ]);
+              if (tasksText !== null) {
+                const match = tasksText.match(/^- \[ \] (.+)$/m);
                 meta.currentTask = match?.[1]?.trim() ?? null;
-                const { checked, total } = countProgress(text);
+                const { checked, total } = countProgress(tasksText);
                 meta.taskProgress = total > 0 ? { checked, total } : null;
               }
+              meta.openspecPhase = deriveOpenSpecPhase({
+                proposal: proposalText,
+                design: designText,
+                tasks: tasksText,
+              });
             } catch (err) {
               console.error(
-                `Failed to read tasks.md for worker '${changeName}' (may not exist yet):`,
+                `Failed to read change artifacts for worker '${changeName}' (may not exist yet):`,
                 err,
               );
             }
@@ -780,6 +809,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const prUrl = meta?.prUrl ?? null;
           const currentTask = meta?.currentTask ?? null;
           const taskProgress = meta?.taskProgress ?? null;
+          const openspecPhase = meta?.openspecPhase ?? null;
 
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
@@ -827,6 +857,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 {currentTask && (
                   <>
                     <Text dimColor>│</Text>
+                    {openspecPhase && (
+                      <Text color={openspecPhaseColor(openspecPhase)}>[{openspecPhase}]</Text>
+                    )}
                     <Text dimColor>▶ {trunc(currentTask, 40)}</Text>
                   </>
                 )}
@@ -909,7 +942,14 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   <Text color="yellow" bold>
                     ▶ TASK
                   </Text>
-                  <Text color="white">{trunc(currentTask, termWidth - 14)}</Text>
+                  {openspecPhase && (
+                    <Text color={openspecPhaseColor(openspecPhase)} bold>
+                      [phase: {openspecPhase}]
+                    </Text>
+                  )}
+                  <Text color="white">
+                    {trunc(currentTask, termWidth - 14 - (openspecPhase ? openspecPhase.length + 11 : 0))}
+                  </Text>
                 </Box>
               )}
 
