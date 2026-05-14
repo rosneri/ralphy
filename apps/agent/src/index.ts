@@ -9,7 +9,7 @@ import { parseArgs, printHelp } from "./cli";
 import { AgentMode } from "./components/AgentMode";
 
 export async function main(argv: string[]): Promise<number> {
-  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
+  if (argv.includes("--help") || argv.includes("-h")) {
     printHelp();
     return 0;
   }
