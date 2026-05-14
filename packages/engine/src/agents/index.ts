@@ -13,7 +13,9 @@ export const AGENTS: Record<Engine, Agent> = {
 export function getAgent(name: Engine): Agent {
   const agent = AGENTS[name];
   if (!agent) {
-    throw new Error(`Unknown agent: ${name}`);
+    const err = new Error("Unknown agent") as Error & { agent?: string };
+    err.agent = name;
+    throw err;
   }
   return agent;
 }
