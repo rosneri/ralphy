@@ -33,7 +33,7 @@ interface PollBuckets {
 /** Per-status counts across the done-candidate PRs scanned this tick.
  *  Surfaced in the dashboard so operators can see at a glance how many
  *  shipped PRs are mergeable, blocked by merge conflicts, or red on CI. */
-export interface PrStatusCounts {
+interface PrStatusCounts {
   mergeable: number;
   conflicted: number;
   ciFailed: number;
