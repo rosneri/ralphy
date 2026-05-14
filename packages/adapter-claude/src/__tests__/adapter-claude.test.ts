@@ -101,4 +101,160 @@ describe("parseClaudeLine", () => {
     expect(parseClaudeLine("not json", makeState())).toEqual([]);
     expect(parseClaudeLine(JSON.stringify({ noType: true }), makeState())).toEqual([]);
   });
+
+  test("emits session-unknown when init lacks a model", () => {
+    const events = parseClaudeLine(
+      JSON.stringify({ type: "system", subtype: "init", session_id: "deadbeefcafe" }),
+      makeState(),
+    );
+    expect(events).toEqual([{ type: "session-unknown", sessionId: "deadbeef" }]);
+  });
+
+  test("parses task_started into an agent event", () => {
+    const events = parseClaudeLine(
+      JSON.stringify({ type: "system", subtype: "task_started", description: "do the thing" }),
+      makeState(),
+    );
+    expect(events).toEqual([{ type: "agent", description: "do the thing" }]);
+  });
+
+  test("parses assistant text, tool_use, and thinking blocks", () => {
+    const state = makeState();
+    const events = parseClaudeLine(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "hello" },
+            { type: "tool_use", name: "Read", input: { file_path: "/a/b/c.ts" } },
+            { type: "thinking", thinking: "line1\nline2\nline3\nline4" },
+          ],
+        },
+      }),
+      state,
+    );
+    expect(state.turnCount).toBe(1);
+    expect(state.toolCount).toBe(1);
+    expect(events).toEqual([
+      { type: "text", text: "hello" },
+      { type: "tool-start", name: "Read", summary: { kind: "file", name: "c.ts" } },
+      { type: "thinking", preview: "line1\nline2\nline3", totalLines: 4 },
+    ]);
+  });
+
+  test("emits bare thinking event when content is empty", () => {
+    const events = parseClaudeLine(
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "thinking", thinking: "" }] },
+      }),
+      makeState(),
+    );
+    expect(events).toEqual([{ type: "thinking" }]);
+  });
+
+  test("extracts tool input summaries across known shapes", () => {
+    const cases: Array<[Record<string, unknown>, unknown]> = [
+      [{ command: "ls -la\nfoo" }, { kind: "command", text: "ls -la" }],
+      [
+        { pattern: "foo", path: "src/lib/x.ts" },
+        { kind: "search", pattern: "foo", path: "x.ts" },
+      ],
+      [{ query: "search me" }, { kind: "search", pattern: "search me" }],
+      [{ url: "https://example.com" }, { kind: "url", url: "https://example.com" }],
+      [{ prompt: "first\nsecond" }, { kind: "prompt", text: "first" }],
+      [{ old_string: "x" }, { kind: "edit" }],
+      [{ content: "x" }, { kind: "write" }],
+    ];
+    for (const [input, expected] of cases) {
+      const events = parseClaudeLine(
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "tool_use", name: "T", input }] },
+        }),
+        makeState(),
+      );
+      expect(events[0]).toMatchObject({ type: "tool-start", name: "T", summary: expected });
+    }
+  });
+
+  test("falls back to compact key=value summary for unknown tool inputs", () => {
+    const events = parseClaudeLine(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          content: [{ type: "tool_use", name: "Mcp", input: { foo: "bar", count: 3 } }],
+        },
+      }),
+      makeState(),
+    );
+    expect(events[0]).toMatchObject({
+      type: "tool-start",
+      summary: { kind: "raw", text: "foo=bar  count=3" },
+    });
+  });
+
+  test("omits summary when tool input is empty", () => {
+    const events = parseClaudeLine(
+      JSON.stringify({
+        type: "assistant",
+        message: { content: [{ type: "tool_use", name: "Noop", input: {} }] },
+      }),
+      makeState(),
+    );
+    expect(events[0]).toEqual({ type: "tool-start", name: "Noop" });
+  });
+
+  test("parses tool_result with string content and truncation", () => {
+    const longLines = Array.from({ length: 10 }, (_, i) => `line ${i}`).join("\n");
+    const events = parseClaudeLine(
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [{ type: "tool_result", content: longLines }],
+        },
+      }),
+      makeState(),
+    );
+    expect(events[0]).toEqual({ type: "tool-end" });
+    expect(events[1]).toMatchObject({
+      type: "tool-result-preview",
+      lines: ["line 0", "line 1", "line 2", "line 3", "line 4", "line 5"],
+      truncated: 4,
+    });
+  });
+
+  test("parses tool_result with array text blocks", () => {
+    const events = parseClaudeLine(
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            {
+              type: "tool_result",
+              content: [
+                { type: "text", text: "a" },
+                { type: "text", text: "b" },
+              ],
+            },
+          ],
+        },
+      }),
+      makeState(),
+    );
+    expect(events).toEqual([
+      { type: "tool-end" },
+      { type: "tool-result-preview", lines: ["a", "b"] },
+    ]);
+  });
+
+  test("emits result-error for failed result events", () => {
+    const state = makeState();
+    const events = parseClaudeLine(
+      JSON.stringify({ type: "result", subtype: "error", result: "boom" }),
+      state,
+    );
+    expect(state.gotResult).toBe(true);
+    expect(events).toEqual([{ type: "result-error", message: "boom" }]);
+  });
 });
