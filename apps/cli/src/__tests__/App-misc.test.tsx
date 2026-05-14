@@ -41,6 +41,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     indicators: {},
     createPr: false,
     fixCi: false,
+    stackPrs: false,
     codeReview: false,
     maxTickets: 0,
     jsonOutput: false,

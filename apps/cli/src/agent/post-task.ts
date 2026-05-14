@@ -37,6 +37,7 @@ interface PostTaskInput {
     ciPollIntervalSeconds: number;
     cleanupWorktreeOnSuccess: boolean;
     ignoreCiChecks: string[];
+    stackPrsOnDependencies: boolean;
   };
   /**
    * Re-spawn the worker with the same args used originally. Used by the
@@ -86,6 +87,9 @@ interface PostTaskDeps {
    * to detect them on the next poll.
    */
   checkPrConflict?: (prUrl: string) => Promise<boolean>;
+  /** Optional: resolve the head branch of a blocker's single open PR. See
+   *  PrPhaseDeps for details. */
+  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +513,11 @@ interface PrPhaseDeps {
   respawnWorker: () => Promise<number>;
   registerPr?: (changeName: string, prUrl: string) => void;
   checkPrConflict?: (prUrl: string) => Promise<boolean>;
+  /** Optional: resolve the head branch of a blocker's single open PR for
+   *  the given issue, or null when no unambiguous blocker PR exists. Invoked
+   *  only when `cfg.stackPrsOnDependencies` is true and no `ralph:branch:`
+   *  label override is present. */
+  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<string | null>;
 }
 
 /**
@@ -533,7 +542,15 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     wantAutoMerge,
     cfg,
   } = input;
-  const { cmd, log, emit, respawnWorker, registerPr, checkPrConflict } = deps;
+  const {
+    cmd,
+    log,
+    emit,
+    respawnWorker,
+    registerPr,
+    checkPrConflict,
+    resolveDependencyBaseBranch,
+  } = deps;
 
   if (!branch || !issue) {
     log(
@@ -544,9 +561,22 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   }
 
   const labelBase = baseBranchFromLabels(issue.labels);
-  const base = labelBase ?? cfg.prBaseBranch;
+  let base = labelBase ?? cfg.prBaseBranch;
   if (labelBase && labelBase !== cfg.prBaseBranch) {
     log(`  base branch override from label: ${labelBase}`, "gray");
+  } else if (cfg.stackPrsOnDependencies && resolveDependencyBaseBranch) {
+    try {
+      const dependencyBase = await resolveDependencyBaseBranch(issue);
+      if (dependencyBase && dependencyBase !== base) {
+        log(`  base branch override from blocker PR: ${dependencyBase}`, "gray");
+        base = dependencyBase;
+      }
+    } catch (err) {
+      log(
+        `! could not resolve dependency base branch for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
   }
 
   const ctx: PostTaskCtx = {
@@ -766,6 +796,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         respawnWorker,
         ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
         ...(deps.checkPrConflict !== undefined ? { checkPrConflict: deps.checkPrConflict } : {}),
+        ...(deps.resolveDependencyBaseBranch !== undefined
+          ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }
+          : {}),
       },
     );
   }

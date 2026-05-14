@@ -240,14 +240,15 @@ Done issues whose PR `gh pr view --json mergeable` reports as `CONFLICTING` get 
 
 ### PR + CI integration
 
-| Flag / config                         | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createPrOnSuccess` / `--create-pr`   | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                     |
-| `getAutoMerge` indicator              | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal — the CI/conflict watch loop continues. |
-| `fixCiOnFailure` / `--fix-ci`         | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed.                                                        |
-| `ciPollIntervalSeconds`               | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                                                                                     |
-| `ignoreCiChecks`                      | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
-| `codeReviewTrigger` / `--code-review` | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
+| Flag / config                            | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createPrOnSuccess` / `--create-pr`      | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                     |
+| `stackPrsOnDependencies` / `--stack-prs` | When the Linear issue is blocked by another issue (`blocked_by` relation) that has exactly one open GitHub PR, open this PR against that blocker's head branch instead of `prBaseBranch`. Resolves the blocker's PR via Linear's auto-attachment + `gh pr view --json state,headRefName`. Falls back to `prBaseBranch` when zero / multiple blockers (or PRs) match. A `ralph:branch:<name>` label still wins.      |
+| `getAutoMerge` indicator                 | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal — the CI/conflict watch loop continues. |
+| `fixCiOnFailure` / `--fix-ci`            | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed.                                                        |
+| `ciPollIntervalSeconds`                  | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                                                                                     |
+| `ignoreCiChecks`                         | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
+| `codeReviewTrigger` / `--code-review`    | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
 
 ### Worktrees, setup, teardown
 
@@ -302,19 +303,20 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 
 **Agent-mode flags**
 
-| Option                    | Behavior                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                         |
-| `--linear-assignee <id>`  | Assignee filter (user id, email, or `me`)                                            |
-| `--poll-interval <s>`     | Seconds between Linear polls (default `60`)                                          |
-| `--concurrency <n>`       | Max concurrent task loops (default `1`)                                              |
-| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (`0` = unlimited)      |
-| `--worktree`              | Run each task in its own git worktree                                                |
-| `--indicator <k>:<t>:<v>` | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)      |
-| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)                |
-| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)         |
-| `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task |
-| `--json-output`           | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)         |
+| Option                    | Behavior                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                                 |
+| `--linear-assignee <id>`  | Assignee filter (user id, email, or `me`)                                                    |
+| `--poll-interval <s>`     | Seconds between Linear polls (default `60`)                                                  |
+| `--concurrency <n>`       | Max concurrent task loops (default `1`)                                                      |
+| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (`0` = unlimited)              |
+| `--worktree`              | Run each task in its own git worktree                                                        |
+| `--indicator <k>:<t>:<v>` | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)              |
+| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)                        |
+| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)                 |
+| `--stack-prs`             | Open the PR against a blocker issue's open-PR head branch when present (needs `--create-pr`) |
+| `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task         |
+| `--json-output`           | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)                 |
 
 **List-mode flags**
 
