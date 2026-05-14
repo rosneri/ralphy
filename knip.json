@@ -9,10 +9,10 @@
   "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
     "apps/loop": {
-      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}"]
+      "entry": ["src/__tests__/**/*.{ts,tsx}"]
     },
     "apps/agent": {
-      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}"]
+      "entry": ["src/__tests__/**/*.{ts,tsx}"]
     },
     "apps/shell": {
       "entry": ["src/index.ts", "build.ts"]
@@ -60,6 +60,9 @@
       "entry": ["src/**/*.ts"]
     },
     "packages/telemetry": {
+      "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
+    },
+    "packages/agent-protocol": {
       "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
     }
   }
