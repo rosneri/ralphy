@@ -1,50 +1,13 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import type { FeedEvent } from "../feed-events";
+import type { IterationUsage } from "@ralphy/types";
+import { handleEngineFailure, runEngine } from "../engine";
+import { createScriptedAgent } from "../agents/scripted";
 
-// ─── Mock spawn ──────────────────────────────────────────────────
-
-interface MockProc {
-  stdin: {
-    write: ReturnType<typeof mock>;
-    flush: ReturnType<typeof mock>;
-    end: ReturnType<typeof mock>;
-  };
-  stdout: ReadableStream<Uint8Array>;
-  stderr: ReadableStream<Uint8Array> | null;
-  exited: Promise<number>;
-  kill: ReturnType<typeof mock>;
-}
-
-let mockProc: MockProc;
-
-function makeReadableStream(lines: string[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const line of lines) {
-        controller.enqueue(encoder.encode(line + "\n"));
-      }
-      controller.close();
-    },
-  });
-}
-
-interface SpawnOptions {
-  cmd: string[];
-  stderr?: string;
-  [key: string]: unknown;
-}
-const spawnMock = mock((_options: SpawnOptions): MockProc => mockProc);
-
-mock.module("../spawn", () => ({
-  spawn: spawnMock,
-}));
-
-// Import after mocking
-const { handleEngineFailure, runEngine } = await import("../engine");
+// Engine-level tests run against a scripted Agent that emits a canned
+// FeedEvent sequence. No subprocess is spawned; tests do not touch
+// `Bun.spawn` or `Bun.spawnSync`. Spawn-based agent behavior is covered
+// in agents.test.ts.
 
 // ─── handleEngineFailure ─────────────────────────────────────────
 
@@ -80,386 +43,304 @@ describe("handleEngineFailure", () => {
   });
 });
 
-// ─── runEngine ───────────────────────────────────────────────────
+// ─── Scripted agent fixtures ─────────────────────────────────────
 
-describe("runEngine", () => {
-  const INIT =
-    '{"type":"system","subtype":"init","model":"claude-test","session_id":"test12345678"}';
-  const TEXT = '{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}';
-  const RESULT =
-    '{"type":"result","subtype":"success","total_cost_usd":0.01,"duration_ms":100,"num_turns":1,"usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":5,"cache_creation_input_tokens":0}}';
+const sampleUsage: IterationUsage = {
+  cost_usd: 0.01,
+  duration_ms: 100,
+  num_turns: 1,
+  input_tokens: 10,
+  output_tokens: 20,
+  cache_read_input_tokens: 5,
+  cache_creation_input_tokens: 0,
+};
 
-  function setupMockProc(stdoutLines: string[], exitCode = 0, stderrLines: string[] = []) {
-    mockProc = {
-      stdin: {
-        write: mock(() => {}),
-        flush: mock(() => Promise.resolve()),
-        end: mock(() => {}),
-      },
-      stdout: makeReadableStream(stdoutLines),
-      stderr: stderrLines.length > 0 ? makeReadableStream(stderrLines) : makeReadableStream([]),
-      exited: Promise.resolve(exitCode),
-      kill: mock(() => {}),
-    };
-  }
+function sessionEvent(): FeedEvent {
+  return { type: "session", model: "claude-test", sessionId: "abcd1234" };
+}
+function textEvent(text: string): FeedEvent {
+  return { type: "text", text };
+}
+function resultEvent(usage: IterationUsage = sampleUsage): FeedEvent {
+  return {
+    type: "result",
+    cost: usage.cost_usd,
+    timeMs: usage.duration_ms,
+    turns: usage.num_turns,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cached: usage.cache_read_input_tokens,
+  };
+}
 
-  beforeEach(() => {
-    spawnMock.mockClear();
+// ─── runEngine + scripted agent ──────────────────────────────────
+
+describe("runEngine (scripted agent)", () => {
+  test("captures full session id from agent", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), resultEvent()],
+      sessionId: "full-session-id-abcd1234567890",
+      usage: sampleUsage,
+    });
+
+    const result = await runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.sessionId).toBe("full-session-id-abcd1234567890");
   });
 
-  test("claude engine streams events and returns usage", async () => {
-    setupMockProc([INIT, TEXT, RESULT]);
+  test("aggregates usage from agent", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), textEvent("hi"), resultEvent()],
+      usage: sampleUsage,
+    });
 
     const events: FeedEvent[] = [];
     const result = await runEngine({
       engine: "claude",
       model: "claude-test",
-      prompt: "test",
-      onOutput: () => {},
+      prompt: "ignored",
+      agent,
       onFeedEvent: (e) => events.push(e),
     });
 
+    expect(result.usage).toEqual(sampleUsage);
     expect(result.exitCode).toBe(0);
-    expect(result.usage).not.toBeNull();
-    expect(result.usage!.input_tokens).toBe(10);
-    expect(result.usage!.output_tokens).toBe(20);
-    expect(result.usage!.cost_usd).toBe(0.01);
-    expect(events.some((e) => e.type === "session")).toBe(true);
-    expect(events.some((e) => e.type === "text" && e.text === "Hello")).toBe(true);
-    expect(events.some((e) => e.type === "result")).toBe(true);
-
-    // Verify spawn was called with claude args
-    expect(spawnMock).toHaveBeenCalledTimes(1);
-    const call = spawnMock.mock.calls[0]![0];
-    expect(call.cmd[0]).toBe("claude");
-    expect(call.cmd).toContain("--model");
-    expect(call.cmd).toContain("claude-test");
-    expect(call.cmd).toContain("--output-format");
-    expect(call.cmd).toContain("stream-json");
-    expect(call.cmd).toContain("--verbose");
-    expect(call.cmd).toContain("-p");
-    expect(call.cmd).toContain("-");
-    expect(call.cmd).toContain("--dangerously-skip-permissions");
+    expect(events.map((e) => e.type)).toEqual(["session", "text", "result"]);
   });
 
-  test("claude engine without onFeedEvent falls back to renderFeedEvent", async () => {
-    setupMockProc([INIT, RESULT]);
-
-    const outputLines: string[] = [];
-    const result = await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "test",
-      onOutput: (line) => outputLines.push(line),
+  test("detects rate-limit text in feed events", async () => {
+    const agent = createScriptedAgent({
+      events: [
+        sessionEvent(),
+        textEvent("You've hit your limit, please try again later."),
+        resultEvent(),
+      ],
+      usage: sampleUsage,
     });
 
-    expect(result.exitCode).toBe(0);
-    expect(outputLines.length).toBeGreaterThan(0);
-  });
-
-  test("claude engine uses default onOutput (stdout) when none provided", async () => {
-    setupMockProc([RESULT]);
-
     const result = await runEngine({
       engine: "claude",
-      model: "test",
-      prompt: "test",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
       onFeedEvent: () => {},
     });
 
-    expect(result.exitCode).toBe(0);
+    expect(result.rateLimited).toBe(true);
   });
 
-  test("handles non-zero exit code", async () => {
-    setupMockProc([INIT], 1);
+  test("does not flag rate-limit on unrelated text", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), textEvent("All good."), resultEvent()],
+      usage: sampleUsage,
+    });
 
     const result = await runEngine({
       engine: "claude",
-      model: "test",
-      prompt: "test",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.rateLimited).toBe(false);
+  });
+
+  test("aborting via signal kills the agent and normalizes exit 143", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), textEvent("streaming..."), textEvent("more...")],
+      exitCode: 0,
+      killedExitCode: 143,
+      eventDelayMs: 10,
+    });
+
+    const controller = new AbortController();
+    const promise = runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      signal: controller.signal,
+      onFeedEvent: () => {},
+    });
+
+    // Let the first event flush, then abort mid-stream.
+    await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+
+    const result = await promise;
+    expect(agent.wasKilled()).toBe(true);
+    expect(result.exitCode).toBe(0); // 143 normalized because intentional kill
+  });
+
+  test("aborting before run starts kills and exits cleanly", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), resultEvent()],
+      killedExitCode: 137,
+      usage: sampleUsage,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      signal: controller.signal,
+      onFeedEvent: () => {},
+    });
+
+    expect(agent.wasKilled()).toBe(true);
+    expect(result.exitCode).toBe(0); // 137 normalized because intentional kill
+  });
+
+  test("non-zero exit (no kill) is preserved", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent()], // no result event, process exits 1
+      exitCode: 1,
+    });
+
+    const result = await runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
       onFeedEvent: () => {},
     });
 
     expect(result.exitCode).toBe(1);
+    expect(result.usage).toBeNull();
   });
 
-  test("handles empty and invalid JSON lines", async () => {
-    setupMockProc(["", INIT, "", "not json", RESULT]);
-
-    const events: FeedEvent[] = [];
-    await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "test",
-      onFeedEvent: (e) => events.push(e),
+  test("unintentional SIGTERM (143) is preserved", async () => {
+    // Agent is never killed by us; exit code 143 should not be normalized.
+    const agent = createScriptedAgent({
+      events: [sessionEvent()],
+      exitCode: 143,
     });
-
-    expect(events.some((e) => e.type === "session")).toBe(true);
-    expect(events.some((e) => e.type === "result")).toBe(true);
-  });
-
-  test("streams multiple text events", async () => {
-    const t1 = '{"type":"assistant","message":{"content":[{"type":"text","text":"line1"}]}}';
-    const t2 = '{"type":"assistant","message":{"content":[{"type":"text","text":"line2"}]}}';
-    setupMockProc([INIT, t1, t2, RESULT]);
-
-    const events: FeedEvent[] = [];
-    await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "test",
-      onFeedEvent: (e) => events.push(e),
-    });
-
-    expect(events.filter((e) => e.type === "text").length).toBe(2);
-  });
-
-  test("stdin receives prompt and is properly closed", async () => {
-    setupMockProc([RESULT]);
-
-    await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "my prompt",
-      onFeedEvent: () => {},
-    });
-
-    expect(mockProc.stdin.write).toHaveBeenCalledTimes(1);
-    expect(mockProc.stdin.flush).toHaveBeenCalledTimes(1);
-    expect(mockProc.stdin.end).toHaveBeenCalledTimes(1);
-  });
-
-  test("claude stderr is inherited, stdin/stdout piped", async () => {
-    setupMockProc([RESULT]);
-
-    await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "test",
-      onFeedEvent: () => {},
-    });
-
-    const call = spawnMock.mock.calls[0]![0];
-    expect(call.stderr).toBe("inherit");
-    expect(call.stdin).toBe("pipe");
-    expect(call.stdout).toBe("pipe");
-  });
-
-  test("passes --resume flag when resumeSessionId is provided", async () => {
-    setupMockProc([INIT, RESULT]);
-
-    await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "resumed prompt",
-      resumeSessionId: "sess-abc123",
-      onFeedEvent: () => {},
-    });
-
-    const call = spawnMock.mock.calls[0]![0];
-    expect(call.cmd).toContain("--resume");
-    expect(call.cmd).toContain("sess-abc123");
-  });
-
-  test("captures sessionId from init event", async () => {
-    setupMockProc([INIT, RESULT]);
 
     const result = await runEngine({
       engine: "claude",
-      model: "test",
-      prompt: "test",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
       onFeedEvent: () => {},
     });
 
-    expect(result.sessionId).toBe("test12345678");
+    expect(result.exitCode).toBe(143);
   });
 
-  test("abort signal kills the process and normalizes exit code", async () => {
-    setupMockProc([INIT, RESULT], 143);
-    const controller = new AbortController();
+  test("claude agent stops at first result and skips later events", async () => {
+    const agent = createScriptedAgent({
+      events: [
+        sessionEvent(),
+        textEvent("hello"),
+        resultEvent(),
+        // events past the first result should not be emitted
+        textEvent("should-not-appear"),
+      ],
+      usage: sampleUsage,
+    });
 
-    // Abort immediately
-    controller.abort();
-
-    const result = await runEngine({
+    const seen: FeedEvent[] = [];
+    await runEngine({
       engine: "claude",
-      model: "test",
-      prompt: "test",
-      signal: controller.signal,
-      onFeedEvent: () => {},
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: (e) => seen.push(e),
     });
 
-    expect(mockProc.kill).toHaveBeenCalled();
-    expect(result.exitCode).toBe(0); // normalized from 143
+    expect(agent.wasKilled()).toBe(true);
+    expect(seen.map((e) => e.type)).toEqual(["session", "text", "result"]);
+    expect(seen.find((e) => e.type === "text" && e.text === "should-not-appear")).toBeUndefined();
   });
 
-  test("abort signal during execution kills process", async () => {
-    setupMockProc([INIT, RESULT], 143);
-    const controller = new AbortController();
+  test("result-error also stops claude stream", async () => {
+    const agent = createScriptedAgent({
+      events: [
+        sessionEvent(),
+        { type: "result-error", message: "boom" } as FeedEvent,
+        textEvent("should-not-appear"),
+      ],
+    });
 
-    const resultPromise = runEngine({
+    const seen: FeedEvent[] = [];
+    await runEngine({
       engine: "claude",
-      model: "test",
-      prompt: "test",
-      signal: controller.signal,
-      onFeedEvent: () => {},
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: (e) => seen.push(e),
     });
 
-    // Abort after engine starts
-    controller.abort();
-    const result = await resultPromise;
-
-    expect(mockProc.kill).toHaveBeenCalled();
-    expect(result.exitCode).toBe(0);
+    expect(seen.find((e) => e.type === "text")).toBeUndefined();
   });
 
-  // ─── interactive mode ────────────────────────────────────────────
-
-  describe("interactive mode", () => {
-    let taskDir: string;
-
-    beforeEach(() => {
-      taskDir = mkdtempSync(join(tmpdir(), "engine-interactive-test-"));
+  test("codex agent consumes the full stream (no result-based kill)", async () => {
+    const agent = createScriptedAgent({
+      engine: "codex",
+      events: [
+        { type: "session", model: "codex-test", sessionId: "codex123" } as FeedEvent,
+        { type: "turn-start" } as FeedEvent,
+        textEvent("hello codex"),
+        { type: "turn-done", inputTokens: 50, outputTokens: 30 } as FeedEvent,
+      ],
     });
 
-    afterEach(() => {
-      rmSync(taskDir, { recursive: true, force: true });
+    const seen: FeedEvent[] = [];
+    await runEngine({
+      engine: "codex",
+      model: "codex-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: (e) => seen.push(e),
     });
 
-    function setupInteractiveMock(exitCode = 0) {
-      mockProc = {
-        stdin: {
-          write: mock(() => {}),
-          flush: mock(() => Promise.resolve()),
-          end: mock(() => {}),
-        },
-        stdout: makeReadableStream([]),
-        stderr: makeReadableStream([]),
-        exited: Promise.resolve(exitCode),
-        kill: mock(() => {}),
-      };
+    expect(seen.map((e) => e.type)).toEqual(["session", "turn-start", "text", "turn-done"]);
+    expect(agent.wasKilled()).toBe(false);
+  });
+
+  test("falls back to renderFeedEvent string output when no onFeedEvent given", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), resultEvent()],
+      usage: sampleUsage,
+    });
+
+    const lines: string[] = [];
+    await runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onOutput: (line) => lines.push(line),
+    });
+
+    expect(lines.length).toBeGreaterThan(0);
+  });
+
+  test("rate-limit detection is case-insensitive across patterns", async () => {
+    const patterns = ["You've Hit Your Limit", "RATE LIMIT exceeded", "too many requests"];
+    for (const text of patterns) {
+      const agent = createScriptedAgent({
+        events: [textEvent(text), resultEvent()],
+        usage: sampleUsage,
+      });
+      const result = await runEngine({
+        engine: "claude",
+        model: "claude-test",
+        prompt: "ignored",
+        agent,
+        onFeedEvent: () => {},
+      });
+      expect(result.rateLimited).toBe(true);
     }
-
-    test("spawns claude with inherited stdio", async () => {
-      setupInteractiveMock(0);
-
-      const result = await runEngine({
-        engine: "claude",
-        model: "test-model",
-        prompt: "interactive prompt",
-        interactive: true,
-        taskDir,
-        onFeedEvent: () => {},
-      });
-
-      expect(result.usage).toBeNull();
-      expect(spawnMock).toHaveBeenCalledTimes(1);
-      const call = spawnMock.mock.calls[0]![0];
-      expect(call.cmd[0]).toBe("claude");
-      expect(call.cmd).toContain("--model");
-      expect(call.cmd).toContain("test-model");
-      expect(call.cmd).toContain("--dangerously-skip-permissions");
-      expect(call.stdin).toBe("inherit");
-      expect(call.stdout).toBe("inherit");
-      expect(call.stderr).toBe("inherit");
-    });
-
-    test("writes prompt to taskDir and cleans up", async () => {
-      setupInteractiveMock(0);
-
-      await runEngine({
-        engine: "claude",
-        model: "test",
-        prompt: "my interactive prompt",
-        interactive: true,
-        taskDir,
-        onFeedEvent: () => {},
-      });
-
-      // Prompt file should be cleaned up after completion
-      expect(existsSync(join(taskDir, "_interactive_prompt.md"))).toBe(false);
-    });
-
-    test("returns exitCode 0 when _interactive_done file exists", async () => {
-      setupInteractiveMock(1);
-      // Simulate the MCP tool having written the done file
-      writeFileSync(join(taskDir, "_interactive_done"), "");
-
-      const result = await runEngine({
-        engine: "claude",
-        model: "test",
-        prompt: "test",
-        interactive: true,
-        taskDir,
-        onFeedEvent: () => {},
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.usage).toBeNull();
-    });
-
-    test("returns actual exitCode when no _interactive_done file", async () => {
-      setupInteractiveMock(1);
-
-      const result = await runEngine({
-        engine: "claude",
-        model: "test",
-        prompt: "test",
-        interactive: true,
-        taskDir,
-        onFeedEvent: () => {},
-      });
-
-      expect(result.exitCode).toBe(1);
-    });
-
-    test("creates temp dir when no taskDir provided", async () => {
-      setupInteractiveMock(0);
-
-      const result = await runEngine({
-        engine: "claude",
-        model: "test",
-        prompt: "test",
-        interactive: true,
-        onFeedEvent: () => {},
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.usage).toBeNull();
-    });
-  });
-
-  test("streamLines handles trailing buffer without newline", async () => {
-    // Simulate a stream that sends data without trailing newline
-    const encoder = new TextEncoder();
-    const customStdout = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(INIT + "\n" + RESULT));
-        controller.close();
-      },
-    });
-
-    mockProc = {
-      stdin: {
-        write: mock(() => {}),
-        flush: mock(() => Promise.resolve()),
-        end: mock(() => {}),
-      },
-      stdout: customStdout,
-      stderr: makeReadableStream([]),
-      exited: Promise.resolve(0),
-      kill: mock(() => {}),
-    };
-
-    const events: FeedEvent[] = [];
-    await runEngine({
-      engine: "claude",
-      model: "test",
-      prompt: "test",
-      onFeedEvent: (e) => events.push(e),
-    });
-
-    expect(events.some((e) => e.type === "session")).toBe(true);
-    expect(events.some((e) => e.type === "result")).toBe(true);
   });
 });

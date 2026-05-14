@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { type Engine, type IterationUsage } from "@ralphy/types";
 import { type FeedEvent, renderFeedEvent } from "./feed-events";
 import { getAgent } from "./agents";
-import type { AgentRequest } from "./agents";
+import type { Agent, AgentRequest } from "./agents";
 
 export interface RunEngineOptions {
   engine: Engine;
@@ -23,6 +23,12 @@ export interface RunEngineOptions {
   signal?: AbortSignal;
   /** Resume an existing Claude session instead of starting fresh. */
   resumeSessionId?: string;
+  /**
+   * Inject a pre-built Agent (e.g. the scripted agent) instead of looking one
+   * up by `engine`. Production callers should leave this unset; tests use it
+   * to exercise engine-level behavior without a subprocess.
+   */
+  agent?: Agent;
 }
 
 export interface EngineResult {
@@ -75,12 +81,12 @@ export function handleEngineFailure(exitCode: number): {
  * Drive an agent through the App-Server Protocol boundary.
  *
  * `runEngine` is now a thin dispatcher: it picks the registered adapter
- * for `opts.engine`, wires up callbacks (raw-line logging, string-fallback
- * rendering), and forwards the request. All agent-specific wire-format
- * knowledge lives in `agents/<name>.ts`.
+ * for `opts.engine` (or uses an injected `opts.agent`), wires up callbacks
+ * (raw-line logging, string-fallback rendering), and forwards the request.
+ * All agent-specific wire-format knowledge lives in `agents/<name>.ts`.
  */
 export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
-  const agent = getAgent(opts.engine);
+  const agent = opts.agent ?? getAgent(opts.engine);
   const write = opts.onOutput ?? ((l: string) => process.stdout.write(l + "\n"));
 
   let rawWriter: WriteStream | null = null;
