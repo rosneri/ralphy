@@ -45,6 +45,14 @@ interface WorkerMeta {
 
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
+/** Max lines shown in the LOGS box. The box grows with each new line until it
+ *  reaches this cap, after which older lines scroll off the top. */
+export const MAX_LOG_VIEWPORT_LINES = 15;
+
+/** Visible log slice: grows with input until it hits the viewport cap, then tails. */
+export function visibleLogWindow<T>(lines: readonly T[], cap = MAX_LOG_VIEWPORT_LINES): T[] {
+  return lines.slice(-cap);
+}
 
 function fmtCmd(argv: string[]): string {
   const joined = argv.join(" ");
@@ -543,10 +551,13 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   );
 
   // Compute tail lines for the focused worker to fill available height.
-  // header-box(5) + poll-row(5) + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
+  // logs-box(0 or visibleLogLines+2) + header-box(5) + poll-row(5)
+  //   + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
   const tasksBoxLines = activeCount > 1 ? 5 : 0;
-  const FIXED_OVERHEAD = 5 + 5 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  const visibleLogLines = Math.min(logs.length, MAX_LOG_VIEWPORT_LINES);
+  const logsBoxLines = logs.length > 0 ? visibleLogLines + 2 : 0;
+  const FIXED_OVERHEAD = logsBoxLines + 5 + 5 + tasksBoxLines + 8 + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
@@ -561,7 +572,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           paddingX={1}
           width={termWidth}
         >
-          {logs.slice(-5).map((line) =>
+          {visibleLogWindow(logs).map((line) =>
             line.color ? (
               <Text key={line.id} color={line.color}>
                 {line.text}
