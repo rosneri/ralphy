@@ -32,7 +32,6 @@ export interface ScriptedAgentOptions {
 export interface ScriptedAgent extends Agent {
   /** Test-only introspection. */
   wasKilled(): boolean;
-  eventsConsumed(): number;
 }
 
 /**
@@ -47,7 +46,6 @@ export function createScriptedAgent(opts: ScriptedAgentOptions): ScriptedAgent {
   const defaultExit = opts.exitCode ?? 0;
 
   let killed = false;
-  let consumed = 0;
 
   return {
     name: engine,
@@ -77,7 +75,6 @@ export function createScriptedAgent(opts: ScriptedAgentOptions): ScriptedAgent {
           await new Promise((r) => setTimeout(r, opts.eventDelayMs));
         }
         if (killed) break;
-        consumed++;
 
         if (event.type === "text" && isRateLimitText(event.text)) {
           detectedRateLimit = true;
@@ -106,6 +103,5 @@ export function createScriptedAgent(opts: ScriptedAgentOptions): ScriptedAgent {
     },
 
     wasKilled: () => killed,
-    eventsConsumed: () => consumed,
   };
 }
