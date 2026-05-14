@@ -1,5 +1,4 @@
-import type { IterationUsage } from "@ralphy/types";
-import type { FeedEvent, ToolInputSummary } from "../feed-events";
+import type { FeedEvent, IterationUsage, ToolInputSummary } from "@ralphy/types";
 
 export interface ClaudeStreamState {
   turnCount: number;
