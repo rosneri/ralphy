@@ -8,8 +8,23 @@
   ],
   "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
-    "apps/cli": {
-      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}", "build.ts"]
+    "apps/loop": {
+      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}"]
+    },
+    "apps/agent": {
+      "entry": ["src/index.ts", "src/__tests__/**/*.{ts,tsx}"]
+    },
+    "apps/shell": {
+      "entry": ["src/index.ts", "build.ts"]
+    },
+    "packages/cli-args": {
+      "entry": ["src/**/*.ts"]
+    },
+    "packages/paths": {
+      "entry": ["src/**/*.ts"]
+    },
+    "packages/version": {
+      "entry": ["src/**/*.ts"]
     },
     "apps/mcp": {
       "entry": ["src/index.ts", "src/__tests__/**/*.ts"]

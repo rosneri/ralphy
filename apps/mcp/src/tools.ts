@@ -191,7 +191,7 @@ export function registerTools(
             };
           }
 
-          const cliArgs = ["run", "apps/cli/src/index.ts", "task", "--name", name];
+          const cliArgs = ["run", "apps/shell/src/index.ts", "loop", "task", "--name", name];
           if (maxIterations) cliArgs.push("--max-iterations", String(maxIterations));
           if (maxCostUsd) cliArgs.push("--max-cost", String(maxCostUsd));
           if (maxRuntimeMinutes) cliArgs.push("--max-runtime", String(maxRuntimeMinutes));

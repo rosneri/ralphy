@@ -1,0 +1,7 @@
+[test]
+coverageThreshold = { lines = 0.9, functions = 0.9 }
+coveragePathIgnorePatterns = [
+  "../**",
+  "**/dist/**",
+  "**/components/App.tsx",
+]

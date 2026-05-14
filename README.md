@@ -60,14 +60,14 @@ The per-project install builds the CLI and MCP server, copies them to `.ralph/bi
 
 ```bash
 # Create + run a new task
-ralph task --name fix-auth --prompt "Fix the JWT validation bug" --claude opus --max-iterations 10
+ralphy loop task --name fix-auth --prompt "Fix the JWT validation bug" --claude opus --max-iterations 10
 
 # Resume the same task later (state is on disk)
-ralph task --name fix-auth
+ralphy loop task --name fix-auth
 
 # Inspect
-ralph list                    # local tasks + Linear tickets per indicator bucket (with linked PR URLs)
-ralph status --name fix-auth  # one task (details)
+ralphy agent list                    # local tasks + Linear tickets per indicator bucket (with linked PR URLs)
+ralphy loop status --name fix-auth  # one task (details)
 ```
 
 Engine defaults to Claude Opus. Common safeguards: `--max-iterations`, `--max-cost`, `--max-runtime`, `--max-failures`. See the [CLI reference](#cli-reference) for the full set.
@@ -78,7 +78,7 @@ Engine defaults to Claude Opus. Common safeguards: `--max-iterations`, `--max-co
 
 ```bash
 export LINEAR_API_KEY=lin_api_xxx
-ralph agent --linear-team ENG --linear-assignee me --concurrency 3 --poll-interval 60
+ralphy agent --linear-team ENG --linear-assignee me --concurrency 3 --poll-interval 60
 ```
 
 A default `ralphy.config.json` is written on first run. CLI flags override config per-invocation.

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  },
+  "include": ["src", "build.ts"],
+  "references": [
+    {
+      "path": "../../packages/version"
+    },
+    {
+      "path": "../loop"
+    },
+    {
+      "path": "../agent"
+    }
+  ]
+}

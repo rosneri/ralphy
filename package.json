@@ -1,6 +1,6 @@
 {
   "name": "@neriros/ralphy",
-  "version": "2.23.2",
+  "version": "3.0.0",
   "description": "An iterative AI task execution framework. Orchestrates multi-phase autonomous work using Claude or Codex engines.",
   "keywords": [
     "agent",
@@ -18,7 +18,7 @@
     "url": "https://github.com/NeriRos/ralphy.git"
   },
   "bin": {
-    "ralphy": "./dist/cli/index.js",
+    "ralphy": "./dist/shell/index.js",
     "ralphy-mcp": "./dist/mcp/index.js"
   },
   "workspaces": [
@@ -27,13 +27,13 @@
     "tools/generators/*"
   ],
   "files": [
-    "dist/cli/index.js",
+    "dist/shell/index.js",
     "dist/mcp/index.js",
     "README.md"
   ],
   "type": "module",
   "scripts": {
-    "ralph": "bun .ralph/bin/cli.js",
+    "ralphy": "bun .ralph/bin/shell.js",
     "lint": "oxlint --config .oxlintrc.json .",
     "lint:fix": "oxlint --config .oxlintrc.json --fix .",
     "fmt": "oxfmt --write .",
@@ -52,7 +52,7 @@
     "check:unused:ci": "knip",
     "check:outdated:ci": "bun scripts/check-outdated.ts",
     "prepare": "bunx husky",
-    "build:publish": "bunx nx run-many --target=build --projects=cli,mcp --output-style stream && bun run copy-assets",
+    "build:publish": "bunx nx run-many --target=build --projects=shell,mcp --output-style stream && bun run copy-assets",
     "copy-assets": "bun scripts/copy-assets.ts",
     "prepublishOnly": "bun run build:publish"
   },

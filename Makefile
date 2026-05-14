@@ -21,16 +21,16 @@ help:
 
 install: build copy-bin copy-assets init-tasks configure-mcp configure-package init-openspec
 	@echo "✓ Installation complete at $(INSTALL_PATH)"
-	@echo "  cli: $(abspath $(INSTALL_PATH)/bin/cli.js)"
-	@echo "  mcp: $(abspath $(INSTALL_PATH)/bin/mcp.js)"
+	@echo "  shell: $(abspath $(INSTALL_PATH)/bin/shell.js)"
+	@echo "  mcp:   $(abspath $(INSTALL_PATH)/bin/mcp.js)"
 
 build:
 	@echo "Building..."
-	@bunx nx run-many --target=build --projects=cli,mcp --output-style=stream
+	@bunx nx run-many --target=build --projects=shell,mcp --output-style=stream
 
 copy-bin:
 	@mkdir -p "$(INSTALL_PATH)/bin"
-	@cp dist/cli/index.js "$(INSTALL_PATH)/bin/cli.js"
+	@cp dist/shell/index.js "$(INSTALL_PATH)/bin/shell.js"
 	@cp dist/mcp/index.js "$(INSTALL_PATH)/bin/mcp.js"
 	@echo "  ✓ Copied binaries"
 
@@ -65,7 +65,7 @@ init-openspec:
 
 configure-package:
 	@if [ -f "$(BASE_PATH)/package.json" ] && command -v jq &> /dev/null; then \
-		jq '.scripts.ralph = "bun .ralph/bin/cli.js"' "$(BASE_PATH)/package.json" > "$(BASE_PATH)/package.json.tmp" && \
+		jq '.scripts.ralphy = "bun .ralph/bin/shell.js"' "$(BASE_PATH)/package.json" > "$(BASE_PATH)/package.json.tmp" && \
 		mv "$(BASE_PATH)/package.json.tmp" "$(BASE_PATH)/package.json"; \
-		echo "  ✓ Added ralph script to package.json"; \
+		echo "  ✓ Added ralphy script to package.json"; \
 	fi
