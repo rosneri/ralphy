@@ -20,3 +20,4 @@
 - [x] Run `bun run lint`
 - [x] Run `bun run test`
 - [x] Stage and commit changed files individually, then push the branch and open the PR
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
