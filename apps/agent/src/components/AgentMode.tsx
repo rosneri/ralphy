@@ -588,11 +588,11 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
   // Compute tail lines for the focused worker to fill available height.
   // Logs flow into terminal scrollback via <Static> so they don't occupy live
-  // UI region. header-box(5) + poll-row(6) + tasks-box(5 when active)
+  // UI region. header-box(5) + poll-row(7) + tasks-box(5 when active)
   //   + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
   const tasksBoxLines = activeCount > 1 ? 5 : 0;
-  const FIXED_OVERHEAD = 5 + 6 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  const FIXED_OVERHEAD = 5 + 7 + tasksBoxLines + 8 + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
@@ -736,16 +736,15 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       </Text>
                     </>
                   )}
-                  {secsToNextPoll !== null && (
-                    <>
-                      <Text dimColor>│</Text>
-                      <Text dimColor>↺</Text>
-                      <Text color="gray">{secsToNextPoll}s</Text>
-                    </>
-                  )}
                 </>
               )}
             </Box>
+            {pollStatus.lastAt !== null && secsToNextPoll !== null && (
+              <Box gap={1}>
+                <Text dimColor>↺</Text>
+                <Text color="gray">{secsToNextPoll}s</Text>
+              </Box>
+            )}
             {pollStatus.lastAt !== null && pollStatus.lastPrStatus && (
               <Box gap={2}>
                 <Text>{" ".repeat(7)}</Text>
