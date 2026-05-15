@@ -41,6 +41,8 @@ export interface ParsedArgs extends CommonArgs {
   manualTest: boolean;
   /** List mode: enable per-ticket diagnostics for --name <identifier>. */
   debug: boolean;
+  /** Force-enable the pre-existing-error baseline gate (overrides config). */
+  preExistingErrorCheck?: boolean;
 }
 
 const VALID_MODES = new Set<string>(["agent", "list"]);
@@ -109,6 +111,7 @@ const HELP_TEXT = [
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
+  "  --pre-existing-error-check  Run baseline commands against the base branch; pause new pickups + open a Linear ticket when red",
   "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
   "  --help, -h              Show this help message",
   "",
@@ -304,6 +307,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--debug":
         result.debug = true;
+        break;
+      case "--pre-existing-error-check":
+        result.preExistingErrorCheck = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

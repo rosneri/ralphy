@@ -29,6 +29,13 @@ describe("agent parseArgs", () => {
     expect(result.worktree).toBe(false);
   });
 
+  test("--pre-existing-error-check is a boolean override", async () => {
+    const off = await parseArgs([]);
+    expect(off.preExistingErrorCheck).toBeUndefined();
+    const on = await parseArgs(["--pre-existing-error-check"]);
+    expect(on.preExistingErrorCheck).toBe(true);
+  });
+
   test("--indicator builds get / set entries; multiple set flags merge into apply[]", async () => {
     const result = await parseArgs([
       "--indicator",
