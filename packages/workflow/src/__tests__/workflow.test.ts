@@ -8,6 +8,7 @@ import {
   ensureWorkflow,
   renderTemplate,
   renderWorkflowPrompt,
+  resolveBaselineCommands,
   DEFAULT_WORKFLOW_MD,
 } from "../workflow";
 import { findBoundaryViolations } from "../boundaries";
@@ -142,6 +143,27 @@ describe("renderTemplate", () => {
     );
     const out = renderWorkflowPrompt(wf, {});
     expect(out).toBe("proj=demo rules=no foo nt=dist/**");
+  });
+});
+
+describe("resolveBaselineCommands", () => {
+  test("returns configured commands when set", () => {
+    const { config } = parseWorkflow(
+      `---\npreExistingErrorCheck:\n  enabled: true\n  commands:\n    - "echo a"\n    - "echo b"\n---\n`,
+    );
+    expect(resolveBaselineCommands(config)).toEqual(["echo a", "echo b"]);
+  });
+
+  test("falls back to lint + test when commands is empty", () => {
+    const { config } = parseWorkflow(
+      `---\ncommands:\n  lint: "bun run lint"\n  test: "bun test"\npreExistingErrorCheck:\n  enabled: true\n---\n`,
+    );
+    expect(resolveBaselineCommands(config)).toEqual(["bun run lint", "bun test"]);
+  });
+
+  test("returns empty list when nothing is configured", () => {
+    const { config } = parseWorkflow(`---\npreExistingErrorCheck:\n  enabled: true\n---\n`);
+    expect(resolveBaselineCommands(config)).toEqual([]);
   });
 });
 

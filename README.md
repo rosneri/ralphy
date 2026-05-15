@@ -250,6 +250,35 @@ Done issues whose PR `gh pr view --json mergeable` reports as `CONFLICTING` get 
 | `ignoreCiChecks`                         | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
 | `codeReviewTrigger` / `--code-review`    | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
 
+### Pre-existing error check
+
+Opt-in gate that protects the agent from chasing failures it cannot fix. When
+enabled (config `preExistingErrorCheck.enabled: true` or `--pre-existing-error-check`),
+on every poll tick Ralph runs the configured commands against the base branch
+HEAD. If any command fails:
+
+1. A Linear issue is created with the failing command, exit code, and truncated
+   output (fingerprint embedded in the body so re-runs with the same failure
+   don't open duplicates).
+2. The coordinator pauses — new fresh/resume/conflict-fix/review pickups are
+   blocked until the trunk is green again. **In-flight workers are not killed.**
+3. The dashboard shows a red `⛔ BASELINE BROKEN <LIN-ID> · <duration>` banner.
+
+When the baseline goes green (the human merged the fix), the next poll lifts
+the pause automatically.
+
+```jsonc
+{
+  "preExistingErrorCheck": {
+    "enabled": false,
+    "commands": ["bun run lint", "bun run test"], // falls back to commands.lint + commands.test when empty
+    "baseBranch": "main",
+    "label": "ralph:pre-existing-error",
+    "outputCharLimit": 4000,
+  },
+}
+```
+
 ### Worktrees, setup, teardown
 
 With `useWorktree: true` (or `--worktree`) each task runs in an isolated worktree at `~/.ralph/<project>/worktrees/<change-name>` checked out onto a fresh `ralph/<change-name>` branch. Concurrent workers can't stomp on each other, and the worker's cwd _is_ the worktree.

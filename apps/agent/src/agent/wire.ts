@@ -21,6 +21,9 @@ import {
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
+  createIssue,
+  updateIssueDescription,
+  findOpenIssueByLabel,
   issueMatchesGetIndicator,
   baseBranchFromLabels,
   type LinearIssue,
@@ -37,6 +40,8 @@ import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner 
 import { type CmdRunner } from "./pr";
 import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
+import { runBaselineGate } from "./baseline/gate";
+import { resolveBaselineCommands } from "@ralphy/workflow";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -172,6 +177,10 @@ interface BuildAgentCoordinatorResult {
   concurrency: number;
   pollInterval: number;
   getWorkerCwd: (changeName: string) => string | undefined;
+  /** Run one tick of the pre-existing-error baseline gate. Resolves to a
+   *  no-op when the feature is disabled. Callers should invoke this before
+   *  each `coord.pollOnce()` so the coordinator's pause state is accurate. */
+  runBaselineGate: () => Promise<void>;
 }
 
 /**
@@ -1603,12 +1612,65 @@ export function buildAgentCoordinator(
 
   const filterDesc = describeIndicators(indicators, team, assignee);
 
+  const baselineCfg = cfg.preExistingErrorCheck;
+  const baselineCommands = resolveBaselineCommands(cfg);
+  const baselineEnabled = (args.preExistingErrorCheck ?? baselineCfg.enabled) === true;
+  const baselineTeam = team;
+  const runBaselineGateOnce = async (): Promise<void> => {
+    if (!baselineEnabled) return;
+    await runBaselineGate({
+      enabled: true,
+      commands: baselineCommands,
+      baseBranch: baselineCfg.baseBranch,
+      outputCharLimit: baselineCfg.outputCharLimit,
+      cwd: projectRoot,
+      cmdRunner,
+      gitRunner,
+      coordinator: coord,
+      ...(baselineTeam && apiKey
+        ? {
+            linear: {
+              findOpen: () => findOpenIssueByLabel(apiKey, baselineTeam, baselineCfg.label),
+              create: async (title, description) => {
+                const teamId = await fetchTeamIdByKey(apiKey, baselineTeam);
+                if (!teamId) throw new Error("Linear team not found");
+                // Ensure the label exists; ignore failure (issue still created).
+                let labelIds: string[] | undefined;
+                try {
+                  const labelId = await resolveLabelIdForTeam(baselineTeam, baselineCfg.label);
+                  if (labelId) labelIds = [labelId];
+                } catch {
+                  // non-fatal
+                }
+                return createIssue(apiKey, {
+                  teamId,
+                  title,
+                  description,
+                  ...(labelIds ? { labelIds } : {}),
+                });
+              },
+              updateDescription: (id, description) =>
+                updateIssueDescription(apiKey, id, description),
+            },
+          }
+        : {}),
+      onLog,
+    });
+  };
+
+  async function resolveLabelIdForTeam(teamKey: string, labelName: string): Promise<string | null> {
+    // Reuse the existing label cache + creation flow via a synthetic issue.
+    const fakeIssue = { identifier: `${teamKey}-0` } as LinearIssue;
+    return resolveLabelId(fakeIssue, labelName);
+  }
+
   return {
     coord,
     filterDesc,
     concurrency,
     pollInterval,
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
+    runBaselineGate: runBaselineGateOnce,
   };
 }
 

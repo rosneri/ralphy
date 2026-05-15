@@ -1,5 +1,35 @@
-import { describe, expect, test } from "bun:test";
-import { baseBranchFromLabels, issueMatchesGetIndicator } from "../agent/linear";
+import { afterEach, describe, expect, test } from "bun:test";
+import {
+  baseBranchFromLabels,
+  createIssue,
+  findOpenIssueByLabel,
+  issueMatchesGetIndicator,
+  updateIssueDescription,
+} from "../agent/linear";
+
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+const originalFetch = globalThis.fetch;
+function stubFetch(
+  handler: (body: { query: string; variables: Record<string, unknown> }) => unknown,
+): {
+  calls: { query: string; variables: Record<string, unknown> }[];
+} {
+  const calls: { query: string; variables: Record<string, unknown> }[] = [];
+  const fakeFetch: FetchLike = async (_url, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      query: string;
+      variables: Record<string, unknown>;
+    };
+    calls.push(body);
+    const data = handler(body);
+    return new Response(JSON.stringify({ data }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  globalThis.fetch = fakeFetch as typeof fetch;
+  return { calls };
+}
 
 describe("baseBranchFromLabels", () => {
   test("returns the suffix when a ralph:branch:<name> label is present", () => {
@@ -54,5 +84,53 @@ describe("issueMatchesGetIndicator", () => {
         filter: [{ type: "label", value: "ralph:review" }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("createIssue / updateIssueDescription / findOpenIssueByLabel", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("createIssue posts the right input and returns id+identifier", async () => {
+    const { calls } = stubFetch(() => ({
+      issueCreate: { success: true, issue: { id: "abc", identifier: "RLF-99" } },
+    }));
+    const out = await createIssue("k", {
+      teamId: "team-1",
+      title: "Trunk is broken",
+      description: "x",
+      labelIds: ["lbl-1"],
+    });
+    expect(out).toEqual({ id: "abc", identifier: "RLF-99" });
+    expect(calls[0]!.variables.input).toMatchObject({
+      teamId: "team-1",
+      title: "Trunk is broken",
+      description: "x",
+      labelIds: ["lbl-1"],
+    });
+  });
+
+  test("createIssue throws when issue is null", async () => {
+    stubFetch(() => ({ issueCreate: { success: false, issue: null } }));
+    await expect(createIssue("k", { teamId: "t", title: "x", description: "y" })).rejects.toThrow();
+  });
+
+  test("updateIssueDescription threads id+description", async () => {
+    const { calls } = stubFetch(() => ({ issueUpdate: { success: true } }));
+    await updateIssueDescription("k", "iss-1", "new body");
+    expect(calls[0]!.variables).toEqual({ id: "iss-1", description: "new body" });
+  });
+
+  test("findOpenIssueByLabel returns the first node or null", async () => {
+    stubFetch(() => ({
+      issues: { nodes: [{ id: "i1", identifier: "RLF-1", description: "body" }] },
+    }));
+    const r = await findOpenIssueByLabel("k", "RLF", "ralph:pre-existing-error");
+    expect(r).toEqual({ id: "i1", identifier: "RLF-1", description: "body" });
+
+    stubFetch(() => ({ issues: { nodes: [] } }));
+    const none = await findOpenIssueByLabel("k", "RLF", "x");
+    expect(none).toBeNull();
   });
 });

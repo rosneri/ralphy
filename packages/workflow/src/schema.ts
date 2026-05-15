@@ -155,6 +155,22 @@ export const WorkflowConfigSchema = z.object({
     })
     .strict()
     .optional(),
+  preExistingErrorCheck: z
+    .object({
+      enabled: z.boolean().default(false),
+      commands: z.array(z.string()).default([]),
+      baseBranch: z.string().default("main"),
+      label: z.string().default("ralph:pre-existing-error"),
+      outputCharLimit: z.number().int().positive().default(4000),
+    })
+    .strict()
+    .default({
+      enabled: false,
+      commands: [],
+      baseBranch: "main",
+      label: "ralph:pre-existing-error",
+      outputCharLimit: 4000,
+    }),
 });
 
 export type WorkflowConfig = z.infer<typeof WorkflowConfigSchema>;

@@ -151,6 +151,22 @@ interface ActiveWorker {
   lastReportedIteration: number;
 }
 
+/** Pause state set by the baseline gate when the project's base branch is broken.
+ *  The coordinator skips picking up new work while this is set, but in-flight
+ *  workers continue. The gate clears it once the trunk is green again. */
+interface PauseState {
+  /** Linear ticket identifier (e.g. "RLF-99") that tracks the failing baseline. */
+  issueIdentifier: string;
+  /** Linear issue UUID — kept so the gate can refresh the same ticket. */
+  issueId?: string;
+  /** Failing command (used for the dashboard banner). */
+  command: string;
+  /** Fingerprint of the failure that caused the pause. */
+  fingerprint: string;
+  /** Epoch-ms when the pause was first set; renders the duration on the banner. */
+  since: number;
+}
+
 export class AgentCoordinator {
   private workers: ActiveWorker[] = [];
   /** Issues whose prepare step is in flight (between dequeue and spawn). */
@@ -158,6 +174,7 @@ export class AgentCoordinator {
   /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
   private queue: { issue: LinearIssue; mode: SpawnMode; trigger?: MentionTrigger }[] = [];
   private stopped = false;
+  private paused: PauseState | null = null;
   /** Issues we've already detected as conflicted in this process — guards
    *  against re-posting the conflict comment every poll. Cleared once
    *  the worker exits successfully (clearConflicted is applied). */
@@ -182,6 +199,19 @@ export class AgentCoordinator {
   /** How many issues have been started this process run. */
   get ticketsStartedCount(): number {
     return this.ticketsStarted;
+  }
+
+  isPaused(): boolean {
+    return this.paused !== null;
+  }
+  getPause(): PauseState | null {
+    return this.paused;
+  }
+  setPaused(state: PauseState): void {
+    this.paused = state;
+  }
+  clearPaused(): void {
+    this.paused = null;
   }
 
   async init(): Promise<void> {
@@ -231,6 +261,23 @@ export class AgentCoordinator {
     const activeIds = new Set(this.workers.map((w) => w.issueId));
     const eligible = (id: string): boolean =>
       !queuedIds.has(id) && !activeIds.has(id) && !this.pendingIds.has(id);
+
+    if (this.paused) {
+      this.deps.onLog(
+        `  paused — baseline broken (${this.paused.issueIdentifier}); skipping new pickups`,
+        "yellow",
+      );
+      const buckets: PollBuckets = {
+        todo: todo.length,
+        inProgress: inProgress.length,
+        conflicted: conflicted.length,
+        review: review.length,
+        mentions: mentions.length,
+      };
+      const found =
+        buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
+      return { found, added: 0, buckets, prStatus: emptyPrStatus() };
+    }
 
     const maxT = this.opts.maxTickets ?? 0;
     /** Returns true when no more issues should be enqueued this run. */

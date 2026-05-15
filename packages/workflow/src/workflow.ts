@@ -164,6 +164,21 @@ function extractDefaultBody(): string {
  * Render the workflow body against a context. Convenience wrapper used by
  * the agent prompt builder to produce the per-iteration prompt addendum.
  */
+/**
+ * Resolve the effective list of "baseline" commands to run for the
+ * pre-existing-error gate. Returns the user-configured `commands` list when
+ * non-empty; otherwise falls back to `commands.lint` and `commands.test`
+ * (in that order, skipping any that aren't configured).
+ */
+export function resolveBaselineCommands(config: WorkflowConfig): string[] {
+  const configured = config.preExistingErrorCheck?.commands ?? [];
+  if (configured.length > 0) return [...configured];
+  const fallback: string[] = [];
+  if (config.commands.lint) fallback.push(config.commands.lint);
+  if (config.commands.test) fallback.push(config.commands.test);
+  return fallback;
+}
+
 export function renderWorkflowPrompt(
   workflow: ParsedWorkflow,
   ctx: Record<string, unknown>,

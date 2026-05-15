@@ -769,6 +769,54 @@ describe("AgentCoordinator — progress comments", () => {
     await tick();
   });
 
+  test("pause gate blocks new pickups and clears on resume", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+
+    expect(coord.isPaused()).toBe(false);
+    coord.setPaused({
+      issueIdentifier: "RLF-99",
+      command: "bun run lint",
+      fingerprint: "abc",
+      since: Date.now(),
+    });
+    expect(coord.isPaused()).toBe(true);
+
+    const r = await coord.pollOnce();
+    expect(r.added).toBe(0);
+    expect(coord.activeCount).toBe(0);
+    expect(coord.queuedCount).toBe(0);
+
+    coord.clearPaused();
+    expect(coord.isPaused()).toBe(false);
+    await coord.pollOnce();
+    await tick();
+    expect(coord.activeCount).toBe(1);
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("pause does not affect already in-flight workers", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(coord.activeCount).toBe(1);
+
+    coord.setPaused({
+      issueIdentifier: "RLF-99",
+      command: "x",
+      fingerprint: "abc",
+      since: Date.now(),
+    });
+    // In-flight worker is undisturbed.
+    expect(coord.activeCount).toBe(1);
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
   test("getIterationCount failure logs warning and continues", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
     ctx.deps.getIterationCount = async () => {

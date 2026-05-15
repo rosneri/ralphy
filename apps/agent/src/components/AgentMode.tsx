@@ -337,69 +337,71 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
-      const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
-        args,
-        cfg,
-        projectRoot,
-        statesDir,
-        tasksDir,
-        apiKey,
-        onLog: appendLog,
-        onWorkersChanged: () => setTick((t) => t + 1),
-        onWorkerStarted: (changeName, dir, logFile, changeDir) => {
-          logSession(`worker-started ${changeName} log=${logFile}`, logFile);
-          workerMetaRef.current.set(changeName, {
-            startedAt: Date.now(),
-            statesDir: dir,
-            logFile,
-            changeDir,
-            iter: 0,
-            phase: "working",
-            phaseDetail: "",
-            phaseStartedAt: Date.now(),
-            currentTask: null,
-            taskProgress: null,
-            openspecPhase: null,
-            prUrl: null,
-            currentCmd: null,
-            tail: [],
-          });
-        },
-        onWorkerExited: (changeName) => {
-          const m = workerMetaRef.current.get(changeName);
-          logSession(`worker-exited ${changeName}`, m?.logFile);
-          workerMetaRef.current.delete(changeName);
-        },
-        onWorkerPhase: (changeName, phase, detail) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (!m) return;
-          if (m.phase !== phase) m.phaseStartedAt = Date.now();
-          m.phase = phase;
-          m.phaseDetail = detail ?? "";
-          logPhase(changeName, m.logFile, phase, detail);
-        },
-        onWorkerOutput: (changeName, line) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (!m) return;
-          const clean = cleanOutputLine(line);
-          if (!clean) return;
-          m.tail.push(clean);
-          if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
-        },
-        onWorkerCmd: (changeName, cmd, state) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (!m) return;
-          if (state === "start") {
-            m.currentCmd = { argv: cmd, startedAt: Date.now() };
-          } else {
-            m.currentCmd = null;
-          }
-        },
-        onWorkerPr: (changeName, prUrl) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (m) m.prUrl = prUrl;
-        },
-      });
+      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } =
+        buildAgentCoordinator({
+          args,
+          cfg,
+          projectRoot,
+          statesDir,
+          tasksDir,
+          apiKey,
+          onLog: appendLog,
+          onWorkersChanged: () => setTick((t) => t + 1),
+          onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+            logSession(`worker-started ${changeName} log=${logFile}`, logFile);
+            workerMetaRef.current.set(changeName, {
+              startedAt: Date.now(),
+              statesDir: dir,
+              logFile,
+              changeDir,
+              iter: 0,
+              phase: "working",
+              phaseDetail: "",
+              phaseStartedAt: Date.now(),
+              currentTask: null,
+              taskProgress: null,
+              openspecPhase: null,
+              prUrl: null,
+              currentCmd: null,
+              tail: [],
+            });
+          },
+          onWorkerExited: (changeName) => {
+            const m = workerMetaRef.current.get(changeName);
+            logSession(`worker-exited ${changeName}`, m?.logFile);
+            workerMetaRef.current.delete(changeName);
+          },
+          onWorkerPhase: (changeName, phase, detail) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (!m) return;
+            if (m.phase !== phase) m.phaseStartedAt = Date.now();
+            m.phase = phase;
+            m.phaseDetail = detail ?? "";
+            logPhase(changeName, m.logFile, phase, detail);
+          },
+          onWorkerOutput: (changeName, line) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (!m) return;
+            const clean = cleanOutputLine(line);
+            if (!clean) return;
+            m.tail.push(clean);
+            if (m.tail.length > TAIL_BUFFER_SIZE)
+              m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
+          },
+          onWorkerCmd: (changeName, cmd, state) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (!m) return;
+            if (state === "start") {
+              m.currentCmd = { argv: cmd, startedAt: Date.now() };
+            } else {
+              m.currentCmd = null;
+            }
+          },
+          onWorkerPr: (changeName, prUrl) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (m) m.prUrl = prUrl;
+          },
+        });
       void concurrency;
       void pollInterval;
 
@@ -409,6 +411,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       const tick = async () => {
         if (cancelled) return;
         setPollStatus((p) => ({ ...p, state: "polling", filterDesc }));
+        try {
+          await runBaselineGate();
+        } catch (err) {
+          appendLog(`! baseline gate failed: ${(err as Error).message}`, "yellow");
+        }
+        if (cancelled) return;
         const { found, added, buckets, prStatus } = await coord.pollOnce();
         if (cancelled) return;
         if (added > 0) {
@@ -607,6 +615,24 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
       </Static>
 
       <Box flexDirection="column" marginTop={0}>
+        {(() => {
+          const pause = coordRef.current?.getPause?.() ?? null;
+          if (!pause) return null;
+          const seconds = Math.floor((Date.now() - pause.since) / 1000);
+          const duration =
+            seconds < 60
+              ? `${seconds}s`
+              : seconds < 3600
+                ? `${Math.floor(seconds / 60)}m`
+                : `${Math.floor(seconds / 3600)}h${Math.floor((seconds % 3600) / 60)}m`;
+          return (
+            <Box borderStyle="round" borderColor="red" paddingX={1} width={termWidth}>
+              <Text color="red" bold>
+                ⛔ BASELINE BROKEN {pause.issueIdentifier} · {duration} · `{pause.command}`
+              </Text>
+            </Box>
+          );
+        })()}
         {/* ── Settings header — two compact text lines ─────────── */}
         <LabeledBox
           label="◈ RALPH AGENT"
