@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { parseSubtasks } from "../components/AgentMode";
+import { orderSubtasksForCappedDisplay, parseSubtasks } from "../components/AgentMode";
 
 describe("parseSubtasks", () => {
   it("skips items under a Planning heading and returns the rest in order", () => {
@@ -64,5 +64,113 @@ describe("parseSubtasks", () => {
       { done: false, text: "real task" },
       { done: true, text: "done task" },
     ]);
+  });
+
+  it("skips legacy flow-task sections in tasks.md (backward compat)", () => {
+    const md = [
+      "# Tasks",
+      "",
+      "## Planning",
+      "- [ ] plan hidden",
+      "",
+      "## Fix failing CI checks (2026-05-01T12:00:00Z)",
+      "- [ ] hidden CI repair task",
+      "",
+      "## Implementation",
+      "- [x] real done",
+      "- [ ] real pending",
+      "",
+      "## Resolve PR merge conflicts (2026-05-02T13:00:00Z)",
+      "- [ ] hidden merge conflict task",
+    ].join("\n");
+    expect(parseSubtasks(md)).toEqual([
+      { done: true, text: "real done" },
+      { done: false, text: "real pending" },
+    ]);
+  });
+
+  it("skips Address reviewer comments and @ralphy mention sections", () => {
+    const md = [
+      "## Implementation",
+      "- [ ] mission task",
+      "",
+      "## Address reviewer comments (2026-05-03T13:00:00Z)",
+      "- [ ] hidden review task",
+      "",
+      "## Address GitHub @ralphy mention (2026-05-03T13:01:00Z)",
+      "- [ ] hidden github mention",
+      "",
+      "## Address Linear @ralphy mention (2026-05-03T13:02:00Z)",
+      "- [ ] hidden linear mention",
+    ].join("\n");
+    expect(parseSubtasks(md)).toEqual([{ done: false, text: "mission task" }]);
+  });
+});
+
+describe("orderSubtasksForCappedDisplay", () => {
+  it("puts unchecked items before completed items, stable in file order", () => {
+    const subtasks = [
+      { done: true, text: "old done a" },
+      { done: true, text: "old done b" },
+      { done: false, text: "fix failing CI checks" },
+      { done: true, text: "old done c" },
+      { done: false, text: "previous mission task" },
+    ];
+    expect(orderSubtasksForCappedDisplay(subtasks)).toEqual([
+      { done: false, text: "fix failing CI checks" },
+      { done: false, text: "previous mission task" },
+      { done: true, text: "old done a" },
+      { done: true, text: "old done b" },
+      { done: true, text: "old done c" },
+    ]);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(orderSubtasksForCappedDisplay([])).toEqual([]);
+  });
+
+  it("leaves all-unchecked input unchanged", () => {
+    const subtasks = [
+      { done: false, text: "a" },
+      { done: false, text: "b" },
+      { done: false, text: "c" },
+    ];
+    expect(orderSubtasksForCappedDisplay(subtasks)).toEqual(subtasks);
+  });
+
+  it("leaves all-done input unchanged", () => {
+    const subtasks = [
+      { done: true, text: "a" },
+      { done: true, text: "b" },
+    ];
+    expect(orderSubtasksForCappedDisplay(subtasks)).toEqual(subtasks);
+  });
+
+  it("keeps freshly prepended unchecked tasks on top once the cap (15) kicks in", () => {
+    // Parse a tasks.md with two unchecked items sitting above a long run of
+    // completed items. The capped panel slices the *ordered* list to 15 —
+    // that slice must include both pending tasks, never get crowded out by
+    // the done items that dominate the file by count. (Flow-task sections
+    // like `## Fix failing CI checks` are intentionally skipped by
+    // parseSubtasks — see its doc comment — so the freshly prepended
+    // unchecked work lives under a regular mission heading.)
+    const completed = Array.from({ length: 16 }, (_, i) => `- [x] old done ${i + 1}`).join("\n");
+    const tasksMd = [
+      "# Tasks",
+      "",
+      "## Implementation",
+      "- [ ] newly added unfinished task",
+      completed,
+      "- [ ] previous unfinished mission task",
+      "",
+    ].join("\n");
+    const parsed = parseSubtasks(tasksMd);
+    const ordered = orderSubtasksForCappedDisplay(parsed).slice(0, 15);
+    expect(ordered[0]).toEqual({ done: false, text: "newly added unfinished task" });
+    expect(ordered[1]).toEqual({ done: false, text: "previous unfinished mission task" });
+    // The remaining 13 slots are completed items — unchecked tasks are
+    // never displaced by completed items even though done items dominate
+    // the file by count.
+    expect(ordered.slice(2).every((s) => s.done)).toBe(true);
   });
 });

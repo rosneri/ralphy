@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { deriveOpenSpecPhase, isStubArtifact, phasePipeline } from "../openspec/phase";
+import {
+  deriveOpenSpecPhase,
+  isStubArtifact,
+  phasePipeline,
+  shouldShowPhasePipeline,
+  shouldShowProgressBar,
+  shouldShowSubtasksPanel,
+} from "../openspec/phase";
+import type { OpenSpecPhase } from "../openspec/phase";
 
 describe("isStubArtifact", () => {
   test("null is a stub", () => {
@@ -132,4 +140,52 @@ describe("phasePipeline", () => {
       { phase: "implement", label: "implement", status: "done" },
     ]);
   });
+});
+
+describe("phase-gating predicates", () => {
+  const rows: Array<{
+    phase: OpenSpecPhase | undefined;
+    pipeline: boolean;
+    subtasksWhenOn: boolean;
+    progressWhenOff: boolean;
+  }> = [
+    { phase: undefined, pipeline: false, subtasksWhenOn: true, progressWhenOff: true },
+    { phase: "proposal", pipeline: true, subtasksWhenOn: false, progressWhenOff: false },
+    { phase: "design", pipeline: true, subtasksWhenOn: false, progressWhenOff: false },
+    { phase: "tasks", pipeline: true, subtasksWhenOn: false, progressWhenOff: false },
+    { phase: "implement", pipeline: false, subtasksWhenOn: true, progressWhenOff: true },
+    { phase: "done", pipeline: false, subtasksWhenOn: true, progressWhenOff: true },
+  ];
+
+  for (const row of rows) {
+    const tag = row.phase ?? "undefined";
+
+    test(`shouldShowPhasePipeline(${tag}) → ${row.pipeline}`, () => {
+      expect(shouldShowPhasePipeline(row.phase)).toBe(row.pipeline);
+    });
+
+    test(`shouldShowSubtasksPanel(${tag}, true, true) → ${row.subtasksWhenOn}`, () => {
+      expect(shouldShowSubtasksPanel(row.phase, true, true)).toBe(row.subtasksWhenOn);
+    });
+
+    test(`shouldShowSubtasksPanel(${tag}, false, true) → false (toggle off)`, () => {
+      expect(shouldShowSubtasksPanel(row.phase, false, true)).toBe(false);
+    });
+
+    test(`shouldShowSubtasksPanel(${tag}, true, false) → false (no subtasks)`, () => {
+      expect(shouldShowSubtasksPanel(row.phase, true, false)).toBe(false);
+    });
+
+    test(`shouldShowProgressBar(${tag}, false, true) → ${row.progressWhenOff}`, () => {
+      expect(shouldShowProgressBar(row.phase, false, true)).toBe(row.progressWhenOff);
+    });
+
+    test(`shouldShowProgressBar(${tag}, true, true) → false (toggle on)`, () => {
+      expect(shouldShowProgressBar(row.phase, true, true)).toBe(false);
+    });
+
+    test(`shouldShowProgressBar(${tag}, false, false) → false (no progress)`, () => {
+      expect(shouldShowProgressBar(row.phase, false, false)).toBe(false);
+    });
+  }
 });

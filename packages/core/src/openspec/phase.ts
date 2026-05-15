@@ -88,6 +88,40 @@ const PIPELINE_PHASES: ReadonlyArray<Exclude<OpenSpecPhase, "done">> = [
  * with per-segment status derived from the current phase. `done` collapses
  * to all-segments-done.
  */
+/**
+ * Phase-gating predicates for the agent-mode UI. They encode the matrix:
+ *
+ * | phase     | pipeline | subtasks (when toggled on) | progress bar (when toggled off) |
+ * | --------- | -------- | -------------------------- | ------------------------------- |
+ * | undefined | no       | yes                        | yes                             |
+ * | proposal  | yes      | no                         | no                              |
+ * | design    | yes      | no                         | no                              |
+ * | tasks     | yes      | no                         | no                              |
+ * | implement | no       | yes                        | yes                             |
+ * | done      | no       | yes                        | yes                             |
+ */
+export function shouldShowPhasePipeline(phase: OpenSpecPhase | undefined | null): boolean {
+  return phase === "proposal" || phase === "design" || phase === "tasks";
+}
+
+export function shouldShowSubtasksPanel(
+  phase: OpenSpecPhase | undefined | null,
+  showPendingTasks: boolean,
+  hasSubtasks: boolean,
+): boolean {
+  if (!showPendingTasks || !hasSubtasks) return false;
+  return phase == null || phase === "implement" || phase === "done";
+}
+
+export function shouldShowProgressBar(
+  phase: OpenSpecPhase | undefined | null,
+  showPendingTasks: boolean,
+  hasProgress: boolean,
+): boolean {
+  if (showPendingTasks || !hasProgress) return false;
+  return phase == null || phase === "implement" || phase === "done";
+}
+
 export function phasePipeline(phase: OpenSpecPhase): PhaseSegment[] {
   if (phase === "done") {
     return PIPELINE_PHASES.map((p) => ({ phase: p, label: p, status: "done" }));

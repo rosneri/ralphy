@@ -87,6 +87,41 @@ describe("buildTaskPrompt", () => {
       const prompt = buildTaskPrompt(state, tempDir);
       expect(prompt).not.toContain("User Steering");
     }));
+
+  test("prioritizes agent-tasks.md over tasks.md when it has unchecked items", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Implementation\n- [ ] mission work\n", "utf-8");
+      writeFileSync(
+        join(tempDir, "agent-tasks.md"),
+        "## Fix failing CI checks\n- [ ] resolve the failing test\n",
+        "utf-8",
+      );
+
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("## Fix failing CI checks");
+      expect(prompt).toContain("resolve the failing test");
+      expect(prompt).not.toContain("mission work");
+      expect(prompt).toContain("agent-tasks.md");
+    }));
+
+  test("falls back to tasks.md when agent-tasks.md is fully checked", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Implementation\n- [ ] mission work\n", "utf-8");
+      writeFileSync(
+        join(tempDir, "agent-tasks.md"),
+        "## Fix failing CI checks\n- [x] resolved\n",
+        "utf-8",
+      );
+
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("mission work");
+      expect(prompt).not.toContain("Fix failing CI checks");
+      expect(prompt).toContain(join(tempDir, "tasks.md"));
+    }));
 });
 
 describe("allTasksCompleted", () => {
