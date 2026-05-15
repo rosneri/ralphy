@@ -1071,26 +1071,24 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   {(showAllSubtasks
                     ? subtasks
                     : orderSubtasksForCappedDisplay(subtasks).slice(0, MAX_PENDING_DISPLAY)
-                  ).map(
-                    (s, i, arr) => {
-                      const ord = `${i + 1}.`.padStart(`${arr.length}.`.length, " ");
-                      const reserved = ord.length + 5; // "ord [x] "
-                      return (
-                        <Text key={`${w.changeName}-subtask-${i}`}>
-                          {s.done ? (
-                            <Text dimColor>{`${ord} [x] `}</Text>
-                          ) : (
-                            <Text>{`${ord} [ ] `}</Text>
-                          )}
-                          {s.done ? (
-                            <Text dimColor>{trunc(s.text, termWidth - reserved)}</Text>
-                          ) : (
-                            <Text>{trunc(s.text, termWidth - reserved)}</Text>
-                          )}
-                        </Text>
-                      );
-                    },
-                  )}
+                  ).map((s, i, arr) => {
+                    const ord = `${i + 1}.`.padStart(`${arr.length}.`.length, " ");
+                    const reserved = ord.length + 5; // "ord [x] "
+                    return (
+                      <Text key={`${w.changeName}-subtask-${i}`}>
+                        {s.done ? (
+                          <Text dimColor>{`${ord} [x] `}</Text>
+                        ) : (
+                          <Text>{`${ord} [ ] `}</Text>
+                        )}
+                        {s.done ? (
+                          <Text dimColor>{trunc(s.text, termWidth - reserved)}</Text>
+                        ) : (
+                          <Text>{trunc(s.text, termWidth - reserved)}</Text>
+                        )}
+                      </Text>
+                    );
+                  })}
                   {!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY && (
                     <Text dimColor>
                       {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+SHIFT+T to expand)`}
