@@ -40,6 +40,9 @@ import { isFlowTaskHeading } from "@ralphy/core/tasks-md";
 import {
   deriveOpenSpecPhase,
   phasePipeline,
+  shouldShowPhasePipeline,
+  shouldShowProgressBar,
+  shouldShowSubtasksPanel,
   type OpenSpecPhase,
 } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
@@ -1125,8 +1128,38 @@ export function AgentMode({
                 </Box>
               )}
 
+              {/* ── Phase pipeline (pre-implement phases) ───── */}
+              {shouldShowPhasePipeline(openspecPhase) && (
+                <Box marginTop={0}>
+                  {phasePipeline(openspecPhase as OpenSpecPhase).map((seg, i, arr) => {
+                    const glyph =
+                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
+                    const node =
+                      seg.status === "done" ? (
+                        <Text color="green">
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : seg.status === "current" ? (
+                        <Text color={openspecPhaseColor(seg.phase)} bold>
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : (
+                        <Text dimColor>
+                          {glyph} {seg.label}
+                        </Text>
+                      );
+                    return (
+                      <Box key={seg.phase}>
+                        {node}
+                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+
               {/* ── Subtasks panel (Ctrl+T) ─────────────────── */}
-              {showPendingTasks && subtasks.length > 0 && (
+              {shouldShowSubtasksPanel(openspecPhase, showPendingTasks, subtasks.length > 0) && (
                 <Box flexDirection="column" marginTop={0}>
                   {(() => {
                     const header = `─ SUBTASKS (${subtasks.length}) CTRL+T to close `;
@@ -1193,39 +1226,8 @@ export function AgentMode({
                 </Box>
               )}
 
-              {/* ── Phase pipeline (when panel collapsed) ───── */}
-              {!showPendingTasks && openspecPhase && openspecPhase !== "implement" && (
-                <Box marginTop={0}>
-                  {phasePipeline(openspecPhase).map((seg, i, arr) => {
-                    const glyph =
-                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
-                    const node =
-                      seg.status === "done" ? (
-                        <Text color="green">
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : seg.status === "current" ? (
-                        <Text color={openspecPhaseColor(seg.phase)} bold>
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : (
-                        <Text dimColor>
-                          {glyph} {seg.label}
-                        </Text>
-                      );
-                    return (
-                      <Box key={seg.phase}>
-                        {node}
-                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              )}
-
               {/* ── Task progress bar (when panel collapsed) ── */}
-              {!showPendingTasks &&
-                (!openspecPhase || openspecPhase === "implement") &&
+              {shouldShowProgressBar(openspecPhase, showPendingTasks, taskProgress !== null) &&
                 taskProgress &&
                 (() => {
                   const hint = " CTRL+T to open";
