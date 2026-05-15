@@ -132,6 +132,9 @@ export interface ActiveWorker {
   kill: () => void;
   /** Highest iteration count we've already posted a progress comment for. */
   lastReportedIteration: number;
+  /** Set by `restartWorker` so the exit handler skips notifyExited and
+   *  re-queues the worker as a resume instead of finalizing the issue. */
+  restarting: boolean;
 }
 
 /** Pause state set by the baseline gate when the project's base branch is broken.
@@ -645,6 +648,7 @@ export class AgentCoordinator {
       mode,
       kill: handle.kill,
       lastReportedIteration: 0,
+      restarting: false,
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
@@ -665,6 +669,16 @@ export class AgentCoordinator {
     void handle.exited.then(async (code) => {
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
+      if (worker.restarting) {
+        // Steering-driven restart — do not finalize the issue. Re-queue
+        // the same issue as a resume so the next iteration picks up the
+        // steering note we just appended.
+        this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
+        this.queue.unshift({ issue, mode: "resume" });
+        this.deps.onWorkersChanged();
+        this.spawnNext();
+        return;
+      }
       const ok = code === 0;
       this.deps.onLog(
         `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
@@ -680,6 +694,28 @@ export class AgentCoordinator {
       this.deps.onWorkersChanged();
       this.spawnNext();
     });
+  }
+
+  /** Kill the active worker for `changeName` and re-queue the same issue
+   *  as a `resume` so steering applied between iterations takes effect
+   *  immediately. Returns `false` if the coordinator is stopped or no
+   *  active worker matches. */
+  async restartWorker(changeName: string): Promise<boolean> {
+    if (this.stopped) return false;
+    const worker = this.workers.find((w) => w.changeName === changeName);
+    if (!worker) return false;
+    if (worker.restarting) return true;
+    worker.restarting = true;
+    capture("agent_worker_restarted", {
+      change_name: changeName,
+      reason: "steering",
+    });
+    try {
+      worker.kill();
+    } catch {
+      /* ignore */
+    }
+    return true;
   }
 
   private async notifyExited(
