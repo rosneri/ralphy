@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runBaselineGate, type BaselineGateLinear } from "../agent/baseline-gate";
+import { runBaselineGate, type BaselineGateLinear } from "../agent/baseline/gate";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { CmdRunner } from "./pr";
-import type { GitRunner } from "./worktree";
+import type { CmdRunner } from "../pr";
+import type { GitRunner } from "../worktree";
 
 export interface BaselineFailure {
   command: string;

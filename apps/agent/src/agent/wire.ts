@@ -40,7 +40,7 @@ import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner 
 import { type CmdRunner } from "./pr";
 import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
-import { runBaselineGate } from "./baseline-gate";
+import { runBaselineGate } from "./baseline/gate";
 import { resolveBaselineCommands } from "@ralphy/workflow";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
@@ -1632,7 +1632,7 @@ export function buildAgentCoordinator(
               findOpen: () => findOpenIssueByLabel(apiKey, baselineTeam, baselineCfg.label),
               create: async (title, description) => {
                 const teamId = await fetchTeamIdByKey(apiKey, baselineTeam);
-                if (!teamId) throw new Error(`Linear team ${baselineTeam} not found`);
+                if (!teamId) throw new Error("Linear team not found");
                 // Ensure the label exists; ignore failure (issue still created).
                 let labelIds: string[] | undefined;
                 try {

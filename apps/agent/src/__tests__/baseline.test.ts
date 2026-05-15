@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runBaseline } from "../agent/baseline";
+import { runBaseline } from "../agent/baseline/runner";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
 
@@ -30,7 +30,7 @@ function makeCmd(map: Record<string, { code?: number; stdout?: string; stderr?: 
       if (!entry || (entry.code ?? 0) === 0) {
         return { stdout: entry?.stdout ?? "", stderr: entry?.stderr ?? "" };
       }
-      const err = new Error(`exit ${entry.code}`) as Error & {
+      const err = new Error("command failed") as Error & {
         code?: number;
         stderr?: string;
         stdout?: string;

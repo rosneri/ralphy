@@ -1,7 +1,7 @@
-import type { AgentCoordinator } from "./coordinator";
-import { runBaseline, type BaselineResult } from "./baseline";
-import type { CmdRunner } from "./pr";
-import type { GitRunner } from "./worktree";
+import type { AgentCoordinator } from "../coordinator";
+import { runBaseline, type BaselineResult } from "./runner";
+import type { CmdRunner } from "../pr";
+import type { GitRunner } from "../worktree";
 
 export interface BaselineGateLinear {
   /** Find the open baseline-error issue carrying our label, if any. */
