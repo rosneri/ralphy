@@ -931,7 +931,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
       "gh pr list": { stdout: prUrl },
     });
 
-    const logged: Array<{ text: string; color?: string }> = [];
+    const logged: Array<{ text: string; color?: string | undefined }> = [];
     const code = await runPrPhase(
       {
         changeName: "my-change",
@@ -976,7 +976,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
       "gh pr create": { stdout: prUrl },
     });
 
-    const logged: Array<{ text: string; color?: string }> = [];
+    const logged: Array<{ text: string; color?: string | undefined }> = [];
     const code = await runPrPhase(
       {
         changeName: "my-change",
