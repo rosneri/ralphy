@@ -57,7 +57,7 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     if (!url.includes("linear.app")) {
-      throw new Error(`unexpected fetch in test: ${url}`);
+      throw Object.assign(new Error("unexpected fetch in test"), { url });
     }
     const body = JSON.parse(init?.body as string) as {
       query: string;
