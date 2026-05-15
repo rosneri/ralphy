@@ -13,6 +13,7 @@ import { changeNameForIssue, scaffoldChangeForIssue } from "../agent/scaffold";
 import {
   fetchOpenIssues,
   addIssueComment,
+  addReactionToComment,
   fetchIssueComments,
   fetchIssueAttachments,
   createRalphyAttachment,
@@ -827,5 +828,22 @@ describe("agent/linear", () => {
       "In Progress",
     );
     expect(requests).toEqual(["fetch", "create"]);
+  });
+
+  test("addReactionToComment sends a reactionCreate mutation with commentId + emoji", async () => {
+    let captured: {
+      query: string;
+      variables: { commentId: string; emoji: string };
+    } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { reactionCreate: { success: true } } }), {
+        status: 200,
+      });
+    });
+    await addReactionToComment("k", "comment-uuid-1", "👀");
+    expect(captured).not.toBeNull();
+    expect(captured!.query).toContain("reactionCreate");
+    expect(captured!.variables).toEqual({ commentId: "comment-uuid-1", emoji: "👀" });
   });
 });
