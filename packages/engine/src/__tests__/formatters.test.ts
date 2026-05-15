@@ -868,7 +868,7 @@ describe("parseClaudeLine - additional coverage", () => {
     const summary = (events[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
     expect(summary!.kind).toBe("raw");
     if (summary!.kind === "raw") {
-      expect(summary.text.length).toBeLessThanOrEqual(120);
+      expect(summary!.text.length).toBeLessThanOrEqual(120);
     }
   });
 
@@ -886,10 +886,10 @@ describe("parseClaudeLine - additional coverage", () => {
     expect(narrow!.kind).toBe("raw");
     expect(wide!.kind).toBe("raw");
     if (narrow!.kind === "raw" && wide!.kind === "raw") {
-      const narrowKeys = narrow.text.split("  ").length;
-      const wideKeys = wide.text.split("  ").length;
+      const narrowKeys = narrow!.text.split("  ").length;
+      const wideKeys = wide!.text.split("  ").length;
       expect(wideKeys).toBeGreaterThan(narrowKeys);
-      expect(wide.text.length).toBeLessThanOrEqual(200);
+      expect(wide!.text.length).toBeLessThanOrEqual(200);
     }
   });
 
@@ -905,7 +905,7 @@ describe("parseClaudeLine - additional coverage", () => {
     expect(summary!.kind).toBe("raw");
     if (summary!.kind === "raw") {
       // Budget floor is 80 (max(80, 80-20)=80) so output stays within terminal width.
-      expect(summary.text.length).toBeLessThanOrEqual(80);
+      expect(summary!.text.length).toBeLessThanOrEqual(80);
     }
   });
 
@@ -921,7 +921,7 @@ describe("parseClaudeLine - additional coverage", () => {
     const defaultSummary = (defaultEvents[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
     const wideSummary = (wideEvents[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
     if (defaultSummary!.kind === "raw" && wideSummary!.kind === "raw") {
-      expect(wideSummary.text.length).toBeGreaterThan(defaultSummary.text.length);
+      expect(wideSummary!.text.length).toBeGreaterThan(defaultSummary!.text.length);
     }
   });
 
