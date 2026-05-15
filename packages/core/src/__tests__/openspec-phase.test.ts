@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deriveOpenSpecPhase, isStubArtifact } from "../openspec/phase";
+import { deriveOpenSpecPhase, isStubArtifact, phasePipeline } from "../openspec/phase";
 
 describe("isStubArtifact", () => {
   test("null is a stub", () => {
@@ -84,5 +84,52 @@ describe("deriveOpenSpecPhase", () => {
 
   test("proposal when every artifact is missing", () => {
     expect(deriveOpenSpecPhase({ proposal: null, design: null, tasks: null })).toBe("proposal");
+  });
+});
+
+describe("phasePipeline", () => {
+  test("proposal → first segment current, rest pending", () => {
+    expect(phasePipeline("proposal")).toEqual([
+      { phase: "proposal", label: "proposal", status: "current" },
+      { phase: "design", label: "design", status: "pending" },
+      { phase: "tasks", label: "tasks", status: "pending" },
+      { phase: "implement", label: "implement", status: "pending" },
+    ]);
+  });
+
+  test("design → proposal done, design current, rest pending", () => {
+    expect(phasePipeline("design")).toEqual([
+      { phase: "proposal", label: "proposal", status: "done" },
+      { phase: "design", label: "design", status: "current" },
+      { phase: "tasks", label: "tasks", status: "pending" },
+      { phase: "implement", label: "implement", status: "pending" },
+    ]);
+  });
+
+  test("tasks → proposal+design done, tasks current, implement pending", () => {
+    expect(phasePipeline("tasks")).toEqual([
+      { phase: "proposal", label: "proposal", status: "done" },
+      { phase: "design", label: "design", status: "done" },
+      { phase: "tasks", label: "tasks", status: "current" },
+      { phase: "implement", label: "implement", status: "pending" },
+    ]);
+  });
+
+  test("implement → first three done, implement current", () => {
+    expect(phasePipeline("implement")).toEqual([
+      { phase: "proposal", label: "proposal", status: "done" },
+      { phase: "design", label: "design", status: "done" },
+      { phase: "tasks", label: "tasks", status: "done" },
+      { phase: "implement", label: "implement", status: "current" },
+    ]);
+  });
+
+  test("done → all four segments marked done", () => {
+    expect(phasePipeline("done")).toEqual([
+      { phase: "proposal", label: "proposal", status: "done" },
+      { phase: "design", label: "design", status: "done" },
+      { phase: "tasks", label: "tasks", status: "done" },
+      { phase: "implement", label: "implement", status: "done" },
+    ]);
   });
 });

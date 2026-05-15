@@ -6,7 +6,11 @@ import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agen
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
 import { countProgress } from "@ralphy/core/progress";
-import { deriveOpenSpecPhase, type OpenSpecPhase } from "@ralphy/core/openspec-phase";
+import {
+  deriveOpenSpecPhase,
+  phasePipeline,
+  type OpenSpecPhase,
+} from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
 import { useTerminalSize } from "../hooks/useTerminalSize";
 
@@ -978,8 +982,36 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 <Text dimColor>Ctrl+T tasks{showPendingTasks ? " ▼" : ""}</Text>
               </Box>
 
-              {/* ── Task progress bar ───────────────────────── */}
-              {taskProgress &&
+              {/* ── Phase pipeline / task progress bar ──────── */}
+              {openspecPhase && openspecPhase !== "implement" ? (
+                <Box marginTop={0}>
+                  {phasePipeline(openspecPhase).map((seg, i, arr) => {
+                    const glyph =
+                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
+                    const node =
+                      seg.status === "done" ? (
+                        <Text color="green">
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : seg.status === "current" ? (
+                        <Text color={openspecPhaseColor(seg.phase)} bold>
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : (
+                        <Text dimColor>
+                          {glyph} {seg.label}
+                        </Text>
+                      );
+                    return (
+                      <Box key={seg.phase}>
+                        {node}
+                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              ) : (
+                taskProgress &&
                 (() => {
                   const bar = calcProgressBar(
                     taskProgress.checked,
@@ -1001,7 +1033,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       <Text dimColor>]</Text>
                     </Box>
                   );
-                })()}
+                })()
+              )}
 
               {/* ── Current task ────────────────────────────── */}
               {currentTask && (

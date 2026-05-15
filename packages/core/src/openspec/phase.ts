@@ -67,3 +67,35 @@ export function deriveOpenSpecPhase(inputs: OpenSpecPhaseInputs): OpenSpecPhase 
   if (tasks !== null && /^- \[ \]/m.test(tasks)) return "implement";
   return "tasks";
 }
+
+export type PhaseSegmentStatus = "done" | "current" | "pending";
+
+export interface PhaseSegment {
+  phase: Exclude<OpenSpecPhase, "done">;
+  label: string;
+  status: PhaseSegmentStatus;
+}
+
+const PIPELINE_PHASES: ReadonlyArray<Exclude<OpenSpecPhase, "done">> = [
+  "proposal",
+  "design",
+  "tasks",
+  "implement",
+];
+
+/**
+ * Build the ordered phase pipeline (`proposal → design → tasks → implement`)
+ * with per-segment status derived from the current phase. `done` collapses
+ * to all-segments-done.
+ */
+export function phasePipeline(phase: OpenSpecPhase): PhaseSegment[] {
+  if (phase === "done") {
+    return PIPELINE_PHASES.map((p) => ({ phase: p, label: p, status: "done" }));
+  }
+  const idx = PIPELINE_PHASES.indexOf(phase);
+  return PIPELINE_PHASES.map((p, i) => ({
+    phase: p,
+    label: p,
+    status: i < idx ? "done" : i === idx ? "current" : "pending",
+  }));
+}
