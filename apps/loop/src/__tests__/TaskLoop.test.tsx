@@ -783,6 +783,56 @@ describe("TaskLoop", () => {
     });
   });
 
+  test("StopMessage is not rendered while loop is still running", async () => {
+    // Engine call hangs until aborted — loop stays in "running" state for the test window.
+    runEngineMock.mockImplementationOnce(
+      async (opts: { signal?: AbortSignal }) =>
+        new Promise<EngineResult>((resolve) => {
+          opts.signal?.addEventListener(
+            "abort",
+            () =>
+              resolve({ exitCode: 0, usage: null, sessionId: null, rateLimited: false }),
+            { once: true },
+          );
+        }),
+    );
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "running-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "running-task" });
+      writeState(taskDir, state);
+
+      const opts = {
+        name: "running-task",
+        prompt: "Running prompt",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+      };
+
+      const { lastFrame } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 200));
+
+      const frame = lastFrame() ?? "";
+      // While running, none of the StopMessage strings should appear.
+      expect(frame).toContain("Ralph Loop");
+      expect(frame).not.toContain("All tasks completed — change archived.");
+      expect(frame).not.toContain("Reached max iterations");
+      expect(frame).not.toContain("rate/usage limit");
+    });
+  });
+
   test("delay between iterations triggers sleep", async () => {
     // Two successful iterations with a small delay
     runEngineMock

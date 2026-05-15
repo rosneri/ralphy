@@ -138,7 +138,6 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         const stop = checkStopCondition(currentState, iter, opts, loopStartTime, consFailures);
         if (stop !== null) {
           finalStopReason = stop;
-          setStopReason(stop);
           break;
         }
 
@@ -164,7 +163,6 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             addInfo(`Archive warning: ${err}`);
           }
           finalStopReason = "completed";
-          setStopReason("completed");
           break;
         }
 
@@ -250,7 +248,6 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             if (failure.shouldStop || engineResult.rateLimited) {
               capture("engine_rate_limited", { exit_code: engineResult.exitCode, iteration: iter });
               finalStopReason = "rateLimited";
-              setStopReason("rateLimited");
               break;
             }
 
@@ -338,6 +335,9 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         }
       }
 
+      if (finalStopReason !== null) {
+        setStopReason(finalStopReason);
+      }
       setIsRunning(false);
     });
 

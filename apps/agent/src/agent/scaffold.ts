@@ -41,6 +41,7 @@ export async function scaffoldChangeForIssue(
         ]
       : [];
 
+  const descriptionBody = issue.description?.trim() || "_No description provided in Linear._";
   const proposal = [
     `# ${issue.identifier}: ${issue.title}`,
     "",
@@ -49,9 +50,17 @@ export async function scaffoldChangeForIssue(
     issue.assignee ? `Assignee: ${issue.assignee.name}` : "",
     issue.labels.length ? `Labels: ${issue.labels.join(", ")}` : "",
     "",
+    "## Why",
+    "",
+    descriptionBody,
+    "",
+    "## What Changes",
+    "",
+    "_Describe the concrete changes this proposal introduces (one bullet per change)._",
+    "",
     "## Description",
     "",
-    issue.description?.trim() || "_No description provided in Linear._",
+    descriptionBody,
     ...commentsBlock,
     ...(appendPrompt.trim() ? ["", "## Additional instructions", "", appendPrompt.trim()] : []),
     "",
@@ -70,6 +79,8 @@ export async function scaffoldChangeForIssue(
     "",
     `- [ ] Read the Linear issue at ${issue.url} and research the codebase to understand the mission and its scope`,
     `- [ ] Refine proposal.md with the problem statement, approach, and acceptance criteria derived from the research`,
+    `- [ ] Fill in \`## Why\` and \`## What Changes\` in proposal.md so \`openspec validate\` passes (these sections are required by the validator)`,
+    `- [ ] Add at least one spec delta under \`specs/<capability>/spec.md\` describing the behavior added/modified/removed by this change`,
     `- [ ] Fill in design.md with the technical design (files to touch, data flow, edge cases)`,
     `- [ ] Append an \`## Implementation\` section below with concrete mission-specific tasks derived from the plan (one \`- [ ] task\` per discrete unit of work, including tests and \`bun run lint\` / \`bun run test\`)`,
     "",
