@@ -50,7 +50,7 @@ function makeIssue(overrides: Partial<LinearIssue> = {}): LinearIssue {
     assignee: { id: "u1", email: "dev@example.com", name: "Dev" },
     labels: ["frontend"],
     priority: 3,
-    createdAt: "2026-01-01T00:00:00Z",
+    createdAt: "2026-01-01T00:00:00.000Z",
     blockedByIds: [],
     ...overrides,
   };
@@ -295,7 +295,7 @@ describe("agent/linear", () => {
                   assignee: null,
                   labels: { nodes: [{ name: "bug" }] },
                   priority: 3,
-                  createdAt: "2026-01-01T00:00:00Z",
+                  createdAt: "2026-01-01T00:00:00.000Z",
                   relations: { nodes: [] },
                 },
               ],

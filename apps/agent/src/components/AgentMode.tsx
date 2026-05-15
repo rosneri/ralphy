@@ -2,9 +2,39 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
 import { join } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
-import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
-import { AgentCoordinator } from "../agent/coordinator";
-import { buildAgentCoordinator } from "../agent/wire";
+import {
+  ensureRalphyConfig as ensureRalphyConfigImpl,
+  loadRalphyConfig as loadRalphyConfigImpl,
+  type RalphyConfig,
+} from "../agent/config";
+import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
+import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
+
+/** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
+ *  Exported so tests can supply lightweight mocks without bypassing types. */
+export interface AgentModeCoordinator {
+  init(): Promise<void>;
+  pollOnce(): Promise<PollResult>;
+  stop(): void;
+  readonly activeWorkers: readonly ActiveWorker[];
+  readonly activeCount: number;
+  readonly queuedCount: number;
+  getPause(): PauseState | null;
+}
+
+/** Builder function shape the AgentMode component depends on. The real
+ *  {@link buildAgentCoordinatorImpl} satisfies this because `AgentCoordinator`
+ *  is assignable to {@link AgentModeCoordinator}. */
+export type AgentModeBuildCoordinator = (
+  input: Parameters<typeof buildAgentCoordinatorImpl>[0],
+) => {
+  coord: AgentModeCoordinator;
+  filterDesc: string;
+  concurrency: number;
+  pollInterval: number;
+  getWorkerCwd: (changeName: string) => string | undefined;
+  runBaselineGate: () => Promise<void>;
+};
 import { countProgress } from "@ralphy/core/progress";
 import {
   deriveOpenSpecPhase,
@@ -13,12 +43,34 @@ import {
 } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
 import { useTerminalSize } from "../hooks/useTerminalSize";
+import { SteeringField } from "./SteeringField";
+import { appendSteeringMessage } from "@ralphy/core/loop";
+import { runWithContext, createDefaultContext } from "@ralphy/context";
+
+/**
+ * Append a steering message to the change's steering.md, wrapped in a default
+ * context so the underlying storage helpers in `@ralphy/core` have an active
+ * AsyncLocalStorage scope (mirroring the sidecar's `/steer` route).
+ */
+async function appendSteeringImpl(changeDir: string, message: string): Promise<void> {
+  await runWithContext(createDefaultContext(), async () => {
+    appendSteeringMessage(changeDir, message);
+  });
+}
 
 interface AgentModeProps {
   args: ParsedArgs;
   projectRoot: string;
   statesDir: string;
   tasksDir: string;
+  /** Test injection — defaults to the real `appendSteering` helper. */
+  appendSteering?: (changeDir: string, message: string) => Promise<void>;
+  /** Test injection — defaults to the real `buildAgentCoordinator`. */
+  buildCoordinator?: AgentModeBuildCoordinator;
+  /** Test injection — defaults to the real `ensureRalphyConfig`. */
+  ensureConfig?: typeof ensureRalphyConfigImpl;
+  /** Test injection — defaults to the real `loadRalphyConfig`. */
+  loadConfig?: typeof loadRalphyConfigImpl;
 }
 
 interface LogLine {
@@ -303,7 +355,16 @@ function displayTailLines(activeCount: number): number {
 
 const SESSION_START = new Date().toISOString();
 
-export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeProps) {
+export function AgentMode({
+  args,
+  projectRoot,
+  statesDir,
+  tasksDir,
+  appendSteering = appendSteeringImpl,
+  buildCoordinator = buildAgentCoordinatorImpl,
+  ensureConfig = ensureRalphyConfigImpl,
+  loadConfig = loadRalphyConfigImpl,
+}: AgentModeProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
@@ -322,7 +383,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const [showPendingTasks, setShowPendingTasks] = useState(true);
   /** Toggled by Ctrl+Shift+T — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
-  const coordRef = useRef<AgentCoordinator | null>(null);
+  const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
   const cfgRef = useRef<RalphyConfig | null>(null);
@@ -365,8 +426,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
 
     async function init() {
       logSession(`=== session start ${SESSION_START} ===`);
-      const cfgPath = await ensureRalphyConfig(projectRoot);
-      const cfg = await loadRalphyConfig(projectRoot);
+      const cfgPath = await ensureConfig(projectRoot);
+      const cfg = await loadConfig(projectRoot);
       cfgRef.current = cfg;
       appendLog(`agent mode v${VERSION} — config: ${cfgPath}`, "gray");
 
@@ -375,72 +436,70 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
-      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } =
-        buildAgentCoordinator({
-          args,
-          cfg,
-          projectRoot,
-          statesDir,
-          tasksDir,
-          apiKey,
-          onLog: appendLog,
-          onWorkersChanged: () => setTick((t) => t + 1),
-          onWorkerStarted: (changeName, dir, logFile, changeDir) => {
-            logSession(`worker-started ${changeName} log=${logFile}`, logFile);
-            workerMetaRef.current.set(changeName, {
-              startedAt: Date.now(),
-              statesDir: dir,
-              logFile,
-              changeDir,
-              iter: 0,
-              phase: "working",
-              phaseDetail: "",
-              phaseStartedAt: Date.now(),
-              currentTask: null,
-              subtasks: [],
-              taskProgress: null,
-              openspecPhase: null,
-              prUrl: null,
-              currentCmd: null,
-              tail: [],
-            });
-          },
-          onWorkerExited: (changeName) => {
-            const m = workerMetaRef.current.get(changeName);
-            logSession(`worker-exited ${changeName}`, m?.logFile);
-            workerMetaRef.current.delete(changeName);
-          },
-          onWorkerPhase: (changeName, phase, detail) => {
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (m.phase !== phase) m.phaseStartedAt = Date.now();
-            m.phase = phase;
-            m.phaseDetail = detail ?? "";
-            logPhase(changeName, m.logFile, phase, detail);
-          },
-          onWorkerOutput: (changeName, line) => {
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            const clean = cleanOutputLine(line);
-            if (!clean) return;
-            m.tail.push(clean);
-            if (m.tail.length > TAIL_BUFFER_SIZE)
-              m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
-          },
-          onWorkerCmd: (changeName, cmd, state) => {
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (state === "start") {
-              m.currentCmd = { argv: cmd, startedAt: Date.now() };
-            } else {
-              m.currentCmd = null;
-            }
-          },
-          onWorkerPr: (changeName, prUrl) => {
-            const m = workerMetaRef.current.get(changeName);
-            if (m) m.prUrl = prUrl;
-          },
-        });
+      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildCoordinator({
+        args,
+        cfg,
+        projectRoot,
+        statesDir,
+        tasksDir,
+        apiKey,
+        onLog: appendLog,
+        onWorkersChanged: () => setTick((t) => t + 1),
+        onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+          logSession(`worker-started ${changeName} log=${logFile}`, logFile);
+          workerMetaRef.current.set(changeName, {
+            startedAt: Date.now(),
+            statesDir: dir,
+            logFile,
+            changeDir,
+            iter: 0,
+            phase: "working",
+            phaseDetail: "",
+            phaseStartedAt: Date.now(),
+            currentTask: null,
+            subtasks: [],
+            taskProgress: null,
+            openspecPhase: null,
+            prUrl: null,
+            currentCmd: null,
+            tail: [],
+          });
+        },
+        onWorkerExited: (changeName) => {
+          const m = workerMetaRef.current.get(changeName);
+          logSession(`worker-exited ${changeName}`, m?.logFile);
+          workerMetaRef.current.delete(changeName);
+        },
+        onWorkerPhase: (changeName, phase, detail) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (m.phase !== phase) m.phaseStartedAt = Date.now();
+          m.phase = phase;
+          m.phaseDetail = detail ?? "";
+          logPhase(changeName, m.logFile, phase, detail);
+        },
+        onWorkerOutput: (changeName, line) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          const clean = cleanOutputLine(line);
+          if (!clean) return;
+          m.tail.push(clean);
+          if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
+        },
+        onWorkerCmd: (changeName, cmd, state) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (state === "start") {
+            m.currentCmd = { argv: cmd, startedAt: Date.now() };
+          } else {
+            m.currentCmd = null;
+          }
+        },
+        onWorkerPr: (changeName, prUrl) => {
+          const m = workerMetaRef.current.get(changeName);
+          if (m) m.prUrl = prUrl;
+        },
+      });
       void concurrency;
       void pollInterval;
 
@@ -610,9 +669,19 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const termHeight = rows;
 
   // Keyboard navigation — cycle through workers with Tab / arrow keys.
+  // When the steering field is focused, all worker-navigation shortcuts are
+  // suppressed so digits/Tab/arrows/Ctrl+T flow into the text buffer instead.
   const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
+  const steeringFocusedRef = useRef(false);
+  // Resize-survival mirrors: SteeringField may be re-mounted by the
+  // resizeKey-keyed Box below, so we persist its state in refs here and
+  // re-seed via the initial* props on remount.
+  const steeringBufferRef = useRef<string>("");
+  const steeringCursorRef = useRef<number>(0);
+  const steeringFocusedInitRef = useRef<boolean>(false);
   useInput(
     (input, key) => {
+      if (steeringFocusedRef.current) return;
       if (key.ctrl && key.shift && (input === "t" || input === "T")) {
         if (activeCount > 0) setShowAllSubtasks((v) => !v);
         return;
@@ -634,13 +703,19 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     { isActive: isRawModeSupported && activeCount > 0 },
   );
 
+  const focusedWorker = coordRef.current?.activeWorkers[safeFocusedIdx];
+  const steeringActive = isRawModeSupported && activeCount > 0 && focusedWorker !== undefined;
+
   // Compute tail lines for the focused worker to fill available height.
   // Logs flow into terminal scrollback via <Static> so they don't occupy live
   // UI region. header-box(5) + poll-row(7) + tasks-box(5 when active)
   //   + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
   const tasksBoxLines = activeCount > 1 ? 5 : 0;
-  const FIXED_OVERHEAD = 5 + 7 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  // +3 rows for the steering field (top border + body row + bottom border)
+  // when it is rendered inside the focused card.
+  const steeringBoxLines = steeringActive ? 3 : 0;
+  const FIXED_OVERHEAD = 5 + 7 + tasksBoxLines + 8 + steeringBoxLines + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
@@ -1075,6 +1150,38 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+SHIFT+T to expand)`}
                     </Text>
                   )}
+                </Box>
+              )}
+
+              {/* ── Steering input (Ctrl+S) ─────────────────── */}
+              {steeringActive && idx === safeFocusedIdx && (
+                <Box marginTop={0}>
+                  <SteeringField
+                    active={steeringActive}
+                    width={termWidth - 2}
+                    initialBuffer={steeringBufferRef.current}
+                    initialCursor={steeringCursorRef.current}
+                    initialFocused={steeringFocusedInitRef.current}
+                    onFocusChange={(f) => {
+                      steeringFocusedRef.current = f;
+                      steeringFocusedInitRef.current = f;
+                    }}
+                    onStateChange={(s) => {
+                      steeringBufferRef.current = s.buffer;
+                      steeringCursorRef.current = s.cursor;
+                    }}
+                    onSubmit={async (message) => {
+                      try {
+                        await appendSteering(join(tasksDir, w.changeName), message);
+                      } catch (err) {
+                        appendLog(
+                          `! steering append failed for ${w.changeName}: ${(err as Error).message}`,
+                          "red",
+                        );
+                        throw err;
+                      }
+                    }}
+                  />
                 </Box>
               )}
 

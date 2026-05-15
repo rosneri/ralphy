@@ -27,6 +27,8 @@ export interface SortableRow {
   status: PrStatus | null;
   /** Linear-bucket fallback order — used to keep no-PR rows stable. */
   bucketOrder: number;
+  /** ISO-8601 createdAt from Linear — FIFO key within a tier. Empty when unknown. */
+  issueCreatedAt: string;
 }
 
 function createdAtOf(status: PrStatus | null): string {
@@ -35,14 +37,23 @@ function createdAtOf(status: PrStatus | null): string {
 }
 
 /**
- * Sort by (tier asc, createdAt asc, bucketOrder asc, identifier asc).
- * `createdAt` is empty string for no-PR / errored rows; empty string sorts
- * before any ISO timestamp, which is fine because those all live in tier 5
- * and the secondary `bucketOrder` keeps them in the original Linear order.
+ * Sort by (tier asc, issueCreatedAt asc, prCreatedAt asc, bucketOrder asc, identifier asc).
+ * `issueCreatedAt` is the Linear issue's createdAt — FIFO within a tier, so
+ * older work drains first (RLF-36). The PR createdAt remains as a deeper
+ * tiebreaker for legacy cases. Empty strings sort before any ISO timestamp;
+ * `bucketOrder` keeps no-PR/no-createdAt rows in their original Linear order.
  */
 export function sortRows<R extends SortableRow>(rows: R[]): R[] {
   const cmp = chain<R>(
     (a, b) => assignTier(a.status) - assignTier(b.status),
+    (a, b) => {
+      const ia = a.issueCreatedAt;
+      const ib = b.issueCreatedAt;
+      if (ia === ib) return 0;
+      if (ia === "") return 1;
+      if (ib === "") return -1;
+      return ia < ib ? -1 : 1;
+    },
     (a, b) => {
       const ca = createdAtOf(a.status);
       const cb = createdAtOf(b.status);

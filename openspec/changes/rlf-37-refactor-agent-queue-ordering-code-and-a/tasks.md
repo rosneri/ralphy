@@ -50,3 +50,13 @@ ci Spell check 2026-05-15T14:06:10.2787912Z ##[error]Process completed with exit
 ```
 
 ```
+
+## Resolve PR merge conflicts (2026-05-15T14:58:19.129Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+Merged origin/main into ralph/rlf-37 and resolved conflicts in list-sort.ts,
+coordinator.ts, linear.ts, and the affected tests. Kept the queue-order
+refactor while folding in the new issueCreatedAt FIFO key from RLF-36.
+```

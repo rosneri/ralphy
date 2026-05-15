@@ -196,7 +196,7 @@ export async function fetchOpenIssues(
     assignee: n.assignee,
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
-    createdAt: n.createdAt,
+    createdAt: n.createdAt ?? "",
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),

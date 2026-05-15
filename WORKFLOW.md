@@ -13,6 +13,7 @@ commands:
 rules:
   - "use Bun-native APIs (Bun.spawn / Bun.file) — never node:fs sync"
   - "never reduce coverage threshold"
+  - "strive to write code in packages and only consume it from apps"
 
 boundaries:
   never_touch:

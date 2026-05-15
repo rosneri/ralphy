@@ -54,18 +54,25 @@ describe("assignTier", () => {
 describe("sortRows", () => {
   test("orders rows by tier first", () => {
     const rows: SortableRow[] = [
-      { identifier: "A-5", status: ok(), bucketOrder: 0 }, // tier 5
-      { identifier: "A-4", status: ok({ ciBucket: "fail" }), bucketOrder: 0 }, // tier 4
-      { identifier: "A-3", status: ok({ mergeable: "CONFLICTING" }), bucketOrder: 0 }, // tier 3
+      { identifier: "A-5", status: ok(), bucketOrder: 0, issueCreatedAt: "" }, // tier 5
+      { identifier: "A-4", status: ok({ ciBucket: "fail" }), bucketOrder: 0, issueCreatedAt: "" }, // tier 4
+      {
+        identifier: "A-3",
+        status: ok({ mergeable: "CONFLICTING" }),
+        bucketOrder: 0,
+        issueCreatedAt: "",
+      }, // tier 3
       {
         identifier: "A-2",
         status: ok({ ciBucket: "fail", autoMergeEnabled: true }),
         bucketOrder: 0,
+        issueCreatedAt: "",
       },
       {
         identifier: "A-1",
         status: ok({ mergeable: "CONFLICTING", autoMergeEnabled: true }),
         bucketOrder: 0,
+        issueCreatedAt: "",
       },
     ];
     const sorted = sortRows(rows).map((r) => r.identifier);
@@ -78,27 +85,55 @@ describe("sortRows", () => {
         identifier: "X-2",
         status: ok({ mergeable: "CONFLICTING", createdAt: "2026-05-01T00:00:00Z" }),
         bucketOrder: 0,
+        issueCreatedAt: "",
       },
       {
         identifier: "X-1",
         status: ok({ mergeable: "CONFLICTING", createdAt: "2026-04-01T00:00:00Z" }),
         bucketOrder: 0,
+        issueCreatedAt: "",
       },
       {
         identifier: "X-3",
         status: ok({ mergeable: "CONFLICTING", createdAt: "2026-06-01T00:00:00Z" }),
         bucketOrder: 0,
+        issueCreatedAt: "",
       },
     ];
     const sorted = sortRows(rows).map((r) => r.identifier);
     expect(sorted).toEqual(["X-1", "X-2", "X-3"]);
   });
 
+  test("within a tier, older issueCreatedAt comes first (FIFO)", () => {
+    const rows: SortableRow[] = [
+      {
+        identifier: "Y-2",
+        status: ok({ createdAt: "2026-05-01T00:00:00Z" }),
+        bucketOrder: 0,
+        issueCreatedAt: "2026-04-01T00:00:00Z",
+      },
+      {
+        identifier: "Y-1",
+        status: ok({ createdAt: "2026-05-01T00:00:00Z" }),
+        bucketOrder: 0,
+        issueCreatedAt: "2026-02-01T00:00:00Z",
+      },
+      {
+        identifier: "Y-3",
+        status: ok({ createdAt: "2026-05-01T00:00:00Z" }),
+        bucketOrder: 0,
+        issueCreatedAt: "2026-06-01T00:00:00Z",
+      },
+    ];
+    const sorted = sortRows(rows).map((r) => r.identifier);
+    expect(sorted).toEqual(["Y-1", "Y-2", "Y-3"]);
+  });
+
   test("no-PR rows fall back to bucketOrder for stable ordering", () => {
     const rows: SortableRow[] = [
-      { identifier: "Z-3", status: null, bucketOrder: 2 },
-      { identifier: "Z-1", status: null, bucketOrder: 0 },
-      { identifier: "Z-2", status: null, bucketOrder: 1 },
+      { identifier: "Z-3", status: null, bucketOrder: 2, issueCreatedAt: "" },
+      { identifier: "Z-1", status: null, bucketOrder: 0, issueCreatedAt: "" },
+      { identifier: "Z-2", status: null, bucketOrder: 1, issueCreatedAt: "" },
     ];
     const sorted = sortRows(rows).map((r) => r.identifier);
     expect(sorted).toEqual(["Z-1", "Z-2", "Z-3"]);
@@ -106,8 +141,8 @@ describe("sortRows", () => {
 
   test("identifier is the final tie-breaker", () => {
     const rows: SortableRow[] = [
-      { identifier: "B-2", status: null, bucketOrder: 0 },
-      { identifier: "B-1", status: null, bucketOrder: 0 },
+      { identifier: "B-2", status: null, bucketOrder: 0, issueCreatedAt: "" },
+      { identifier: "B-1", status: null, bucketOrder: 0, issueCreatedAt: "" },
     ];
     const sorted = sortRows(rows).map((r) => r.identifier);
     expect(sorted).toEqual(["B-1", "B-2"]);
@@ -115,8 +150,8 @@ describe("sortRows", () => {
 
   test("does not mutate the input array", () => {
     const rows: SortableRow[] = [
-      { identifier: "B-2", status: null, bucketOrder: 1 },
-      { identifier: "B-1", status: null, bucketOrder: 0 },
+      { identifier: "B-2", status: null, bucketOrder: 1, issueCreatedAt: "" },
+      { identifier: "B-1", status: null, bucketOrder: 0, issueCreatedAt: "" },
     ];
     const before = rows.map((r) => r.identifier);
     sortRows(rows);
