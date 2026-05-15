@@ -182,6 +182,8 @@ describe("agent/scaffold", () => {
     expect(tasks).not.toContain("## Subtasks");
     expect(tasks).toContain("research the codebase");
     expect(tasks).toContain("Append an `## Implementation` section");
+    expect(tasks).toContain("MUST start as `- [ ]` (unchecked)");
+    expect(tasks).toContain("do not pre-check items");
     expect(tasks).not.toContain("Implement the changes described in proposal.md");
     expect(tasks).toContain("`## Why`");
     expect(tasks).toContain("`## What Changes`");
