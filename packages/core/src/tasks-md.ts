@@ -145,7 +145,7 @@ export interface ActiveTasksFile {
 /**
  * Return the file the loop should read for the next worker iteration.
  *
- * Prefers `agent-tasks.md` when it exists and has any `- [ ]` items so
+ * Prefers `agent-tasks.md` when it exists and contains `- [ ]` items so
  * internal flow tasks (CI repair, push reject, …) always preempt
  * mission work. Falls back to `tasks.md`. Returns `null` only when
  * neither file exists.
