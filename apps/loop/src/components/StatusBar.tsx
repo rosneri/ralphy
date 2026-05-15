@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { Spinner } from "@inkjs/ui";
+import { useTerminalSize } from "../hooks/useTerminalSize";
 
 interface StatusBarProps {
   iteration: number;
@@ -41,7 +42,9 @@ export function StatusBar({
     return () => clearInterval(id);
   }, [isRunning, startedAt]);
 
-  const bar = "─".repeat(52);
+  const { columns } = useTerminalSize();
+  const barWidth = Math.max(8, Math.min(52, columns));
+  const bar = "─".repeat(barWidth);
 
   return (
     <Box flexDirection="column">

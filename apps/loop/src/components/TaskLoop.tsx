@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { join } from "node:path";
-import { Box, Static, Text, useApp, useInput, useStdin } from "ink";
+import { Box, Static, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import { TextInput } from "@inkjs/ui";
 import { Banner } from "./Banner";
 import { IterationHeader } from "./IterationHeader";
@@ -8,6 +8,7 @@ import { FeedLine } from "./FeedLine";
 import { StatusBar } from "./StatusBar";
 import { StopMessage } from "./StopMessage";
 import { useLoop, type LogEntry } from "../hooks/useLoop";
+import { useTerminalSize } from "../hooks/useTerminalSize";
 import type { LoopOptions } from "../loop";
 
 interface TaskLoopProps {
@@ -115,7 +116,14 @@ export function TaskLoop({ opts }: TaskLoopProps) {
   const { exit } = useApp();
   const loop = useLoop(opts);
   const { isRawModeSupported } = useStdin();
+  const { stdout } = useStdout();
+  const { resizeKey } = useTerminalSize();
   const bannerItem = useRef<FeedItem>({ id: "__banner__", kind: "banner" });
+
+  useEffect(() => {
+    if (resizeKey === 0) return;
+    stdout.write("\x1b[2J\x1b[3J\x1b[H");
+  }, [resizeKey, stdout]);
 
   const feedItems: FeedItem[] = useMemo(
     () => [
@@ -136,7 +144,7 @@ export function TaskLoop({ opts }: TaskLoopProps) {
   const stateDir = join(opts.statesDir, opts.name);
 
   return (
-    <Box flexDirection="column">
+    <Box key={resizeKey} flexDirection="column">
       <Static items={feedItems}>
         {(item) => {
           if (item.kind === "banner") {
