@@ -48,6 +48,38 @@ import { resolveBaselineCommands } from "@ralphy/workflow";
  *  plus the worker-subprocess "working" phase. */
 type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
+const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
+
+/**
+ * Given a list of attachment URLs, return the first one that:
+ *   - looks like a GitHub PR URL, and
+ *   - `gh pr view --json state` reports as `OPEN`.
+ *
+ * Merged/closed PRs are skipped so the conflict scan does not
+ * "discover" — and noisily log — PRs that have already landed.
+ * Per-URL `gh` failures are logged yellow and the loop continues
+ * to the next candidate.
+ */
+export async function pickOpenPrUrlFromAttachments(
+  urls: string[],
+  issueIdent: string,
+  cmd: CmdRunner,
+  cwd: string,
+  onLog: (msg: string, color?: string) => void,
+): Promise<string | null> {
+  const candidates = urls.filter((url) => GITHUB_PR_URL_RE.test(url));
+  for (const url of candidates) {
+    try {
+      const res = await cmd.run(["gh", "pr", "view", url, "--json", "state"], cwd);
+      const parsed = JSON.parse(res.stdout.trim()) as { state?: string };
+      if (parsed.state === "OPEN") return url;
+    } catch (err) {
+      onLog(`! gh pr view ${url} failed for ${issueIdent}: ${(err as Error).message}`, "yellow");
+    }
+  }
+  return null;
+}
+
 /** Map a unicode emoji to GitHub's reactions API `content` slug. */
 export function githubReactionSlug(emoji: string): string {
   switch (emoji) {
@@ -1200,14 +1232,13 @@ export function buildAgentCoordinator(
 
   /** Pull GitHub PR URLs off the issue's Linear attachments. Linear's
    *  GitHub integration creates these automatically when a PR references
-   *  the Linear identifier. Returns the newest matching PR URL, or null. */
+   *  the Linear identifier. Filters out MERGED/CLOSED PRs so the conflict
+   *  scan doesn't "discover" — and noisily log — PRs that have already
+   *  landed. Returns the first OPEN matching PR URL, or null. */
   async function discoverPrUrlFromLinear(issue: LinearIssue): Promise<string | null> {
+    let attachments;
     try {
-      const attachments = await fetchIssueAttachments(apiKey, issue.id);
-      const match = attachments.find((a) =>
-        /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(a.url),
-      );
-      return match?.url ?? null;
+      attachments = await fetchIssueAttachments(apiKey, issue.id);
     } catch (err) {
       onLog(
         `! Linear attachments fetch failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -1215,6 +1246,13 @@ export function buildAgentCoordinator(
       );
       return null;
     }
+    return pickOpenPrUrlFromAttachments(
+      attachments.map((a) => a.url),
+      issue.identifier,
+      cmdRunner,
+      projectRoot,
+      onLog,
+    );
   }
 
   // setDone candidates for conflict scan: include = setDone marker(s),
