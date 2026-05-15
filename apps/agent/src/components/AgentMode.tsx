@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
+import { Box, Static, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
 import { join } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agent/config";
@@ -47,14 +47,6 @@ interface WorkerMeta {
 
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
-/** Max lines shown in the LOGS box. The box grows with each new line until it
- *  reaches this cap, after which older lines scroll off the top. */
-export const MAX_LOG_VIEWPORT_LINES = 15;
-
-/** Visible log slice: grows with input until it hits the viewport cap, then tails. */
-export function visibleLogWindow<T>(lines: readonly T[], cap = MAX_LOG_VIEWPORT_LINES): T[] {
-  return lines.slice(-cap);
-}
 
 function fmtCmd(argv: string[]): string {
   const joined = argv.join(" ");
@@ -587,38 +579,32 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   );
 
   // Compute tail lines for the focused worker to fill available height.
-  // logs-box(0 or visibleLogLines+2) + header-box(5) + poll-row(6)
-  //   + tasks-box(5 when active) + card-non-tail(8) + compact-cards(4 each)
+  // Logs flow into terminal scrollback via <Static> so they don't occupy live
+  // UI region. header-box(5) + poll-row(6) + tasks-box(5 when active)
+  //   + card-non-tail(8) + compact-cards(4 each)
   const nonFocusedCount = Math.max(0, activeCount - 1);
   const tasksBoxLines = activeCount > 1 ? 5 : 0;
-  const visibleLogLines = Math.min(logs.length, MAX_LOG_VIEWPORT_LINES);
-  const logsBoxLines = logs.length > 0 ? visibleLogLines + 2 : 0;
-  const FIXED_OVERHEAD = logsBoxLines + 5 + 6 + tasksBoxLines + 8 + nonFocusedCount * 4;
+  const FIXED_OVERHEAD = 5 + 6 + tasksBoxLines + 8 + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
 
   return (
     <Box flexDirection="column">
-      {/* ── Scrolling log history ────────────────────────────── */}
-      {logs.length > 0 && (
-        <LabeledBox
-          label="LOGS"
-          borderColor="gray"
-          flexDirection="column"
-          paddingX={1}
-          width={termWidth}
-        >
-          {visibleLogWindow(logs).map((line) =>
-            line.color ? (
-              <Text key={line.id} color={line.color}>
-                {line.text}
-              </Text>
-            ) : (
-              <Text key={line.id}>{line.text}</Text>
-            ),
-          )}
-        </LabeledBox>
-      )}
+      {/* ── Scrolling log history ──────────────────────────────
+          Rendered via <Static> so each line is permanently flushed
+          to stdout above the live UI. The terminal's native
+          scrollback owns history — no in-app cap or truncation. */}
+      <Static items={logs}>
+        {(line) =>
+          line.color ? (
+            <Text key={line.id} color={line.color}>
+              {line.text}
+            </Text>
+          ) : (
+            <Text key={line.id}>{line.text}</Text>
+          )
+        }
+      </Static>
 
       <Box flexDirection="column" marginTop={0}>
         {/* ── Settings header — two compact text lines ─────────── */}
