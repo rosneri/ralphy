@@ -145,7 +145,7 @@ export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: str
  * `prependFixTask` always adds new sections at the top of `tasks.md`, the
  * newest unchecked task (e.g. `Fix failing CI checks`) ends up at row 1 of
  * the panel, and the `+N more` ellipsis only ever truncates completed
- * items. The expanded view (`Ctrl+Shift+T`) bypasses this and renders
+ * items. The expanded view (`Ctrl+Alt+T`) bypasses this and renders
  * everything in literal file order.
  */
 export function orderSubtasksForCappedDisplay<T extends { done: boolean }>(
@@ -410,7 +410,7 @@ export function AgentMode({
   const [focusedIdx, setFocusedIdx] = useState(0);
   /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
   const [showPendingTasks, setShowPendingTasks] = useState(true);
-  /** Toggled by Ctrl+Shift+T — expand subtasks over the OUTPUT feed (no cap). */
+  /** Toggled by Ctrl+Alt+T (Opt+T on macOS) — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
@@ -711,7 +711,7 @@ export function AgentMode({
   useInput(
     (input, key) => {
       if (steeringFocusedRef.current) return;
-      if (key.ctrl && key.shift && (input === "t" || input === "T")) {
+      if (key.ctrl && key.meta && (input === "t" || input === "T")) {
         if (activeCount > 0) setShowAllSubtasks((v) => !v);
         return;
       }
@@ -1207,7 +1207,7 @@ export function AgentMode({
                   })}
                   {!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY && (
                     <Text dimColor>
-                      {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+SHIFT+T to expand)`}
+                      {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+ALT+T to expand)`}
                     </Text>
                   )}
                 </Box>
