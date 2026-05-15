@@ -44,7 +44,10 @@ const fakeWorker: ActiveWorker = {
   lastReportedIteration: 0,
 };
 
-function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
+function makeFakeCoord(
+  workers: ActiveWorker[],
+  hooks: { restartWorker?: (name: string) => Promise<boolean> } = {},
+): AgentModeCoordinator {
   return {
     activeWorkers: workers,
     activeCount: workers.length,
@@ -58,12 +61,16 @@ function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
     }),
     stop: () => {},
     getPause: () => null,
+    restartWorker: hooks.restartWorker ?? (async () => true),
   };
 }
 
-function makeBuilder(workers: ActiveWorker[]): AgentModeBuildCoordinator {
+function makeBuilder(
+  workers: ActiveWorker[],
+  hooks: { restartWorker?: (name: string) => Promise<boolean> } = {},
+): AgentModeBuildCoordinator {
   return () => ({
-    coord: makeFakeCoord(workers),
+    coord: makeFakeCoord(workers, hooks),
     filterDesc: "fake",
     concurrency: 1,
     pollInterval: 999,
@@ -162,6 +169,41 @@ describe("AgentMode steering", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.msg).toBe("hello");
     expect(calls[0]!.dir).toBe(join(tmpRoot, "tasks", "rlf-35-agent-mode-steering"));
+    unmount();
+  });
+
+  test("restartWorker is called after appendSteering resolves (strict ordering)", async () => {
+    const events: string[] = [];
+    const restartCalls: string[] = [];
+    const { stdin, unmount } = render(
+      React.createElement(AgentMode, {
+        args: baseArgs,
+        projectRoot: tmpRoot,
+        statesDir: join(tmpRoot, "states"),
+        tasksDir: join(tmpRoot, "tasks"),
+        appendSteering: async () => {
+          events.push("append");
+        },
+        buildCoordinator: makeBuilder([fakeWorker], {
+          restartWorker: async (name: string) => {
+            events.push("restart");
+            restartCalls.push(name);
+            return true;
+          },
+        }),
+        ensureConfig: ensureConfigStub,
+        loadConfig: loadConfigStub,
+      }),
+    );
+    await flush(150);
+    stdin.write(CTRL_S);
+    await flush(50);
+    stdin.write("hello");
+    await flush(50);
+    stdin.write(ENTER);
+    await flush(100);
+    expect(restartCalls).toEqual(["rlf-35-agent-mode-steering"]);
+    expect(events).toEqual(["append", "restart"]);
     unmount();
   });
 

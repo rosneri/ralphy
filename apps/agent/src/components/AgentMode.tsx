@@ -20,6 +20,7 @@ export interface AgentModeCoordinator {
   readonly activeCount: number;
   readonly queuedCount: number;
   getPause(): PauseState | null;
+  restartWorker(changeName: string): Promise<boolean>;
 }
 
 /** Builder function shape the AgentMode component depends on. The real
@@ -1220,6 +1221,18 @@ export function AgentMode({
                           "red",
                         );
                         throw err;
+                      }
+                      const restarted = await coordRef.current?.restartWorker(w.changeName);
+                      if (restarted) {
+                        appendLog(
+                          `  ${w.changeName}: steering applied, restarting worker`,
+                          "cyan",
+                        );
+                      } else {
+                        appendLog(
+                          `  ${w.changeName}: steering queued — will apply on next iteration`,
+                          "gray",
+                        );
                       }
                     }}
                   />
