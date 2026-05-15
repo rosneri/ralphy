@@ -36,6 +36,7 @@ const fakeWorker: ActiveWorker = {
     state: { name: "Todo", type: "unstarted" },
     assignee: null,
     labels: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
     blockedByIds: [],
   },
   mode: "fresh",

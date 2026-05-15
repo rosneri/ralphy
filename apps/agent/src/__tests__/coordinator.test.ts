@@ -25,8 +25,8 @@ function issue(
     assignee: null,
     labels: [],
     priority,
-    blockedByIds,
     createdAt,
+    blockedByIds,
   };
 }
 
@@ -199,7 +199,6 @@ describe("AgentCoordinator — todo polling", () => {
     await coord.init();
     await coord.pollOnce();
     await tick();
-
     expect(ctx.workers.has("change-eng-1")).toBe(true);
     ctx.workers.get("change-eng-1")!.resolve(0);
     await tick();
