@@ -1035,11 +1035,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                   })()}
                   {subtasks.slice(0, MAX_PENDING_DISPLAY).map((s, i) => (
                     <Text key={`${w.changeName}-subtask-${i}`}>
-                      {s.done ? (
-                        <Text dimColor>{"[x] "}</Text>
-                      ) : (
-                        <Text>{"[ ] "}</Text>
-                      )}
+                      {s.done ? <Text dimColor>{"[x] "}</Text> : <Text>{"[ ] "}</Text>}
                       {s.done ? (
                         <Text dimColor>{trunc(s.text, termWidth - 8)}</Text>
                       ) : (
