@@ -36,9 +36,13 @@ export type AgentModeBuildCoordinator = (
   runBaselineGate: () => Promise<void>;
 };
 import { countProgress } from "@ralphy/core/progress";
+import { isFlowTaskHeading } from "@ralphy/core/tasks-md";
 import {
   deriveOpenSpecPhase,
   phasePipeline,
+  shouldShowPhasePipeline,
+  shouldShowProgressBar,
+  shouldShowSubtasksPanel,
   type OpenSpecPhase,
 } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
@@ -109,19 +113,26 @@ const MAX_PENDING_DISPLAY = 15;
 
 /**
  * Extract all `- [x]` / `- [ ]` items from a tasks.md document, in order.
- * Items under a `## Planning` heading are skipped — those are OpenSpec
- * pipeline scaffolding, not mission-specific work.
+ *
+ * Skips items under:
+ *  - `## Planning` — OpenSpec pipeline scaffolding, not mission work.
+ *  - any section whose heading is a recognized flow-task heading
+ *    (`Fix failing CI checks`, `Resolve PR merge conflicts`, …). This
+ *    is the backward-compat path: new flow tasks land in
+ *    `agent-tasks.md` (which this function never reads), but older
+ *    in-flight `tasks.md` files may still contain inline flow sections.
  */
 export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: string }> {
   const out: Array<{ done: boolean; text: string }> = [];
-  let inPlanning = false;
+  let skipSection = false;
   for (const line of tasksMd.split("\n")) {
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
-      inPlanning = heading[1]!.trim().toLowerCase() === "planning";
+      const title = heading[1]!.trim();
+      skipSection = title.toLowerCase() === "planning" || isFlowTaskHeading(title);
       continue;
     }
-    if (inPlanning) continue;
+    if (skipSection) continue;
     const m = line.match(/^- \[([ xX])\] (.+)$/);
     if (m) out.push({ done: m[1] !== " ", text: m[2]!.trim() });
   }
@@ -1135,8 +1146,38 @@ export function AgentMode({
                 </Box>
               )}
 
+              {/* ── Phase pipeline (pre-implement phases) ───── */}
+              {shouldShowPhasePipeline(openspecPhase) && (
+                <Box marginTop={0}>
+                  {phasePipeline(openspecPhase as OpenSpecPhase).map((seg, i, arr) => {
+                    const glyph =
+                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
+                    const node =
+                      seg.status === "done" ? (
+                        <Text color="green">
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : seg.status === "current" ? (
+                        <Text color={openspecPhaseColor(seg.phase)} bold>
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : (
+                        <Text dimColor>
+                          {glyph} {seg.label}
+                        </Text>
+                      );
+                    return (
+                      <Box key={seg.phase}>
+                        {node}
+                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+
               {/* ── Subtasks panel (Ctrl+T) ─────────────────── */}
-              {showPendingTasks && subtasks.length > 0 && (
+              {shouldShowSubtasksPanel(openspecPhase, showPendingTasks, subtasks.length > 0) && (
                 <Box flexDirection="column" marginTop={0}>
                   {(() => {
                     const header = `─ SUBTASKS (${subtasks.length}) CTRL+T to close `;
@@ -1204,39 +1245,8 @@ export function AgentMode({
                 </Box>
               )}
 
-              {/* ── Phase pipeline (when panel collapsed) ───── */}
-              {!showPendingTasks && openspecPhase && openspecPhase !== "implement" && (
-                <Box marginTop={0}>
-                  {phasePipeline(openspecPhase).map((seg, i, arr) => {
-                    const glyph =
-                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
-                    const node =
-                      seg.status === "done" ? (
-                        <Text color="green">
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : seg.status === "current" ? (
-                        <Text color={openspecPhaseColor(seg.phase)} bold>
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : (
-                        <Text dimColor>
-                          {glyph} {seg.label}
-                        </Text>
-                      );
-                    return (
-                      <Box key={seg.phase}>
-                        {node}
-                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              )}
-
               {/* ── Task progress bar (when panel collapsed) ── */}
-              {!showPendingTasks &&
-                (!openspecPhase || openspecPhase === "implement") &&
+              {shouldShowProgressBar(openspecPhase, showPendingTasks, taskProgress !== null) &&
                 taskProgress &&
                 (() => {
                   const hint = " CTRL+T to open";

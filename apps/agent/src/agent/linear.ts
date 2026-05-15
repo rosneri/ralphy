@@ -11,13 +11,14 @@ export interface LinearIssue {
   labels: string[];
   /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
+  /** ISO timestamp of issue creation — used as a FIFO tiebreaker in the
+   *  coordinator queue so older same-priority work runs first. */
+  createdAt: string;
   /**
    * IDs of issues that block this one and are not yet completed/cancelled.
    * Populated from Linear's "blocked_by" relations.
    */
   blockedByIds: string[];
-  /** ISO-8601 timestamp from Linear. Used for FIFO ordering within a queue bucket. */
-  createdAt: string;
 }
 
 /**

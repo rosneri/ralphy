@@ -20,11 +20,11 @@ const FAKE_ISSUE: LinearIssue = {
   url: "https://linear.app/team/issue/COD-1",
   description: "",
   priority: 2,
+  createdAt: "2026-01-01T00:00:00.000Z",
   blockedByIds: [],
   state: { name: "In Progress", type: "started" },
   assignee: null,
   labels: [],
-  createdAt: "2026-01-01T00:00:00.000Z",
 };
 
 function makeCmd(

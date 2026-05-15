@@ -17,6 +17,8 @@ import {
   mergeUsage,
   allTasksCompleted,
   countUncheckedTasks,
+  AGENT_TASKS_FILENAME,
+  MISSION_TASKS_FILENAME,
   type StopReason,
   type LoopOptions,
 } from "../loop";
@@ -141,13 +143,28 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           break;
         }
 
-        // Check if all tasks are done
-        const tasksContent = storage.read(join(tasksDir, "tasks.md"));
+        // Check if all tasks are done. The change is considered complete
+        // only when both mission tasks (`tasks.md`) and internal flow
+        // tasks (`agent-tasks.md`) have zero unchecked items.
+        const tasksContent = storage.read(join(tasksDir, MISSION_TASKS_FILENAME));
+        const agentTasksContent = storage.read(join(tasksDir, AGENT_TASKS_FILENAME));
         if (tasksContent !== null) {
           const remaining = countUncheckedTasks(tasksContent);
-          addInfo(`tasks.md: ${remaining} unchecked item${remaining === 1 ? "" : "s"} remaining`);
+          const agentRemaining =
+            agentTasksContent !== null ? countUncheckedTasks(agentTasksContent) : 0;
+          const parts = [
+            `tasks.md: ${remaining} unchecked item${remaining === 1 ? "" : "s"} remaining`,
+          ];
+          if (agentTasksContent !== null) {
+            parts.push(
+              `agent-tasks.md: ${agentRemaining} unchecked item${agentRemaining === 1 ? "" : "s"} remaining`,
+            );
+          }
+          addInfo(parts.join(" · "));
         }
-        if (tasksContent !== null && allTasksCompleted(tasksContent)) {
+        const missionDone = tasksContent !== null && allTasksCompleted(tasksContent);
+        const agentDone = agentTasksContent === null || allTasksCompleted(agentTasksContent);
+        if (missionDone && agentDone && tasksContent !== null) {
           addInfo("All tasks completed — archiving change.");
           currentState = {
             ...currentState,

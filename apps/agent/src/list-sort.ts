@@ -1,4 +1,5 @@
 import type { PrStatus } from "./pr-status";
+import { chain } from "./sort/compare";
 
 type Tier = 1 | 2 | 3 | 4 | 5;
 
@@ -43,21 +44,24 @@ function createdAtOf(status: PrStatus | null): string {
  * `bucketOrder` keeps no-PR/no-createdAt rows in their original Linear order.
  */
 export function sortRows<R extends SortableRow>(rows: R[]): R[] {
-  return [...rows].sort((a, b) => {
-    const ta = assignTier(a.status);
-    const tb = assignTier(b.status);
-    if (ta !== tb) return ta - tb;
-    const ia = a.issueCreatedAt;
-    const ib = b.issueCreatedAt;
-    if (ia !== ib) {
+  const cmp = chain<R>(
+    (a, b) => assignTier(a.status) - assignTier(b.status),
+    (a, b) => {
+      const ia = a.issueCreatedAt;
+      const ib = b.issueCreatedAt;
+      if (ia === ib) return 0;
       if (ia === "") return 1;
       if (ib === "") return -1;
       return ia < ib ? -1 : 1;
-    }
-    const ca = createdAtOf(a.status);
-    const cb = createdAtOf(b.status);
-    if (ca !== cb) return ca < cb ? -1 : 1;
-    if (a.bucketOrder !== b.bucketOrder) return a.bucketOrder - b.bucketOrder;
-    return a.identifier.localeCompare(b.identifier);
-  });
+    },
+    (a, b) => {
+      const ca = createdAtOf(a.status);
+      const cb = createdAtOf(b.status);
+      if (ca === cb) return 0;
+      return ca < cb ? -1 : 1;
+    },
+    (a, b) => a.bucketOrder - b.bucketOrder,
+    (a, b) => a.identifier.localeCompare(b.identifier),
+  );
+  return [...rows].sort(cmp);
 }

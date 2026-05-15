@@ -65,6 +65,46 @@ describe("parseSubtasks", () => {
       { done: true, text: "done task" },
     ]);
   });
+
+  it("skips legacy flow-task sections in tasks.md (backward compat)", () => {
+    const md = [
+      "# Tasks",
+      "",
+      "## Planning",
+      "- [ ] plan hidden",
+      "",
+      "## Fix failing CI checks (2026-05-01T12:00:00Z)",
+      "- [ ] hidden CI repair task",
+      "",
+      "## Implementation",
+      "- [x] real done",
+      "- [ ] real pending",
+      "",
+      "## Resolve PR merge conflicts (2026-05-02T13:00:00Z)",
+      "- [ ] hidden merge conflict task",
+    ].join("\n");
+    expect(parseSubtasks(md)).toEqual([
+      { done: true, text: "real done" },
+      { done: false, text: "real pending" },
+    ]);
+  });
+
+  it("skips Address reviewer comments and @ralphy mention sections", () => {
+    const md = [
+      "## Implementation",
+      "- [ ] mission task",
+      "",
+      "## Address reviewer comments (2026-05-03T13:00:00Z)",
+      "- [ ] hidden review task",
+      "",
+      "## Address GitHub @ralphy mention (2026-05-03T13:01:00Z)",
+      "- [ ] hidden github mention",
+      "",
+      "## Address Linear @ralphy mention (2026-05-03T13:02:00Z)",
+      "- [ ] hidden linear mention",
+    ].join("\n");
+    expect(parseSubtasks(md)).toEqual([{ done: false, text: "mission task" }]);
+  });
 });
 
 describe("orderSubtasksForCappedDisplay", () => {
