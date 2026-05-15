@@ -1,5 +1,19 @@
 # Tasks for RLF-41
 
+## Resolve PR merge conflicts (2026-05-15T15:39:38.853Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+The PR for this change has merge conflicts with `main`.
+Steps:
+1. `git fetch origin main` then rebase or merge `main` into the current branch.
+2. Resolve conflicts in the files git lists.
+3. Stage and commit the resolution.
+
+PR: https://github.com/NeriRos/ralphy/pull/162
+```
+
 ## Fix failing CI checks (2026-05-15T14:52:41.065Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
