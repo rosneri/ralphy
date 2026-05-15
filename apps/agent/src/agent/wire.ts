@@ -609,25 +609,31 @@ export function buildAgentCoordinator(
     if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
     const probeName = issue.identifier.toLowerCase();
     const baseBranch = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
+    let wt: Awaited<ReturnType<typeof createWorktree>>;
     try {
-      const wt = await createWorktree(projectRoot, probeName, baseBranch, gitRunner);
-      workerCwd = wt.cwd;
-      branch = wt.branch;
-      const wtLayout = projectLayout(wt.cwd);
-      scaffoldTasksDir = wtLayout.tasksDir;
-      scaffoldStatesDir = wtLayout.statesDir;
-      onLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
-      try {
-        await seedWorktreeMcpConfig(projectRoot, wt.cwd);
-      } catch (err) {
-        onLog(
-          `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
+      wt = await createWorktree(projectRoot, probeName, baseBranch, gitRunner);
+    } catch (err) {
+      // useWorktree is opt-in for isolation. Falling back to projectRoot here
+      // would write the agent's branch + edits into the developer's main
+      // checkout (see RLF-39). Rethrow so the coordinator skips this issue
+      // for this poll cycle and retries on the next poll.
+      onLog(
+        `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — skipping (useWorktree is required)`,
+        "red",
+      );
+      throw err;
+    }
+    workerCwd = wt.cwd;
+    branch = wt.branch;
+    const wtLayout = projectLayout(wt.cwd);
+    scaffoldTasksDir = wtLayout.tasksDir;
+    scaffoldStatesDir = wtLayout.statesDir;
+    onLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
+    try {
+      await seedWorktreeMcpConfig(projectRoot, wt.cwd);
     } catch (err) {
       onLog(
-        `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — falling back to project root`,
+        `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
     }
