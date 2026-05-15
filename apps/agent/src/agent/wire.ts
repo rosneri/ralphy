@@ -1593,6 +1593,7 @@ export function buildAgentCoordinator(
         ? { clearConflicted: indicators.clearConflicted }
         : {}),
       ...(indicators.clearReview !== undefined ? { clearReview: indicators.clearReview } : {}),
+      ...(indicators.getAutoMerge !== undefined ? { getAutoMerge: indicators.getAutoMerge } : {}),
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
