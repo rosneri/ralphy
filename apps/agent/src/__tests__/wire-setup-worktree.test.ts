@@ -52,7 +52,7 @@ function installLinearStub(): { mutations: { kind: string }[] } {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     if (!url.includes("linear.app")) {
-      throw new Error(`unexpected fetch in test: ${url}`);
+      throw Object.assign(new Error("unexpected fetch in test"), { url });
     }
     const body = JSON.parse(init?.body as string) as { query: string };
     const q = body.query;
@@ -232,7 +232,7 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
     const cfg = await loadRalphyConfig(tempDir);
     const args = await parseArgs([]);
 
-    let spawnCwd: string | null = null;
+    let spawnCwd: string | null = null as string | null;
     const spawnWorker = (
       _cmd: string[],
       cwd: string,
