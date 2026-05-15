@@ -161,6 +161,10 @@ Previous attempt failed with: {{ last_error }}
 
 {{ issue.description }}
 
+{% if issue.labels %}
+Labels: {{ issue.labels | join(", ") }}
+{% endif %}
+
 {% if rules %}
 Project rules:
 {% for rule in rules %}- {{ rule }}

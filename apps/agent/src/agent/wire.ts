@@ -603,6 +603,7 @@ export function buildAgentCoordinator(
             title: issue.title,
             description: issue.description ?? "",
             url: issue.url,
+            labels: issue.labels,
           },
           attempt: 1,
           last_error: "",

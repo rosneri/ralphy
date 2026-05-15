@@ -115,6 +115,26 @@ describe("renderTemplate", () => {
     );
   });
 
+  test("renderWorkflowPrompt threads issue.labels into context (join + for)", () => {
+    const wf = parseWorkflow(
+      `---\nproject:\n  name: demo\n---\n` +
+        `labels={{ issue.labels | join(",") }}` +
+        `{% for l in issue.labels %}{% if l == "deploy" %} SHIP{% endif %}{% endfor %}`,
+    );
+    const out = renderWorkflowPrompt(wf, {
+      issue: { identifier: "RLF-1", labels: ["deploy", "bug"] },
+    });
+    expect(out).toBe("labels=deploy,bug SHIP");
+  });
+
+  test("renderWorkflowPrompt with no labels renders the falsy branch", () => {
+    const wf = parseWorkflow(
+      `---\nproject:\n  name: demo\n---\n` + `{% if issue.labels %}has{% else %}none{% endif %}`,
+    );
+    expect(renderWorkflowPrompt(wf, { issue: { labels: [] } })).toBe("none");
+    expect(renderWorkflowPrompt(wf, { issue: {} })).toBe("none");
+  });
+
   test("renderWorkflowPrompt threads project/rules/boundaries into context", () => {
     const wf = parseWorkflow(
       `---\nproject:\n  name: demo\nrules:\n  - "no foo"\nboundaries:\n  never_touch:\n    - "dist/**"\n---\n` +
