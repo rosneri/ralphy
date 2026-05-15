@@ -167,7 +167,7 @@ describe("runBaselineGate", () => {
       existing: {
         id: "i-1",
         identifier: "RLF-1",
-        description: "<!-- ralphy:baseline:oldfp -->\n",
+        description: "<!-- ralphy:baseline:oldFingerprint -->\n",
       },
     });
     await runBaselineGate({

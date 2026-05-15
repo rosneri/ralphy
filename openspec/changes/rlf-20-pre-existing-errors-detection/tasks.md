@@ -1,3 +1,60 @@
+## Fix failing CI checks (2026-05-15T07:12:31.266Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25905367672 ---
+ci Spell check ﻿2026-05-15T07:11:12.1128774Z ##[group]Run bunx cspell "**/\*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
+ci Spell check 2026-05-15T07:11:12.1129565Z [36;1mbunx cspell "**/\*.{ts,tsx,js,mjs,mts,json,md}" --no-progress[0m
+ci Spell check 2026-05-15T07:11:12.1154608Z shell: /usr/bin/bash -e {0}
+ci Spell check 2026-05-15T07:11:12.1154880Z env:
+ci Spell check 2026-05-15T07:11:12.1155124Z NX_BASE: c5a5c08381cce0a76a9e9979d4a9f7deebce38ca
+ci Spell check 2026-05-15T07:11:12.1155474Z NX_HEAD: 9ba35d6693f16ab05f2c900f5703d94f2031a150
+ci Spell check 2026-05-15T07:11:12.1155761Z ##[endgroup]
+ci Spell check 2026-05-15T07:11:12.1269293Z Resolving dependencies
+ci Spell check 2026-05-15T07:11:12.7158094Z Resolved, downloaded and extracted [216]
+ci Spell check 2026-05-15T07:11:12.7436828Z Saved lockfile
+ci Spell check 2026-05-15T07:11:14.1271260Z apps/agent/src/**tests**/baseline-gate.test.ts:170:44 - Unknown word (oldfp)
+ci Spell check 2026-05-15T07:11:15.4069698Z CSpell: Files checked: 268, Issues found: 1 in 1 file.
+ci Spell check 2026-05-15T07:11:15.4388129Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-15T07:11:20.5427480Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-15T07:11:20.5428173Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-15T07:11:20.5454215Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-15T07:11:20.5454488Z env:
+ci Test affected files + coverage 2026-05-15T07:11:20.5454743Z NX_BASE: c5a5c08381cce0a76a9e9979d4a9f7deebce38ca
+ci Test affected files + coverage 2026-05-15T07:11:20.5455094Z NX_HEAD: 9ba35d6693f16ab05f2c900f5703d94f2031a150
+ci Test affected files + coverage 2026-05-15T07:11:20.5455375Z ##[endgroup]
+ci Test affected files + coverage 2026-05-15T07:11:20.5526645Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-15T07:11:20.5772726Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-15T07:11:20.5773516Z
+ci Test affected files + coverage 2026-05-15T07:11:22.9180736Z agent: 5 relevant test file(s)
+ci Test affected files + coverage 2026-05-15T07:11:22.9181389Z apps/agent/src/**tests**/baseline-gate.test.ts
+ci Test affected files + coverage 2026-05-15T07:11:22.9181956Z apps/agent/src/**tests**/baseline.test.ts
+ci Test affected files + coverage 2026-05-15T07:11:22.9182418Z apps/agent/src/**tests**/cli.test.ts
+ci Test affected files + coverage 2026-05-15T07:11:22.9182753Z apps/agent/src/**tests**/coordinator.test.ts
+ci Test affected files + coverage 2026-05-15T07:11:22.9183088Z apps/agent/src/**tests**/linear.test.ts
+ci Test affected files + coverage 2026-05-15T07:11:22.9183356Z
+ci Test affected files + coverage 2026-05-15T07:11:22.9201172Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-15T07:11:22.9302018Z
+ci Test affected files + coverage 2026-05-15T07:11:22.9303092Z ##[group]src/**tests**/list-sort.test.ts:
+ci Test affected files + coverage 2026-05-15T07:11:22.9332455Z (pass) assignTier > tier 1: conflict + auto-merge [0.16ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9333298Z (pass) assignTier > tier 2: failing CI + auto-merge [0.06ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9334183Z (pass) assignTier > tier 3: conflict only [0.03ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9334843Z (pass) assignTier > tier 4: failing CI only [0.03ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9335484Z (pass) assignTier > tier 5: clean PR [0.04ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9336007Z (pass) assignTier > tier 5: pending CI [0.02ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9336662Z (pass) assignTier > tier 5: draft conflicted PR with no auto-merge stays in tier 3 (conflict trumps draft) [0.03ms]
+ci Test affected files + coverage 2026-05-15T07:11:22.9337245Z (pass) assignT
+…[truncated 86876 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-15T07:07:18.139Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
