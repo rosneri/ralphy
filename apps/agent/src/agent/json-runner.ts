@@ -65,7 +65,7 @@ export async function runAgentJson({
     return;
   }
 
-  const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
+  const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildAgentCoordinator({
     args,
     cfg,
     projectRoot,
@@ -128,6 +128,16 @@ export async function runAgentJson({
   const tick = async () => {
     if (cancelled) return;
     emit({ type: "poll_start" });
+    try {
+      await runBaselineGate();
+    } catch (err) {
+      emit({
+        type: "log",
+        text: `baseline gate failed: ${(err as Error).message}`,
+        color: "yellow",
+      });
+    }
+    if (cancelled) return;
     const { found, added, buckets, prStatus } = await coord.pollOnce();
     if (cancelled) return;
     emit({ type: "poll_done", found, added, buckets, prStatus });
