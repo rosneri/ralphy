@@ -259,6 +259,7 @@ async function fetchAndPrintLinear(
         identifier: issue.identifier,
         status: null,
         bucketOrder: order++,
+        issueCreatedAt: issue.createdAt,
         bucketLabel: bucket.label,
         stateName: issue.state.name,
         title: issue.title.slice(0, 60),
