@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 
-export type SteeringStatus = "idle" | "sent" | "failed";
+type SteeringStatus = "idle" | "sent" | "failed";
 
 interface SteeringFieldProps {
   /** When false, the field is hidden and no keys are captured. */

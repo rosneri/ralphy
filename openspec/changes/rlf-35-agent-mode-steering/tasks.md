@@ -1,3 +1,57 @@
+## Fix failing CI checks (2026-05-15T13:58:58.357Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25921762826 ---
+ci Unused dependency check ﻿2026-05-15T13:57:54.5796004Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-15T13:57:54.5796350Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-15T13:57:54.5829954Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-15T13:57:54.5830215Z env:
+ci Unused dependency check 2026-05-15T13:57:54.5830453Z NX_BASE: 1b5c49329f6701d20edd71a95f934e783bdd38e9
+ci Unused dependency check 2026-05-15T13:57:54.5830809Z NX_HEAD: 47d1aa6b51da9a61c75d2a2a94f299602c463f16
+ci Unused dependency check 2026-05-15T13:57:54.5831389Z ##[endgroup]
+ci Unused dependency check 2026-05-15T13:57:54.5903151Z $ knip
+ci Unused dependency check 2026-05-15T13:57:57.7327114Z [93m[4mUnused exported types[24m[39m (1)
+ci Unused dependency check 2026-05-15T13:57:57.7336580Z SteeringStatus type apps/agent/src/components/SteeringField.tsx:4:13
+ci Unused dependency check 2026-05-15T13:57:57.7559149Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-15T13:57:57.7570122Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-15T13:57:58.0948108Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-15T13:57:58.0948535Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-15T13:57:58.0983224Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-15T13:57:58.0983494Z env:
+ci Test affected files + coverage 2026-05-15T13:57:58.0983735Z NX_BASE: 1b5c49329f6701d20edd71a95f934e783bdd38e9
+ci Test affected files + coverage 2026-05-15T13:57:58.0984097Z NX_HEAD: 47d1aa6b51da9a61c75d2a2a94f299602c463f16
+ci Test affected files + coverage 2026-05-15T13:57:58.0984405Z ##[endgroup]
+ci Test affected files + coverage 2026-05-15T13:57:58.1057879Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-15T13:57:58.1286494Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-15T13:57:58.1286880Z
+ci Test affected files + coverage 2026-05-15T13:57:59.2126369Z agent: 2 relevant test file(s)
+ci Test affected files + coverage 2026-05-15T13:57:59.2127148Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-15T13:57:59.2127727Z apps/agent/src/components/**tests**/SteeringField.test.tsx
+ci Test affected files + coverage 2026-05-15T13:57:59.2128010Z
+ci Test affected files + coverage 2026-05-15T13:57:59.2141832Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-15T13:57:59.2229982Z
+ci Test affected files + coverage 2026-05-15T13:57:59.2230529Z ##[group]src/**tests**/wire-setup-worktree.test.ts:
+ci Test affected files + coverage 2026-05-15T13:57:59.4004042Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:true + createWorktree throws → no scaffold lands in projectRoot, red log emitted [56.39ms]
+ci Test affected files + coverage 2026-05-15T13:57:59.4168011Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:false preserves projectRoot fallback when no worktree is created [16.52ms]
+ci Test affected files + coverage 2026-05-15T13:57:59.4169030Z
+ci Test affected files + coverage 2026-05-15T13:57:59.4169576Z ##[endgroup]
+ci Test affected files + coverage 2026-05-15T13:57:59.4169746Z
+ci Test affected files + coverage 2026-05-15T13:57:59.4170143Z ##[group]src/**tests**/worktree-mcp-seed.test.ts:
+ci Test affected files + coverage 2026-05-15T13:57:59.4189456Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.1 copies project .mcp.json into worktree [1.03ms]
+ci Test affected files + coverage 2026-05-15T13:57:59.4196470Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.2 rewrites .ralph/ relative args to absolute paths under projectRoot [0.72ms]
+ci Test affected files + coverage 2026-05-15T13:57:59.4200339Z (pass) s
+…[truncated 94760 chars]
+
+```
+
+```
+
 ## Resolve PR merge conflicts (2026-05-15T13:55:31.896Z)
 
 - [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
