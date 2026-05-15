@@ -59,6 +59,10 @@ const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
  * "discover" — and noisily log — PRs that have already landed.
  * Per-URL `gh` failures are logged yellow and the loop continues
  * to the next candidate.
+ *
+ * The `sawNonOpenPr` flag distinguishes "no PR at all" from "a PR exists
+ * but it is MERGED/CLOSED", so callers can suppress the
+ * "no open PR found" warning when the PR has already landed.
  */
 export async function pickOpenPrUrlFromAttachments(
   urls: string[],
@@ -66,18 +70,20 @@ export async function pickOpenPrUrlFromAttachments(
   cmd: CmdRunner,
   cwd: string,
   onLog: (msg: string, color?: string) => void,
-): Promise<string | null> {
+): Promise<{ url: string | null; sawNonOpenPr: boolean }> {
   const candidates = urls.filter((url) => GITHUB_PR_URL_RE.test(url));
+  let sawNonOpenPr = false;
   for (const url of candidates) {
     try {
       const res = await cmd.run(["gh", "pr", "view", url, "--json", "state"], cwd);
       const parsed = JSON.parse(res.stdout.trim()) as { state?: string };
-      if (parsed.state === "OPEN") return url;
+      if (parsed.state === "OPEN") return { url, sawNonOpenPr };
+      if (parsed.state === "MERGED" || parsed.state === "CLOSED") sawNonOpenPr = true;
     } catch (err) {
       onLog(`! gh pr view ${url} failed for ${issueIdent}: ${(err as Error).message}`, "yellow");
     }
   }
-  return null;
+  return { url: null, sawNonOpenPr };
 }
 
 /** Map a unicode emoji to GitHub's reactions API `content` slug. */
@@ -1153,9 +1159,19 @@ export function buildAgentCoordinator(
     if (byBranch) return byBranch;
 
     const fromLinear = await discoverPrUrlFromLinear(issue);
-    if (fromLinear) {
-      onLog(`  ${issue.identifier}: PR discovered via Linear attachment (${fromLinear})`, "gray");
-      return fromLinear;
+    if (fromLinear.url) {
+      onLog(
+        `  ${issue.identifier}: PR discovered via Linear attachment (${fromLinear.url})`,
+        "gray",
+      );
+      return fromLinear.url;
+    }
+
+    if (fromLinear.sawNonOpenPr) {
+      // The issue's only PR(s) have already merged/closed — nothing to scan.
+      // Skip silently so the dashboard stops nagging about landed work.
+      markPrUnavailable(changeName);
+      return null;
     }
 
     onLog(
@@ -1245,7 +1261,9 @@ export function buildAgentCoordinator(
    *  the Linear identifier. Filters out MERGED/CLOSED PRs so the conflict
    *  scan doesn't "discover" — and noisily log — PRs that have already
    *  landed. Returns the first OPEN matching PR URL, or null. */
-  async function discoverPrUrlFromLinear(issue: LinearIssue): Promise<string | null> {
+  async function discoverPrUrlFromLinear(
+    issue: LinearIssue,
+  ): Promise<{ url: string | null; sawNonOpenPr: boolean }> {
     let attachments;
     try {
       attachments = await fetchIssueAttachments(apiKey, issue.id);
@@ -1254,7 +1272,7 @@ export function buildAgentCoordinator(
         `! Linear attachments fetch failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
-      return null;
+      return { url: null, sawNonOpenPr: false };
     }
     return pickOpenPrUrlFromAttachments(
       attachments.map((a) => a.url),
