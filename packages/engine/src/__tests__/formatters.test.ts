@@ -858,6 +858,73 @@ describe("parseClaudeLine - additional coverage", () => {
     expect(summary!.kind).toBe("raw");
   });
 
+  test("raw fallback respects legacy 120-char cap when no maxWidth is provided", () => {
+    const input: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) input[`key${i}`] = `value${i}`;
+    const { events } = parse({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Custom", input }] },
+    });
+    const summary = (events[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
+    expect(summary!.kind).toBe("raw");
+    if (summary!.kind === "raw") {
+      expect(summary.text.length).toBeLessThanOrEqual(120);
+    }
+  });
+
+  test("raw fallback uses larger budget on wide terminal (maxWidth=200)", () => {
+    const input: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) input[`key${i}`] = `value${i}`;
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Custom", input }] },
+    });
+    const narrowEvents = parseClaudeLine(line, makeState());
+    const wideEvents = parseClaudeLine(line, makeState(), { maxWidth: 200 });
+    const narrow = (narrowEvents[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
+    const wide = (wideEvents[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
+    expect(narrow!.kind).toBe("raw");
+    expect(wide!.kind).toBe("raw");
+    if (narrow!.kind === "raw" && wide!.kind === "raw") {
+      const narrowKeys = narrow.text.split("  ").length;
+      const wideKeys = wide.text.split("  ").length;
+      expect(wideKeys).toBeGreaterThan(narrowKeys);
+      expect(wide.text.length).toBeLessThanOrEqual(200);
+    }
+  });
+
+  test("raw fallback respects narrow budget (maxWidth=80)", () => {
+    const input: Record<string, string> = {};
+    for (let i = 0; i < 30; i++) input[`key${i}`] = `value${i}`;
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Custom", input }] },
+    });
+    const events = parseClaudeLine(line, makeState(), { maxWidth: 80 });
+    const summary = (events[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
+    expect(summary!.kind).toBe("raw");
+    if (summary!.kind === "raw") {
+      // Budget floor is 80 (max(80, 80-20)=80) so output stays within terminal width.
+      expect(summary.text.length).toBeLessThanOrEqual(80);
+    }
+  });
+
+  test("parseClaudeLine forwards maxWidth to summary extractor", () => {
+    const longVal = "x".repeat(300);
+    const input = { onlyKey: longVal };
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", name: "Custom", input }] },
+    });
+    const defaultEvents = parseClaudeLine(line, makeState());
+    const wideEvents = parseClaudeLine(line, makeState(), { maxWidth: 240 });
+    const defaultSummary = (defaultEvents[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
+    const wideSummary = (wideEvents[0] as Extract<FeedEvent, { type: "tool-start" }>).summary;
+    if (defaultSummary!.kind === "raw" && wideSummary!.kind === "raw") {
+      expect(wideSummary.text.length).toBeGreaterThan(defaultSummary.text.length);
+    }
+  });
+
   test("handles tool_use with no name", () => {
     const state = makeState();
     const { events } = parse(

@@ -8,7 +8,14 @@ export interface ClaudeStreamState {
   usage: IterationUsage | null;
 }
 
-function extractToolInputSummary(input: Record<string, unknown>): ToolInputSummary | undefined {
+const LEGACY_BUDGET = 120;
+const LEGACY_VALUE_CAP = 40;
+const PREFIX_PADDING = 20;
+
+function extractToolInputSummary(
+  input: Record<string, unknown>,
+  maxWidth?: number,
+): ToolInputSummary | undefined {
   if (typeof input.file_path === "string") {
     return { kind: "file", name: input.file_path.split("/").pop() ?? input.file_path };
   }
@@ -37,14 +44,21 @@ function extractToolInputSummary(input: Record<string, unknown>): ToolInputSumma
   // Fallback: compact key=value pairs for MCP and other unknown tools
   const keys = Object.keys(input);
   if (keys.length === 0) return undefined;
+
+  const budget = maxWidth && maxWidth > 0 ? Math.max(80, maxWidth - PREFIX_PADDING) : LEGACY_BUDGET;
+  const valueCap =
+    maxWidth && maxWidth > 0
+      ? Math.max(LEGACY_VALUE_CAP, Math.floor(budget / 3))
+      : LEGACY_VALUE_CAP;
+
   const parts: string[] = [];
   let len = 0;
   for (const k of keys) {
     const v = input[k];
     const val = typeof v === "string" ? v : JSON.stringify(v);
-    const short = val.length > 40 ? val.slice(0, 40) + "…" : val;
+    const short = val.length > valueCap ? val.slice(0, valueCap) + "…" : val;
     const part = `${k}=${short}`;
-    if (len + part.length > 120) break;
+    if (len + part.length > budget) break;
     parts.push(part);
     len += part.length + 2;
   }
@@ -67,7 +81,11 @@ function extractUsage(event: Record<string, unknown>): IterationUsage {
 /**
  * Parse a single line of Claude stream-json output into structured FeedEvents.
  */
-export function parseClaudeLine(line: string, state: ClaudeStreamState): FeedEvent[] {
+export function parseClaudeLine(
+  line: string,
+  state: ClaudeStreamState,
+  options?: { maxWidth?: number },
+): FeedEvent[] {
   if (!line.trim()) return [];
 
   let event: Record<string, unknown>;
@@ -119,7 +137,10 @@ export function parseClaudeLine(line: string, state: ClaudeStreamState): FeedEve
         } else if (btype === "tool_use") {
           state.toolCount++;
           const name = (block.name as string) ?? "?";
-          const summary = extractToolInputSummary((block.input ?? {}) as Record<string, unknown>);
+          const summary = extractToolInputSummary(
+            (block.input ?? {}) as Record<string, unknown>,
+            options?.maxWidth,
+          );
           const ev: Extract<FeedEvent, { type: "tool-start" }> = { type: "tool-start", name };
           if (summary) ev.summary = summary;
           events.push(ev);
