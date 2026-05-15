@@ -7,6 +7,7 @@ import {
   runPrPhase,
   runWorktreeCleanupPhase,
   runTeardownPhase,
+  summarizeUncommittedStatus,
   _resetRepoAutoMergeCache,
 } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
@@ -859,5 +860,148 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
 
     expect(calls.find((c) => c[0] === "gh" && c[1] === "api")).toBeUndefined();
     expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
+  });
+});
+
+describe("summarizeUncommittedStatus", () => {
+  test("returns count 0 for empty input", () => {
+    expect(summarizeUncommittedStatus("")).toEqual({ count: 0, preview: [], truncated: 0 });
+    expect(summarizeUncommittedStatus("\n")).toEqual({ count: 0, preview: [], truncated: 0 });
+  });
+
+  test("returns the verbatim porcelain lines when ≤10", () => {
+    const stdout = " M src/a.ts\n?? scratch.log\n";
+    const result = summarizeUncommittedStatus(stdout);
+    expect(result.count).toBe(2);
+    expect(result.preview).toEqual([" M src/a.ts", "?? scratch.log"]);
+    expect(result.truncated).toBe(0);
+  });
+
+  test("truncates to 10 entries with the remainder reported", () => {
+    const lines = Array.from({ length: 12 }, (_, i) => `?? file-${i}.ts`).join("\n");
+    const result = summarizeUncommittedStatus(lines);
+    expect(result.count).toBe(12);
+    expect(result.preview).toHaveLength(10);
+    expect(result.truncated).toBe(2);
+    expect(result.preview[0]).toBe("?? file-0.ts");
+    expect(result.preview[9]).toBe("?? file-9.ts");
+  });
+});
+
+describe("runPrPhase — uncommitted-changes log behavior", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-dirty-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const baseCfg = {
+    teardownScript: null,
+    prBaseBranch: "main",
+    autoMergeStrategy: "squash" as const,
+    maxCiFixAttempts: 3,
+    ciPollIntervalSeconds: 0,
+    cleanupWorktreeOnSuccess: false,
+    ignoreCiChecks: [],
+    stackPrsOnDependencies: false,
+    neverTouch: [],
+  };
+
+  test("dirty + existing PR logs gray informational line with file list, no yellow warning", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/55";
+    const { cmd } = makeCmd({
+      "git status --porcelain": { stdout: " M src/a.ts\n?? scratch.log\n" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      // first `gh pr list` (uncommitted-status branch) AND second (createPullRequest) both return existing URL.
+      "gh pr list": { stdout: prUrl },
+    });
+
+    const logged: Array<{ text: string; color?: string | undefined }> = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: (text, color) => logged.push({ text, color }),
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+    const grayLine = logged.find((l) => l.color === "gray" && l.text.includes("uncommitted file"));
+    expect(grayLine).toBeDefined();
+    expect(grayLine!.text).toContain(" M src/a.ts");
+    expect(grayLine!.text).toContain("?? scratch.log");
+    expect(grayLine!.text).toContain("will retry next iteration");
+    expect(
+      logged.find(
+        (l) => l.color === "yellow" && l.text.includes("has uncommitted changes after worker exit"),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("dirty + no existing PR logs yellow warning with file list", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/56";
+    const { cmd } = makeCmd({
+      "git status --porcelain": { stdout: "?? scratch.log\n" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      // gh pr list returns empty — no existing PR.
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    const logged: Array<{ text: string; color?: string | undefined }> = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: (text, color) => logged.push({ text, color }),
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+    const yellowLine = logged.find(
+      (l) => l.color === "yellow" && l.text.includes("has uncommitted changes after worker exit"),
+    );
+    expect(yellowLine).toBeDefined();
+    expect(yellowLine!.text).toContain("?? scratch.log");
   });
 });
