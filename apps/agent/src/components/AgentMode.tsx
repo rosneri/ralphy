@@ -43,7 +43,7 @@ interface WorkerMeta {
   phaseDetail: string;
   phaseStartedAt: number;
   currentTask: string | null;
-  pendingTasks: string[];
+  subtasks: Array<{ done: boolean; text: string }>;
   taskProgress: { checked: number; total: number } | null;
   openspecPhase: OpenSpecPhase | null;
   prUrl: string | null;
@@ -55,12 +55,12 @@ const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
 const MAX_PENDING_DISPLAY = 15;
 
-/** Extract all unchecked `- [ ] ...` items from a tasks.md document, in order. */
-export function parsePendingTasks(tasksMd: string): string[] {
-  const out: string[] = [];
+/** Extract all `- [x]` / `- [ ]` items from a tasks.md document, in order. */
+export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: string }> {
+  const out: Array<{ done: boolean; text: string }> = [];
   for (const line of tasksMd.split("\n")) {
-    const m = line.match(/^- \[ \] (.+)$/);
-    if (m) out.push(m[1]!.trim());
+    const m = line.match(/^- \[([ xX])\] (.+)$/);
+    if (m) out.push({ done: m[1] !== " ", text: m[2]!.trim() });
   }
   return out;
 }
@@ -308,7 +308,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   /** Index into activeWorkers of the focused worker card (0-based). */
   const [focusedIdx, setFocusedIdx] = useState(0);
   /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
-  const [showPendingTasks, setShowPendingTasks] = useState(false);
+  const [showPendingTasks, setShowPendingTasks] = useState(true);
   const coordRef = useRef<AgentCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -384,7 +384,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               phaseDetail: "",
               phaseStartedAt: Date.now(),
               currentTask: null,
-              pendingTasks: [],
+              subtasks: [],
               taskProgress: null,
               openspecPhase: null,
               prUrl: null,
@@ -557,9 +557,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 designFile.exists().then((ok) => (ok ? designFile.text() : null)),
               ]);
               if (tasksText !== null) {
-                const pending = parsePendingTasks(tasksText);
-                meta.pendingTasks = pending;
-                meta.currentTask = pending[0] ?? null;
+                const subtasks = parseSubtasks(tasksText);
+                meta.subtasks = subtasks;
+                meta.currentTask = subtasks.find((s) => !s.done)?.text ?? null;
                 const { checked, total } = countProgress(tasksText);
                 meta.taskProgress = total > 0 ? { checked, total } : null;
               }
@@ -878,7 +878,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const currentTask = meta?.currentTask ?? null;
           const taskProgress = meta?.taskProgress ?? null;
           const openspecPhase = meta?.openspecPhase ?? null;
-          const pendingTasks = meta?.pendingTasks ?? [];
+          const subtasks = meta?.subtasks ?? [];
 
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
@@ -978,63 +978,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 <Text color="white" bold>
                   {iter}
                 </Text>
-                <Text dimColor>│</Text>
-                <Text dimColor>Ctrl+T tasks{showPendingTasks ? " ▼" : ""}</Text>
               </Box>
-
-              {/* ── Phase pipeline / task progress bar ──────── */}
-              {openspecPhase && openspecPhase !== "implement" ? (
-                <Box marginTop={0}>
-                  {phasePipeline(openspecPhase).map((seg, i, arr) => {
-                    const glyph =
-                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
-                    const node =
-                      seg.status === "done" ? (
-                        <Text color="green">
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : seg.status === "current" ? (
-                        <Text color={openspecPhaseColor(seg.phase)} bold>
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : (
-                        <Text dimColor>
-                          {glyph} {seg.label}
-                        </Text>
-                      );
-                    return (
-                      <Box key={seg.phase}>
-                        {node}
-                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              ) : (
-                taskProgress &&
-                (() => {
-                  const bar = calcProgressBar(
-                    taskProgress.checked,
-                    taskProgress.total,
-                    termWidth - 4,
-                  );
-                  if (!bar) return null;
-                  const { countStr, filledLeft, leftSlot, filledRight, rightSlot } = bar;
-                  return (
-                    <Box marginTop={0}>
-                      <Text dimColor>[</Text>
-                      <Text color="green">{"█".repeat(filledLeft)}</Text>
-                      <Text dimColor>{"░".repeat(leftSlot - filledLeft)}</Text>
-                      <Text color="white" bold>
-                        {countStr}
-                      </Text>
-                      <Text color="green">{"█".repeat(filledRight)}</Text>
-                      <Text dimColor>{"░".repeat(rightSlot - filledRight)}</Text>
-                      <Text dimColor>]</Text>
-                    </Box>
-                  );
-                })()
-              )}
 
               {/* ── Current task ────────────────────────────── */}
               {currentTask && (
@@ -1081,25 +1025,88 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </Box>
               )}
 
-              {/* ── Pending tasks panel (Ctrl+T) ────────────── */}
-              {showPendingTasks && pendingTasks.length > 0 && (
+              {/* ── Subtasks panel (Ctrl+T) ─────────────────── */}
+              {showPendingTasks && subtasks.length > 0 && (
                 <Box flexDirection="column" marginTop={0}>
                   {(() => {
-                    const header = `─ PENDING TASKS (${pendingTasks.length}) `;
+                    const header = `─ SUBTASKS (${subtasks.length}) CTRL+T to close `;
                     const pad = "─".repeat(Math.max(4, termWidth - header.length - 4));
                     return <Text dimColor>{`${header}${pad}`}</Text>;
                   })()}
-                  {pendingTasks.slice(0, MAX_PENDING_DISPLAY).map((line, i) => (
-                    <Text key={`${w.changeName}-pending-${i}`}>
-                      <Text dimColor>{"· "}</Text>
-                      <Text>{trunc(line, termWidth - 6)}</Text>
+                  {subtasks.slice(0, MAX_PENDING_DISPLAY).map((s, i) => (
+                    <Text key={`${w.changeName}-subtask-${i}`}>
+                      {s.done ? <Text dimColor>{"[x] "}</Text> : <Text>{"[ ] "}</Text>}
+                      {s.done ? (
+                        <Text dimColor>{trunc(s.text, termWidth - 8)}</Text>
+                      ) : (
+                        <Text>{trunc(s.text, termWidth - 8)}</Text>
+                      )}
                     </Text>
                   ))}
-                  {pendingTasks.length > MAX_PENDING_DISPLAY && (
-                    <Text dimColor>{`· … +${pendingTasks.length - MAX_PENDING_DISPLAY} more`}</Text>
+                  {subtasks.length > MAX_PENDING_DISPLAY && (
+                    <Text dimColor>{`    … +${subtasks.length - MAX_PENDING_DISPLAY} more`}</Text>
                   )}
                 </Box>
               )}
+
+              {/* ── Phase pipeline (when panel collapsed) ───── */}
+              {!showPendingTasks && openspecPhase && openspecPhase !== "implement" && (
+                <Box marginTop={0}>
+                  {phasePipeline(openspecPhase).map((seg, i, arr) => {
+                    const glyph =
+                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
+                    const node =
+                      seg.status === "done" ? (
+                        <Text color="green">
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : seg.status === "current" ? (
+                        <Text color={openspecPhaseColor(seg.phase)} bold>
+                          {glyph} {seg.label}
+                        </Text>
+                      ) : (
+                        <Text dimColor>
+                          {glyph} {seg.label}
+                        </Text>
+                      );
+                    return (
+                      <Box key={seg.phase}>
+                        {node}
+                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
+                      </Box>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {/* ── Task progress bar (when panel collapsed) ── */}
+              {!showPendingTasks &&
+                (!openspecPhase || openspecPhase === "implement") &&
+                taskProgress &&
+                (() => {
+                  const hint = " CTRL+T to open";
+                  const bar = calcProgressBar(
+                    taskProgress.checked,
+                    taskProgress.total,
+                    termWidth - 4 - hint.length,
+                  );
+                  if (!bar) return null;
+                  const { countStr, filledLeft, leftSlot, filledRight, rightSlot } = bar;
+                  return (
+                    <Box marginTop={0}>
+                      <Text dimColor>[</Text>
+                      <Text color="green">{"█".repeat(filledLeft)}</Text>
+                      <Text dimColor>{"░".repeat(leftSlot - filledLeft)}</Text>
+                      <Text color="white" bold>
+                        {countStr}
+                      </Text>
+                      <Text color="green">{"█".repeat(filledRight)}</Text>
+                      <Text dimColor>{"░".repeat(rightSlot - filledRight)}</Text>
+                      <Text dimColor>]</Text>
+                      <Text dimColor>{hint}</Text>
+                    </Box>
+                  );
+                })()}
             </LabeledBox>
           );
         })}
