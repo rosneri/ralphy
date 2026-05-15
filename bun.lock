@@ -53,6 +53,7 @@
       },
       "devDependencies": {
         "@types/react": "^18.3.18",
+        "ink-testing-library": "^4.0.0",
         "react-devtools-core": "^7.0.1",
       },
     },
