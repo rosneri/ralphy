@@ -9,11 +9,11 @@
 
 ## Implementation
 
-- [ ] Add `addReactionToComment(apiKey, commentId, emoji)` to `apps/agent/src/agent/linear.ts` using a `reactionCreate` GraphQL mutation
-- [ ] Add `addGithubReactionToComment(source, commentId, emoji)` helper in `apps/agent/src/agent/wire.ts` that POSTs via `gh api` to the correct `/reactions` endpoint for issue comments vs PR review comments (mapping `👀` → `eyes`)
-- [ ] Wire reaction calls into `fetchMentions()` in `apps/agent/src/agent/wire.ts`: after pushing each new `MentionTrigger`, invoke the matching reaction helper inside a try/catch that logs and continues so failures never block enqueue
-- [ ] Add unit tests for the Linear `reactionCreate` mutation (mock fetch, assert payload includes commentId + `👀`)
-- [ ] Add unit tests for the GitHub reaction helper (mock `Bun.spawn` for `gh api`, assert endpoint + `content=eyes`) and for the wire-layer error-swallow path (reaction throws → trigger still returned)
-- [ ] Run `bunx openspec validate rlf-22-read-confirmed`
-- [ ] Run `bun run lint`
-- [ ] Run `bun run test`
+- [x] Add `addReactionToComment(apiKey, commentId, emoji)` to `apps/agent/src/agent/linear.ts` using a `reactionCreate` GraphQL mutation
+- [x] Add `addGithubReactionToComment(source, commentId, emoji)` helper in `apps/agent/src/agent/wire.ts` that POSTs via `gh api` to the correct `/reactions` endpoint for issue comments vs PR review comments (mapping `👀` → `eyes`)
+- [x] Wire reaction calls into `fetchMentions()` in `apps/agent/src/agent/wire.ts`: after pushing each new `MentionTrigger`, invoke the matching reaction helper inside a try/catch that logs and continues so failures never block enqueue
+- [x] Add unit tests for the Linear `reactionCreate` mutation (mock fetch, assert payload includes commentId + `👀`)
+- [x] Add unit tests for the GitHub reaction helper (mock `Bun.spawn` for `gh api`, assert endpoint + `content=eyes`) and for the wire-layer error-swallow path (reaction throws → trigger still returned)
+- [x] Run `bunx openspec validate rlf-22-read-confirmed`
+- [x] Run `bun run lint`
+- [x] Run `bun run test`

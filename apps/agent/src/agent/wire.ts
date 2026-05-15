@@ -11,6 +11,7 @@ import type { RalphyConfig } from "./config";
 import {
   fetchOpenIssues,
   addIssueComment,
+  addReactionToComment,
   fetchIssueComments,
   fetchIssueAttachments,
   upsertRalphyAttachment,
@@ -41,6 +42,30 @@ import { runPostTask, type PostTaskPhase } from "./post-task";
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
 type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
+
+/** Map a unicode emoji to GitHub's reactions API `content` slug. */
+export function githubReactionSlug(emoji: string): string {
+  switch (emoji) {
+    case "👀":
+      return "eyes";
+    case "👍":
+      return "+1";
+    case "👎":
+      return "-1";
+    case "❤️":
+      return "heart";
+    case "🎉":
+      return "hooray";
+    case "🚀":
+      return "rocket";
+    case "😄":
+      return "laugh";
+    case "😕":
+      return "confused";
+    default:
+      return emoji;
+  }
+}
 
 const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {
@@ -1245,6 +1270,14 @@ export function buildAgentCoordinator(
               url: issue.url,
             },
           });
+          try {
+            await addReactionToComment(apiKey, c.id, "👀");
+          } catch (err) {
+            onLog(
+              `! mention scan: Linear reaction failed for ${issue.identifier}: ${(err as Error).message}`,
+              "yellow",
+            );
+          }
           queued.add(issue.id);
           break;
         }
@@ -1257,6 +1290,7 @@ export function buildAgentCoordinator(
 
       if (wantMention) {
         const ghComments = await fetchPrIssueComments(prUrl);
+        const prMatch = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(prUrl);
         for (const c of ghComments) {
           if (!containsHandle(c.body, handle)) continue;
           if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
@@ -1270,6 +1304,21 @@ export function buildAgentCoordinator(
               url: c.url,
             },
           });
+          if (prMatch) {
+            const [, owner, repo] = prMatch;
+            try {
+              await addGithubReactionToComment(
+                { owner: owner!, repo: repo!, kind: "issue" },
+                c.id,
+                "👀",
+              );
+            } catch (err) {
+              onLog(
+                `! mention scan: GitHub reaction failed for ${prUrl}: ${(err as Error).message}`,
+                "yellow",
+              );
+            }
+          }
           queued.add(issue.id);
           break;
         }
@@ -1519,12 +1568,30 @@ export function buildAgentCoordinator(
     return found;
   }
 
+  /** Post a reaction to a GitHub comment via `gh api`. `kind` selects the
+   *  REST endpoint: issue/PR-conversation comments use `/issues/comments/{id}`
+   *  while diff-bound PR review comments use `/pulls/comments/{id}`. `emoji`
+   *  is the unicode glyph (e.g. `👀`), mapped here to the GitHub content slug
+   *  (e.g. `eyes`). */
+  async function addGithubReactionToComment(
+    source: { owner: string; repo: string; kind: "issue" | "review" },
+    commentId: number,
+    emoji: string,
+  ): Promise<void> {
+    const content = githubReactionSlug(emoji);
+    const path =
+      source.kind === "issue"
+        ? `repos/${source.owner}/${source.repo}/issues/comments/${commentId}/reactions`
+        : `repos/${source.owner}/${source.repo}/pulls/comments/${commentId}/reactions`;
+    await cmdRunner.run(["gh", "api", "-X", "POST", path, "-f", `content=${content}`], projectRoot);
+  }
+
   /** Fetch issue-level comments on a PR (i.e. the conversation tab).
    *  Review-thread comments aren't included — they're tied to specific
    *  diff hunks and are out of scope for this trigger. */
   async function fetchPrIssueComments(
     prUrl: string,
-  ): Promise<{ body: string; createdAt: string; author?: string; url: string }[]> {
+  ): Promise<{ id: number; body: string; createdAt: string; author?: string; url: string }[]> {
     const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(prUrl);
     if (!m) return [];
     const [, owner, repo, num] = m;
@@ -1535,11 +1602,12 @@ export function buildAgentCoordinator(
           "api",
           `repos/${owner}/${repo}/issues/${num}/comments`,
           "--jq",
-          "[.[] | {body: .body, createdAt: .created_at, author: .user.login, url: .html_url}]",
+          "[.[] | {id: .id, body: .body, createdAt: .created_at, author: .user.login, url: .html_url}]",
         ],
         projectRoot,
       );
       const parsed = JSON.parse(res.stdout || "[]") as {
+        id: number;
         body: string;
         createdAt: string;
         author?: string;

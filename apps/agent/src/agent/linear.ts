@@ -236,6 +236,24 @@ async function linearRequest<T>(
   return json.data;
 }
 
+/** Add a reaction (Linear `reactionCreate` mutation) to a comment.
+ *  Best-effort acknowledgement that Ralphy has seen a mention. Linear
+ *  treats the (user, comment, emoji) tuple as idempotent, so re-running
+ *  on the same comment is a no-op. */
+export async function addReactionToComment(
+  apiKey: string,
+  commentId: string,
+  emoji: string,
+): Promise<void> {
+  const mutation = `mutation Reaction($commentId: String!, $emoji: String!) {
+    reactionCreate(input: { commentId: $commentId, emoji: $emoji }) { success }
+  }`;
+  await linearRequest<{ reactionCreate: { success: boolean } }>(apiKey, mutation, {
+    commentId,
+    emoji,
+  });
+}
+
 export async function addIssueComment(
   apiKey: string,
   issueId: string,
