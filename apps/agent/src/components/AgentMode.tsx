@@ -417,6 +417,9 @@ export function AgentMode({
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
   const cfgRef = useRef<RalphyConfig | null>(null);
+  const [effective, setEffective] = useState<{ concurrency: number; pollInterval: number } | null>(
+    null,
+  );
   const [pollStatus, setPollStatus] = useState<{
     state: "idle" | "polling";
     lastFound: number | null;
@@ -531,8 +534,7 @@ export function AgentMode({
           if (m) m.prUrl = prUrl;
         },
       });
-      void concurrency;
-      void pollInterval;
+      setEffective({ concurrency, pollInterval });
 
       coordRef.current = coord;
       await coord.init();
@@ -804,8 +806,8 @@ export function AgentMode({
                 <Text color="cyan" bold>
                   {cfg.engine}/{cfg.model}
                 </Text>
-                <Text dimColor> │ ×{cfg.concurrency}</Text>
-                <Text dimColor> │ poll {cfg.pollIntervalSeconds}s</Text>
+                <Text dimColor> │ ×{effective?.concurrency ?? cfg.concurrency}</Text>
+                <Text dimColor> │ poll {effective?.pollInterval ?? cfg.pollIntervalSeconds}s</Text>
                 {cfg.maxIterationsPerTask > 0 && (
                   <Text color="yellow"> │ iter ≤{cfg.maxIterationsPerTask}</Text>
                 )}
