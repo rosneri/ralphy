@@ -110,6 +110,7 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
               description: null,
               url: "https://linear.app/x/ENG-7",
               priority: 3,
+              createdAt: "2026-01-01T00:00:00.000Z",
               state: { name: "Done", type: "completed" },
               assignee: null,
               labels: { nodes: [] },
