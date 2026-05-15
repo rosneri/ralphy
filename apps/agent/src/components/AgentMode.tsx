@@ -1055,9 +1055,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     </Text>
                   ))}
                   {pendingTasks.length > MAX_PENDING_DISPLAY && (
-                    <Text dimColor>
-                      {`· … +${pendingTasks.length - MAX_PENDING_DISPLAY} more`}
-                    </Text>
+                    <Text dimColor>{`· … +${pendingTasks.length - MAX_PENDING_DISPLAY} more`}</Text>
                   )}
                 </Box>
               )}
