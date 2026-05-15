@@ -9,11 +9,11 @@
 
 ## Implementation
 
-- [ ] Add `apps/loop/src/hooks/useTerminalSize.ts` — React hook that subscribes to `process.stdout` `"resize"`, returns `{ columns, rows, resizeKey }`, dedupes no-op size changes, and cleans up its listener on unmount. Skip listening when stdout is not a TTY.
-- [ ] Update `apps/loop/src/components/TaskLoop.tsx`: consume `useTerminalSize`, on `resizeKey` change write `\x1b[2J\x1b[3J\x1b[H` to `useStdout().write(...)`, and apply `key={resizeKey}` to the root `<Box>` so Static + dynamic regions remount at the new size.
-- [ ] Update `apps/loop/src/components/StatusBar.tsx`: replace the hard-coded `"─".repeat(52)` with a width derived from `useStdout().stdout.columns` (or `useTerminalSize`) — clamped to `[8, 52]`.
-- [ ] Add `apps/loop/src/hooks/__tests__/useTerminalSize.test.ts` covering: initial size from stdout, listener attached on mount + removed on unmount, state updates when stdout emits `"resize"`, no-op resize does not bump `resizeKey`.
-- [ ] Run `bun run lint` and fix any issues.
-- [ ] Run `bun run test` and ensure the suite passes (no coverage threshold reduction).
-- [ ] Run `bunx openspec validate rlf-24-preserve-ui-state-on-terminal-resize`.
-- [ ] Stage modified files individually (`git add <path>`), commit, push branch, and open the PR with the change name as title and a concise summary.
+- [x] Add `apps/loop/src/hooks/useTerminalSize.ts` — React hook that subscribes to `process.stdout` `"resize"`, returns `{ columns, rows, resizeKey }`, dedupes no-op size changes, and cleans up its listener on unmount. Skip listening when stdout is not a TTY.
+- [x] Update `apps/loop/src/components/TaskLoop.tsx`: consume `useTerminalSize`, on `resizeKey` change write `\x1b[2J\x1b[3J\x1b[H` to `useStdout().write(...)`, and apply `key={resizeKey}` to the root `<Box>` so Static + dynamic regions remount at the new size.
+- [x] Update `apps/loop/src/components/StatusBar.tsx`: replace the hard-coded `"─".repeat(52)` with a width derived from `useStdout().stdout.columns` (or `useTerminalSize`) — clamped to `[8, 52]`.
+- [x] Add `apps/loop/src/hooks/__tests__/useTerminalSize.test.ts` covering: initial size from stdout, listener attached on mount + removed on unmount, state updates when stdout emits `"resize"`, no-op resize does not bump `resizeKey`.
+- [x] Run `bun run lint` and fix any issues.
+- [x] Run `bun run test` and ensure the suite passes (no coverage threshold reduction).
+- [x] Run `bunx openspec validate rlf-24-preserve-ui-state-on-terminal-resize`.
+- [x] Stage modified files individually (`git add <path>`), commit, push branch, and open the PR with the change name as title and a concise summary.
