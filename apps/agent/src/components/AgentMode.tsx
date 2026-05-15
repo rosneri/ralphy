@@ -1224,10 +1224,7 @@ export function AgentMode({
                       }
                       const restarted = await coordRef.current?.restartWorker(w.changeName);
                       if (restarted) {
-                        appendLog(
-                          `  ${w.changeName}: steering applied, restarting worker`,
-                          "cyan",
-                        );
+                        appendLog(`  ${w.changeName}: steering applied, restarting worker`, "cyan");
                       } else {
                         appendLog(
                           `  ${w.changeName}: steering queued — will apply on next iteration`,
