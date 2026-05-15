@@ -33,9 +33,7 @@ describe("StatusBar", () => {
   });
 
   test("renders check mark when not running", () => {
-    const { lastFrame } = render(
-      <StatusBar {...baseProps} isRunning={false} />,
-    );
+    const { lastFrame } = render(<StatusBar {...baseProps} isRunning={false} />);
     // Check mark should be present instead of spinner
     expect(lastFrame()!).toBeDefined();
   });
@@ -47,17 +45,13 @@ describe("StatusBar", () => {
 
   test("formatElapsed handles seconds", () => {
     // startedAt is close to now, so elapsed should be 0s or very small
-    const { lastFrame } = render(
-      <StatusBar {...baseProps} startedAt={Date.now()} />,
-    );
+    const { lastFrame } = render(<StatusBar {...baseProps} startedAt={Date.now()} />);
     expect(lastFrame()!).toContain("0s");
   });
 
   test("formatElapsed handles minutes", async () => {
     // startedAt 90 seconds ago; need to wait for the setInterval to fire
-    const { lastFrame } = render(
-      <StatusBar {...baseProps} startedAt={Date.now() - 90_000} />,
-    );
+    const { lastFrame } = render(<StatusBar {...baseProps} startedAt={Date.now() - 90_000} />);
     await new Promise((r) => setTimeout(r, 1100));
     expect(lastFrame()!).toContain("1m");
   });
