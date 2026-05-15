@@ -12,7 +12,11 @@ import type { EngineResult } from "@ralphy/engine/engine";
 
 // Mock the engine module to avoid spawning real processes
 const runEngineMock = mock(
-  async (opts: { onFeedEvent?: (e: unknown) => void }): Promise<EngineResult> => {
+  async (opts: {
+    onFeedEvent?: (e: unknown) => void;
+    signal?: AbortSignal;
+    resumeSessionId?: string;
+  }): Promise<EngineResult> => {
     // Emit a few feed events for coverage
     if (opts.onFeedEvent) {
       opts.onFeedEvent({ type: "session", model: "opus", sessionId: "test123" });
