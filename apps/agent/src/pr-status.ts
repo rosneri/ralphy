@@ -1,4 +1,4 @@
-import type { CmdRunner } from "./pr";
+import type { CmdRunner } from "./agent/pr";
 
 export type CiBucket = "pass" | "fail" | "pending";
 export type Mergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";

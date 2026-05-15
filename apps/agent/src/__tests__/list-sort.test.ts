@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { assignTier, sortRows, type SortableRow } from "../list-sort";
-import type { PrStatus, PrStatusOk } from "../agent/pr-status";
+import type { PrStatus, PrStatusOk } from "../pr-status";
 
 function ok(overrides: Partial<PrStatusOk> = {}): PrStatus {
   return {

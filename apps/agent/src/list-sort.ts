@@ -1,6 +1,6 @@
-import type { PrStatus } from "./agent/pr-status";
+import type { PrStatus } from "./pr-status";
 
-export type Tier = 1 | 2 | 3 | 4 | 5;
+type Tier = 1 | 2 | 3 | 4 | 5;
 
 /**
  * Tier assignment per the RLF-13 prioritization rules:

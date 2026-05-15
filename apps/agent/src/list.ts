@@ -10,7 +10,7 @@ import {
   type LinearFilterSpec,
   type LinearIssue,
 } from "./agent/linear";
-import { fetchPrStatus, type PrStatus } from "./agent/pr-status";
+import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
 import { sortRows, type SortableRow } from "./list-sort";
 
@@ -200,7 +200,7 @@ const localCmdRunner: CmdRunner = {
 };
 
 /** Render the PR status as a short marker for the unified list table. */
-export function formatPrStatusMarker(status: PrStatus | null): string {
+function formatPrStatusMarker(status: PrStatus | null): string {
   if (status === null) return "(no PR)";
   if (status.kind === "error") return "?";
   if (status.state === "MERGED") return "merged";

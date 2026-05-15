@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fetchPrStatus, type PrStatusOk } from "../agent/pr-status";
+import { fetchPrStatus, type PrStatusOk } from "../pr-status";
 import type { CmdRunner } from "../agent/pr";
 
 interface ResponseSpec {
