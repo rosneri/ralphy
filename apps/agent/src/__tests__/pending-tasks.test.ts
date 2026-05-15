@@ -1,8 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { parsePendingTasks } from "../components/AgentMode";
+import { parseSubtasks } from "../components/AgentMode";
 
-describe("parsePendingTasks", () => {
-  it("returns all unchecked items in document order", () => {
+describe("parseSubtasks", () => {
+  it("returns all done and pending items in document order", () => {
     const md = [
       "# Tasks",
       "",
@@ -15,23 +15,29 @@ describe("parsePendingTasks", () => {
       "- [x] another done",
       "- [ ] third pending",
     ].join("\n");
-    expect(parsePendingTasks(md)).toEqual(["first pending", "second pending", "third pending"]);
-  });
-
-  it("returns an empty array when nothing is pending", () => {
-    expect(parsePendingTasks("- [x] one\n- [x] two\n")).toEqual([]);
+    expect(parseSubtasks(md)).toEqual([
+      { done: true, text: "done thing" },
+      { done: false, text: "first pending" },
+      { done: false, text: "second pending" },
+      { done: true, text: "another done" },
+      { done: false, text: "third pending" },
+    ]);
   });
 
   it("returns an empty array for empty input", () => {
-    expect(parsePendingTasks("")).toEqual([]);
+    expect(parseSubtasks("")).toEqual([]);
   });
 
   it("trims whitespace on items", () => {
-    expect(parsePendingTasks("- [ ]   spaced item   ")).toEqual(["spaced item"]);
+    expect(parseSubtasks("- [ ]   spaced item   ")).toEqual([{ done: false, text: "spaced item" }]);
+    expect(parseSubtasks("- [x]   done item   ")).toEqual([{ done: true, text: "done item" }]);
   });
 
   it("ignores non-task lines", () => {
-    const md = "Some prose\n- [ ] real task\nMore prose\n* [ ] not a task\n";
-    expect(parsePendingTasks(md)).toEqual(["real task"]);
+    const md = "Some prose\n- [ ] real task\nMore prose\n* [ ] not a task\n- [x] done task\n";
+    expect(parseSubtasks(md)).toEqual([
+      { done: false, text: "real task" },
+      { done: true, text: "done task" },
+    ]);
   });
 });

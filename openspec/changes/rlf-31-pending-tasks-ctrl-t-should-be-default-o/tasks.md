@@ -9,13 +9,13 @@
 
 ## Implementation
 
-- [ ] Replace `parsePendingTasks` in `apps/agent/src/components/AgentMode.tsx` with `parseSubtasks(tasksMd): Array<{ done: boolean; text: string }>` that returns every `- [x]` / `- [ ]` line in document order
-- [ ] Update `WorkerMeta` to store `subtasks: Array<{ done: boolean; text: string }>` and adjust the initial empty state plus the polling loop assignment so `currentTask` becomes the first item with `done === false`
-- [ ] Default `showPendingTasks` `useState` to `true` so the SUBTASKS panel is open on launch
-- [ ] Remove the `│ Ctrl+T tasks …` segment from the worker card header
-- [ ] Rename the panel header to `SUBTASKS (N)` and append `CTRL+T to close`; render each subtask with `[x] ` (dim) or `[ ] ` (normal) prefix and keep the `MAX_PENDING_DISPLAY` cap
-- [ ] Move the task progress bar to the bottom of the card and render it only when `showPendingTasks` is false; append a dim `CTRL+T to open` hint after the `#/#` count
-- [ ] Rewrite `apps/agent/src/__tests__/pending-tasks.test.ts` to cover `parseSubtasks` (ordered done+pending entries, ignores non-task lines, trims whitespace, empty input)
-- [ ] Run `bun run lint` and fix any findings
-- [ ] Run `bun run test` and fix any failures
-- [ ] Run `bunx openspec validate rlf-31-pending-tasks-ctrl-t-should-be-default-o`
+- [x] Replace `parsePendingTasks` in `apps/agent/src/components/AgentMode.tsx` with `parseSubtasks(tasksMd): Array<{ done: boolean; text: string }>` that returns every `- [x]` / `- [ ]` line in document order
+- [x] Update `WorkerMeta` to store `subtasks: Array<{ done: boolean; text: string }>` and adjust the initial empty state plus the polling loop assignment so `currentTask` becomes the first item with `done === false`
+- [x] Default `showPendingTasks` `useState` to `true` so the SUBTASKS panel is open on launch
+- [x] Remove the `│ Ctrl+T tasks …` segment from the worker card header
+- [x] Rename the panel header to `SUBTASKS (N)` and append `CTRL+T to close`; render each subtask with `[x] ` (dim) or `[ ] ` (normal) prefix and keep the `MAX_PENDING_DISPLAY` cap
+- [x] Move the task progress bar to the bottom of the card and render it only when `showPendingTasks` is false; append a dim `CTRL+T to open` hint after the `#/#` count
+- [x] Rewrite `apps/agent/src/__tests__/pending-tasks.test.ts` to cover `parseSubtasks` (ordered done+pending entries, ignores non-task lines, trims whitespace, empty input)
+- [x] Run `bun run lint` and fix any findings
+- [x] Run `bun run test` and fix any failures
+- [x] Run `bunx openspec validate rlf-31-pending-tasks-ctrl-t-should-be-default-o`
