@@ -80,9 +80,9 @@ ci Format ch
 
 ## Manual Testing
 
-- [ ] Run the agent dashboard (`bun run dev` or `ralph agent`) against a worker whose `tasks.md` has accumulated more than 15 completed items above one unchecked item; confirm the SUBTASKS panel shows the unchecked item at row 1 with the `+N more` ellipsis below.
-- [ ] Trigger a CI failure on an open PR (or hand-craft `tasks.md` to mimic post `prependFixTask("Fix failing CI checks", …)`) and confirm the freshly-added `[ ] Fix failing CI checks…` row appears at the top of the SUBTASKS panel, with prior unchecked mission tasks still visible below it.
-- [ ] Press `Ctrl+Shift+T` to expand the SUBTASKS panel and confirm the items render in literal file order (no reorder, no cap) — completed items appear interleaved with pending items as they sit in the file.
-- [ ] Press `Ctrl+T` to collapse the panel and confirm the reorder + cap reappears.
-- [ ] Edge case: a `tasks.md` with all items completed still renders the panel unchanged (no regression — full list, no ellipsis until past 15 items).
-- [ ] Edge case: a `tasks.md` with only Planning items renders no SUBTASKS rows (since `parseSubtasks` skips the Planning section).
+- [x] Run the agent dashboard (`bun run dev` or `ralph agent`) against a worker whose `tasks.md` has accumulated more than 15 completed items above one unchecked item; confirm the SUBTASKS panel shows the unchecked item at row 1 with the `+N more` ellipsis below.
+- [x] Trigger a CI failure on an open PR (or hand-craft `tasks.md` to mimic post `prependFixTask("Fix failing CI checks", …)`) and confirm the freshly-added `[ ] Fix failing CI checks…` row appears at the top of the SUBTASKS panel, with prior unchecked mission tasks still visible below it.
+- [x] Press `Ctrl+Shift+T` to expand the SUBTASKS panel and confirm the items render in literal file order (no reorder, no cap) — completed items appear interleaved with pending items as they sit in the file.
+- [x] Press `Ctrl+T` to collapse the panel and confirm the reorder + cap reappears.
+- [x] Edge case: a `tasks.md` with all items completed still renders the panel unchanged (no regression — full list, no ellipsis until past 15 items).
+- [x] Edge case: a `tasks.md` with only Planning items renders no SUBTASKS rows (since `parseSubtasks` skips the Planning section).
