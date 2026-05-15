@@ -545,6 +545,76 @@ export function issueMatchesGetIndicator(
   });
 }
 
+/** Create a brand-new Linear issue. Used by the baseline gate to file a
+ *  ticket for a broken trunk. Returns the new issue's id + identifier. */
+export async function createIssue(
+  apiKey: string,
+  input: { teamId: string; title: string; description: string; labelIds?: string[] },
+): Promise<{ id: string; identifier: string }> {
+  const mutation = `mutation CreateIssue($input: IssueCreateInput!) {
+    issueCreate(input: $input) {
+      success
+      issue { id identifier }
+    }
+  }`;
+  const variables: Record<string, unknown> = {
+    input: {
+      teamId: input.teamId,
+      title: input.title,
+      description: input.description,
+      ...(input.labelIds && input.labelIds.length > 0 ? { labelIds: input.labelIds } : {}),
+    },
+  };
+  const data = await linearRequest<{
+    issueCreate: { success: boolean; issue: { id: string; identifier: string } | null };
+  }>(apiKey, mutation, variables);
+  const issue = data.issueCreate.issue;
+  if (!issue) throw new Error("issueCreate returned no issue");
+  return issue;
+}
+
+/** Replace an issue's description body. Used by the baseline gate to refresh
+ *  the failing-command output when the fingerprint changes. */
+export async function updateIssueDescription(
+  apiKey: string,
+  issueId: string,
+  description: string,
+): Promise<void> {
+  const mutation = `mutation UpdateDesc($id: String!, $description: String!) {
+    issueUpdate(id: $id, input: { description: $description }) { success }
+  }`;
+  await linearRequest<{ issueUpdate: { success: boolean } }>(apiKey, mutation, {
+    id: issueId,
+    description,
+  });
+}
+
+/** Find the most recent open (non-completed/cancelled) issue carrying the
+ *  given label in the given team. Returns null when none exists. */
+export async function findOpenIssueByLabel(
+  apiKey: string,
+  teamKey: string,
+  labelName: string,
+): Promise<{ id: string; identifier: string; description: string | null } | null> {
+  const query = `query OpenByLabel($team: String!, $label: String!) {
+    issues(
+      filter: {
+        team: { key: { eq: $team } },
+        labels: { some: { name: { eq: $label } } },
+        state: { type: { in: ["unstarted", "started", "backlog", "triage"] } }
+      },
+      first: 1,
+      orderBy: createdAt
+    ) {
+      nodes { id identifier description }
+    }
+  }`;
+  const data = await linearRequest<{
+    issues: { nodes: { id: string; identifier: string; description: string | null }[] };
+  }>(apiKey, query, { team: teamKey, label: labelName });
+  return data.issues.nodes[0] ?? null;
+}
+
 /** Remove a label from an issue. No-op if the issue does not bear it. */
 export async function removeLabelFromIssue(
   apiKey: string,
