@@ -7,6 +7,8 @@ const CTRL_S = "\x13"; // Ctrl+S = SOH (0x13)
 const ESC = "\x1b";
 const ENTER = "\r";
 const BACKSPACE = "\x7f";
+const LEFT_ARROW = "\x1b[D";
+const RIGHT_ARROW = "\x1b[C";
 
 async function flush() {
   await new Promise((r) => setTimeout(r, 50));
@@ -120,6 +122,56 @@ describe("SteeringField", () => {
     stdin.write(ENTER);
     await flush();
     expect(calls).toEqual([]);
+    unmount();
+  });
+
+  test("LeftArrow + RightArrow move the cursor; backspace respects position", async () => {
+    const { stdin, lastFrame, unmount } = render(
+      React.createElement(SteeringField, {
+        active: true,
+        width: 60,
+        onSubmit: () => {},
+      }),
+    );
+    await flush();
+    stdin.write(CTRL_S);
+    await flush();
+    stdin.write("abcd");
+    await flush();
+    stdin.write(LEFT_ARROW);
+    await flush();
+    stdin.write(LEFT_ARROW);
+    await flush();
+    stdin.write(BACKSPACE);
+    await flush();
+    let frame = lastFrame() ?? "";
+    expect(frame).toContain("acd");
+    stdin.write(RIGHT_ARROW);
+    await flush();
+    stdin.write("X");
+    await flush();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("acXd");
+    unmount();
+  });
+
+  test("Enter shows 'send failed' hint when onSubmit rejects", async () => {
+    const { stdin, lastFrame, unmount } = render(
+      React.createElement(SteeringField, {
+        active: true,
+        width: 60,
+        onSubmit: () => Promise.reject(new Error("boom")),
+      }),
+    );
+    await flush();
+    stdin.write(CTRL_S);
+    await flush();
+    stdin.write("hello");
+    await flush();
+    stdin.write(ENTER);
+    await flush();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("send failed");
     unmount();
   });
 
