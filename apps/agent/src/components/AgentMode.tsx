@@ -337,69 +337,71 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
-      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildAgentCoordinator({
-        args,
-        cfg,
-        projectRoot,
-        statesDir,
-        tasksDir,
-        apiKey,
-        onLog: appendLog,
-        onWorkersChanged: () => setTick((t) => t + 1),
-        onWorkerStarted: (changeName, dir, logFile, changeDir) => {
-          logSession(`worker-started ${changeName} log=${logFile}`, logFile);
-          workerMetaRef.current.set(changeName, {
-            startedAt: Date.now(),
-            statesDir: dir,
-            logFile,
-            changeDir,
-            iter: 0,
-            phase: "working",
-            phaseDetail: "",
-            phaseStartedAt: Date.now(),
-            currentTask: null,
-            taskProgress: null,
-            openspecPhase: null,
-            prUrl: null,
-            currentCmd: null,
-            tail: [],
-          });
-        },
-        onWorkerExited: (changeName) => {
-          const m = workerMetaRef.current.get(changeName);
-          logSession(`worker-exited ${changeName}`, m?.logFile);
-          workerMetaRef.current.delete(changeName);
-        },
-        onWorkerPhase: (changeName, phase, detail) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (!m) return;
-          if (m.phase !== phase) m.phaseStartedAt = Date.now();
-          m.phase = phase;
-          m.phaseDetail = detail ?? "";
-          logPhase(changeName, m.logFile, phase, detail);
-        },
-        onWorkerOutput: (changeName, line) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (!m) return;
-          const clean = cleanOutputLine(line);
-          if (!clean) return;
-          m.tail.push(clean);
-          if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
-        },
-        onWorkerCmd: (changeName, cmd, state) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (!m) return;
-          if (state === "start") {
-            m.currentCmd = { argv: cmd, startedAt: Date.now() };
-          } else {
-            m.currentCmd = null;
-          }
-        },
-        onWorkerPr: (changeName, prUrl) => {
-          const m = workerMetaRef.current.get(changeName);
-          if (m) m.prUrl = prUrl;
-        },
-      });
+      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } =
+        buildAgentCoordinator({
+          args,
+          cfg,
+          projectRoot,
+          statesDir,
+          tasksDir,
+          apiKey,
+          onLog: appendLog,
+          onWorkersChanged: () => setTick((t) => t + 1),
+          onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+            logSession(`worker-started ${changeName} log=${logFile}`, logFile);
+            workerMetaRef.current.set(changeName, {
+              startedAt: Date.now(),
+              statesDir: dir,
+              logFile,
+              changeDir,
+              iter: 0,
+              phase: "working",
+              phaseDetail: "",
+              phaseStartedAt: Date.now(),
+              currentTask: null,
+              taskProgress: null,
+              openspecPhase: null,
+              prUrl: null,
+              currentCmd: null,
+              tail: [],
+            });
+          },
+          onWorkerExited: (changeName) => {
+            const m = workerMetaRef.current.get(changeName);
+            logSession(`worker-exited ${changeName}`, m?.logFile);
+            workerMetaRef.current.delete(changeName);
+          },
+          onWorkerPhase: (changeName, phase, detail) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (!m) return;
+            if (m.phase !== phase) m.phaseStartedAt = Date.now();
+            m.phase = phase;
+            m.phaseDetail = detail ?? "";
+            logPhase(changeName, m.logFile, phase, detail);
+          },
+          onWorkerOutput: (changeName, line) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (!m) return;
+            const clean = cleanOutputLine(line);
+            if (!clean) return;
+            m.tail.push(clean);
+            if (m.tail.length > TAIL_BUFFER_SIZE)
+              m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
+          },
+          onWorkerCmd: (changeName, cmd, state) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (!m) return;
+            if (state === "start") {
+              m.currentCmd = { argv: cmd, startedAt: Date.now() };
+            } else {
+              m.currentCmd = null;
+            }
+          },
+          onWorkerPr: (changeName, prUrl) => {
+            const m = workerMetaRef.current.get(changeName);
+            if (m) m.prUrl = prUrl;
+          },
+        });
       void concurrency;
       void pollInterval;
 
