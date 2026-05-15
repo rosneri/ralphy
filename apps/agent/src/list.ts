@@ -10,6 +10,9 @@ import {
   type LinearFilterSpec,
   type LinearIssue,
 } from "./agent/linear";
+import { fetchPrStatus, type PrStatus } from "./pr-status";
+import type { CmdRunner } from "./agent/pr";
+import { sortRows, type SortableRow } from "./list-sort";
 
 interface LocalRow {
   name: string;
@@ -171,48 +174,138 @@ async function fetchBucketIssues(
   return fetchOpenIssues(apiKey, spec);
 }
 
-async function printBucket(
+interface UnifiedRow extends SortableRow {
+  issueId: string;
+  bucketLabel: string;
+  stateName: string;
+  title: string;
+  prUrl: string | null;
+}
+
+const localCmdRunner: CmdRunner = {
+  run: async (cmd, cwd) => {
+    const proc = Bun.spawn({ cmd, cwd, stdout: "pipe", stderr: "pipe" });
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const code = await proc.exited;
+    if (code !== 0) {
+      const err = new Error(`\`${cmd.join(" ")}\` exited ${code}`) as Error & {
+        stderr?: string;
+      };
+      err.stderr = stderr;
+      throw err;
+    }
+    return { stdout, stderr };
+  },
+};
+
+/** Render the PR status as a short marker for the unified list table. */
+function formatPrStatusMarker(status: PrStatus | null): string {
+  if (status === null) return "(no PR)";
+  if (status.kind === "error") return "?";
+  if (status.state === "MERGED") return "merged";
+  if (status.state === "CLOSED") return "closed";
+  const parts: string[] = [];
+  if (status.mergeable === "CONFLICTING") parts.push("✗conflict");
+  if (status.ciBucket === "fail") parts.push("✗ci");
+  if (status.ciBucket === "pending") parts.push("⏳ci");
+  if (status.isDraft) parts.push("draft");
+  if (status.autoMergeEnabled) parts.push("auto-merge");
+  if (parts.length === 0) return "ok";
+  return parts.join(" ");
+}
+
+async function fetchAndPrintLinear(
   apiKey: string,
-  bucket: Bucket,
+  buckets: Bucket[],
   team: string | undefined,
   assignee: string | undefined,
+  cwd: string,
+  runner: CmdRunner,
 ): Promise<void> {
-  if (!bucket.indicator || bucket.indicator.filter.length === 0) {
-    return;
-  }
-  let issues: LinearIssue[] = [];
-  try {
-    issues = await fetchBucketIssues(apiKey, bucket, team, assignee);
-  } catch (err) {
-    process.stdout.write(
-      `\n${bucket.label}: error fetching from Linear — ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    return;
-  }
-
-  const filterStr = bucket.indicator.filter.map((m) => `${m.type}:${m.value}`).join(", ");
-  process.stdout.write(`\n${bucket.label} [${filterStr}] — ${issues.length} issue(s)\n`);
-  if (issues.length === 0) return;
-
-  const prUrls = await Promise.all(
-    issues.map(async (issue) => {
+  // Fan out across buckets in parallel.
+  const bucketResults = await Promise.all(
+    buckets.map(async (bucket) => {
+      if (!bucket.indicator || bucket.indicator.filter.length === 0) {
+        return { bucket, issues: [] as LinearIssue[], error: null as string | null };
+      }
       try {
-        const attachments = await fetchIssueAttachments(apiKey, issue.id);
-        return findPullRequestUrl(attachments);
-      } catch {
-        return null;
+        const issues = await fetchBucketIssues(apiKey, bucket, team, assignee);
+        return { bucket, issues, error: null };
+      } catch (err) {
+        return {
+          bucket,
+          issues: [] as LinearIssue[],
+          error: err instanceof Error ? err.message : String(err),
+        };
       }
     }),
   );
 
-  const idWidth = Math.max(3, ...issues.map((i) => i.identifier.length));
-  const stateWidth = Math.max(5, ...issues.map((i) => i.state.name.length));
-  for (let index = 0; index < issues.length; index += 1) {
-    const issue = issues[index]!;
-    const pr = prUrls[index];
-    const title = issue.title.slice(0, 60);
+  for (const { bucket, error } of bucketResults) {
+    if (error) {
+      process.stdout.write(`\n${bucket.label}: error fetching from Linear — ${error}\n`);
+    }
+  }
+
+  // Dedupe by issue id, remembering bucket label and original Linear order.
+  const seen = new Map<string, UnifiedRow>();
+  let order = 0;
+  for (const { bucket, issues } of bucketResults) {
+    for (const issue of issues) {
+      if (seen.has(issue.id)) continue;
+      seen.set(issue.id, {
+        issueId: issue.id,
+        identifier: issue.identifier,
+        status: null,
+        bucketOrder: order++,
+        bucketLabel: bucket.label,
+        stateName: issue.state.name,
+        title: issue.title.slice(0, 60),
+        prUrl: null,
+      });
+    }
+  }
+  const rows = [...seen.values()];
+
+  // Resolve PR URLs in parallel.
+  await Promise.all(
+    rows.map(async (row) => {
+      try {
+        const attachments = await fetchIssueAttachments(apiKey, row.issueId);
+        row.prUrl = findPullRequestUrl(attachments);
+      } catch {
+        // leave prUrl null on attachment fetch failure
+      }
+    }),
+  );
+
+  // Resolve PR status in parallel.
+  await Promise.all(
+    rows.map(async (row) => {
+      if (!row.prUrl) return;
+      row.status = await fetchPrStatus(row.prUrl, runner, cwd);
+    }),
+  );
+
+  const sorted = sortRows(rows);
+
+  process.stdout.write(`\nLinear tickets: ${sorted.length} issue(s)\n`);
+  if (sorted.length === 0) return;
+
+  const idWidth = Math.max(10, ...sorted.map((r) => r.identifier.length));
+  const bucketWidth = Math.max(6, ...sorted.map((r) => r.bucketLabel.length));
+  const stateWidth = Math.max(5, ...sorted.map((r) => r.stateName.length));
+  const markers = sorted.map((r) => formatPrStatusMarker(r.status));
+  const markerWidth = Math.max(9, ...markers.map((m) => m.length));
+
+  process.stdout.write(
+    `  ${pad("Identifier", idWidth)}  ${pad("Bucket", bucketWidth)}  ${pad("State", stateWidth)}  ${pad("Title", 60)}  ${pad("PR Status", markerWidth)}  PR URL\n`,
+  );
+  for (let i = 0; i < sorted.length; i += 1) {
+    const r = sorted[i]!;
     process.stdout.write(
-      `  ${pad(issue.identifier, idWidth)}  ${pad(issue.state.name, stateWidth)}  ${pad(title, 60)}  ${pr ?? "(no PR)"}\n`,
+      `  ${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${r.prUrl ?? "(no PR)"}\n`,
     );
   }
 }
@@ -274,13 +367,10 @@ export async function runList(input: RunListInput): Promise<void> {
     return;
   }
 
-  process.stdout.write("\nLinear tickets:\n");
-  if (team) process.stdout.write(`  team: ${team}\n`);
-  if (assignee) process.stdout.write(`  assignee: ${assignee}\n`);
+  if (team) process.stdout.write(`\nteam: ${team}\n`);
+  if (assignee) process.stdout.write(`assignee: ${assignee}\n`);
 
-  for (const bucket of buckets) {
-    await printBucket(apiKey, bucket, team, assignee);
-  }
+  await fetchAndPrintLinear(apiKey, buckets, team, assignee, projectRoot, localCmdRunner);
 }
 
 // ---------------------------------------------------------------------------
