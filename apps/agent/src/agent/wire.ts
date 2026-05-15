@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
-import { prependFixTask } from "@ralphy/core/tasks-md";
+import { prependFixTask, AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
 import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
@@ -708,7 +708,7 @@ export function buildAgentCoordinator(
 
     if (mode === "review") {
       const wtLayout = projectLayout(workerCwd);
-      const tasksFile = join(wtLayout.changeDir(changeName), "tasks.md");
+      const tasksFile = join(wtLayout.changeDir(changeName), AGENT_TASKS_FILENAME);
       let body: string;
       let heading: string;
       if (trigger) {
@@ -742,7 +742,7 @@ export function buildAgentCoordinator(
       // so the worker picks it up first. The post-task pipeline already
       // handles push (with hook-fix retry) → PR update.
       const wtLayout = projectLayout(workerCwd);
-      const tasksFile = join(wtLayout.changeDir(changeName), "tasks.md");
+      const tasksFile = join(wtLayout.changeDir(changeName), AGENT_TASKS_FILENAME);
       const prUrl = prByChange.get(changeName);
       const body = [
         `The PR for this change has merge conflicts with \`${cfg.prBaseBranch}\`.`,

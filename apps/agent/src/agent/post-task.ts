@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { prependFixTask } from "@ralphy/core/tasks-md";
+import { prependFixTask, AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
 import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
 import { baseBranchFromLabels, type LinearIssue } from "./linear";
 import type { GitRunner } from "./worktree";
@@ -209,7 +209,7 @@ async function runWorkerWithFixTask(
   body: string,
 ): Promise<number> {
   try {
-    await prependFixTask(join(ctx.changeDir, "tasks.md"), heading, body);
+    await prependFixTask(join(ctx.changeDir, AGENT_TASKS_FILENAME), heading, body);
   } catch (err) {
     ctx.log(`! could not prepend fix task: ${(err as Error).message}`, "red");
     return 1;

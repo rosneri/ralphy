@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { State, IterationUsage } from "@ralphy/types";
 import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
-import { firstUnchecked } from "./tasks-md";
+import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
 
 // Re-export task utilities with standardized names for use in loop context
 export {
@@ -11,6 +11,12 @@ export {
   prependSection,
   prependFixTask,
   firstUnchecked as extractFirstUncheckedSection,
+  pickActiveTasksFile,
+  bothFilesCompleted,
+  isFlowTaskHeading,
+  FLOW_TASK_HEADING_PREFIXES,
+  AGENT_TASKS_FILENAME,
+  MISSION_TASKS_FILENAME,
 } from "./tasks-md";
 
 /**
@@ -69,17 +75,31 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     }
   }
 
-  // 2. First unchecked section from tasks.md, or initial prompt if no tasks yet
-  const tasksContent = storage.read(join(taskDir, "tasks.md"));
-  if (tasksContent !== null) {
-    const section = firstUnchecked(tasksContent);
+  // 2. Pick the active tasks file. Prefer agent-tasks.md when it has
+  //    unchecked items so internal flow tasks (CI repair, push reject,
+  //    merge conflicts, …) preempt mission work. Fall back to tasks.md.
+  const agentTasksPath = join(taskDir, AGENT_TASKS_FILENAME);
+  const missionTasksPath = join(taskDir, MISSION_TASKS_FILENAME);
+  const agentTasksContent = storage.read(agentTasksPath);
+  const missionTasksContent = storage.read(missionTasksPath);
+  let activePath: string | null = null;
+  let activeContent: string | null = null;
+  if (agentTasksContent !== null && /^- \[ \]/m.test(agentTasksContent)) {
+    activePath = agentTasksPath;
+    activeContent = agentTasksContent;
+  } else if (missionTasksContent !== null) {
+    activePath = missionTasksPath;
+    activeContent = missionTasksContent;
+  }
+  if (activeContent !== null && activePath !== null) {
+    const section = firstUnchecked(activeContent);
     if (section) {
       prompt += "---\n\n## Current Task Section\n\n";
       prompt += section + "\n\n";
       prompt += "---\n\n";
       prompt +=
         `**Tracking progress**: as you finish each item above, edit ` +
-        `\`${join(taskDir, "tasks.md")}\` and change its \`- [ ]\` to ` +
+        `\`${activePath}\` and change its \`- [ ]\` to ` +
         `\`- [x]\` in the same commit. The loop reads this file between ` +
         `iterations and stops when no \`- [ ]\` items remain — if you do ` +
         `not tick the box, the next iteration will repeat this task.\n\n`;
@@ -91,11 +111,15 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     prompt += `**First action**: create \`${taskDir}/tasks.md\` with a checklist of all work items derived from the prompt above (use \`## Section\` headings with \`- [ ] task\` items). Then begin the first unchecked item.\n\n`;
   }
 
-  // 3. Manual testing instruction (if enabled and no more tasks)
+  // 3. Manual testing instruction (if enabled and no more tasks).
+  //    Waits until both the mission tasks and any internal flow tasks
+  //    have been ticked off so the manual phase doesn't slip in while
+  //    the agent is still recovering from a runtime failure.
   if (state.manualTest) {
-    const tasksContent = storage.read(join(taskDir, "tasks.md"));
-    const hasUncheckedTasks = tasksContent !== null && /^- \[ \]/m.test(tasksContent);
-    if (!hasUncheckedTasks) {
+    const tasksContent = missionTasksContent;
+    const hasUncheckedMission = tasksContent !== null && /^- \[ \]/m.test(tasksContent);
+    const hasUncheckedAgent = agentTasksContent !== null && /^- \[ \]/m.test(agentTasksContent);
+    if (!hasUncheckedMission && !hasUncheckedAgent) {
       const hasManualTestSection =
         tasksContent !== null && /^## Manual Testing/m.test(tasksContent);
       if (!hasManualTestSection) {
