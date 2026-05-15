@@ -83,6 +83,17 @@ engine: claude
 # Model tier: "haiku", "sonnet", or "opus".
 model: opus
 
+# Pre-existing error check: gate the agent when the base branch is already broken.
+# When enabled, the agent runs these commands against the base branch HEAD before
+# scheduling new work; failures open a Linear ticket and pause new pickups.
+preExistingErrorCheck:
+  enabled: false
+  # Commands to run against the base branch. When empty, falls back to commands.lint / commands.test.
+  commands: []
+  baseBranch: main
+  label: "ralph:pre-existing-error"
+  outputCharLimit: 4000
+
 linear:
   # Linear team key (e.g. "ENG"). Omit to match all teams.
   # team: ENG
