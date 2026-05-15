@@ -18,7 +18,7 @@ export interface BaselineResult {
   fingerprint: string;
 }
 
-export interface RunBaselineInput {
+interface RunBaselineInput {
   cmdRunner: CmdRunner;
   gitRunner: GitRunner;
   cwd: string;

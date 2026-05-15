@@ -12,7 +12,7 @@ export interface BaselineGateLinear {
   updateDescription: (id: string, description: string) => Promise<void>;
 }
 
-export interface BaselineGateDeps {
+interface BaselineGateDeps {
   enabled: boolean;
   commands: string[];
   baseBranch: string;

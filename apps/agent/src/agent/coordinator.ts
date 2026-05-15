@@ -154,7 +154,7 @@ interface ActiveWorker {
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
  *  workers continue. The gate clears it once the trunk is green again. */
-export interface PauseState {
+interface PauseState {
   /** Linear ticket identifier (e.g. "RLF-99") that tracks the failing baseline. */
   issueIdentifier: string;
   /** Linear issue UUID — kept so the gate can refresh the same ticket. */

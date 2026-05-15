@@ -1,3 +1,61 @@
+## Fix failing CI checks (2026-05-15T07:07:18.139Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25905180009 ---
+ci Spell check ﻿2026-05-15T07:06:04.2291973Z ##[group]Run bunx cspell "**/\*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
+ci Spell check 2026-05-15T07:06:04.2292532Z [36;1mbunx cspell "**/\*.{ts,tsx,js,mjs,mts,json,md}" --no-progress[0m
+ci Spell check 2026-05-15T07:06:04.2328524Z shell: /usr/bin/bash -e {0}
+ci Spell check 2026-05-15T07:06:04.2328824Z env:
+ci Spell check 2026-05-15T07:06:04.2329085Z NX_BASE: c5a5c08381cce0a76a9e9979d4a9f7deebce38ca
+ci Spell check 2026-05-15T07:06:04.2329480Z NX_HEAD: 41dd37897cb8a7f3f44afdec099d0a91d77d438a
+ci Spell check 2026-05-15T07:06:04.2329789Z ##[endgroup]
+ci Spell check 2026-05-15T07:06:04.2440118Z Resolving dependencies
+ci Spell check 2026-05-15T07:06:04.7192133Z Resolved, downloaded and extracted [216]
+ci Spell check 2026-05-15T07:06:04.7467402Z Saved lockfile
+ci Spell check 2026-05-15T07:06:06.0609068Z apps/agent/src/**tests**/baseline-gate.test.ts:170:44 - Unknown word (oldfingerprint)
+ci Spell check 2026-05-15T07:06:07.2263211Z CSpell: Files checked: 268, Issues found: 1 in 1 file.
+ci Spell check 2026-05-15T07:06:07.2572543Z ##[error]Process completed with exit code 1.
+ci Unused dependency check ﻿2026-05-15T07:06:08.6008207Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-15T07:06:08.6008555Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-15T07:06:08.6045107Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-15T07:06:08.6045391Z env:
+ci Unused dependency check 2026-05-15T07:06:08.6045654Z NX_BASE: c5a5c08381cce0a76a9e9979d4a9f7deebce38ca
+ci Unused dependency check 2026-05-15T07:06:08.6046020Z NX_HEAD: 41dd37897cb8a7f3f44afdec099d0a91d77d438a
+ci Unused dependency check 2026-05-15T07:06:08.6046891Z ##[endgroup]
+ci Unused dependency check 2026-05-15T07:06:08.6124904Z $ knip
+ci Unused dependency check 2026-05-15T07:06:11.5585925Z [93m[4mUnused exported types[24m[39m (3)
+ci Unused dependency check 2026-05-15T07:06:11.5668670Z BaselineGateDeps interface apps/agent/src/agent/baseline/gate.ts:15:18  
+ci Unused dependency check 2026-05-15T07:06:11.5669799Z RunBaselineInput interface apps/agent/src/agent/baseline/runner.ts:21:18
+ci Unused dependency check 2026-05-15T07:06:11.5670856Z PauseState interface apps/agent/src/agent/coordinator.ts:157:18  
+ci Unused dependency check 2026-05-15T07:06:11.5923662Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-15T07:06:11.5932611Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-15T07:06:11.9203811Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-15T07:06:11.9204228Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-15T07:06:11.9239996Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-15T07:06:11.9240462Z env:
+ci Test affected files + coverage 2026-05-15T07:06:11.9240724Z NX_BASE: c5a5c08381cce0a76a9e9979d4a9f7deebce38ca
+ci Test affected files + coverage 2026-05-15T07:06:11.9241098Z NX_HEAD: 41dd37897cb8a7f3f44afdec099d0a91d77d438a
+ci Test affected files + coverage 2026-05-15T07:06:11.9241404Z ##[endgroup]
+ci Test affected files + coverage 2026-05-15T07:06:11.9319954Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-15T07:06:11.9556786Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-15T07:06:11.9557146Z
+ci Test affected files + coverage 2026-05-15T07:06:14.1107183Z agent: 5 relevant test file(s)
+ci Test affected files + coverage 2026-05-15T07:06:14.1107878Z apps/agent/src/**tests**/baseline-gate.test.ts
+ci Test affected files + coverage 2026-05-15T07:06:14.1108430Z apps/agent/src/**tests**/baseline.test.ts
+ci Test affected files + coverage 2026-05-15T07:06:14.1108787Z apps/agent/src/**tests**/cli.test.ts
+ci Test affected files + coverage 2026-05-15T07:06:14.1109239Z apps/agent/src/**tests**/coordinator.
+…[truncated 88265 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-15T07:03:49.627Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
