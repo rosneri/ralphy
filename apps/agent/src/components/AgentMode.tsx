@@ -455,6 +455,7 @@ export function AgentMode({
         tasksDir,
         apiKey,
         onLog: appendLog,
+        onFileLog: (text) => logCoord(text),
         onWorkersChanged: () => setTick((t) => t + 1),
         onWorkerStarted: (changeName, dir, logFile, changeDir) => {
           logSession(`worker-started ${changeName} log=${logFile}`, logFile);
