@@ -76,6 +76,24 @@ export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: str
   return out;
 }
 
+/**
+ * Reorder subtasks for the capped SUBTASKS panel: unchecked items first,
+ * then completed items, each group stable in file order. Because
+ * `prependFixTask` always adds new sections at the top of `tasks.md`, the
+ * newest unchecked task (e.g. `Fix failing CI checks`) ends up at row 1 of
+ * the panel, and the `+N more` ellipsis only ever truncates completed
+ * items. The expanded view (`Ctrl+Shift+T`) bypasses this and renders
+ * everything in literal file order.
+ */
+export function orderSubtasksForCappedDisplay<T extends { done: boolean }>(
+  subtasks: readonly T[],
+): T[] {
+  const pending: T[] = [];
+  const done: T[] = [];
+  for (const s of subtasks) (s.done ? done : pending).push(s);
+  return [...pending, ...done];
+}
+
 function fmtCmd(argv: string[]): string {
   const joined = argv.join(" ");
   return joined.length > CMD_DISPLAY_MAX ? joined.slice(0, CMD_DISPLAY_MAX - 1) + "…" : joined;
@@ -1050,7 +1068,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     const pad = "─".repeat(Math.max(4, termWidth - header.length - 4));
                     return <Text dimColor>{`${header}${pad}`}</Text>;
                   })()}
-                  {(showAllSubtasks ? subtasks : subtasks.slice(0, MAX_PENDING_DISPLAY)).map(
+                  {(showAllSubtasks
+                    ? subtasks
+                    : orderSubtasksForCappedDisplay(subtasks).slice(0, MAX_PENDING_DISPLAY)
+                  ).map(
                     (s, i, arr) => {
                       const ord = `${i + 1}.`.padStart(`${arr.length}.`.length, " ");
                       const reserved = ord.length + 5; // "ord [x] "
