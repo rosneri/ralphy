@@ -211,6 +211,102 @@ describe("runBaselineGate", () => {
     expect(coord.isPaused()).toBe(false);
   });
 
+  test("empty commands list → no-op log and no pause", async () => {
+    const coord = makeCoordinator();
+    const logs: string[] = [];
+    await runBaselineGate({
+      enabled: true,
+      commands: [],
+      baseBranch: "main",
+      outputCharLimit: 4000,
+      cwd: "/tmp",
+      cmdRunner: makeCmdRunner({}),
+      gitRunner: noopGit,
+      coordinator: coord,
+      onLog: (t) => logs.push(t),
+    });
+    expect(coord.isPaused()).toBe(false);
+    expect(logs.some((l) => l.includes("no commands configured"))).toBe(true);
+  });
+
+  test("no Linear client → pause set without ticket", async () => {
+    const coord = makeCoordinator();
+    const logs: string[] = [];
+    await runBaselineGate({
+      enabled: true,
+      commands: ["bun test"],
+      baseBranch: "main",
+      outputCharLimit: 4000,
+      cwd: "/tmp",
+      cmdRunner: makeCmdRunner({ "bun test": { code: 1, stderr: "boom" } }),
+      gitRunner: noopGit,
+      coordinator: coord,
+      onLog: (t) => logs.push(t),
+    });
+    expect(coord.isPaused()).toBe(true);
+    expect(coord.getPause()?.issueIdentifier).toBe("BASELINE");
+    expect(logs.some((l) => l.includes("no Linear client configured"))).toBe(true);
+  });
+
+  test("Linear sync error → logged and pause still set", async () => {
+    const coord = makeCoordinator();
+    const logs: string[] = [];
+    const failingLinear: BaselineGateLinear = {
+      findOpen: async () => {
+        throw new Error("api down");
+      },
+      create: async () => ({ id: "x", identifier: "X" }),
+      updateDescription: async () => {},
+    };
+    await runBaselineGate({
+      enabled: true,
+      commands: ["bun test"],
+      baseBranch: "main",
+      outputCharLimit: 4000,
+      cwd: "/tmp",
+      cmdRunner: makeCmdRunner({ "bun test": { code: 1, stderr: "boom" } }),
+      gitRunner: noopGit,
+      coordinator: coord,
+      linear: failingLinear,
+      onLog: (t) => logs.push(t),
+    });
+    expect(coord.isPaused()).toBe(true);
+    expect(logs.some((l) => l.includes("Linear baseline ticket sync failed"))).toBe(true);
+  });
+
+  test("renders stdout block in issue body when present", async () => {
+    const coord = makeCoordinator();
+    const lin = makeLinear();
+    const stdoutHeavyRunner: CmdRunner = {
+      run: async () => {
+        const err = new Error("fail") as Error & {
+          code?: number;
+          stdout?: string;
+          stderr?: string;
+        };
+        err.code = 1;
+        err.stdout = "some stdout output";
+        err.stderr = "";
+        throw err;
+      },
+    };
+    await runBaselineGate({
+      enabled: true,
+      commands: ["bun test"],
+      baseBranch: "main",
+      outputCharLimit: 4000,
+      cwd: "/tmp",
+      cmdRunner: stdoutHeavyRunner,
+      gitRunner: noopGit,
+      coordinator: coord,
+      linear: lin,
+      onLog: () => {},
+    });
+    expect(lin.created).toHaveLength(1);
+    expect(lin.created[0]!.description).toContain("**stdout:**");
+    expect(lin.created[0]!.description).toContain("some stdout output");
+  });
+
   test("Linear ticket closed by human while baseline still red → new ticket opened", async () => {
     const coord = makeCoordinator();
     // Human closed the prior ticket — findOpen returns null even though

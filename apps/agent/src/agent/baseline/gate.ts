@@ -44,20 +44,14 @@ export async function runBaselineGate(deps: BaselineGateDeps): Promise<void> {
     return;
   }
 
-  let result: BaselineResult;
-  try {
-    result = await runBaseline({
-      cmdRunner: deps.cmdRunner,
-      gitRunner: deps.gitRunner,
-      cwd: deps.cwd,
-      commands: deps.commands,
-      baseBranch: deps.baseBranch,
-      outputCharLimit: deps.outputCharLimit,
-    });
-  } catch (err) {
-    deps.onLog(`! baseline check errored: ${(err as Error).message}`, "yellow");
-    return;
-  }
+  const result: BaselineResult = await runBaseline({
+    cmdRunner: deps.cmdRunner,
+    gitRunner: deps.gitRunner,
+    cwd: deps.cwd,
+    commands: deps.commands,
+    baseBranch: deps.baseBranch,
+    outputCharLimit: deps.outputCharLimit,
+  });
 
   if (result.ok) {
     if (deps.coordinator.isPaused()) {

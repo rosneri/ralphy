@@ -1,3 +1,18 @@
+## Address Linear @ralphy mention (2026-05-15T07:56:19.938Z)
+
+- [x] Address Linear @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+An @ralphy mention was left on Linear issue (https://linear.app/neriros/issue/RLF-20/pre-existing-errors-detection):
+
+**Neriya Rosner — 2026-05-15T07:55:24.896Z (Linear issue)**
+
+@ralphy this fails ci fix it
+
+Treat this comment as the next concrete request. If it's ambiguous,
+note your interpretation in proposal.md `## Steering` before acting.
+```
+
 ## Fix failing CI checks (2026-05-15T07:12:31.266Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
