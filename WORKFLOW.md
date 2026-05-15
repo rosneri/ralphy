@@ -161,6 +161,14 @@ Previous attempt failed with: {{ last_error }}
 
 {{ issue.description }}
 
+{% if issue.labels %}
+Labels: {{ issue.labels | join(", ") }}
+{% endif %}
+
+{% for label in issue.labels %}{% if label == "deploy" %}
+When you finish the implementation, run `/ship-feature` to release it — the `deploy` label opted this issue into the ship pipeline.
+{% endif %}{% endfor %}
+
 {% if rules %}
 Project rules:
 {% for rule in rules %}- {{ rule }}
