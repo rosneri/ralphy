@@ -766,15 +766,16 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 </>
               )}
             </Box>
-            {pollStatus.lastAt !== null && secsToNextPoll !== null && (
-              <Box gap={1}>
-                <Text dimColor>↺</Text>
-                <Text color="gray">{secsToNextPoll}s</Text>
-              </Box>
-            )}
             {pollStatus.lastAt !== null && pollStatus.lastPrStatus && (
               <Box gap={2}>
-                <Text>{" ".repeat(7)}</Text>
+                {secsToNextPoll !== null ? (
+                  <Box gap={1}>
+                    <Text dimColor>↺</Text>
+                    <Text color="gray">{secsToNextPoll}s</Text>
+                  </Box>
+                ) : (
+                  <Text>{" ".repeat(7)}</Text>
+                )}
                 <Text dimColor>│</Text>
                 <Text dimColor>mergeable</Text>
                 <Text color={pollStatus.lastPrStatus.mergeable > 0 ? "green" : "white"}>
