@@ -38,6 +38,7 @@ interface WorkerMeta {
   phaseDetail: string;
   phaseStartedAt: number;
   currentTask: string | null;
+  pendingTasks: string[];
   taskProgress: { checked: number; total: number } | null;
   openspecPhase: OpenSpecPhase | null;
   prUrl: string | null;
@@ -47,6 +48,17 @@ interface WorkerMeta {
 
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
+const MAX_PENDING_DISPLAY = 15;
+
+/** Extract all unchecked `- [ ] ...` items from a tasks.md document, in order. */
+export function parsePendingTasks(tasksMd: string): string[] {
+  const out: string[] = [];
+  for (const line of tasksMd.split("\n")) {
+    const m = line.match(/^- \[ \] (.+)$/);
+    if (m) out.push(m[1]!.trim());
+  }
+  return out;
+}
 
 function fmtCmd(argv: string[]): string {
   const joined = argv.join(" ");
@@ -284,6 +296,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const [clock, setClock] = useState(0);
   /** Index into activeWorkers of the focused worker card (0-based). */
   const [focusedIdx, setFocusedIdx] = useState(0);
+  /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
+  const [showPendingTasks, setShowPendingTasks] = useState(false);
   const coordRef = useRef<AgentCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -359,6 +373,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               phaseDetail: "",
               phaseStartedAt: Date.now(),
               currentTask: null,
+              pendingTasks: [],
               taskProgress: null,
               openspecPhase: null,
               prUrl: null,
@@ -531,8 +546,9 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 designFile.exists().then((ok) => (ok ? designFile.text() : null)),
               ]);
               if (tasksText !== null) {
-                const match = tasksText.match(/^- \[ \] (.+)$/m);
-                meta.currentTask = match?.[1]?.trim() ?? null;
+                const pending = parsePendingTasks(tasksText);
+                meta.pendingTasks = pending;
+                meta.currentTask = pending[0] ?? null;
                 const { checked, total } = countProgress(tasksText);
                 meta.taskProgress = total > 0 ? { checked, total } : null;
               }
@@ -573,6 +589,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
   useInput(
     (input, key) => {
+      if (key.ctrl && (input === "t" || input === "T")) {
+        if (activeCount > 0) setShowPendingTasks((v) => !v);
+        return;
+      }
       if (activeCount === 0) return;
       if (key.tab || key.rightArrow) {
         setFocusedIdx((i) => (Math.min(i, activeCount - 1) + 1) % activeCount);
@@ -583,7 +603,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
         if (!isNaN(n) && n >= 1 && n <= activeCount) setFocusedIdx(n - 1);
       }
     },
-    { isActive: isRawModeSupported && activeCount > 1 },
+    { isActive: isRawModeSupported && activeCount > 0 },
   );
 
   // Compute tail lines for the focused worker to fill available height.
@@ -846,6 +866,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
           const currentTask = meta?.currentTask ?? null;
           const taskProgress = meta?.taskProgress ?? null;
           const openspecPhase = meta?.openspecPhase ?? null;
+          const pendingTasks = meta?.pendingTasks ?? [];
 
           const pBadge = priorityBadge(w.issue.priority);
           const mBadge = modeBadge(w.mode);
@@ -945,6 +966,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                 <Text color="white" bold>
                   {iter}
                 </Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>Ctrl+T tasks{showPendingTasks ? " ▼" : ""}</Text>
               </Box>
 
               {/* ── Task progress bar ───────────────────────── */}
@@ -1014,6 +1037,28 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                       {trunc(line, termWidth - 6)}
                     </Text>
                   ))}
+                </Box>
+              )}
+
+              {/* ── Pending tasks panel (Ctrl+T) ────────────── */}
+              {showPendingTasks && pendingTasks.length > 0 && (
+                <Box flexDirection="column" marginTop={0}>
+                  {(() => {
+                    const header = `─ PENDING TASKS (${pendingTasks.length}) `;
+                    const pad = "─".repeat(Math.max(4, termWidth - header.length - 4));
+                    return <Text dimColor>{`${header}${pad}`}</Text>;
+                  })()}
+                  {pendingTasks.slice(0, MAX_PENDING_DISPLAY).map((line, i) => (
+                    <Text key={`${w.changeName}-pending-${i}`}>
+                      <Text dimColor>{"· "}</Text>
+                      <Text>{trunc(line, termWidth - 6)}</Text>
+                    </Text>
+                  ))}
+                  {pendingTasks.length > MAX_PENDING_DISPLAY && (
+                    <Text dimColor>
+                      {`· … +${pendingTasks.length - MAX_PENDING_DISPLAY} more`}
+                    </Text>
+                  )}
                 </Box>
               )}
             </LabeledBox>
