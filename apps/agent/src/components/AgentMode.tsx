@@ -55,10 +55,21 @@ const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
 const MAX_PENDING_DISPLAY = 15;
 
-/** Extract all `- [x]` / `- [ ]` items from a tasks.md document, in order. */
+/**
+ * Extract all `- [x]` / `- [ ]` items from a tasks.md document, in order.
+ * Items under a `## Planning` heading are skipped — those are OpenSpec
+ * pipeline scaffolding, not mission-specific work.
+ */
 export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: string }> {
   const out: Array<{ done: boolean; text: string }> = [];
+  let inPlanning = false;
   for (const line of tasksMd.split("\n")) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      inPlanning = heading[1]!.trim().toLowerCase() === "planning";
+      continue;
+    }
+    if (inPlanning) continue;
     const m = line.match(/^- \[([ xX])\] (.+)$/);
     if (m) out.push({ done: m[1] !== " ", text: m[2]!.trim() });
   }
@@ -309,6 +320,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const [focusedIdx, setFocusedIdx] = useState(0);
   /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
   const [showPendingTasks, setShowPendingTasks] = useState(true);
+  /** Toggled by Ctrl+Shift+T — expand subtasks over the OUTPUT feed (no cap). */
+  const [showAllSubtasks, setShowAllSubtasks] = useState(false);
   const coordRef = useRef<AgentCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -600,6 +613,10 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
   useInput(
     (input, key) => {
+      if (key.ctrl && key.shift && (input === "t" || input === "T")) {
+        if (activeCount > 0) setShowAllSubtasks((v) => !v);
+        return;
+      }
       if (key.ctrl && (input === "t" || input === "T")) {
         if (activeCount > 0) setShowPendingTasks((v) => !v);
         return;
@@ -1010,7 +1027,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
               )}
 
               {/* ── Output tail ─────────────────────────────── */}
-              {tail.length > 0 && (
+              {tail.length > 0 && !(showPendingTasks && showAllSubtasks) && (
                 <Box flexDirection="column" marginTop={0}>
                   <Text dimColor>
                     {"─ OUTPUT "}
@@ -1033,18 +1050,30 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
                     const pad = "─".repeat(Math.max(4, termWidth - header.length - 4));
                     return <Text dimColor>{`${header}${pad}`}</Text>;
                   })()}
-                  {subtasks.slice(0, MAX_PENDING_DISPLAY).map((s, i) => (
-                    <Text key={`${w.changeName}-subtask-${i}`}>
-                      {s.done ? <Text dimColor>{"[x] "}</Text> : <Text>{"[ ] "}</Text>}
-                      {s.done ? (
-                        <Text dimColor>{trunc(s.text, termWidth - 8)}</Text>
-                      ) : (
-                        <Text>{trunc(s.text, termWidth - 8)}</Text>
-                      )}
+                  {(showAllSubtasks ? subtasks : subtasks.slice(0, MAX_PENDING_DISPLAY)).map(
+                    (s, i, arr) => {
+                      const ord = `${i + 1}.`.padStart(`${arr.length}.`.length, " ");
+                      const reserved = ord.length + 5; // "ord [x] "
+                      return (
+                        <Text key={`${w.changeName}-subtask-${i}`}>
+                          {s.done ? (
+                            <Text dimColor>{`${ord} [x] `}</Text>
+                          ) : (
+                            <Text>{`${ord} [ ] `}</Text>
+                          )}
+                          {s.done ? (
+                            <Text dimColor>{trunc(s.text, termWidth - reserved)}</Text>
+                          ) : (
+                            <Text>{trunc(s.text, termWidth - reserved)}</Text>
+                          )}
+                        </Text>
+                      );
+                    },
+                  )}
+                  {!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY && (
+                    <Text dimColor>
+                      {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+SHIFT+T to expand)`}
                     </Text>
-                  ))}
-                  {subtasks.length > MAX_PENDING_DISPLAY && (
-                    <Text dimColor>{`    … +${subtasks.length - MAX_PENDING_DISPLAY} more`}</Text>
                   )}
                 </Box>
               )}
