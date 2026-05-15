@@ -1,11 +1,11 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
 import { issueMatchesGetIndicator } from "./linear";
-import { compareQueueEntries, type QueueEntry } from "./queue-order";
-import type { MentionTrigger, SpawnMode } from "./queue-order";
+import { compareQueueEntries, type QueueEntry } from "../queue/queue-order";
+import type { MentionTrigger, SpawnMode } from "../queue/queue-order";
 import { capture } from "@ralphy/telemetry";
 
-export type { SpawnMode, MentionTrigger } from "./queue-order";
+export type { SpawnMode, MentionTrigger } from "../queue/queue-order";
 
 /** Spawn shape — same as before. */
 interface WorkerHandle {

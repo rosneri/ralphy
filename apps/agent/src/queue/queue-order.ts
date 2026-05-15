@@ -1,6 +1,6 @@
 import type { GetIndicator } from "@ralphy/types";
-import type { LinearIssue } from "./linear";
-import { issueMatchesGetIndicator } from "./linear";
+import type { LinearIssue } from "../agent/linear";
+import { issueMatchesGetIndicator } from "../agent/linear";
 import { chain, type Comparator } from "../sort/compare";
 
 export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";

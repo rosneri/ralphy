@@ -2,9 +2,9 @@
 export type Comparator<T> = (a: T, b: T) => number;
 
 /** Compose comparators: the first non-zero result wins. Empty chain is a stable no-op. */
-export function chain<T>(...cmps: Comparator<T>[]): Comparator<T> {
+export function chain<T>(...comparators: Comparator<T>[]): Comparator<T> {
   return (a, b) => {
-    for (const c of cmps) {
+    for (const c of comparators) {
       const r = c(a, b);
       if (r !== 0) return r;
     }

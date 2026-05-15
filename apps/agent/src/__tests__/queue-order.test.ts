@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compareQueueEntries, type QueueEntry } from "../agent/queue-order";
+import { compareQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { LinearIssue } from "../agent/linear";
 
 function issue(
