@@ -4,7 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import React from "react";
 import { render } from "ink-testing-library";
-import { AgentMode } from "../components/AgentMode";
+import { initialCommonArgs } from "@ralphy/cli-args";
+import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
+import {
+  AgentMode,
+  type AgentModeBuildCoordinator,
+  type AgentModeCoordinator,
+} from "../components/AgentMode";
+import type { ActiveWorker } from "../agent/coordinator";
+import type { ParsedArgs } from "../cli";
+import type { RalphyConfig } from "../agent/config";
 
 const CTRL_S = "\x13";
 const ENTER = "\r";
@@ -13,7 +22,7 @@ async function flush(ms = 60) {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-const fakeWorker = {
+const fakeWorker: ActiveWorker = {
   changeName: "rlf-35-agent-mode-steering",
   issueIdentifier: "RLF-35",
   issueId: "issue-123",
@@ -24,13 +33,17 @@ const fakeWorker = {
     url: "https://linear.app/x/issue/RLF-35",
     priority: 3,
     description: "",
+    state: { name: "Todo", type: "unstarted" },
+    assignee: null,
+    labels: [],
+    blockedByIds: [],
   },
-  mode: "fresh" as const,
+  mode: "fresh",
   kill: () => {},
   lastReportedIteration: 0,
 };
 
-function makeFakeCoord(workers: (typeof fakeWorker)[]) {
+function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
   return {
     activeWorkers: workers,
     activeCount: workers.length,
@@ -47,36 +60,28 @@ function makeFakeCoord(workers: (typeof fakeWorker)[]) {
   };
 }
 
-function makeBuilder(
-  workers: (typeof fakeWorker)[],
-): NonNullable<Parameters<typeof AgentMode>[0]["buildCoordinator"]> {
-  return (() => ({
+function makeBuilder(workers: ActiveWorker[]): AgentModeBuildCoordinator {
+  return () => ({
     coord: makeFakeCoord(workers),
     filterDesc: "fake",
     concurrency: 1,
     pollInterval: 999,
     getWorkerCwd: () => undefined,
     runBaselineGate: async () => {},
-  })) as unknown as NonNullable<Parameters<typeof AgentMode>[0]["buildCoordinator"]>;
+  });
 }
 
-const fakeConfig = {
+const fakeConfig: RalphyConfig = {
+  ...WorkflowConfigSchema.parse({}),
   engine: "claude",
   model: "sonnet",
-  concurrency: 1,
-  pollIntervalSeconds: 999,
-  maxIterationsPerTask: 0,
-  maxCostUsdPerTask: 0,
-  createPrOnSuccess: false,
-  fixCiOnFailure: false,
-  useWorktree: false,
-  linear: { team: "RLF", assignee: "me", indicators: {} },
-} as unknown as Awaited<ReturnType<NonNullable<Parameters<typeof AgentMode>[0]["loadConfig"]>>>;
+};
 
 const ensureConfigStub = async () => "/tmp/ralphy.json";
-const loadConfigStub = async () => fakeConfig;
+const loadConfigStub = async (): Promise<RalphyConfig> => fakeConfig;
 
-const baseArgs = {
+const baseArgs: ParsedArgs = {
+  ...initialCommonArgs(),
   mode: "agent",
   name: "",
   linearTeam: "RLF",
@@ -94,7 +99,7 @@ const baseArgs = {
   prompt: "",
   manualTest: false,
   debug: false,
-} as unknown as Parameters<typeof AgentMode>[0]["args"];
+};
 
 describe("AgentMode steering", () => {
   let tmpRoot: string;

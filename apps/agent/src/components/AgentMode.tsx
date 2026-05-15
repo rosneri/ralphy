@@ -7,8 +7,34 @@ import {
   loadRalphyConfig as loadRalphyConfigImpl,
   type RalphyConfig,
 } from "../agent/config";
-import { AgentCoordinator } from "../agent/coordinator";
+import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
 import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
+
+/** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
+ *  Exported so tests can supply lightweight mocks without bypassing types. */
+export interface AgentModeCoordinator {
+  init(): Promise<void>;
+  pollOnce(): Promise<PollResult>;
+  stop(): void;
+  readonly activeWorkers: readonly ActiveWorker[];
+  readonly activeCount: number;
+  readonly queuedCount: number;
+  getPause(): PauseState | null;
+}
+
+/** Builder function shape the AgentMode component depends on. The real
+ *  {@link buildAgentCoordinatorImpl} satisfies this because `AgentCoordinator`
+ *  is assignable to {@link AgentModeCoordinator}. */
+export type AgentModeBuildCoordinator = (
+  input: Parameters<typeof buildAgentCoordinatorImpl>[0],
+) => {
+  coord: AgentModeCoordinator;
+  filterDesc: string;
+  concurrency: number;
+  pollInterval: number;
+  getWorkerCwd: (changeName: string) => string | undefined;
+  runBaselineGate: () => Promise<void>;
+};
 import { countProgress } from "@ralphy/core/progress";
 import {
   deriveOpenSpecPhase,
@@ -18,7 +44,19 @@ import {
 import { logSession, logCoord, logPhase } from "@ralphy/log";
 import { useTerminalSize } from "../hooks/useTerminalSize";
 import { SteeringField } from "./SteeringField";
-import { appendSteering as appendSteeringImpl } from "../agent/steering";
+import { appendSteeringMessage } from "@ralphy/core/loop";
+import { runWithContext, createDefaultContext } from "@ralphy/context";
+
+/**
+ * Append a steering message to the change's steering.md, wrapped in a default
+ * context so the underlying storage helpers in `@ralphy/core` have an active
+ * AsyncLocalStorage scope (mirroring the sidecar's `/steer` route).
+ */
+async function appendSteeringImpl(changeDir: string, message: string): Promise<void> {
+  await runWithContext(createDefaultContext(), async () => {
+    appendSteeringMessage(changeDir, message);
+  });
+}
 
 interface AgentModeProps {
   args: ParsedArgs;
@@ -28,7 +66,7 @@ interface AgentModeProps {
   /** Test injection — defaults to the real `appendSteering` helper. */
   appendSteering?: (changeDir: string, message: string) => Promise<void>;
   /** Test injection — defaults to the real `buildAgentCoordinator`. */
-  buildCoordinator?: typeof buildAgentCoordinatorImpl;
+  buildCoordinator?: AgentModeBuildCoordinator;
   /** Test injection — defaults to the real `ensureRalphyConfig`. */
   ensureConfig?: typeof ensureRalphyConfigImpl;
   /** Test injection — defaults to the real `loadRalphyConfig`. */
@@ -332,7 +370,7 @@ export function AgentMode({
   const [focusedIdx, setFocusedIdx] = useState(0);
   /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
   const [showPendingTasks, setShowPendingTasks] = useState(true);
-  const coordRef = useRef<AgentCoordinator | null>(null);
+  const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
   const cfgRef = useRef<RalphyConfig | null>(null);

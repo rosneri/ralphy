@@ -90,12 +90,16 @@ export function SteeringField({
   initialFocused = false,
   onStateChange,
 }: SteeringFieldProps) {
-  const [state, dispatch] = useReducer(reducer, undefined as unknown as FieldState, () => ({
-    buffer: initialBuffer,
-    cursor: initialCursor ?? initialBuffer.length,
-    focused: initialFocused,
-    status: "idle" as SteeringStatus,
-  }));
+  const [state, dispatch] = useReducer(
+    reducer,
+    { initialBuffer, initialCursor, initialFocused },
+    (init): FieldState => ({
+      buffer: init.initialBuffer,
+      cursor: init.initialCursor ?? init.initialBuffer.length,
+      focused: init.initialFocused,
+      status: "idle",
+    }),
+  );
   const { buffer, cursor, focused, status } = state;
   const stateRef = useRef(state);
   stateRef.current = state;
