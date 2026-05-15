@@ -790,8 +790,7 @@ describe("TaskLoop", () => {
         new Promise<EngineResult>((resolve) => {
           opts.signal?.addEventListener(
             "abort",
-            () =>
-              resolve({ exitCode: 0, usage: null, sessionId: null, rateLimited: false }),
+            () => resolve({ exitCode: 0, usage: null, sessionId: null, rateLimited: false }),
             { once: true },
           );
         }),
