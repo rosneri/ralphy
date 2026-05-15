@@ -137,6 +137,57 @@ interface PostTaskCtx {
  * gh API hop once.
  */
 const repoAutoMergeCache = new Map<string, boolean | null>();
+
+/**
+ * Parse `git status --porcelain` output for the post-worker uncommitted-changes
+ * warning. Returns `count` (total entries), `preview` (first up to 10 entries
+ * verbatim, status code + path), and `truncated` (how many more were dropped).
+ */
+export function summarizeUncommittedStatus(stdout: string): {
+  count: number;
+  preview: string[];
+  truncated: number;
+} {
+  const lines = stdout.split("\n").filter((line) => line.length > 0);
+  const preview = lines.slice(0, 10);
+  return { count: lines.length, preview, truncated: Math.max(0, lines.length - preview.length) };
+}
+
+/**
+ * Best-effort check for an existing open PR for `branch`. Returns the URL or
+ * null. Mirrors the query used by `createPullRequest` so the post-task log can
+ * pick a quieter log level on long-running PR branches without coupling to the
+ * PR-creation path. Failures swallow to null — the caller falls back to the
+ * yellow warning rather than escalate transient gh errors.
+ */
+async function findExistingOpenPrUrl(
+  cmd: CmdRunner,
+  cwd: string,
+  branch: string,
+): Promise<string | null> {
+  try {
+    const result = await cmd.run(
+      [
+        "gh",
+        "pr",
+        "list",
+        "--head",
+        branch,
+        "--state",
+        "open",
+        "--json",
+        "url",
+        "--jq",
+        ".[0].url // empty",
+      ],
+      cwd,
+    );
+    const url = result.stdout.trim();
+    return url || null;
+  } catch {
+    return null;
+  }
+}
 async function detectRepoAutoMergeAllowed(
   prUrl: string,
   cmd: CmdRunner,
@@ -682,11 +733,22 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
 
   try {
     const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-    if (status.stdout.trim()) {
-      log(
-        `! ${changeName} has uncommitted changes after worker exit — the agent should commit everything before finishing. These changes will not be included in the PR.`,
-        "yellow",
-      );
+    const summary = summarizeUncommittedStatus(status.stdout);
+    if (summary.count > 0) {
+      const existingPrUrl = branch ? await findExistingOpenPrUrl(cmd, cwd, branch) : null;
+      const indented = summary.preview.map((line) => `    ${line}`).join("\n");
+      const suffix = summary.truncated ? `\n    ... and ${summary.truncated} more` : "";
+      if (existingPrUrl) {
+        log(
+          `  ${changeName}: ${summary.count} uncommitted file(s) after worker — will retry next iteration:\n${indented}${suffix}`,
+          "gray",
+        );
+      } else {
+        log(
+          `! ${changeName} has uncommitted changes after worker exit — the agent should commit everything before finishing. These changes will not be included in the PR:\n${indented}${suffix}`,
+          "yellow",
+        );
+      }
     }
   } catch (err) {
     log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
