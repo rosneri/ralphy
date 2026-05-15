@@ -56,6 +56,7 @@ interface FakeIssue {
   state: { name: string; type: string };
   labels: Set<string>;
   priority: number;
+  createdAt?: string;
 }
 
 /**
@@ -129,6 +130,7 @@ class FakeLinear {
                 description: i.description,
                 url: `https://linear.app/x/${i.identifier}`,
                 priority: i.priority,
+                createdAt: i.createdAt ?? "2026-01-01T00:00:00.000Z",
                 state: i.state,
                 assignee: null,
                 labels: { nodes: [...i.labels].map((name) => ({ name })) },

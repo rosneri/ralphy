@@ -24,6 +24,7 @@ const FAKE_ISSUE: LinearIssue = {
   state: { name: "In Progress", type: "started" },
   assignee: null,
   labels: [],
+  createdAt: "2026-01-01T00:00:00.000Z",
 };
 
 function makeCmd(

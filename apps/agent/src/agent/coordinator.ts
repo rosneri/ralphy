@@ -370,7 +370,14 @@ export class AgentCoordinator {
         const pa = a.issue.priority === 0 ? Infinity : a.issue.priority;
         const pb = b.issue.priority === 0 ? Infinity : b.issue.priority;
         if (pa !== pb) return pa - pb;
-        return modeRank[a.mode] - modeRank[b.mode];
+        const ma = modeRank[a.mode];
+        const mb = modeRank[b.mode];
+        if (ma !== mb) return ma - mb;
+        // FIFO within the bucket: older issues drain first.
+        const ca = a.issue.createdAt;
+        const cb = b.issue.createdAt;
+        if (ca !== cb) return ca < cb ? -1 : 1;
+        return 0;
       });
     }
 
