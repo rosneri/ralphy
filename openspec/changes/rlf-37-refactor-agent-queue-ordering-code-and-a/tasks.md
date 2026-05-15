@@ -20,4 +20,4 @@
 - [x] Run `bun run lint` and fix any findings
 - [x] Run `bun run test` and fix any failures
 - [x] Run `bunx openspec validate rlf-37-refactor-agent-queue-ordering-code-and-a`
-- [ ] Stage modified files individually and commit; push branch and open PR
+- [x] Stage modified files individually and commit; push branch and open PR
