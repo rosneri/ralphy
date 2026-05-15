@@ -4,14 +4,8 @@ import { render } from "ink-testing-library";
 import { Text } from "ink";
 import { useTerminalSize, type TerminalSize } from "../useTerminalSize";
 
-type StdoutMutable = {
-  columns: number;
-  rows: number;
-  isTTY: boolean;
-};
-
-function mutStdout(): StdoutMutable {
-  return process.stdout as unknown as StdoutMutable;
+function mutStdout() {
+  return process.stdout;
 }
 
 function HookProbe({ onRender }: { onRender: (s: TerminalSize) => void }) {
