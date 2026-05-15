@@ -700,6 +700,75 @@ describe("AgentCoordinator — progress comments", () => {
     await tick();
   });
 
+  test("auto-merge conflict-fix runs ahead of urgent todos (boost bucket)", async () => {
+    const conflict = issue("c1", "ENG-9", 0);
+    conflict.labels = ["ralph:auto-merge"];
+    const urgent1 = issue("t1", "ENG-1", 1);
+    const urgent2 = issue("t2", "ENG-2", 1);
+    const ctx = makeDeps();
+    ctx.setTodo([urgent1, urgent2]);
+    ctx.setConflicted([conflict]);
+
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      getAutoMerge: { filter: [{ type: "label", value: "ralph:auto-merge" }] },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.workers.has("change-eng-9")).toBe(true);
+    expect(ctx.workers.has("change-eng-1")).toBe(false);
+    expect(
+      ctx.logs.some((l) => l.text.includes("ENG-9 queued (auto-merge unblock, prioritized)")),
+    ).toBe(true);
+    ctx.workers.get("change-eng-9")!.resolve(0);
+    await tick();
+  });
+
+  test("two auto-merge conflicts compete by linear priority", async () => {
+    const highPri = issue("c1", "ENG-9", 1);
+    highPri.labels = ["ralph:auto-merge"];
+    const lowPri = issue("c2", "ENG-8", 3);
+    lowPri.labels = ["ralph:auto-merge"];
+    const ctx = makeDeps();
+    ctx.setConflicted([lowPri, highPri]);
+
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      getAutoMerge: { filter: [{ type: "label", value: "ralph:auto-merge" }] },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.workers.has("change-eng-9")).toBe(true);
+    expect(ctx.workers.has("change-eng-8")).toBe(false);
+    ctx.workers.get("change-eng-9")!.resolve(0);
+    await tick();
+  });
+
+  test("non-auto-merge ordering is unchanged when indicator is absent", async () => {
+    const conflict = issue("c1", "ENG-9", 0);
+    conflict.labels = ["ralph:auto-merge"];
+    const urgent = issue("t1", "ENG-1", 1);
+    const ctx = makeDeps();
+    ctx.setTodo([urgent]);
+    ctx.setConflicted([conflict]);
+
+    // No getAutoMerge option → existing priority-only sort wins; urgent todo
+    // beats a no-priority conflict-fix.
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+    expect(ctx.workers.has("change-eng-9")).toBe(false);
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
   test("getIterationCount failure logs warning and continues", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
     ctx.deps.getIterationCount = async () => {

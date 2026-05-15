@@ -1,5 +1,6 @@
-import type { SetIndicator } from "@ralphy/types";
+import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
+import { issueMatchesGetIndicator } from "./linear";
 import { capture } from "@ralphy/telemetry";
 
 /** Spawn shape — same as before. */
@@ -134,6 +135,9 @@ interface CoordinatorOptions {
   commentEveryIterations?: number | undefined;
   /** Stop picking up new issues once this many have been started this run (0 = unlimited). */
   maxTickets?: number | undefined;
+  /** When set, conflict-fix items whose issue matches this indicator are
+   *  promoted to the head of the queue, ahead of Linear priority. */
+  getAutoMerge?: GetIndicator | undefined;
 }
 
 interface ActiveWorker {
@@ -258,7 +262,11 @@ export class AgentCoordinator {
       this.queue.push({ issue, mode: "conflict-fix" });
       queuedIds.add(issue.id);
       added += 1;
-      this.deps.onLog(`  ↳ ${issue.identifier} queued (conflict-fix)`, "gray");
+      if (this.isAutoMergeUnblock(issue)) {
+        this.deps.onLog(`  ↳ ${issue.identifier} queued (auto-merge unblock, prioritized)`, "cyan");
+      } else {
+        this.deps.onLog(`  ↳ ${issue.identifier} queued (conflict-fix)`, "gray");
+      }
     }
 
     // 3. Review follow-up: done issues with new reviewer comments.
@@ -307,6 +315,11 @@ export class AgentCoordinator {
         fresh: 3,
       };
       this.queue.sort((a, b) => {
+        // Auto-merge conflict-fix items always come first — one rebase
+        // from landing is the highest-value work the agent can pick up.
+        const ba = a.mode === "conflict-fix" && this.isAutoMergeUnblock(a.issue) ? 0 : 1;
+        const bb = b.mode === "conflict-fix" && this.isAutoMergeUnblock(b.issue) ? 0 : 1;
+        if (ba !== bb) return ba - bb;
         const pa = a.issue.priority === 0 ? Infinity : a.issue.priority;
         const pb = b.issue.priority === 0 ? Infinity : b.issue.priority;
         if (pa !== pb) return pa - pb;
@@ -328,6 +341,12 @@ export class AgentCoordinator {
     const found =
       buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
     return { found, added, buckets, prStatus };
+  }
+
+  /** True when the issue carries the auto-merge indicator. Used to boost
+   *  conflict-fix items ahead of every other queued mode/priority. */
+  private isAutoMergeUnblock(issue: LinearIssue): boolean {
+    return issueMatchesGetIndicator(issue, this.opts.getAutoMerge);
   }
 
   /** Returns true if all `blockedByIds` are not present in `inProgress`/
