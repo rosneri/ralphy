@@ -146,29 +146,27 @@ describe("orderSubtasksForCappedDisplay", () => {
     expect(orderSubtasksForCappedDisplay(subtasks)).toEqual(subtasks);
   });
 
-  it("keeps a freshly prepended Fix failing CI task on top once the cap (15) kicks in", () => {
-    // Parse a tasks.md that has a freshly prepended Fix-failing-CI section
-    // sitting above a long run of completed items. The capped panel slices
-    // the *ordered* list to 15 — that slice must include the new pending
-    // task, never get crowded out by the done items above it in the file.
+  it("keeps freshly prepended unchecked tasks on top once the cap (15) kicks in", () => {
+    // Parse a tasks.md with two unchecked items sitting above a long run of
+    // completed items. The capped panel slices the *ordered* list to 15 —
+    // that slice must include both pending tasks, never get crowded out by
+    // the done items that dominate the file by count. (Flow-task sections
+    // like `## Fix failing CI checks` are intentionally skipped by
+    // parseSubtasks — see its doc comment — so the freshly prepended
+    // unchecked work lives under a regular mission heading.)
     const completed = Array.from({ length: 16 }, (_, i) => `- [x] old done ${i + 1}`).join("\n");
     const tasksMd = [
       "# Tasks",
       "",
-      "## Fix failing CI checks (2026-05-15T00:00:00.000Z)",
-      "- [ ] Fix failing CI checks. Read the error block below…",
-      "",
       "## Implementation",
+      "- [ ] newly added unfinished task",
       completed,
       "- [ ] previous unfinished mission task",
       "",
     ].join("\n");
     const parsed = parseSubtasks(tasksMd);
     const ordered = orderSubtasksForCappedDisplay(parsed).slice(0, 15);
-    expect(ordered[0]).toEqual({
-      done: false,
-      text: "Fix failing CI checks. Read the error block below…",
-    });
+    expect(ordered[0]).toEqual({ done: false, text: "newly added unfinished task" });
     expect(ordered[1]).toEqual({ done: false, text: "previous unfinished mission task" });
     // The remaining 13 slots are completed items — unchecked tasks are
     // never displaced by completed items even though done items dominate

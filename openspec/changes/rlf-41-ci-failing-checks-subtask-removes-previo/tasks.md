@@ -1,5 +1,56 @@
 # Tasks for RLF-41
 
+## Fix failing CI checks (2026-05-15T15:45:50.439Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+Resolution: the `pending-tasks.test.ts` case "keeps a freshly prepended Fix failing CI task on top" piped a tasks.md with a `## Fix failing CI checks` heading through `parseSubtasks`, but `parseSubtasks` intentionally skips flow-task sections (see its doc comment), so the prepended fix-task line was dropped and `ordered[0]` ended up being `previous unfinished mission task`. Rewrote the test to place both unchecked items under a regular `## Implementation` heading so the assertion exercises the cap-15 ordering invariant without colliding with parseSubtasks' flow-skip behavior.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25926948095 ---
+ci Test affected files + coverage ﻿2026-05-15T15:44:42.4713782Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-15T15:44:42.4714106Z ^[[36;1mbun run test:affected-files:coverage:ci^[[0m
+ci Test affected files + coverage 2026-05-15T15:44:42.4743180Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-15T15:44:42.4743392Z env:
+ci Test affected files + coverage 2026-05-15T15:44:42.4743586Z NX_BASE: dd78ae711c17994588d68bf56b0b8aa0d5c8f709
+ci Test affected files + coverage 2026-05-15T15:44:42.4743857Z NX_HEAD: 59cecba9540be60cae39376479f7dd33b481e16f
+ci Test affected files + coverage 2026-05-15T15:44:42.4744089Z ##[endgroup]
+ci Test affected files + coverage 2026-05-15T15:44:42.4806540Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-15T15:44:42.4999148Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-15T15:44:42.4999448Z
+ci Test affected files + coverage 2026-05-15T15:44:43.3600507Z agent: 2 relevant test file(s)
+ci Test affected files + coverage 2026-05-15T15:44:43.3600974Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-15T15:44:43.3601314Z apps/agent/src/**tests**/pending-tasks.test.ts
+ci Test affected files + coverage 2026-05-15T15:44:43.3601501Z
+ci Test affected files + coverage 2026-05-15T15:44:43.3613304Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-15T15:44:43.3689537Z
+ci Test affected files + coverage 2026-05-15T15:44:43.3690216Z ##[group]src/**tests**/wire-setup-worktree.test.ts:
+ci Test affected files + coverage 2026-05-15T15:44:43.5003545Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:true + createWorktree throws → no scaffold lands in projectRoot, red log emitted [48.75ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5159080Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:false preserves projectRoot fallback when no worktree is created [15.59ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5159963Z
+ci Test affected files + coverage 2026-05-15T15:44:43.5160445Z ##[endgroup]
+ci Test affected files + coverage 2026-05-15T15:44:43.5160608Z
+ci Test affected files + coverage 2026-05-15T15:44:43.5160951Z ##[group]src/**tests**/worktree-mcp-seed.test.ts:
+ci Test affected files + coverage 2026-05-15T15:44:43.5176513Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.1 copies project .mcp.json into worktree [0.83ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5181807Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.2 rewrites .ralph/ relative args to absolute paths under projectRoot [0.53ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5184713Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.3 no-op when neither project nor worktree has .mcp.json [0.29ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5189801Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.4 worktree's existing .mcp.json takes precedence over project's [0.50ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5194563Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.4 worktree .mcp.json with already-absolute paths is unchanged after seeding [0.46ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5199618Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.5 invalid JSON is skipped without throwing (graceful degradation) [0.50ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5204014Z (pass) seedWorktreeMcpConfig (§1 manual plan) > config without mcpServers map is written through unchanged [0.45ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5209112Z (pass) seedWorktreeMcpConfig (§1 manual plan) > server entry without args array is left intact [0.48ms]
+ci Test affected files + coverage 2026-05-15T15:44:43.5209628Z
+ci Test affected files + covera
+…[truncated 105297 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-15T15:42:39.645Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
