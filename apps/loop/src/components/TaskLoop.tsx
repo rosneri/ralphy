@@ -181,7 +181,7 @@ export function TaskLoop({ opts }: TaskLoopProps) {
         </>
       )}
 
-      {loop.stopReason && (
+      {!loop.isRunning && loop.stopReason && (
         <>
           <StatusBar
             iteration={loop.iteration}

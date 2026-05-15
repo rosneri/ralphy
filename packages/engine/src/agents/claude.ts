@@ -125,6 +125,10 @@ export const claudeAgent: Agent = {
     let detectedRateLimit = false;
 
     const stdout = proc.stdout as ReadableStream<Uint8Array>;
+    const parseOptions =
+      process.stdout.isTTY && process.stdout.columns
+        ? { maxWidth: process.stdout.columns }
+        : undefined;
     for await (const line of streamLines(stdout)) {
       req.onRawLine?.(line);
 
@@ -139,7 +143,7 @@ export const claudeAgent: Agent = {
         }
       }
 
-      for (const event of parseClaudeLine(line, claudeState)) {
+      for (const event of parseClaudeLine(line, claudeState, parseOptions)) {
         if (event.type === "text" && isRateLimitText(event.text)) {
           detectedRateLimit = true;
         }

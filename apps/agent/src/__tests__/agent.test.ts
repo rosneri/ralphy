@@ -182,6 +182,12 @@ describe("agent/scaffold", () => {
     expect(tasks).toContain("research the codebase");
     expect(tasks).toContain("Append an `## Implementation` section");
     expect(tasks).not.toContain("Implement the changes described in proposal.md");
+    expect(tasks).toContain("`## Why`");
+    expect(tasks).toContain("`## What Changes`");
+    expect(tasks).toContain("spec delta");
+
+    expect(proposal).toContain("## Why");
+    expect(proposal).toContain("## What Changes");
 
     expect(existsSync(join(tasksDir, name, "design.md"))).toBe(true);
     expect(existsSync(join(tasksDir, name, "specs"))).toBe(true);
