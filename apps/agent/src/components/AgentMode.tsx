@@ -896,7 +896,7 @@ export function AgentMode({
             {pollStatus.lastAt !== null && pollStatus.lastPrStatus && (
               <Box gap={2}>
                 {secsToNextPoll !== null ? (
-                  <Box gap={1}>
+                  <Box gap={1} width={7}>
                     <Text dimColor>↺</Text>
                     <Text color="gray">{secsToNextPoll}s</Text>
                   </Box>
