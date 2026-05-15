@@ -42,6 +42,7 @@ const fakeWorker: ActiveWorker = {
   mode: "fresh",
   kill: () => {},
   lastReportedIteration: 0,
+  restarting: false,
 };
 
 function makeFakeCoord(

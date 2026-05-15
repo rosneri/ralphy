@@ -91,9 +91,9 @@ function makeCtx(): Ctx {
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
 
-const SET_IN_PROGRESS: SetIndicator = { labels: ["in-progress"], status: null };
-const SET_DONE: SetIndicator = { labels: ["done"], status: null };
-const SET_ERROR: SetIndicator = { labels: ["error"], status: null };
+const SET_IN_PROGRESS: SetIndicator = { type: "label", value: "in-progress" };
+const SET_DONE: SetIndicator = { type: "label", value: "done" };
+const SET_ERROR: SetIndicator = { type: "label", value: "error" };
 
 describe("AgentCoordinator.restartWorker", () => {
   test("kills active worker once, re-spawns as resume, and does not finalize the issue", async () => {
