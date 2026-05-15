@@ -194,6 +194,9 @@ interface BuildAgentCoordinatorInput {
   apiKey: string;
   /** Receive log lines for the UI. */
   onLog: (text: string, color?: string) => void;
+  /** Receive log lines that should be written to the agent-mode log file but
+   *  not displayed in the UI log panel (e.g. the per-poll summary). */
+  onFileLog?: (text: string) => void;
   /** Called whenever the active-worker set changes (drives re-render). */
   onWorkersChanged: () => void;
   /** Called when a new worker subprocess starts. The UI uses `statesDir`
@@ -370,6 +373,7 @@ export function buildAgentCoordinator(
     tasksDir,
     apiKey,
     onLog,
+    onFileLog,
     onWorkersChanged,
     onWorkerStarted,
     onWorkerExited,
@@ -1692,6 +1696,7 @@ export function buildAgentCoordinator(
       },
       checkPrStatus,
       onLog,
+      ...(onFileLog ? { onFileLog } : {}),
       onWorkersChanged,
       getIterationCount: async (changeName) => {
         const root = cwdByChange.get(changeName) ?? projectRoot;

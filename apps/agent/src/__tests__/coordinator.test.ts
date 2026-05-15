@@ -39,6 +39,7 @@ interface DepsResult {
   deps: CoordinatorDeps;
   workers: Map<string, FakeWorker>;
   logs: { text: string; color?: string }[];
+  fileLogs: string[];
   applies: { id: string; ind: SetIndicator }[];
   removes: { id: string; ind: SetIndicator }[];
   comments: { id: string; body: string }[];
@@ -58,6 +59,7 @@ interface DepsResult {
 function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   const workers = new Map<string, FakeWorker>();
   const logs: { text: string; color?: string }[] = [];
+  const fileLogs: string[] = [];
   const applies: { id: string; ind: SetIndicator }[] = [];
   const removes: { id: string; ind: SetIndicator }[] = [];
   const comments: { id: string; body: string }[] = [];
@@ -112,6 +114,9 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     onLog: (text, color) => {
       logs.push(color !== undefined ? { text, color } : { text });
     },
+    onFileLog: (text) => {
+      fileLogs.push(text);
+    },
     onWorkersChanged: () => {},
   };
 
@@ -119,6 +124,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     deps,
     workers,
     logs,
+    fileLogs,
     applies,
     removes,
     comments,
@@ -854,6 +860,48 @@ describe("AgentCoordinator — progress comments", () => {
     await tick();
     await coord.pollOnce();
     expect(ctx.logs.some((l) => l.text.includes("iteration count read failed"))).toBe(true);
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+});
+
+describe("AgentCoordinator — poll summary log routing", () => {
+  test("poll summary goes to onFileLog, not onLog", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    const pollLines = ctx.fileLogs.filter((t) => t.includes("poll:"));
+    expect(pollLines.length).toBe(1);
+    expect(pollLines[0]).toContain("1 todo");
+    expect(pollLines[0]).toContain("0 in-progress");
+    expect(ctx.logs.some((l) => l.text.startsWith("  poll:"))).toBe(false);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("empty poll emits no summary line on either channel", async () => {
+    const ctx = makeDeps();
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+
+    expect(ctx.fileLogs.some((t) => t.includes("poll:"))).toBe(false);
+    expect(ctx.logs.some((l) => l.text.includes("poll:"))).toBe(false);
+  });
+
+  test("missing onFileLog is a silent no-op for poll summary", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    delete (ctx.deps as { onFileLog?: unknown }).onFileLog;
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.logs.some((l) => l.text.startsWith("  poll:"))).toBe(false);
     ctx.workers.get("change-eng-1")!.resolve(0);
     await tick();
   });

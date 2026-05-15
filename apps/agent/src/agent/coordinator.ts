@@ -100,6 +100,10 @@ export interface CoordinatorDeps {
    *  yet or `gh` failed; the caller skips acting on it. */
   checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatus } | null>;
   onLog: (text: string, color?: string) => void;
+  /** Log lines that should be persisted to the on-disk agent log but not
+   *  surfaced in the UI panel (e.g. the per-poll summary). Dropped silently
+   *  when not provided. */
+  onFileLog?: (text: string) => void;
   onWorkersChanged: () => void;
   /** Returns the current iteration count for an active worker (for
    *  periodic progress comments). */
@@ -237,9 +241,8 @@ export class AgentCoordinator {
     }
 
     if (todo.length + inProgress.length + conflicted.length + review.length + mentions.length > 0) {
-      this.deps.onLog(
+      this.deps.onFileLog?.(
         `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention`,
-        "gray",
       );
     }
 
