@@ -1,5 +1,69 @@
 # Tasks for RLF-41
 
+## Fix failing CI checks (2026-05-15T15:42:39.645Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+Resolution: `apps/agent/src/__tests__/agent-mode-steering.test.tsx` had a duplicate `createdAt` property on the `fakeWorker.issue` literal (TS1117). The merge in the prior task added the new `createdAt` field without removing the existing one. Removed the older `2026-01-01` entry, keeping the `2026-05-15` value.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 25926795005 ---
+ci Typecheck (affected) ﻿2026-05-15T15:40:50.5333920Z ##[group]Run bun run typecheck:ci
+ci Typecheck (affected) 2026-05-15T15:40:50.5334261Z ^[[36;1mbun run typecheck:ci^[[0m
+ci Typecheck (affected) 2026-05-15T15:40:50.5367345Z shell: /usr/bin/bash -e {0}
+ci Typecheck (affected) 2026-05-15T15:40:50.5367609Z env:
+ci Typecheck (affected) 2026-05-15T15:40:50.5367857Z NX_BASE: dd78ae711c17994588d68bf56b0b8aa0d5c8f709
+ci Typecheck (affected) 2026-05-15T15:40:50.5368372Z NX_HEAD: f570b86eb1e4df261e02cd4dd021868d3f02733a
+ci Typecheck (affected) 2026-05-15T15:40:50.5368712Z NODE_OPTIONS: --max-old-space-size=8192
+ci Typecheck (affected) 2026-05-15T15:40:50.5368993Z ##[endgroup]
+ci Typecheck (affected) 2026-05-15T15:40:50.5443163Z $ nx affected -t typecheck --parallel=1 --exclude=ui
+ci Typecheck (affected) 2026-05-15T15:40:50.8080534Z
+ci Typecheck (affected) 2026-05-15T15:40:50.8085206Z ^[[7m^[[1m^[[38;5;214m NX ^[[39m^[[22m^[[27m ^[[38;5;214mNo explicit --base argument provided, but found environment variable NX_BASE so using its value as the affected base: ^[[1mdd78ae711c17994588d68bf56b0b8aa0d5c8f709^[[22m^[[39m
+ci Typecheck (affected) 2026-05-15T15:40:50.8086377Z
+ci Typecheck (affected) 2026-05-15T15:40:50.8086387Z
+ci Typecheck (affected) 2026-05-15T15:40:50.8087899Z ^[[7m^[[1m^[[38;5;214m NX ^[[39m^[[22m^[[27m ^[[38;5;214mNo explicit --head argument provided, but found environment variable NX_HEAD so using its value as the affected head: ^[[1mf570b86eb1e4df261e02cd4dd021868d3f02733a^[[22m^[[39m
+ci Typecheck (affected) 2026-05-15T15:40:50.8088900Z
+ci Typecheck (affected) 2026-05-15T15:40:51.2011360Z
+ci Typecheck (affected) 2026-05-15T15:40:51.2013445Z ^[[7m^[[1m^[[36m NX ^[[39m^[[22m^[[27m ^[[36mRunning target ^[[1mtypecheck^[[22m for 2 projects and ^[[1m16^[[22m tasks they depend on:^[[39m
+ci Typecheck (affected) 2026-05-15T15:40:51.2014319Z
+ci Typecheck (affected) 2026-05-15T15:40:51.2014538Z ^[[2m-^[[22m agent
+ci Typecheck (affected) 2026-05-15T15:40:51.2014931Z ^[[2m-^[[22m shell
+ci Typecheck (affected) 2026-05-15T15:40:51.2015145Z
+ci Typecheck (affected) 2026-05-15T15:40:51.2015363Z ^[[2m^[[36m^[[39m^[[22m
+ci Typecheck (affected) 2026-05-15T15:40:53.0169718Z
+ci Typecheck (affected) 2026-05-15T15:40:53.0171296Z ##[group]✅ ^[[2m> ^[[22m^[[2mnx run^[[22m types:typecheck
+ci Typecheck (affected) 2026-05-15T15:40:53.0171746Z
+ci Typecheck (affected) 2026-05-15T15:40:53.0172122Z ^[[2m> ^[[22mtsc -b packages/types/tsconfig.json
+ci Typecheck (affected) 2026-05-15T15:40:53.0172377Z
+ci Typecheck (affected) 2026-05-15T15:40:54.1499759Z ##[endgroup]
+ci Typecheck (affected) 2026-05-15T15:40:54.1500859Z ##[group]✅ ^[[2m> ^[[22m^[[2mnx run^[[22m output:typecheck
+ci Typecheck (affected) 2026-05-15T15:40:54.1501643Z
+ci Typecheck (affected) 2026-05-15T15:40:54.1502148Z ^[[2m> ^[[22mtsc -b packages/output/tsconfig.json
+ci Typecheck (affected) 2026-05-15T15:40:54.1502589Z
+ci Typecheck (affected) 2026-05-15T15:40:55.3117517Z ##[endgroup]
+ci Typecheck (affected) 2026-05-15T15:40:55.3118612Z ##[group]✅ ^[[2m> ^[[22m^[[2mnx run^[[22m context:typecheck
+ci Typecheck (affected) 2026-05-15T15:40:55.3119094Z
+ci Typecheck (affected) 2026-05-15T15:40:55.3119588Z ^[[2m> ^[[22mtsc -b packages/context/tsconfig.json
+ci Typecheck (affected) 2026-05-15T15:40:55.3120035Z
+ci Typecheck (affected) 2026-05-15T15:40:56.4237374Z ##[endgroup]
+ci Typecheck (affected) 2026-05-15T15:40:56.4238468Z ##[group]✅ ^[[2m> ^[[22m^[[2mnx run^[[22m telemetry:typecheck
+ci Typecheck (affected) 2026-05-15T15:40:56.4238921Z
+ci Typecheck (affected) 2026-05-15T15:40:56.4239395Z ^[[2m> ^[[22mtsc -b packages/telemetry/tsconfig.json
+ci Typecheck (affected) 2026-05-15T15:40:56.4239799Z
+ci Typecheck (affected) 2026-05-15T15:40:57.4877422Z ##[endgroup]
+ci Typecheck (affected) 2026-05-15T15:40:57.4878483Z ##[group]✅ ^[[2m> ^[[22m^[[2mnx run^[[22m version:typecheck
+ci Typecheck (affected) 2026-05-15T15:40:57.4878909Z
+ci Typecheck (affected) 2026-05-15T15:40:57.4879377Z ^[[2
+…[truncated 116759 chars]
+
+```
+
+```
+
 ## Resolve PR merge conflicts (2026-05-15T15:39:38.853Z)
 
 - [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
