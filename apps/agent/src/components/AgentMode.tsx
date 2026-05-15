@@ -848,7 +848,7 @@ export function AgentMode({
           <LabeledBox
             label="POLL STATUS"
             borderColor="gray"
-            width={termWidth - 15}
+            width={termWidth - 17}
             paddingX={1}
             flexDirection="column"
           >
@@ -869,22 +869,22 @@ export function AgentMode({
                       <Text dimColor>todo</Text>
                       <Text color="white">{pollStatus.lastBuckets.todo}</Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>res</Text>
+                      <Text dimColor>resume</Text>
                       <Text color={pollStatus.lastBuckets.inProgress > 0 ? "cyan" : "white"}>
                         {pollStatus.lastBuckets.inProgress}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>conf</Text>
+                      <Text dimColor>conflict</Text>
                       <Text color={pollStatus.lastBuckets.conflicted > 0 ? "red" : "white"}>
                         {pollStatus.lastBuckets.conflicted}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>rev</Text>
+                      <Text dimColor>review</Text>
                       <Text color={pollStatus.lastBuckets.review > 0 ? "yellow" : "white"}>
                         {pollStatus.lastBuckets.review}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>@</Text>
+                      <Text dimColor>mentions</Text>
                       <Text color={pollStatus.lastBuckets.mentions > 0 ? "magenta" : "white"}>
                         {pollStatus.lastBuckets.mentions}
                       </Text>
@@ -926,12 +926,12 @@ export function AgentMode({
           <LabeledBox
             label="WORKERS"
             borderColor="gray"
-            width={14}
+            width={16}
             paddingX={1}
             flexDirection="column"
           >
             <Box gap={1}>
-              <Text dimColor>act</Text>
+              <Text dimColor>active</Text>
               <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
                 {activeCount}
               </Text>
