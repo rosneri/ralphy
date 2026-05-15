@@ -8,6 +8,12 @@ import {
   allCompleted,
   prependSection,
   prependFixTask,
+  pickActiveTasksFile,
+  bothFilesCompleted,
+  isFlowTaskHeading,
+  FLOW_TASK_HEADING_PREFIXES,
+  AGENT_TASKS_FILENAME,
+  MISSION_TASKS_FILENAME,
 } from "../tasks-md";
 
 let tempDir: string;
@@ -89,5 +95,125 @@ describe("prependFixTask round-trip on disk", () => {
     expect(content.indexOf("Second fix")).toBeLessThan(content.indexOf("First fix"));
     const picked = firstUnchecked(content);
     expect(picked!).toContain("Second fix");
+  });
+
+  test("writes to agent-tasks.md without touching tasks.md when caller routes there", async () => {
+    const missionPath = join(tempDir, MISSION_TASKS_FILENAME);
+    const agentPath = join(tempDir, AGENT_TASKS_FILENAME);
+    await Bun.write(missionPath, "# Mission\n\n## Implementation\n\n- [x] real work\n");
+
+    await prependFixTask(agentPath, "Fix failing CI checks", "type error in foo.ts");
+
+    const mission = await Bun.file(missionPath).text();
+    expect(mission).not.toContain("Fix failing CI checks");
+    expect(allCompleted(mission)).toBe(true);
+
+    const agent = await Bun.file(agentPath).text();
+    expect(agent).toContain("## Fix failing CI checks");
+    expect(agent).toContain("type error in foo.ts");
+    expect(countUnchecked(agent)).toBe(1);
+  });
+});
+
+describe("isFlowTaskHeading", () => {
+  test("matches every canonical flow heading prefix", () => {
+    for (const prefix of FLOW_TASK_HEADING_PREFIXES) {
+      expect(isFlowTaskHeading(prefix)).toBe(true);
+      expect(isFlowTaskHeading(`${prefix} (2026-05-15T12:00:00.000Z)`)).toBe(true);
+    }
+  });
+
+  test("matches the `Resolve merge conflict with origin/<branch>` form", () => {
+    expect(isFlowTaskHeading("Resolve merge conflict with origin/main")).toBe(true);
+    expect(
+      isFlowTaskHeading("Resolve merge conflict with origin/main (2026-05-15T12:00:00.000Z)"),
+    ).toBe(true);
+  });
+
+  test("rejects unrelated mission headings", () => {
+    expect(isFlowTaskHeading("Implementation")).toBe(false);
+    expect(isFlowTaskHeading("Planning")).toBe(false);
+    expect(isFlowTaskHeading("Add the parser")).toBe(false);
+    expect(isFlowTaskHeading("Fix the user-facing bug")).toBe(false);
+  });
+});
+
+describe("pickActiveTasksFile", () => {
+  test("returns agent-tasks.md when it has unchecked items", async () => {
+    await Bun.write(
+      join(tempDir, MISSION_TASKS_FILENAME),
+      "## Implementation\n\n- [ ] mission work\n",
+    );
+    await Bun.write(
+      join(tempDir, AGENT_TASKS_FILENAME),
+      "## Fix failing CI checks\n\n- [ ] fix the CI break\n",
+    );
+
+    const picked = await pickActiveTasksFile(tempDir);
+    expect(picked).not.toBeNull();
+    expect(picked!.filename).toBe(AGENT_TASKS_FILENAME);
+    expect(picked!.path).toBe(join(tempDir, AGENT_TASKS_FILENAME));
+    expect(picked!.content).toContain("fix the CI break");
+  });
+
+  test("falls back to tasks.md when agent-tasks.md is fully checked", async () => {
+    await Bun.write(
+      join(tempDir, MISSION_TASKS_FILENAME),
+      "## Implementation\n\n- [ ] still pending\n",
+    );
+    await Bun.write(
+      join(tempDir, AGENT_TASKS_FILENAME),
+      "## Fix failing CI checks\n\n- [x] already done\n",
+    );
+
+    const picked = await pickActiveTasksFile(tempDir);
+    expect(picked).not.toBeNull();
+    expect(picked!.filename).toBe(MISSION_TASKS_FILENAME);
+    expect(picked!.content).toContain("still pending");
+  });
+
+  test("falls back to tasks.md when agent-tasks.md does not exist", async () => {
+    await Bun.write(
+      join(tempDir, MISSION_TASKS_FILENAME),
+      "## Implementation\n\n- [ ] mission work\n",
+    );
+
+    const picked = await pickActiveTasksFile(tempDir);
+    expect(picked).not.toBeNull();
+    expect(picked!.filename).toBe(MISSION_TASKS_FILENAME);
+  });
+
+  test("returns null when neither file exists", async () => {
+    const picked = await pickActiveTasksFile(tempDir);
+    expect(picked).toBeNull();
+  });
+});
+
+describe("bothFilesCompleted", () => {
+  test("true when only tasks.md exists and is clean", async () => {
+    await Bun.write(join(tempDir, MISSION_TASKS_FILENAME), "## Done\n\n- [x] done\n");
+    expect(await bothFilesCompleted(tempDir)).toBe(true);
+  });
+
+  test("false when agent-tasks.md still has unchecked items", async () => {
+    await Bun.write(join(tempDir, MISSION_TASKS_FILENAME), "## Done\n\n- [x] done\n");
+    await Bun.write(
+      join(tempDir, AGENT_TASKS_FILENAME),
+      "## Fix failing CI checks\n\n- [ ] not yet\n",
+    );
+    expect(await bothFilesCompleted(tempDir)).toBe(false);
+  });
+
+  test("false when tasks.md still has unchecked items even if agent-tasks.md is clean", async () => {
+    await Bun.write(join(tempDir, MISSION_TASKS_FILENAME), "## Mission\n\n- [ ] mission work\n");
+    await Bun.write(
+      join(tempDir, AGENT_TASKS_FILENAME),
+      "## Fix failing CI checks\n\n- [x] done\n",
+    );
+    expect(await bothFilesCompleted(tempDir)).toBe(false);
+  });
+
+  test("true when neither file exists", async () => {
+    expect(await bothFilesCompleted(tempDir)).toBe(true);
   });
 });

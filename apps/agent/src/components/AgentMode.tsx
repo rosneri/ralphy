@@ -6,6 +6,7 @@ import { ensureRalphyConfig, loadRalphyConfig, type RalphyConfig } from "../agen
 import { AgentCoordinator } from "../agent/coordinator";
 import { buildAgentCoordinator } from "../agent/wire";
 import { countProgress } from "@ralphy/core/progress";
+import { isFlowTaskHeading } from "@ralphy/core/tasks-md";
 import {
   deriveOpenSpecPhase,
   phasePipeline,
@@ -57,19 +58,26 @@ const MAX_PENDING_DISPLAY = 15;
 
 /**
  * Extract all `- [x]` / `- [ ]` items from a tasks.md document, in order.
- * Items under a `## Planning` heading are skipped — those are OpenSpec
- * pipeline scaffolding, not mission-specific work.
+ *
+ * Skips items under:
+ *  - `## Planning` — OpenSpec pipeline scaffolding, not mission work.
+ *  - any section whose heading is a recognized flow-task heading
+ *    (`Fix failing CI checks`, `Resolve PR merge conflicts`, …). This
+ *    is the backward-compat path: new flow tasks land in
+ *    `agent-tasks.md` (which this function never reads), but older
+ *    in-flight `tasks.md` files may still contain inline flow sections.
  */
 export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: string }> {
   const out: Array<{ done: boolean; text: string }> = [];
-  let inPlanning = false;
+  let skipSection = false;
   for (const line of tasksMd.split("\n")) {
     const heading = line.match(/^##\s+(.+?)\s*$/);
     if (heading) {
-      inPlanning = heading[1]!.trim().toLowerCase() === "planning";
+      const title = heading[1]!.trim();
+      skipSection = title.toLowerCase() === "planning" || isFlowTaskHeading(title);
       continue;
     }
-    if (inPlanning) continue;
+    if (skipSection) continue;
     const m = line.match(/^- \[([ xX])\] (.+)$/);
     if (m) out.push({ done: m[1] !== " ", text: m[2]!.trim() });
   }
