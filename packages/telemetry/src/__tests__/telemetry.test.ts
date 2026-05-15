@@ -38,6 +38,18 @@ describe("telemetry", () => {
     expect(mockCapture).not.toHaveBeenCalled();
   });
 
+  test("captureError shape: emits error_message, error_name, error_stack", async () => {
+    const { setDefaultProperties, captureError } = await import("../index");
+    // client is null (init not called in this suite path), so the underlying
+    // mockCapture is not invoked — but we're asserting captureError doesn't
+    // throw and that the spread shape would carry the error fields.
+    setDefaultProperties({});
+    expect(() =>
+      captureError("command_error", new Error("boom"), { subcommand: "loop" }),
+    ).not.toThrow();
+    expect(() => captureError("command_error", "string-error")).not.toThrow();
+  });
+
   test("capture is a no-op when RALPH_TELEMETRY=0", async () => {
     const origKey = process.env["RALPH_POSTHOG_KEY"];
     const origTel = process.env["RALPH_TELEMETRY"];

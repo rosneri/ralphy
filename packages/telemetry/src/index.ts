@@ -1,7 +1,8 @@
 import { PostHog } from "posthog-node";
-import { homedir } from "node:os";
+import { homedir, hostname, platform, arch, release } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { VERSION } from "@ralphy/version";
 
 // Set RALPH_POSTHOG_KEY to your PostHog project API key.
 // Set RALPH_TELEMETRY=0 to opt out.
@@ -37,6 +38,35 @@ export async function init(): Promise<void> {
     host: HOST,
     flushAt: 20,
     flushInterval: 0,
+  });
+
+  // Auto-attach environment/version context to every event so we don't have to
+  // remember to pass it at each call site (RLF-40).
+  defaultProps = {
+    version: VERSION,
+    machine_name: hostname(),
+    platform: platform(),
+    arch: arch(),
+    os_release: release(),
+    ...defaultProps,
+  };
+}
+
+/**
+ * Capture an error with stack metadata. Wraps `capture()` so every error path
+ * can emit a uniform event shape.
+ */
+export function captureError(
+  event: string,
+  error: unknown,
+  properties?: Record<string, unknown>,
+): void {
+  const err = error instanceof Error ? error : new Error(String(error));
+  capture(event, {
+    ...properties,
+    error_message: err.message,
+    error_name: err.name,
+    error_stack: err.stack,
   });
 }
 

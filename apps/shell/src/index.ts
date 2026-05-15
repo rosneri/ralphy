@@ -61,7 +61,12 @@ async function run(): Promise<number> {
   telemetry.setDefaultProperties({ subcommand });
   telemetry.capture("command_run", { subcommand });
   try {
-    return await dispatch(subcommand, argv.slice(1));
+    const code = await dispatch(subcommand, argv.slice(1));
+    telemetry.capture("command_exit", { subcommand, exit_code: code });
+    return code;
+  } catch (err) {
+    telemetry.captureError("command_error", err, { subcommand });
+    throw err;
   } finally {
     await telemetry.shutdown();
   }
