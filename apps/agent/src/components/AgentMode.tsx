@@ -8,6 +8,7 @@ import { buildAgentCoordinator } from "../agent/wire";
 import { countProgress } from "@ralphy/core/progress";
 import { deriveOpenSpecPhase, type OpenSpecPhase } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
+import { useTerminalSize } from "../hooks/useTerminalSize";
 
 interface AgentModeProps {
   args: ParsedArgs;
@@ -279,6 +280,12 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const { exit } = useApp();
   const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
+  const { columns, rows, resizeKey } = useTerminalSize();
+
+  useEffect(() => {
+    if (resizeKey === 0) return;
+    stdout.write("\x1b[2J\x1b[3J\x1b[H");
+  }, [resizeKey, stdout]);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
@@ -566,8 +573,8 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
     ? Math.max(0, Math.ceil((nextPollAtRef.current - now) / 1000))
     : null;
   const activeCount = coord?.activeCount ?? 0;
-  const termWidth = (stdout?.columns ?? 100) - 2;
-  const termHeight = stdout?.rows ?? 40;
+  const termWidth = columns - 2;
+  const termHeight = rows;
 
   // Keyboard navigation — cycle through workers with Tab / arrow keys.
   const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
@@ -597,7 +604,7 @@ export function AgentMode({ args, projectRoot, statesDir, tasksDir }: AgentModeP
   const compactTailLines = displayTailLines(activeCount);
 
   return (
-    <Box flexDirection="column">
+    <Box key={resizeKey} flexDirection="column">
       {/* ── Scrolling log history ──────────────────────────────
           Rendered via <Static> so each line is permanently flushed
           to stdout above the live UI. The terminal's native
