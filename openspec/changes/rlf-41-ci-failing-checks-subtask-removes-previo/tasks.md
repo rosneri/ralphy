@@ -1,5 +1,11 @@
 # Tasks for RLF-41
 
+## Fix failing CI checks (2026-05-15T14:52:41.065Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+Resolution: merging main brought in the `createdAt` requirement on `LinearIssue` (added in RLF-36) and a new `agent-mode-steering.test.tsx` (added in RLF-35) whose `fakeWorker.issue` literal did not include `createdAt`. The fix is to merge main and add `createdAt` to the `fakeWorker.issue` literal so `apps/agent` typechecks.
+
 ## Fix failing CI checks (2026-05-15T14:48:49.927Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
