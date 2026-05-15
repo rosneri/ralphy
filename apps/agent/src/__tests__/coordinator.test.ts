@@ -13,6 +13,7 @@ function issue(
   identifier: string,
   priority = 3,
   blockedByIds: string[] = [],
+  createdAt = "2026-01-01T00:00:00Z",
 ): LinearIssue {
   return {
     id,
@@ -24,6 +25,7 @@ function issue(
     assignee: null,
     labels: [],
     priority,
+    createdAt,
     blockedByIds,
   };
 }
@@ -183,6 +185,21 @@ describe("AgentCoordinator — todo polling", () => {
     ctx.workers.get("change-eng-1")!.resolve(0);
     await tick();
     expect(ctx.workers.has("change-eng-3")).toBe(true);
+  });
+
+  test("same-priority same-mode issues run in FIFO (oldest createdAt first)", async () => {
+    const newer = issue("newer", "ENG-2", 3, [], "2026-02-15T00:00:00Z");
+    const older = issue("older", "ENG-1", 3, [], "2026-01-01T00:00:00Z");
+    const ctx = makeDeps({ todo: [newer, older] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+    expect(ctx.workers.has("change-eng-2")).toBe(false);
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+    expect(ctx.workers.has("change-eng-2")).toBe(true);
   });
 
   test("re-poll dedupes against active and pending", async () => {

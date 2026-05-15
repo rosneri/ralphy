@@ -1,7 +1,11 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
 import { issueMatchesGetIndicator } from "./linear";
+import { compareQueueEntries, type QueueEntry } from "./queue-order";
+import type { MentionTrigger, SpawnMode } from "./queue-order";
 import { capture } from "@ralphy/telemetry";
+
+export type { SpawnMode, MentionTrigger } from "./queue-order";
 
 /** Spawn shape — same as before. */
 interface WorkerHandle {
@@ -17,8 +21,6 @@ export interface PrepareResult {
   /** Optional: PR URL the spawn should reference (used for conflict-fix runs). */
   prUrl?: string;
 }
-
-export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";
 
 /** Per-bucket counts surfaced by `pollOnce` for the dashboard / JSON
  *  output. `found` is the sum across buckets and `added` is how many
@@ -53,25 +55,6 @@ const emptyPollResult = (): PollResult => ({
   buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 },
   prStatus: emptyPrStatus(),
 });
-
-/** Per-issue review trigger emitted by mention scanning. Carries the
- *  comment that should become the next task verbatim, so the worker
- *  doesn't have to guess which of N comments matters. */
-export interface MentionTrigger {
-  /** Where the trigger originated.
-   *  - "linear" / "github": an `@<handle>` mention on a comment.
-   *  - "github-review": one or more unresolved review-thread comments on
-   *     an open, unapproved PR. Body carries a pre-built digest. */
-  source: "linear" | "github" | "github-review";
-  /** Comment body (verbatim, including the @ralphy handle). */
-  body: string;
-  /** ISO timestamp — used for idempotency / logging. */
-  createdAt: string;
-  /** Author display name (Linear) or login (GitHub), if known. */
-  author?: string;
-  /** Permalink to the comment (GitHub URL or Linear issue URL). */
-  url?: string;
-}
 
 export interface CoordinatorDeps {
   /** Issues to pick up. Empty array if `getTodo` isn't configured. */
@@ -172,7 +155,7 @@ export class AgentCoordinator {
   /** Issues whose prepare step is in flight (between dequeue and spawn). */
   private pendingIds = new Set<string>();
   /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
-  private queue: { issue: LinearIssue; mode: SpawnMode; trigger?: MentionTrigger }[] = [];
+  private queue: QueueEntry[] = [];
   private stopped = false;
   private paused: PauseState | null = null;
   /** Issues we've already detected as conflicted in this process — guards
@@ -352,26 +335,7 @@ export class AgentCoordinator {
     }
 
     if (added > 0) {
-      // Stable sort by priority (1=Urgent first; 0=No-priority last). Mode
-      // preference is preserved when priority ties: resume < conflict-fix
-      // < fresh, because resumes shouldn't wait behind a fresh queue.
-      const modeRank: Record<SpawnMode, number> = {
-        resume: 0,
-        "conflict-fix": 1,
-        review: 2,
-        fresh: 3,
-      };
-      this.queue.sort((a, b) => {
-        // Auto-merge conflict-fix items always come first — one rebase
-        // from landing is the highest-value work the agent can pick up.
-        const ba = a.mode === "conflict-fix" && this.isAutoMergeUnblock(a.issue) ? 0 : 1;
-        const bb = b.mode === "conflict-fix" && this.isAutoMergeUnblock(b.issue) ? 0 : 1;
-        if (ba !== bb) return ba - bb;
-        const pa = a.issue.priority === 0 ? Infinity : a.issue.priority;
-        const pb = b.issue.priority === 0 ? Infinity : b.issue.priority;
-        if (pa !== pb) return pa - pb;
-        return modeRank[a.mode] - modeRank[b.mode];
-      });
+      this.queue.sort(compareQueueEntries(this.opts.getAutoMerge));
     }
 
     this.spawnNext();

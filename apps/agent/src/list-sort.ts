@@ -1,4 +1,5 @@
 import type { PrStatus } from "./pr-status";
+import { chain } from "./sort/compare";
 
 type Tier = 1 | 2 | 3 | 4 | 5;
 
@@ -40,14 +41,16 @@ function createdAtOf(status: PrStatus | null): string {
  * and the secondary `bucketOrder` keeps them in the original Linear order.
  */
 export function sortRows<R extends SortableRow>(rows: R[]): R[] {
-  return [...rows].sort((a, b) => {
-    const ta = assignTier(a.status);
-    const tb = assignTier(b.status);
-    if (ta !== tb) return ta - tb;
-    const ca = createdAtOf(a.status);
-    const cb = createdAtOf(b.status);
-    if (ca !== cb) return ca < cb ? -1 : 1;
-    if (a.bucketOrder !== b.bucketOrder) return a.bucketOrder - b.bucketOrder;
-    return a.identifier.localeCompare(b.identifier);
-  });
+  const cmp = chain<R>(
+    (a, b) => assignTier(a.status) - assignTier(b.status),
+    (a, b) => {
+      const ca = createdAtOf(a.status);
+      const cb = createdAtOf(b.status);
+      if (ca === cb) return 0;
+      return ca < cb ? -1 : 1;
+    },
+    (a, b) => a.bucketOrder - b.bucketOrder,
+    (a, b) => a.identifier.localeCompare(b.identifier),
+  );
+  return [...rows].sort(cmp);
 }

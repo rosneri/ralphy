@@ -129,6 +129,7 @@ class FakeLinear {
                 description: i.description,
                 url: `https://linear.app/x/${i.identifier}`,
                 priority: i.priority,
+                createdAt: "2026-01-01T00:00:00Z",
                 state: i.state,
                 assignee: null,
                 labels: { nodes: [...i.labels].map((name) => ({ name })) },

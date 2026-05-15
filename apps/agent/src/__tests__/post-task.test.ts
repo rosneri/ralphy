@@ -20,6 +20,7 @@ const FAKE_ISSUE: LinearIssue = {
   url: "https://linear.app/team/issue/COD-1",
   description: "",
   priority: 2,
+  createdAt: "2026-01-01T00:00:00Z",
   blockedByIds: [],
   state: { name: "In Progress", type: "started" },
   assignee: null,

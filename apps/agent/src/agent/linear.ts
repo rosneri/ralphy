@@ -11,6 +11,9 @@ export interface LinearIssue {
   labels: string[];
   /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
+  /** ISO timestamp of issue creation — used as a FIFO tiebreaker in the
+   *  coordinator queue so older same-priority work runs first. */
+  createdAt: string;
   /**
    * IDs of issues that block this one and are not yet completed/cancelled.
    * Populated from Linear's "blocked_by" relations.
@@ -42,6 +45,7 @@ interface LinearNode {
   assignee: { id: string; email: string | null; name: string } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
+  createdAt: string;
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
 }
 
@@ -163,7 +167,7 @@ export async function fetchOpenIssues(
   const query = `query Issues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {
       nodes {
-        id identifier title description url priority
+        id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
         labels { nodes { name } }
@@ -192,6 +196,7 @@ export async function fetchOpenIssues(
     assignee: n.assignee,
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
+    createdAt: n.createdAt,
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),
