@@ -33,12 +33,12 @@ describe("pickOpenPrUrlFromAttachments", () => {
       "/cwd",
       (m) => logs.push(m),
     );
-    expect(result).toBeNull();
+    expect(result).toEqual({ url: null, sawNonOpenPr: false });
     expect(calls).toEqual([]);
     expect(logs).toEqual([]);
   });
 
-  test("skips MERGED PRs and returns null when no OPEN PR remains", async () => {
+  test("skips MERGED PRs, returns null with sawNonOpenPr=true", async () => {
     const url = "https://github.com/o/r/pull/42";
     const calls: GhCall[] = [];
     const runner = makeRunner({ [url]: "MERGED" }, calls);
@@ -46,10 +46,17 @@ describe("pickOpenPrUrlFromAttachments", () => {
     const result = await pickOpenPrUrlFromAttachments([url], "RLF-2", runner, "/cwd", (m) =>
       logs.push(m),
     );
-    expect(result).toBeNull();
+    expect(result).toEqual({ url: null, sawNonOpenPr: true });
     expect(calls).toHaveLength(1);
     // No noisy log line for the merged PR.
     expect(logs).toEqual([]);
+  });
+
+  test("skips CLOSED PRs, returns null with sawNonOpenPr=true", async () => {
+    const url = "https://github.com/o/r/pull/99";
+    const runner = makeRunner({ [url]: "CLOSED" });
+    const result = await pickOpenPrUrlFromAttachments([url], "RLF-2b", runner, "/cwd", () => {});
+    expect(result).toEqual({ url: null, sawNonOpenPr: true });
   });
 
   test("returns the first OPEN PR URL, skipping merged ones in order", async () => {
@@ -65,7 +72,7 @@ describe("pickOpenPrUrlFromAttachments", () => {
       "/cwd",
       (m) => logs.push(m),
     );
-    expect(result).toBe(open);
+    expect(result.url).toBe(open);
     expect(calls.map((c) => c.args[3])).toEqual([merged, open]);
   });
 
@@ -81,7 +88,7 @@ describe("pickOpenPrUrlFromAttachments", () => {
       "/cwd",
       () => {},
     );
-    expect(result).toBe(open);
+    expect(result).toEqual({ url: open, sawNonOpenPr: false });
     expect(calls).toHaveLength(1);
   });
 
@@ -97,10 +104,17 @@ describe("pickOpenPrUrlFromAttachments", () => {
       "/cwd",
       (msg, color) => logs.push(color === undefined ? { msg } : { msg, color }),
     );
-    expect(result).toBe(open);
+    expect(result.url).toBe(open);
     expect(logs).toHaveLength(1);
     expect(logs[0]!.color).toBe("yellow");
     expect(logs[0]!.msg).toContain(broken);
     expect(logs[0]!.msg).toContain("RLF-5");
+  });
+
+  test("gh failure on only candidate keeps sawNonOpenPr=false", async () => {
+    const broken = "https://github.com/o/r/pull/10";
+    const runner = makeRunner({ [broken]: "throw" });
+    const result = await pickOpenPrUrlFromAttachments([broken], "RLF-6", runner, "/cwd", () => {});
+    expect(result).toEqual({ url: null, sawNonOpenPr: false });
   });
 });
