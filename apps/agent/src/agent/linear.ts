@@ -16,6 +16,8 @@ export interface LinearIssue {
    * Populated from Linear's "blocked_by" relations.
    */
   blockedByIds: string[];
+  /** ISO-8601 timestamp from Linear. Used for FIFO ordering within a queue bucket. */
+  createdAt: string;
 }
 
 /**
@@ -42,6 +44,7 @@ interface LinearNode {
   assignee: { id: string; email: string | null; name: string } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
+  createdAt: string;
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
 }
 
@@ -163,7 +166,7 @@ export async function fetchOpenIssues(
   const query = `query Issues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {
       nodes {
-        id identifier title description url priority
+        id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
         labels { nodes { name } }
@@ -192,6 +195,7 @@ export async function fetchOpenIssues(
     assignee: n.assignee,
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
+    createdAt: n.createdAt ?? "",
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),

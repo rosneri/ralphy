@@ -24,7 +24,7 @@ export type SpawnMode = "fresh" | "resume" | "conflict-fix" | "review";
  *  output. `found` is the sum across buckets and `added` is how many
  *  the coordinator actually enqueued this tick (after eligibility,
  *  dependency, and ticket-cap checks). */
-interface PollBuckets {
+export interface PollBuckets {
   todo: number;
   inProgress: number;
   conflicted: number;
@@ -34,13 +34,13 @@ interface PollBuckets {
 /** Per-status counts across the done-candidate PRs scanned this tick.
  *  Surfaced in the dashboard so operators can see at a glance how many
  *  shipped PRs are mergeable, blocked by merge conflicts, or red on CI. */
-interface PrStatusCounts {
+export interface PrStatusCounts {
   mergeable: number;
   conflicted: number;
   ciFailed: number;
 }
 export type PrStatus = "mergeable" | "conflicted" | "ci_failed" | "unknown";
-interface PollResult {
+export interface PollResult {
   found: number;
   added: number;
   buckets: PollBuckets;
@@ -140,7 +140,7 @@ interface CoordinatorOptions {
   getAutoMerge?: GetIndicator | undefined;
 }
 
-interface ActiveWorker {
+export interface ActiveWorker {
   changeName: string;
   issueId: string;
   issueIdentifier: string;
@@ -154,7 +154,7 @@ interface ActiveWorker {
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
  *  workers continue. The gate clears it once the trunk is green again. */
-interface PauseState {
+export interface PauseState {
   /** Linear ticket identifier (e.g. "RLF-99") that tracks the failing baseline. */
   issueIdentifier: string;
   /** Linear issue UUID — kept so the gate can refresh the same ticket. */
@@ -370,7 +370,14 @@ export class AgentCoordinator {
         const pa = a.issue.priority === 0 ? Infinity : a.issue.priority;
         const pb = b.issue.priority === 0 ? Infinity : b.issue.priority;
         if (pa !== pb) return pa - pb;
-        return modeRank[a.mode] - modeRank[b.mode];
+        const ma = modeRank[a.mode];
+        const mb = modeRank[b.mode];
+        if (ma !== mb) return ma - mb;
+        // FIFO within the bucket: older issues drain first.
+        const ca = a.issue.createdAt;
+        const cb = b.issue.createdAt;
+        if (ca !== cb) return ca < cb ? -1 : 1;
+        return 0;
       });
     }
 
