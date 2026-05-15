@@ -95,7 +95,7 @@ describe("pickOpenPrUrlFromAttachments", () => {
       "RLF-5",
       runner,
       "/cwd",
-      (msg, color) => logs.push({ msg, color }),
+      (msg, color) => logs.push(color === undefined ? { msg } : { msg, color }),
     );
     expect(result).toBe(open);
     expect(logs).toHaveLength(1);
