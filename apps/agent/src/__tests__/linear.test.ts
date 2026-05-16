@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   baseBranchFromLabels,
   createIssue,
+  fetchMentionScanIssues,
   findOpenIssueByLabel,
   issueMatchesGetIndicator,
   updateIssueDescription,
@@ -132,5 +133,89 @@ describe("createIssue / updateIssueDescription / findOpenIssueByLabel", () => {
     stubFetch(() => ({ issues: { nodes: [] } }));
     const none = await findOpenIssueByLabel("k", "RLF", "x");
     expect(none).toBeNull();
+  });
+});
+
+describe("fetchMentionScanIssues (RLF-55)", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("filter includes unstarted/started/backlog/triage/completed (excludes cancelled)", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchMentionScanIssues("k", { team: "RLF", assignee: "me" });
+    const filter = calls[0]!.variables.filter as {
+      state: { type: { in: string[] } };
+      team: { key: { eq: string } };
+      assignee: { isMe: { eq: boolean } };
+    };
+    expect(filter.state.type.in).toEqual([
+      "unstarted",
+      "started",
+      "backlog",
+      "triage",
+      "completed",
+    ]);
+    expect(filter.state.type.in).not.toContain("cancelled");
+    expect(filter.team).toEqual({ key: { eq: "RLF" } });
+    expect(filter.assignee).toEqual({ isMe: { eq: true } });
+  });
+
+  test("assignee email and id forms are routed correctly", async () => {
+    const seen: Record<string, unknown>[] = [];
+    const { calls } = stubFetch((body) => {
+      seen.push(body.variables.filter as Record<string, unknown>);
+      return { issues: { nodes: [] } };
+    });
+    await fetchMentionScanIssues("k", { assignee: "user@example.com" });
+    await fetchMentionScanIssues("k", { assignee: "user-id-xyz" });
+    expect(calls).toHaveLength(2);
+    expect(seen[0]!.assignee).toEqual({ email: { eq: "user@example.com" } });
+    expect(seen[1]!.assignee).toEqual({ id: { eq: "user-id-xyz" } });
+  });
+
+  test("maps nodes into LinearIssue shape and filters Done blockers", async () => {
+    stubFetch(() => ({
+      issues: {
+        nodes: [
+          {
+            id: "i1",
+            identifier: "RLF-1",
+            title: "t",
+            description: "d",
+            url: "u",
+            priority: 1,
+            createdAt: "2026-01-01",
+            state: { name: "In Progress", type: "started" },
+            assignee: { id: "a", email: "a@a", name: "A" },
+            labels: { nodes: [{ name: "x" }, { name: "y" }] },
+            relations: {
+              nodes: [
+                {
+                  type: "blocked_by",
+                  relatedIssue: { id: "blocker-open", state: { type: "started" } },
+                },
+                {
+                  type: "blocked_by",
+                  relatedIssue: { id: "blocker-done", state: { type: "completed" } },
+                },
+                {
+                  type: "duplicate_of",
+                  relatedIssue: { id: "ignored", state: { type: "started" } },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    }));
+    const issues = await fetchMentionScanIssues("k", {});
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      id: "i1",
+      identifier: "RLF-1",
+      labels: ["x", "y"],
+      blockedByIds: ["blocker-open"],
+    });
   });
 });

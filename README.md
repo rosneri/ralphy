@@ -219,7 +219,7 @@ When a Linear issue is in a done state and a reviewer adds the `getReview` marke
 
 #### `@ralphy` mention trigger
 
-Set `linear.mentionTrigger: true` to scan done-issue comments on Linear _and_ on the linked GitHub PR for a configurable handle (`linear.mentionHandle`, default `@ralphy`). Each unprocessed mention queues the issue as a review run, with the mention text used **verbatim** as the prepended task. Idempotency: a mention is processed when its `createdAt` is older than Ralph's latest `🔁 picked up` Linear comment, so the same comment never re-fires. Requires `gh` for the GitHub side.
+Set `linear.mentionTrigger: true` to scan Linear issue comments on every non-cancelled issue (Todo, In Progress, Backlog, Triage, Done) _and_ on the linked GitHub PR for a configurable handle (`linear.mentionHandle`, default `@ralphy`). Each unprocessed mention queues the issue as a review run, with the mention text used **verbatim** as the prepended task. Idempotency: a mention is processed when its `createdAt` is older than Ralph's latest `🔁 picked up` Linear comment, so the same comment never re-fires. Requires `gh` for the GitHub side.
 
 #### Code-review iteration
 

@@ -15,6 +15,7 @@ import type { ParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import {
   fetchOpenIssues,
+  fetchMentionScanIssues,
   addIssueComment,
   addReactionToComment,
   fetchIssueComments,
@@ -1323,11 +1324,16 @@ export function buildAgentCoordinator(
   }
 
   /**
-   * Scan done-issue comments (Linear + linked GitHub PR) for unprocessed
-   * `@<handle>` mentions. A mention is unprocessed when its createdAt is
-   * newer than the latest Ralph "🔁 picked up" comment on the Linear
-   * issue (Linear is the single source of truth for "last processed",
-   * regardless of where the mention came from).
+   * Scan Linear issue comments (and linked GitHub PR comments) for
+   * unprocessed `@<handle>` mentions across every non-cancelled
+   * workflow state — Todo, In Progress, Backlog, Triage, Done. A
+   * mention is unprocessed when its createdAt is newer than the latest
+   * Ralph "🔁 picked up" comment on the Linear issue (Linear is the
+   * single source of truth for "last processed", regardless of where
+   * the mention came from).
+   *
+   * Code-review polling still requires a tracked PR, which in practice
+   * implies a Done-ish issue with an open PR; that flow is unchanged.
    *
    * Best-effort: any failure (Linear API, gh CLI missing, malformed PR URL)
    * logs and is skipped — never throws into the poll loop.
@@ -1339,9 +1345,9 @@ export function buildAgentCoordinator(
     const handle = cfg.linear.mentionHandle;
     let candidates: LinearIssue[] = [];
     try {
-      candidates = await fetchDoneCandidates();
+      candidates = await fetchMentionScanIssues(apiKey, { team, assignee });
     } catch (err) {
-      onLog(`! mention scan: fetchDoneCandidates failed: ${(err as Error).message}`, "yellow");
+      onLog(`! mention scan: fetchMentionScanIssues failed: ${(err as Error).message}`, "yellow");
       return [];
     }
     const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
