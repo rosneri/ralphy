@@ -43,7 +43,7 @@ import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
 import { runBaselineGate } from "./baseline/gate";
 import { resolveBaselineCommands } from "@ralphy/workflow";
-import { syncTasksToLinearDescription } from "./linear-tasks-sync";
+import { syncTasksToLinearDescription } from "./linear-sync";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -244,6 +244,9 @@ interface BuildAgentCoordinatorResult {
   concurrency: number;
   pollInterval: number;
   getWorkerCwd: (changeName: string) => string | undefined;
+  /** True when a `syncTasks` hook was wired into the coordinator (i.e. the
+   *  `linear.syncTasksToDescription` flag is on and we have an API key). */
+  syncTasksEnabled: boolean;
   /** Run one tick of the pre-existing-error baseline gate. Resolves to a
    *  no-op when the feature is disabled. Callers should invoke this before
    *  each `coord.pollOnce()` so the coordinator's pause state is accurate. */
@@ -1832,6 +1835,7 @@ export function buildAgentCoordinator(
     concurrency,
     pollInterval,
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
+    syncTasksEnabled: Boolean(cfg.linear.syncTasksToDescription && apiKey),
     runBaselineGate: runBaselineGateOnce,
   };
 }

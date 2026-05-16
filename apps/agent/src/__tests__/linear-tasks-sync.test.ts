@@ -8,7 +8,7 @@ import {
   renderTasksBlock,
   applyTasksBlock,
   syncTasksToLinearDescription,
-} from "../agent/linear-tasks-sync";
+} from "../agent/linear-sync";
 
 let tempDir: string;
 

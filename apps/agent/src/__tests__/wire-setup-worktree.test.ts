@@ -305,7 +305,7 @@ describe("setupWorktree — syncTasksToDescription flag wiring (RLF-56)", () => 
       kill: () => {},
     });
 
-    const { coord } = buildAgentCoordinator({
+    const { syncTasksEnabled } = buildAgentCoordinator({
       args,
       cfg,
       projectRoot: tempDir,
@@ -318,9 +318,7 @@ describe("setupWorktree — syncTasksToDescription flag wiring (RLF-56)", () => 
       onWorkerExited: () => {},
       runners: { git, cmd, spawnWorker, runScript: async () => 0 },
     });
-    // Inspect the deps via a duck-typed cast — the only invariant the test
-    // exercises is "syncTasks is wired when the flag is on".
-    expect((coord as unknown as { deps: { syncTasks?: unknown } }).deps.syncTasks).toBeDefined();
+    expect(syncTasksEnabled).toBe(true);
   });
 
   test("flag off leaves syncTasks unset", async () => {
@@ -350,7 +348,7 @@ describe("setupWorktree — syncTasksToDescription flag wiring (RLF-56)", () => 
       kill: () => {},
     });
 
-    const { coord } = buildAgentCoordinator({
+    const { syncTasksEnabled } = buildAgentCoordinator({
       args,
       cfg,
       projectRoot: tempDir,
@@ -363,6 +361,6 @@ describe("setupWorktree — syncTasksToDescription flag wiring (RLF-56)", () => 
       onWorkerExited: () => {},
       runners: { git, cmd, spawnWorker, runScript: async () => 0 },
     });
-    expect((coord as unknown as { deps: { syncTasks?: unknown } }).deps.syncTasks).toBeUndefined();
+    expect(syncTasksEnabled).toBe(false);
   });
 });

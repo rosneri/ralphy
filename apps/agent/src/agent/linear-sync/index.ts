@@ -122,7 +122,7 @@ export function applyTasksBlock(existingDescription: string | null, block: strin
   return `${trimmed}\n\n${block}`;
 }
 
-export interface SyncTasksDeps {
+interface SyncTasksDeps {
   apiKey: string;
   issueId: string;
   currentDescription: string | null;
