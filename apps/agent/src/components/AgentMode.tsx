@@ -874,11 +874,6 @@ export function AgentMode({
                         {pollStatus.lastBuckets.inProgress}
                       </Text>
                       <Text dimColor>·</Text>
-                      <Text dimColor>conflict</Text>
-                      <Text color={pollStatus.lastBuckets.conflicted > 0 ? "red" : "white"}>
-                        {pollStatus.lastBuckets.conflicted}
-                      </Text>
-                      <Text dimColor>·</Text>
                       <Text dimColor>review</Text>
                       <Text color={pollStatus.lastBuckets.review > 0 ? "yellow" : "white"}>
                         {pollStatus.lastBuckets.review}
