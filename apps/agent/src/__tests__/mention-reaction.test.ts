@@ -40,6 +40,9 @@ describe("githubReactionSlug", () => {
 interface FakeFetchHandlers {
   /** Optionally fail when handling a `reactionCreate` mutation. */
   failOnReaction?: boolean;
+  /** Workflow state for the single candidate issue. Defaults to Done so
+   *  the legacy behaviour is still exercised. */
+  issueState?: { name: string; type: string };
 }
 
 interface TestSetup {
@@ -97,27 +100,35 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
       return new Response(JSON.stringify({ data: { issueLabels: { nodes: [] } } }));
     }
     if (q.includes("issues(filter")) {
-      // Done-state lookup: return the one done issue when the filter is
-      // asking for it by name; everything else gets [].
+      // Two distinct queries hit this branch:
+      //   - `MentionScanIssues` (broad: state.type IN
+      //     unstarted/started/backlog/triage/completed) drives the
+      //     mention scan; it MUST return the candidate issue regardless
+      //     of its workflow state.
+      //   - The legacy `Issues` query is used by the conflict scan and
+      //     filters by `state.name: { in: ["Done"] }`; return the issue
+      //     only when that Done include is present.
+      const issueState = handlers.issueState ?? { name: "Done", type: "completed" };
+      const candidate = {
+        id: "uuid-eng-7",
+        identifier: "ENG-7",
+        title: "Shipped task",
+        description: null,
+        url: "https://linear.app/x/ENG-7",
+        priority: 3,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        state: issueState,
+        assignee: null,
+        labels: { nodes: [] },
+        relations: { nodes: [] },
+      };
+      const isMentionScan = q.includes("MentionScanIssues");
+      if (isMentionScan) {
+        return new Response(JSON.stringify({ data: { issues: { nodes: [candidate] } } }));
+      }
       const serialized = JSON.stringify(body.variables.filter ?? {});
       const isDone = serialized.includes('"Done"');
-      const nodes = isDone
-        ? [
-            {
-              id: "uuid-eng-7",
-              identifier: "ENG-7",
-              title: "Shipped task",
-              description: null,
-              url: "https://linear.app/x/ENG-7",
-              priority: 3,
-              createdAt: "2026-01-01T00:00:00.000Z",
-              state: { name: "Done", type: "completed" },
-              assignee: null,
-              labels: { nodes: [] },
-              relations: { nodes: [] },
-            },
-          ]
-        : [];
+      const nodes = isDone && issueState.type === "completed" ? [candidate] : [];
       return new Response(JSON.stringify({ data: { issues: { nodes } } }));
     }
     if (q.includes("IssueAttachments") || q.includes("attachments(first")) {
@@ -238,6 +249,14 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
 
   test("a reactionCreate failure does not block the mention enqueue", async () => {
     const { pickupCommentBodies } = await runMentionPoll(tempDir, { failOnReaction: true });
+    expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
+  });
+
+  test("a new @ralphy mention on an In Progress Linear issue is picked up (RLF-55)", async () => {
+    const { reactionCalls, pickupCommentBodies } = await runMentionPoll(tempDir, {
+      issueState: { name: "In Progress", type: "started" },
+    });
+    expect(reactionCalls).toEqual([{ commentId: "comment-id-42", emoji: "👀" }]);
     expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
   });
 });

@@ -158,6 +158,64 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   return where;
 }
 
+/**
+ * Candidate set for the `@<handle>` mention scan. Returns every issue
+ * for the configured `team` + `assignee` that is not in a cancelled
+ * state. Unlike `fetchOpenIssues` (which defaults to
+ * unstarted/started/backlog only) this also includes `completed` and
+ * `triage`, so mentions are picked up regardless of whether the issue is
+ * still Todo, In Progress, or already Done.
+ */
+export async function fetchMentionScanIssues(
+  apiKey: string,
+  spec: { team?: string | undefined; assignee?: string | undefined },
+): Promise<LinearIssue[]> {
+  const where: Record<string, unknown> = {
+    state: { type: { in: ["unstarted", "started", "backlog", "triage", "completed"] } },
+  };
+  if (spec.team) where.team = { key: { eq: spec.team } };
+  if (spec.assignee) {
+    if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };
+    else if (spec.assignee.includes("@")) where.assignee = { email: { eq: spec.assignee } };
+    else where.assignee = { id: { eq: spec.assignee } };
+  }
+
+  const query = `query MentionScanIssues($filter: IssueFilter) {
+    issues(filter: $filter, first: 50) {
+      nodes {
+        id identifier title description url priority createdAt
+        state { name type }
+        assignee { id email name }
+        labels { nodes { name } }
+        relations(first: 50) {
+          nodes { type relatedIssue { id state { type } } }
+        }
+      }
+    }
+  }`;
+
+  const data = await linearRequest<{ issues: { nodes: LinearNode[] } }>(apiKey, query, {
+    filter: where,
+  });
+
+  const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
+  return data.issues.nodes.map((n) => ({
+    id: n.id,
+    identifier: n.identifier,
+    title: n.title,
+    description: n.description,
+    url: n.url,
+    state: n.state,
+    assignee: n.assignee,
+    labels: n.labels.nodes.map((l) => l.name),
+    priority: n.priority,
+    createdAt: n.createdAt ?? "",
+    blockedByIds: (n.relations?.nodes ?? [])
+      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
+      .map((r) => r.relatedIssue.id),
+  }));
+}
+
 export async function fetchOpenIssues(
   apiKey: string,
   spec: LinearFilterSpec,
