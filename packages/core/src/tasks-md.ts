@@ -172,6 +172,82 @@ export async function pickActiveTasksFile(changeDir: string): Promise<ActiveTask
 }
 
 /**
+ * Compare `previous` and `current` text of a tasks.md file. For every
+ * `## ` section whose exact heading line exists in `current` but not in
+ * `previous`, rewrite any `- [x]` / `- [X]` item line back to `- [ ]`.
+ *
+ * Sections that already existed in `previous` are left alone so the
+ * worker can legitimately tick off an item it just completed.
+ *
+ * Returns `current` unchanged when nothing needed fixing.
+ */
+export function normalizeNewlyAppendedSection(previous: string, current: string): string {
+  const prevHeadings = new Set<string>();
+  for (const line of previous.split("\n")) {
+    if (line.startsWith("## ")) prevHeadings.add(line);
+  }
+  const sections = current.split(/(?=^## )/m);
+  let changed = false;
+  const out = sections.map((section) => {
+    const nlIdx = section.indexOf("\n");
+    const headingLine = nlIdx === -1 ? section : section.slice(0, nlIdx);
+    if (!headingLine.startsWith("## ")) return section;
+    if (prevHeadings.has(headingLine)) return section;
+    const rewritten = section.replace(/^(\s*)- \[[xX]\] (.+)$/gm, "$1- [ ] $2");
+    if (rewritten !== section) changed = true;
+    return rewritten;
+  });
+  return changed ? out.join("") : current;
+}
+
+/**
+ * Result of normalizing newly-appended sections. `headings` lists the
+ * affected section heading lines (without the leading `## `) and `count`
+ * is the total number of `- [x]` items rewritten to `- [ ]`.
+ */
+export interface NormalizeReport {
+  text: string;
+  headings: string[];
+  count: number;
+}
+
+/**
+ * Like `normalizeNewlyAppendedSection` but also reports which section
+ * heading(s) were touched and how many items were rewritten. The
+ * file-level caller (wire.ts) uses this to emit a single warning log
+ * line when the worker pre-checks items in a newly-appended section.
+ */
+export function normalizeNewlyAppendedSectionWithReport(
+  previous: string,
+  current: string,
+): NormalizeReport {
+  const prevHeadings = new Set<string>();
+  for (const line of previous.split("\n")) {
+    if (line.startsWith("## ")) prevHeadings.add(line);
+  }
+  const sections = current.split(/(?=^## )/m);
+  const headings: string[] = [];
+  let count = 0;
+  const out = sections.map((section) => {
+    const nlIdx = section.indexOf("\n");
+    const headingLine = nlIdx === -1 ? section.replace(/\n$/, "") : section.slice(0, nlIdx);
+    if (!headingLine.startsWith("## ")) return section;
+    if (prevHeadings.has(headingLine)) return section;
+    let localCount = 0;
+    const rewritten = section.replace(/^(\s*)- \[[xX]\] (.+)$/gm, (_m, indent, rest) => {
+      localCount += 1;
+      return `${indent}- [ ] ${rest}`;
+    });
+    if (localCount > 0) {
+      headings.push(headingLine.slice(3));
+      count += localCount;
+    }
+    return rewritten;
+  });
+  return { text: count > 0 ? out.join("") : current, headings, count };
+}
+
+/**
  * Return true when both `tasks.md` and `agent-tasks.md` have zero
  * unchecked items. A missing file counts as complete for that file.
  */

@@ -2,7 +2,12 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
-import { prependFixTask, AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
+import {
+  prependFixTask,
+  AGENT_TASKS_FILENAME,
+  MISSION_TASKS_FILENAME,
+  normalizeNewlyAppendedSectionWithReport,
+} from "@ralphy/core/tasks-md";
 import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
@@ -905,6 +910,12 @@ export function buildAgentCoordinator(
     const cwd = cwdByChange.get(changeName) ?? projectRoot;
     const injected = input.runners?.spawnWorker;
 
+    const missionTasksPath = join(projectLayout(cwd).changeDir(changeName), MISSION_TASKS_FILENAME);
+    const prevTasksPromise: Promise<string> = (async () => {
+      const f = Bun.file(missionTasksPath);
+      return (await f.exists()) ? await f.text() : "";
+    })();
+
     let logFilePath: string;
     let handle: { exited: Promise<number>; kill: () => void };
     if (injected) {
@@ -954,6 +965,24 @@ export function buildAgentCoordinator(
       : false;
     const wrapped = handle.exited.then(async (code) => {
       const workerLayout = projectLayout(cwd);
+      try {
+        const prevTasks = await prevTasksPromise;
+        const nextFile = Bun.file(missionTasksPath);
+        if (await nextFile.exists()) {
+          const nextTasks = await nextFile.text();
+          const report = normalizeNewlyAppendedSectionWithReport(prevTasks, nextTasks);
+          if (report.text !== nextTasks) {
+            await Bun.write(missionTasksPath, report.text);
+            const sections = report.headings.map((h) => `## ${h}`).join(", ");
+            onLog(
+              `! normalized ${report.count} pre-checked item(s) in newly added section(s) ${sections}`,
+              "yellow",
+            );
+          }
+        }
+      } catch (err) {
+        onLog(`! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
+      }
       const effectiveCode = await runPostTask(
         {
           changeName,

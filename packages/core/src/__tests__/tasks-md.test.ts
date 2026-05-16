@@ -11,6 +11,8 @@ import {
   pickActiveTasksFile,
   bothFilesCompleted,
   isFlowTaskHeading,
+  normalizeNewlyAppendedSection,
+  normalizeNewlyAppendedSectionWithReport,
   FLOW_TASK_HEADING_PREFIXES,
   AGENT_TASKS_FILENAME,
   MISSION_TASKS_FILENAME,
@@ -186,6 +188,92 @@ describe("pickActiveTasksFile", () => {
   test("returns null when neither file exists", async () => {
     const picked = await pickActiveTasksFile(tempDir);
     expect(picked).toBeNull();
+  });
+});
+
+describe("normalizeNewlyAppendedSection", () => {
+  test("rewrites all `[x]` items in a freshly appended section to `[ ]`", () => {
+    const previous = `# Tasks
+## Planning
+
+- [x] plan done
+`;
+    const current = `# Tasks
+## Planning
+
+- [x] plan done
+
+## Implementation
+
+- [x] step one
+- [x] step two
+`;
+    const out = normalizeNewlyAppendedSection(previous, current);
+    expect(out).toContain("## Implementation");
+    expect(out).toContain("- [ ] step one");
+    expect(out).toContain("- [ ] step two");
+    // pre-existing planning section's `[x]` is preserved
+    expect(out).toContain("- [x] plan done");
+  });
+
+  test("rewrites mixed-state items in an appended section to all `[ ]`", () => {
+    const previous = `## Planning\n\n- [x] done\n`;
+    const current = `## Planning\n\n- [x] done\n\n## Implementation\n\n- [x] a\n- [ ] b\n- [X] c\n`;
+    const out = normalizeNewlyAppendedSection(previous, current);
+    expect(out).toContain("- [ ] a");
+    expect(out).toContain("- [ ] b");
+    expect(out).toContain("- [ ] c");
+    expect(out).not.toMatch(/- \[[xX]\] [abc]/);
+  });
+
+  test("leaves a pre-existing section unchanged byte-for-byte when an item is freshly checked", () => {
+    const previous = `## Implementation\n\n- [ ] a\n- [ ] b\n`;
+    const current = `## Implementation\n\n- [x] a\n- [ ] b\n`;
+    const out = normalizeNewlyAppendedSection(previous, current);
+    expect(out).toBe(current);
+  });
+
+  test("returns input unchanged byte-for-byte when appended section has only `[ ]` items", () => {
+    const previous = `## Planning\n\n- [x] done\n`;
+    const current = `## Planning\n\n- [x] done\n\n## Implementation\n\n- [ ] a\n- [ ] b\n`;
+    const out = normalizeNewlyAppendedSection(previous, current);
+    expect(out).toBe(current);
+  });
+
+  test("rewrites indented sub-items in a newly appended section", () => {
+    const previous = `## Planning\n`;
+    const current = `## Planning\n\n## Implementation\n\n- [x] parent\n  - [x] child\n    - [X] grandchild\n`;
+    const out = normalizeNewlyAppendedSection(previous, current);
+    expect(out).toContain("- [ ] parent");
+    expect(out).toContain("  - [ ] child");
+    expect(out).toContain("    - [ ] grandchild");
+  });
+
+  test("does not rewrite `[x]` text occurring mid-line inside an item description", () => {
+    const previous = `## Planning\n`;
+    const current = `## Planning\n\n## Implementation\n\n- [ ] verify that "[x]" renders as checked\n- [x] actually done\n`;
+    const out = normalizeNewlyAppendedSection(previous, current);
+    expect(out).toContain(`- [ ] verify that "[x]" renders as checked`);
+    expect(out).toContain("- [ ] actually done");
+  });
+
+  test("report variant identifies affected heading and count", () => {
+    const previous = `## Planning\n\n- [x] done\n`;
+    const current = `## Planning\n\n- [x] done\n\n## Implementation\n\n- [x] one\n- [x] two\n- [ ] three\n`;
+    const r = normalizeNewlyAppendedSectionWithReport(previous, current);
+    expect(r.count).toBe(2);
+    expect(r.headings).toEqual(["Implementation"]);
+    expect(r.text).toContain("- [ ] one");
+    expect(r.text).toContain("- [ ] two");
+  });
+
+  test("report variant returns zero changes when nothing needed fixing", () => {
+    const previous = `## Planning\n`;
+    const current = `## Planning\n\n## Implementation\n\n- [ ] a\n`;
+    const r = normalizeNewlyAppendedSectionWithReport(previous, current);
+    expect(r.count).toBe(0);
+    expect(r.headings).toEqual([]);
+    expect(r.text).toBe(current);
   });
 });
 
