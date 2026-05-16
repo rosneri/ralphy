@@ -49,6 +49,7 @@ import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
 import { runBaselineGate } from "./baseline/gate";
 import { resolveBaselineCommands } from "@ralphy/workflow";
+import { syncTasksToLinearDescription } from "./linear-sync";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -249,6 +250,9 @@ interface BuildAgentCoordinatorResult {
   concurrency: number;
   pollInterval: number;
   getWorkerCwd: (changeName: string) => string | undefined;
+  /** True when a `syncTasks` hook was wired into the coordinator (i.e. the
+   *  `linear.syncTasksToDescription` flag is on and we have an API key). */
+  syncTasksEnabled: boolean;
   /** Run one tick of the pre-existing-error baseline gate. Resolves to a
    *  no-op when the feature is disabled. Callers should invoke this before
    *  each `coord.pollOnce()` so the coordinator's pause state is accurate. */
@@ -1758,6 +1762,32 @@ export function buildAgentCoordinator(
         const json = (await file.json()) as { iteration?: number };
         return json.iteration ?? 0;
       },
+      ...(cfg.linear.syncTasksToDescription && apiKey
+        ? {
+            syncTasks: async (worker, iteration) => {
+              const root = cwdByChange.get(worker.changeName) ?? projectRoot;
+              const tasksPath = join(projectLayout(root).changeDir(worker.changeName), "tasks.md");
+              const cachedIssue = issueByChange.get(worker.changeName) ?? worker.issue;
+              const next = await syncTasksToLinearDescription({
+                apiKey,
+                issueId: worker.issueId,
+                currentDescription: cachedIssue.description,
+                tasksPath,
+                changeName: worker.changeName,
+                iteration,
+                log: onLog,
+                updateIssueDescription,
+              });
+              if (next !== null) {
+                // Update cached description so the next sync diffs against
+                // the value we just wrote.
+                const updated: LinearIssue = { ...cachedIssue, description: next };
+                issueByChange.set(worker.changeName, updated);
+                worker.issue = updated;
+              }
+            },
+          }
+        : {}),
     },
     {
       concurrency,
@@ -1840,6 +1870,7 @@ export function buildAgentCoordinator(
     concurrency,
     pollInterval,
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
+    syncTasksEnabled: Boolean(cfg.linear.syncTasksToDescription && apiKey),
     runBaselineGate: runBaselineGateOnce,
   };
 }

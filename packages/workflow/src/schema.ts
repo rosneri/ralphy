@@ -110,6 +110,7 @@ export const WorkflowConfigSchema = z.object({
       mentionHandle: z.string().default("@ralphy"),
       codeReviewTrigger: z.boolean().default(false),
       codeReviewStaleHours: z.number().nonnegative().default(24),
+      syncTasksToDescription: z.boolean().default(false),
       indicators: IndicatorsSchema.default({}),
     })
     .strict()
@@ -120,6 +121,7 @@ export const WorkflowConfigSchema = z.object({
       mentionHandle: "@ralphy",
       codeReviewTrigger: false,
       codeReviewStaleHours: 24,
+      syncTasksToDescription: false,
       indicators: {},
     }),
   github: z

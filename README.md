@@ -187,6 +187,7 @@ Example `ralphy.config.json`:
     "mentionHandle": "@ralphy",
     "codeReviewTrigger": true,
     "codeReviewStaleHours": 24,
+    "syncTasksToDescription": false,
     "indicators": {
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
       "getInProgress": {
@@ -229,6 +230,10 @@ Set `linear.codeReviewTrigger: true` (or pass `--code-review`) to watch open, un
 - **If Ralph disagrees** — reply on the thread with reasoning via `gh api .../comments/{id}/replies` and leave it unresolved.
 
 The loop exits; the next poll re-checks the PR. The cycle continues until the PR is **approved** or **merged**. If the reviewer is silent for more than `linear.codeReviewStaleHours` (default `24`, `0` disables) while Ralph is the last actor, one `@`-mention ping comment is posted on the GitHub PR.
+
+#### Sync tasks into Linear description
+
+Set `linear.syncTasksToDescription: true` to mirror the active change's `tasks.md` into the linked Linear issue description. Ralph writes a checklist between sentinel HTML comments (`<!-- ralphy:tasks:start -->` / `<!-- ralphy:tasks:end -->`); any content outside the markers is preserved verbatim. The block is refreshed when the worker launches, on the same cadence as `updateEveryIterations`, and on done-transition. Sync failures are logged but never abort the loop.
 
 #### Conflict re-fix
 
