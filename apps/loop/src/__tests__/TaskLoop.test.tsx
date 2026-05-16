@@ -884,4 +884,240 @@ describe("TaskLoop", () => {
       expect(allText).toContain("Ralph Loop");
     });
   });
+
+  test("reports task counts when tasks.md and agent-tasks.md are present", async () => {
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "tasks-count-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "tasks-count-task" });
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [ ] one\n- [ ] two\n", "utf-8");
+      writeFileSync(join(taskDir, "agent-tasks.md"), "- [ ] agent-one\n", "utf-8");
+
+      const opts = {
+        name: "tasks-count-task",
+        prompt: "Task counts",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("tasks.md: 2 unchecked");
+      expect(allText).toContain("agent-tasks.md: 1 unchecked");
+    });
+  });
+
+  test("archives change when all tasks are completed", async () => {
+    let archived: string | null = null;
+    const archivingStore = {
+      archiveChange: (name: string) => {
+        archived = name;
+        return Promise.resolve();
+      },
+    };
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "all-done-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "all-done-task" });
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] one\n- [x] two\n", "utf-8");
+
+      const opts = {
+        name: "all-done-task",
+        prompt: "Done",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: archivingStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("All tasks completed");
+      expect(archived).toBe("all-done-task");
+    });
+  });
+
+  test("surfaces archive errors as info message", async () => {
+    const failingStore = {
+      archiveChange: (_name: string) => Promise.reject(new Error("archive boom")),
+    };
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "archive-fail-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "archive-fail-task" });
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] only\n", "utf-8");
+
+      const opts = {
+        name: "archive-fail-task",
+        prompt: "Archive fail",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: failingStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("Archive warning");
+    });
+  });
+
+  test("stops when engine reports rate limit", async () => {
+    runEngineMock.mockImplementationOnce(async () => ({
+      exitCode: 2,
+      usage: null,
+      sessionId: null,
+      rateLimited: true,
+    }));
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "rate-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "rate-task" });
+      writeState(taskDir, state);
+
+      const opts = {
+        name: "rate-task",
+        prompt: "Rate prompt",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 5,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("rate/usage limit");
+      // Only one engine call before stopping
+      expect(runEngineMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("steering resume filters session feed events", async () => {
+    let engineStartResolve: () => void;
+    const engineStarted = new Promise<void>((r) => {
+      engineStartResolve = r;
+    });
+
+    runEngineMock.mockImplementationOnce(
+      async (opts: { onFeedEvent?: (e: unknown) => void; signal?: AbortSignal }) => {
+        engineStartResolve!();
+        await new Promise<void>((resolve) => {
+          if (opts.signal?.aborted) return resolve();
+          opts.signal?.addEventListener("abort", () => resolve(), { once: true });
+          setTimeout(resolve, 2000);
+        });
+        return { exitCode: 0, usage: null, sessionId: "sess-filter", rateLimited: false };
+      },
+    );
+
+    const resumeFeedTypes: string[] = [];
+    runEngineMock.mockImplementationOnce(
+      async (opts: { onFeedEvent?: (e: unknown) => void; resumeSessionId?: string }) => {
+        // Emit a session event (should be filtered) and a text event (should pass through)
+        opts.onFeedEvent?.({ type: "session", model: "opus", sessionId: "sess-filter" });
+        opts.onFeedEvent?.({ type: "session-unknown" });
+        opts.onFeedEvent?.({ type: "text", text: "resumed work" });
+        return { exitCode: 0, usage: null, sessionId: "sess-filter", rateLimited: false };
+      },
+    );
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "steer-filter-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "steer-filter-task" });
+      writeState(taskDir, state);
+
+      let steerFn: ((msg: string) => void) | null = null;
+      const Wrapped = () => {
+        const { useLoop: useLoopHook } = require("../hooks/useLoop");
+        const loop = useLoopHook({
+          name: "steer-filter-task",
+          prompt: "Filter test",
+          engine: "claude" as const,
+          model: "opus",
+          maxIterations: 1,
+          maxCostUsd: 0,
+          maxRuntimeMinutes: 0,
+          maxConsecutiveFailures: 5,
+          delay: 0,
+          log: false,
+          verbose: false,
+          manualTest: false,
+          statesDir: tempDir,
+          tasksDir: tempDir,
+          changeStore: stubChangeStore,
+        });
+        steerFn = loop.steer;
+        for (const line of loop.logLines) {
+          if (line.kind === "feed") resumeFeedTypes.push(line.event.type);
+        }
+        return null;
+      };
+
+      render(<Wrapped />);
+      await engineStarted;
+      await new Promise((r) => setTimeout(r, 50));
+
+      steerFn!("steer me");
+      await new Promise((r) => setTimeout(r, 500));
+
+      expect(runEngineMock).toHaveBeenCalledTimes(2);
+      // The resume must have produced a text feed line but no session/session-unknown.
+      expect(resumeFeedTypes).toContain("text");
+      expect(resumeFeedTypes).not.toContain("session");
+      expect(resumeFeedTypes).not.toContain("session-unknown");
+    });
+  });
 });

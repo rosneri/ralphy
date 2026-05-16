@@ -70,4 +70,39 @@ describe("StatusBar", () => {
     const frame = lastFrame()!;
     expect(frame).toContain("iter");
   });
+
+  describe("bar width tracks terminal columns", () => {
+    const originalColumns = process.stdout.columns;
+
+    function withProcessColumns(columns: number, fn: () => void) {
+      Object.defineProperty(process.stdout, "columns", {
+        value: columns,
+        configurable: true,
+        writable: true,
+      });
+      try {
+        fn();
+      } finally {
+        Object.defineProperty(process.stdout, "columns", {
+          value: originalColumns,
+          configurable: true,
+          writable: true,
+        });
+      }
+    }
+
+    test.each([
+      [4, 8],
+      [80, 80],
+      [140, 140],
+    ])("columns=%i renders a rule of length %i", (columns, expectedWidth) => {
+      withProcessColumns(columns, () => {
+        const { lastFrame, unmount } = render(<StatusBar {...baseProps} />);
+        const frame = lastFrame()!;
+        const ruleChars = (frame.match(/─/g) ?? []).length;
+        expect(ruleChars).toBe(expectedWidth * 2);
+        unmount();
+      });
+    });
+  });
 });

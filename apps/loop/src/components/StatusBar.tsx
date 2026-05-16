@@ -43,7 +43,7 @@ export function StatusBar({
   }, [isRunning, startedAt]);
 
   const { columns } = useTerminalSize();
-  const barWidth = Math.max(8, Math.min(52, columns));
+  const barWidth = Math.max(8, columns);
   const bar = "─".repeat(barWidth);
 
   return (
