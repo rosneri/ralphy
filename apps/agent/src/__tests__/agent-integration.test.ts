@@ -72,6 +72,7 @@ class FakeLinear {
   comments: { issueId: string; body: string }[] = [];
   labelMutations: { issueId: string; op: "add" | "remove"; labelName: string }[] = [];
   statusMutations: { issueId: string; statusName: string }[] = [];
+  descriptionMutations: { issueId: string; description: string }[] = [];
   /** name → id; both labels and workflow states share the namespace here for simplicity. */
   labelIds = new Map<string, string>();
   stateIds = new Map<string, string>();
@@ -150,14 +151,22 @@ class FakeLinear {
       return new Response(JSON.stringify({ data: { commentCreate: { success: true } } }));
     }
     if (q.includes("issueUpdate")) {
-      const stateId = body.variables.stateId as string;
+      const stateId = body.variables.stateId as string | undefined;
       const id = body.variables.id as string;
+      const description = body.variables.description as string | undefined;
       // Reverse-lookup the state name from stateIds.
-      const stateName = [...this.stateIds.entries()].find(([, v]) => v === stateId)?.[0];
+      const stateName = stateId
+        ? [...this.stateIds.entries()].find(([, v]) => v === stateId)?.[0]
+        : undefined;
       if (stateName) {
         const issue = this.issues.get(id);
         if (issue) issue.state = { name: stateName, type: "started" };
         this.statusMutations.push({ issueId: id, statusName: stateName });
+      }
+      if (description !== undefined) {
+        const issue = this.issues.get(id);
+        if (issue) issue.description = description;
+        this.descriptionMutations.push({ issueId: id, description });
       }
       return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
     }
@@ -680,5 +689,80 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     // exclude list. Re-poll should add nothing.
     const poll2 = await coord.pollOnce();
     expect(poll2.added).toBe(0);
+  });
+
+  test("RLF-56: syncTasksToDescription:true causes issueUpdate(description=…) to fire", async () => {
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.add({
+      id: "uuid-eng-3",
+      identifier: "ENG-3",
+      title: "Sync test",
+      description: "Original prose.",
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    });
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input;
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      return linear.handle(body);
+    }) as typeof fetch;
+
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        syncTasksToDescription: true,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+        },
+      },
+    });
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const { runners, workers } = makeRunners();
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // Worker exits cleanly — done-transition sync runs.
+    workers.get("eng-3-sync-test")!.resolve(0);
+    await tick();
+
+    // At least one description mutation occurred for this issue.
+    const descUpdates = linear.descriptionMutations.filter((m) => m.issueId === "uuid-eng-3");
+    expect(descUpdates.length).toBeGreaterThan(0);
+    const last = descUpdates[descUpdates.length - 1]!.description;
+    expect(last).toContain("<!-- ralphy:tasks:start -->");
+    expect(last).toContain("<!-- ralphy:tasks:end -->");
+    expect(last).toContain("Original prose.");
   });
 });

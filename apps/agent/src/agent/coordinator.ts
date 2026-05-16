@@ -108,6 +108,10 @@ export interface CoordinatorDeps {
   /** Returns the current iteration count for an active worker (for
    *  periodic progress comments). */
   getIterationCount?: (changeName: string) => Promise<number>;
+  /** Optional hook: mirror tasks.md into the issue description. Invoked on
+   *  worker launch, on each milestone (same cadence as progress comments),
+   *  and on done-transition. Failures are swallowed by the impl. */
+  syncTasks?: (worker: ActiveWorker, iteration: number) => Promise<void>;
 }
 
 interface CoordinatorOptions {
@@ -427,6 +431,16 @@ export class AgentCoordinator {
           "red",
         );
       }
+      if (this.deps.syncTasks) {
+        try {
+          await this.deps.syncTasks(w, count);
+        } catch (err) {
+          this.deps.onLog(
+            `! sync-tasks (progress) failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
     }
   }
 
@@ -669,6 +683,17 @@ export class AgentCoordinator {
     });
     this.deps.onWorkersChanged();
 
+    if (this.deps.syncTasks) {
+      try {
+        await this.deps.syncTasks(worker, 0);
+      } catch (err) {
+        this.deps.onLog(
+          `! sync-tasks (launch) failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
+
     void handle.exited.then(async (code) => {
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
@@ -728,6 +753,34 @@ export class AgentCoordinator {
     mode: SpawnMode,
   ): Promise<void> {
     const ok = code === 0;
+    if (this.deps.syncTasks && ok) {
+      const synthetic: ActiveWorker = {
+        changeName,
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        issue,
+        mode,
+        kill: () => {},
+        lastReportedIteration: 0,
+        restarting: false,
+      };
+      try {
+        let iteration = 0;
+        if (this.deps.getIterationCount) {
+          try {
+            iteration = await this.deps.getIterationCount(changeName);
+          } catch {
+            iteration = 0;
+          }
+        }
+        await this.deps.syncTasks(synthetic, iteration);
+      } catch (err) {
+        this.deps.onLog(
+          `! sync-tasks (done) failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
     if (this.opts.postComments !== false) {
       const body = ok
         ? mode === "conflict-fix"

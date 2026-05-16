@@ -276,3 +276,93 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
     expect(spawnCwd).toBe(tempDir);
   });
 });
+
+describe("setupWorktree — syncTasksToDescription flag wiring (RLF-56)", () => {
+  test("flag on registers a syncTasks hook on the coordinator deps", async () => {
+    installLinearStub();
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        syncTasksToDescription: true,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+        },
+      },
+    });
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const cmd: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const spawnWorker = (): { exited: Promise<number>; kill: () => void } => ({
+      exited: Promise.resolve(0),
+      kill: () => {},
+    });
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners: { git, cmd, spawnWorker, runScript: async () => 0 },
+    });
+    // Inspect the deps via a duck-typed cast — the only invariant the test
+    // exercises is "syncTasks is wired when the flag is on".
+    expect((coord as unknown as { deps: { syncTasks?: unknown } }).deps.syncTasks).toBeDefined();
+  });
+
+  test("flag off leaves syncTasks unset", async () => {
+    installLinearStub();
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        syncTasksToDescription: false,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+        },
+      },
+    });
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const cmd: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const spawnWorker = (): { exited: Promise<number>; kill: () => void } => ({
+      exited: Promise.resolve(0),
+      kill: () => {},
+    });
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners: { git, cmd, spawnWorker, runScript: async () => 0 },
+    });
+    expect((coord as unknown as { deps: { syncTasks?: unknown } }).deps.syncTasks).toBeUndefined();
+  });
+});

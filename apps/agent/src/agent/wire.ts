@@ -43,6 +43,7 @@ import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
 import { runBaselineGate } from "./baseline/gate";
 import { resolveBaselineCommands } from "@ralphy/workflow";
+import { syncTasksToLinearDescription } from "./linear-tasks-sync";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -1723,6 +1724,32 @@ export function buildAgentCoordinator(
         const json = (await file.json()) as { iteration?: number };
         return json.iteration ?? 0;
       },
+      ...(cfg.linear.syncTasksToDescription && apiKey
+        ? {
+            syncTasks: async (worker, iteration) => {
+              const root = cwdByChange.get(worker.changeName) ?? projectRoot;
+              const tasksPath = join(projectLayout(root).changeDir(worker.changeName), "tasks.md");
+              const cachedIssue = issueByChange.get(worker.changeName) ?? worker.issue;
+              const next = await syncTasksToLinearDescription({
+                apiKey,
+                issueId: worker.issueId,
+                currentDescription: cachedIssue.description,
+                tasksPath,
+                changeName: worker.changeName,
+                iteration,
+                log: onLog,
+                updateIssueDescription,
+              });
+              if (next !== null) {
+                // Update cached description so the next sync diffs against
+                // the value we just wrote.
+                const updated: LinearIssue = { ...cachedIssue, description: next };
+                issueByChange.set(worker.changeName, updated);
+                worker.issue = updated;
+              }
+            },
+          }
+        : {}),
     },
     {
       concurrency,
