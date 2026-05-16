@@ -41,7 +41,7 @@ interface FakeFetchHandlers {
   /** Optionally fail when handling a `reactionCreate` mutation. */
   failOnReaction?: boolean;
   /** Workflow state for the single candidate issue. Defaults to Done so
-   *  the legacy behaviour is still exercised. */
+   *  the legacy behavior is still exercised. */
   issueState?: { name: string; type: string };
 }
 
