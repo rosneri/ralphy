@@ -42,6 +42,10 @@ interface PostTaskInput {
     /** Globs the agent is forbidden from modifying. Pre-PR check fails the
      *  iteration with a clear error when any committed file matches. */
     neverTouch: string[];
+    /** Globs that mark a file as meta-only. When the base..HEAD diff
+     *  contains only meta files, the PR is blocked and a fix task is
+     *  prepended so the worker restores the substantive change. */
+    metaOnlyFiles?: string[];
     /** When the repo has `allow_auto_merge: false`, poll the PR after CI
      *  passes and merge it via plain `gh pr merge` instead of silently
      *  giving up on the requested auto-merge. Defaults to true. */
@@ -66,6 +70,7 @@ export type PostTaskPhase =
   | "push-retry"
   | "rebasing"
   | "pr-create"
+  | "pr-only-meta"
   | "auto-merge-enabled"
   | "conflict-check"
   | "conflict-fix-inner"
@@ -321,7 +326,16 @@ async function createPrWithRetry(
   while (true) {
     try {
       ctx.emit("pr-create", "git push + gh pr create");
-      pr = await createPullRequest({ cwd: ctx.cwd, branch: ctx.branch, issue, base }, ctx.cmd);
+      pr = await createPullRequest(
+        {
+          cwd: ctx.cwd,
+          branch: ctx.branch,
+          issue,
+          base,
+          metaOnlyFiles: ctx.cfg.metaOnlyFiles ?? [],
+        },
+        ctx.cmd,
+      );
       return { pr, gaveUp: false };
     } catch (err) {
       const e = err as Error & { stderr?: string; stdout?: string; code?: number };
@@ -763,55 +777,110 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     return PR_FAILED_EXIT;
   }
 
-  const { pr, gaveUp: prGaveUp } = await createPrWithRetry(ctx, issue);
-  if (prGaveUp) return PR_FAILED_EXIT;
+  const maxOuterAttempts = cfg.maxCiFixAttempts;
+  let onlyMetaAttempts = 0;
+  let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
+  while (true) {
+    const attempt = await createPrWithRetry(ctx, issue);
+    if (attempt.gaveUp) return PR_FAILED_EXIT;
+    if (attempt.pr?.blocked === "only-meta") {
+      onlyMetaAttempts += 1;
+      const files = attempt.pr.blockedFiles ?? [];
+      emit("pr-only-meta", `${files.length} meta file(s)`);
+      log(
+        `! ${changeName}: branch diff against ${base} contains only meta files — implementation appears lost. Refusing to open PR.`,
+        "red",
+      );
+      for (const f of files) log(`    ${f}`, "red");
+      if (onlyMetaAttempts > maxOuterAttempts) {
+        log(
+          `! exceeded ${maxOuterAttempts} only-meta recovery attempts for ${changeName} — giving up`,
+          "red",
+        );
+        return PR_FAILED_EXIT;
+      }
+      const fileList = files.length > 0 ? files.map((f) => `- ${f}`).join("\n") : "(empty diff)";
+      const retryCode = await runWorkerWithFixTask(
+        ctx,
+        "Reapply lost implementation files",
+        [
+          `The diff against \`${base}\` contains only meta files`,
+          `(openspec/tasks.md and similar). The substantive implementation`,
+          `is missing from the branch — likely deleted by an earlier commit`,
+          `or absorbed by a merge from origin/${base}.`,
+          "",
+          `Files currently in the diff:`,
+          fileList,
+          "",
+          `Re-apply the actual implementation work the change is supposed`,
+          `to ship. Inspect git history (\`git log ${base}..HEAD\`) to see`,
+          `what was created earlier and lost, then restore those files`,
+          `(or reproduce the work). Commit the restored files so the next`,
+          `iteration's diff against \`${base}\` contains real code, not`,
+          `just meta files.`,
+        ].join("\n"),
+      );
+      if (retryCode !== 0) {
+        log(`! worker re-run after only-meta block exited code ${retryCode} — giving up`, "red");
+        return PR_FAILED_EXIT;
+      }
+      continue; // re-check the diff after the recovery iteration
+    }
+    pr = attempt.pr;
+    break;
+  }
   if (!pr) {
     log(`  no commits ahead of ${base} — skipping PR`, "gray");
     return 0;
   }
+  const prUrl = pr.url;
+  if (!prUrl) {
+    log(`! PR creation returned a null URL for ${changeName} — giving up`, "red");
+    return PR_FAILED_EXIT;
+  }
 
-  log(`  ${pr.created ? "opened" : "found existing"} PR: ${pr.url}`, "green");
-  registerPr?.(changeName, pr.url);
+  log(`  ${pr.created ? "opened" : "found existing"} PR: ${prUrl}`, "green");
+  registerPr?.(changeName, prUrl);
 
   let manualMergePending = false;
   if (wantAutoMerge) {
     const fallbackEnabled = cfg.manualMergeWhenAutoMergeDisabled !== false;
-    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(pr.url, cmd, cwd, log);
+    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
 
     if (repoAllowsAutoMerge === false && fallbackEnabled) {
       log(
-        `  repo has auto-merge disabled — will poll ${pr.url} and merge via gh pr merge once checks pass`,
+        `  repo has auto-merge disabled — will poll ${prUrl} and merge via gh pr merge once checks pass`,
         "yellow",
       );
       manualMergePending = true;
     } else {
       try {
-        await cmd.run(["gh", "pr", "merge", pr.url, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
-        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${pr.url}`, "green");
+        await cmd.run(["gh", "pr", "merge", prUrl, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
+        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
         emit("auto-merge-enabled", cfg.autoMergeStrategy);
       } catch (err) {
         const e = err as Error & { stderr?: string };
         const detail = e.stderr?.trim() || e.message;
-        log(`! failed to enable auto-merge on ${pr.url}: ${detail}`, "yellow");
+        log(`! failed to enable auto-merge on ${prUrl}: ${detail}`, "yellow");
         if (fallbackEnabled && /auto[- ]merge/i.test(detail)) {
-          log(`  falling back to manual merge after CI passes for ${pr.url}`, "yellow");
+          log(`  falling back to manual merge after CI passes for ${prUrl}`, "yellow");
           manualMergePending = true;
         }
       }
     }
   }
 
-  const ciResult = await fixConflictsAndCiLoop(ctx, pr.url, wantFixCi, checkPrConflict);
+  const ciResult = await fixConflictsAndCiLoop(ctx, prUrl, wantFixCi, checkPrConflict);
   if (ciResult !== 0) return ciResult;
 
   if (manualMergePending) {
     try {
-      await cmd.run(["gh", "pr", "merge", pr.url, `--${cfg.autoMergeStrategy}`], cwd);
-      log(`  manually merged (${cfg.autoMergeStrategy}) ${pr.url}`, "green");
+      await cmd.run(["gh", "pr", "merge", prUrl, `--${cfg.autoMergeStrategy}`], cwd);
+      log(`  manually merged (${cfg.autoMergeStrategy}) ${prUrl}`, "green");
       emit("auto-merge-enabled", `manual:${cfg.autoMergeStrategy}`);
     } catch (err) {
       const e = err as Error & { stderr?: string };
-      log(`! manual merge failed for ${pr.url}: ${e.stderr?.trim() || e.message}`, "yellow");
+      log(`! manual merge failed for ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
     }
   }
 

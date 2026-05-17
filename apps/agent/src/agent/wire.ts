@@ -1012,6 +1012,7 @@ export function buildAgentCoordinator(
             ignoreCiChecks: cfg.ignoreCiChecks,
             stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
             neverTouch: cfg.boundaries.never_touch,
+            metaOnlyFiles: cfg.boundaries.meta_only_files,
             manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
           },
           respawnWorker: respawn,
