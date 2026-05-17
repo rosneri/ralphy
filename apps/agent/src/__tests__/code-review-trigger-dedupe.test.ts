@@ -250,7 +250,7 @@ describe("scanCodeReview — in-process dedupe (RLF-59)", () => {
 
   beforeEach(async () => {
     originalFetch = globalThis.fetch;
-    tempDir = mkdtempSync(join(tmpdir(), "agent-codereview-dedupe-"));
+    tempDir = mkdtempSync(join(tmpdir(), "agent-code-review-dedupe-"));
     await mkdir(join(tempDir, "openspec", "changes"), { recursive: true });
     await mkdir(join(tempDir, ".ralph", "tasks"), { recursive: true });
   });
