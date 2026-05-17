@@ -1,3 +1,4 @@
+import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
 import type { LinearIssue } from "./linear";
 
 export interface CmdRunner {
@@ -11,12 +12,23 @@ interface CreatePrInput {
   issue: LinearIssue;
   /** Defaults to "main". */
   base?: string;
+  /** Globs that mark a file as "meta only" (openspec/, agent-tasks.md, etc.).
+   *  When every file in the base..HEAD diff matches one of these, the PR is
+   *  blocked instead of opened — the substantive change has been lost. */
+  metaOnlyFiles?: string[];
 }
 
+type CreatePrBlockedReason = "only-meta";
+
 interface CreatePrResult {
-  url: string;
+  /** URL of the created/existing PR; null when blocked. */
+  url: string | null;
   /** Whether a brand-new PR was created (false = a PR already existed). */
   created: boolean;
+  /** When the PR was not opened because of a guard, the reason. */
+  blocked?: CreatePrBlockedReason;
+  /** When blocked, the list of files that were in the diff (all meta). */
+  blockedFiles?: string[];
 }
 
 function defaultTitle(issue: LinearIssue): string {
@@ -37,12 +49,65 @@ function defaultBody(issue: LinearIssue, branch: string): string {
 }
 
 /**
+ * List files changed between `<base>` and HEAD. Prefers `origin/<base>` (the
+ * remote tip the PR will actually be opened against); falls back to the local
+ * `<base>` ref when origin is not fetched.
+ */
+async function diffFilesAgainstBase(
+  runner: CmdRunner,
+  cwd: string,
+  base: string,
+): Promise<string[]> {
+  let raw = "";
+  try {
+    const r = await runner.run(["git", "diff", "--name-only", `origin/${base}...HEAD`], cwd);
+    raw = r.stdout;
+  } catch {
+    try {
+      const r = await runner.run(["git", "diff", "--name-only", `${base}...HEAD`], cwd);
+      raw = r.stdout;
+    } catch {
+      return [];
+    }
+  }
+  return raw
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Classify the base..HEAD diff. Returns the file list and whether every
+ * file in it matches a meta-only glob (i.e. the substantive change is
+ * missing from the branch).
+ */
+async function classifyDiffAgainstMeta(
+  runner: CmdRunner,
+  cwd: string,
+  base: string,
+  metaOnlyFiles: readonly string[],
+): Promise<{ files: string[]; onlyMeta: boolean }> {
+  const files = await diffFilesAgainstBase(runner, cwd, base);
+  if (files.length === 0 || metaOnlyFiles.length === 0) {
+    return { files, onlyMeta: false };
+  }
+  const violations = findBoundaryViolations(files, metaOnlyFiles);
+  const metaSet = new Set(violations.map((v) => v.file));
+  const onlyMeta = files.every((f) => metaSet.has(f.replace(/\\/g, "/")));
+  return { files, onlyMeta };
+}
+
+/**
  * Push the worktree's branch to origin and open (or surface) a GitHub PR
  * via the `gh` CLI. Returns the PR URL.
  *
  * Behavior:
  * - If the branch has no commits ahead of base, returns null (callers
  *   should treat this as "nothing to PR").
+ * - If the base..HEAD diff contains only meta files (openspec, tasks.md,
+ *   etc.), returns `{ url: null, created: false, blocked: "only-meta",
+ *   blockedFiles }` without pushing or calling `gh` — the substantive
+ *   change has been lost and the caller must re-run the worker.
  * - If a PR already exists for the branch, returns its URL with
  *   created=false (idempotent — useful for retries).
  * - All other failures throw with the underlying stderr in the message.
@@ -59,6 +124,22 @@ export async function createPullRequest(
     input.cwd,
   );
   if (log.stdout.trim() === "") return null;
+
+  // Substantive-diff guard. If every changed file matches a meta glob,
+  // the implementation has been lost (either deleted mid-loop or merged
+  // upstream) — refuse to push an empty PR.
+  const metaOnlyFiles = input.metaOnlyFiles ?? [];
+  if (metaOnlyFiles.length > 0) {
+    const classification = await classifyDiffAgainstMeta(runner, input.cwd, base, metaOnlyFiles);
+    if (classification.onlyMeta && classification.files.length > 0) {
+      return {
+        url: null,
+        created: false,
+        blocked: "only-meta",
+        blockedFiles: classification.files,
+      };
+    }
+  }
 
   // Push the branch (idempotent with -u).
   await runner.run(["git", "push", "-u", "origin", input.branch], input.cwd);

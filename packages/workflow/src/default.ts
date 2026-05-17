@@ -22,6 +22,16 @@ boundaries:
   never_touch:
     - "dist/**"
     - ".claude/worktrees/**"
+  # Files that count as "meta only" for the pre-PR substantive-diff guard.
+  # If every changed file matches one of these globs, the loop refuses to
+  # open the PR and respawns the worker — the actual implementation was
+  # lost (either deleted mid-loop or absorbed by a merge from base).
+  meta_only_files:
+    - "openspec/**"
+    - ".ralph/**"
+    - "**/agent-tasks.md"
+    - "**/tasks.md"
+    - "**/MANUAL_TESTING*.md"
 
 # How many tasks to run in parallel.
 concurrency: 1

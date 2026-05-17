@@ -53,6 +53,24 @@ describe("parseWorkflow", () => {
     expect(config.engine).toBe("claude");
   });
 
+  test("boundaries.meta_only_files defaults cover openspec + meta files", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.boundaries.meta_only_files).toEqual([
+      "openspec/**",
+      ".ralph/**",
+      "**/agent-tasks.md",
+      "**/tasks.md",
+      "**/MANUAL_TESTING*.md",
+    ]);
+  });
+
+  test("boundaries.meta_only_files accepts custom override", () => {
+    const { config } = parseWorkflow(
+      `---\nboundaries:\n  never_touch: []\n  meta_only_files:\n    - "docs/**"\n---\n`,
+    );
+    expect(config.boundaries.meta_only_files).toEqual(["docs/**"]);
+  });
+
   test("agent.engine alias maps onto top-level engine", () => {
     const { config } = parseWorkflow(`---\nagent:\n  engine: codex\n  model: sonnet\n---\n`);
     expect(config.engine).toBe("codex");

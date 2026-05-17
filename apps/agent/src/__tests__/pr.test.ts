@@ -99,6 +99,93 @@ describe("createPullRequest", () => {
     expect(createCall[createCall.indexOf("--base") + 1]).toBe("release/2024");
   });
 
+  test("opens PR when diff against base contains a substantive (non-meta) file", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git diff --name-only origin/main...HEAD": {
+        stdout: "openspec/changes/x/tasks.md\nsrc/feature.ts\n",
+      },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/1\n" },
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/wt",
+        branch: "ralph/eng-7",
+        issue,
+        metaOnlyFiles: ["openspec/**", "**/tasks.md"],
+      },
+      runner,
+    );
+    expect(result).toEqual({ url: "https://github.com/foo/bar/pull/1", created: true });
+    expect(calls.some((c) => c[0] === "gh" && c[2] === "create")).toBe(true);
+  });
+
+  test("blocks PR with only-meta when the diff against base is meta-only", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git diff --name-only origin/main...HEAD": {
+        stdout: "openspec/changes/x/tasks.md\nopenspec/changes/x/agent-tasks.md\n",
+      },
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/wt",
+        branch: "ralph/eng-7",
+        issue,
+        metaOnlyFiles: ["openspec/**", "**/agent-tasks.md", "**/tasks.md"],
+      },
+      runner,
+    );
+    expect(result).toEqual({
+      url: null,
+      created: false,
+      blocked: "only-meta",
+      blockedFiles: ["openspec/changes/x/tasks.md", "openspec/changes/x/agent-tasks.md"],
+    });
+    // Push and gh pr create must NOT be invoked when blocked.
+    expect(calls.find((c) => c[0] === "git" && c[1] === "push")).toBeUndefined();
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "create")).toBeUndefined();
+  });
+
+  test("falls back to local <base>...HEAD when origin/<base> is not available", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc x\n" },
+      "git diff --name-only origin/main...HEAD": { throw: true },
+      "git diff --name-only main...HEAD": { stdout: "openspec/x/tasks.md\n" },
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/wt",
+        branch: "ralph/eng-7",
+        issue,
+        metaOnlyFiles: ["openspec/**", "**/tasks.md"],
+      },
+      runner,
+    );
+    expect(result?.blocked).toBe("only-meta");
+    expect(calls.some((c) => c.join(" ") === "git diff --name-only main...HEAD")).toBe(true);
+  });
+
+  test("honors custom metaOnlyFiles entries", async () => {
+    const { runner } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc x\n" },
+      "git diff --name-only origin/main...HEAD": { stdout: "docs/notes.md\n" },
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/wt",
+        branch: "ralph/eng-7",
+        issue,
+        metaOnlyFiles: ["docs/**"],
+      },
+      runner,
+    );
+    expect(result?.blocked).toBe("only-meta");
+    expect(result?.blockedFiles).toEqual(["docs/notes.md"]);
+  });
+
   test("propagates push failure", async () => {
     const { runner } = makeRunner({
       "git log --oneline main..HEAD": { stdout: "abc x\n" },

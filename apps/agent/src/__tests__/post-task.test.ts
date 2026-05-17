@@ -863,6 +863,173 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
   });
 });
 
+describe("runPrPhase — only-meta diff guard", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-only-meta-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    await Bun.write(join(changeDir, "agent-tasks.md"), "## flow\n\n- [x] something\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const baseCfg = {
+    teardownScript: null,
+    prBaseBranch: "main",
+    autoMergeStrategy: "squash" as const,
+    maxCiFixAttempts: 2,
+    ciPollIntervalSeconds: 0,
+    cleanupWorktreeOnSuccess: false,
+    ignoreCiChecks: [],
+    stackPrsOnDependencies: false,
+    neverTouch: [],
+    metaOnlyFiles: ["openspec/**", "**/tasks.md", "**/agent-tasks.md"],
+  };
+
+  test("blocked: emits pr-only-meta, prepends fix task, respawns worker, and skips push when respawn returns non-zero", async () => {
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git diff --name-only origin/main...HEAD": {
+        stdout: "openspec/changes/x/tasks.md\nopenspec/changes/x/agent-tasks.md\n",
+      },
+    });
+
+    const phases: Array<{ p: string; d?: string | undefined }> = [];
+    let respawnCalls = 0;
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: (p, d) => phases.push({ p, d }),
+        respawnWorker: async () => {
+          respawnCalls += 1;
+          return 1; // worker failed to recover → give up after this attempt
+        },
+      },
+    );
+
+    expect(code).toBe(71); // PR_FAILED_EXIT
+    expect(respawnCalls).toBe(1);
+    expect(phases.find((p) => p.p === "pr-only-meta")).toBeDefined();
+    // Must not have pushed or called gh pr create.
+    expect(calls.find((c) => c[0] === "git" && c[1] === "push")).toBeUndefined();
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "create")).toBeUndefined();
+
+    // The fix task should now be in agent-tasks.md.
+    const updated = await Bun.file(join(changeDir, "agent-tasks.md")).text();
+    expect(updated).toContain("Reapply lost implementation files");
+    expect(updated).toContain("openspec/changes/x/tasks.md");
+  });
+
+  test("recovery path: when respawn restores files, the next iteration's mixed diff opens the PR", async () => {
+    let diffCallCount = 0;
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git diff --name-only origin/main...HEAD": {
+        get stdout() {
+          diffCallCount += 1;
+          if (diffCallCount === 1) return "openspec/changes/x/tasks.md\n";
+          return "openspec/changes/x/tasks.md\nsrc/feature.ts\n";
+        },
+      },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/42" },
+    });
+
+    const phases: string[] = [];
+    let respawnCalls = 0;
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: (p) => phases.push(p),
+        respawnWorker: async () => {
+          respawnCalls += 1;
+          return 0;
+        },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(respawnCalls).toBe(1);
+    expect(phases).toContain("pr-only-meta");
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "create")).toBeDefined();
+  });
+
+  test("respects maxOuterAttempts ceiling: repeated meta-only blocks eventually return PR_FAILED_EXIT", async () => {
+    const { cmd } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git diff --name-only origin/main...HEAD": { stdout: "openspec/changes/x/tasks.md\n" },
+    });
+
+    let respawnCalls = 0;
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, maxCiFixAttempts: 2 },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => {
+          respawnCalls += 1;
+          return 0;
+        },
+      },
+    );
+
+    expect(code).toBe(71); // PR_FAILED_EXIT after ceiling
+    // maxCiFixAttempts=2 → 2 successful respawns, then the 3rd block trips the ceiling.
+    expect(respawnCalls).toBe(2);
+  });
+});
+
 describe("summarizeUncommittedStatus", () => {
   test("returns count 0 for empty input", () => {
     expect(summarizeUncommittedStatus("")).toEqual({ count: 0, preview: [], truncated: 0 });

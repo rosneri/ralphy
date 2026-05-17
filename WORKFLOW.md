@@ -19,6 +19,17 @@ boundaries:
   never_touch:
     - "dist/**"
     - ".claude/worktrees/**"
+  # Globs that mark a file as "meta only". Before opening a PR, the loop runs
+  # `git diff --name-only origin/<base>...HEAD`; if every file matches one of
+  # these, the PR is blocked (the substantive change has been lost) and a fix
+  # task is prepended to agent-tasks.md so the next iteration restores the
+  # implementation. Defaults shown below — extend with repo-specific paths.
+  meta_only_files:
+    - "openspec/**"
+    - ".ralph/**"
+    - "**/agent-tasks.md"
+    - "**/tasks.md"
+    - "**/MANUAL_TESTING*.md"
 
 # How many tasks to run in parallel.
 concurrency: 2
