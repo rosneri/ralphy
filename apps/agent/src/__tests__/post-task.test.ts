@@ -907,7 +907,7 @@ describe("runPrPhase — only-meta diff guard", () => {
       },
     });
 
-    const phases: Array<{ p: string; d?: string }> = [];
+    const phases: Array<{ p: string; d?: string | undefined }> = [];
     let respawnCalls = 0;
     const code = await runPrPhase(
       {

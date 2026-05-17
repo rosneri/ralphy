@@ -18,9 +18,9 @@ interface CreatePrInput {
   metaOnlyFiles?: string[];
 }
 
-export type CreatePrBlockedReason = "only-meta";
+type CreatePrBlockedReason = "only-meta";
 
-export interface CreatePrResult {
+interface CreatePrResult {
   /** URL of the created/existing PR; null when blocked. */
   url: string | null;
   /** Whether a brand-new PR was created (false = a PR already existed). */
@@ -81,7 +81,7 @@ async function diffFilesAgainstBase(
  * file in it matches a meta-only glob (i.e. the substantive change is
  * missing from the branch).
  */
-export async function classifyDiffAgainstMeta(
+async function classifyDiffAgainstMeta(
   runner: CmdRunner,
   cwd: string,
   base: string,
