@@ -99,6 +99,64 @@ describe("useTerminalSize", () => {
     unmount();
   });
 
+  test("clears screen + scrollback synchronously BEFORE bumping resizeKey", async () => {
+    // RLF-57: the clear must happen before React re-renders, so that when a
+    // consumer remounts <Static> via key={resizeKey} and re-emits its log
+    // history, the lines land on a freshly cleared terminal instead of being
+    // wiped by a later effect.
+    const writes: string[] = [];
+    const s = mutStdout();
+    const origWrite = s.write.bind(s);
+    s.write = ((chunk: unknown, ...rest: unknown[]) => {
+      if (typeof chunk === "string") writes.push(chunk);
+      // @ts-expect-error — pass-through
+      return origWrite(chunk, ...rest);
+    }) as typeof s.write;
+    try {
+      const probe = captureLatest();
+      const { unmount } = render(React.createElement(HookProbe, { onRender: probe.onRender }));
+      await flush();
+      const clearsBefore = writes.filter((w) => w.includes("\x1b[3J")).length;
+      s.columns = 120;
+      s.rows = 50;
+      process.stdout.emit("resize");
+      // The handler is synchronous — the clear must already be in `writes`
+      // before we await anything, i.e. before React commits the new render.
+      const clearsAfterEmit = writes.filter((w) => w.includes("\x1b[3J")).length;
+      expect(clearsAfterEmit).toBe(clearsBefore + 1);
+      await flush();
+      expect(probe.value.resizeKey).toBe(1);
+      unmount();
+    } finally {
+      s.write = origWrite;
+    }
+  });
+
+  test("does not clear on a no-op resize", async () => {
+    const writes: string[] = [];
+    const s = mutStdout();
+    const origWrite = s.write.bind(s);
+    s.write = ((chunk: unknown, ...rest: unknown[]) => {
+      if (typeof chunk === "string") writes.push(chunk);
+      // @ts-expect-error — pass-through
+      return origWrite(chunk, ...rest);
+    }) as typeof s.write;
+    try {
+      const probe = captureLatest();
+      const { unmount } = render(React.createElement(HookProbe, { onRender: probe.onRender }));
+      await flush();
+      const before = writes.filter((w) => w.includes("\x1b[3J")).length;
+      process.stdout.emit("resize");
+      await flush();
+      const after = writes.filter((w) => w.includes("\x1b[3J")).length;
+      expect(after).toBe(before);
+      expect(probe.value.resizeKey).toBe(0);
+      unmount();
+    } finally {
+      s.write = origWrite;
+    }
+  });
+
   test("skips listening when stdout is not a TTY", () => {
     const s = mutStdout();
     s.isTTY = false;

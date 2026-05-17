@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Box, Static, Text, Transform, useApp, useInput, useStdin, useStdout } from "ink";
+import { Box, Static, Text, Transform, useApp, useInput, useStdin } from "ink";
 import { join } from "node:path";
 import { VERSION, type ParsedArgs } from "../cli";
 import {
@@ -396,14 +396,8 @@ export function AgentMode({
   loadConfig = loadRalphyConfigImpl,
 }: AgentModeProps) {
   const { exit } = useApp();
-  const { stdout } = useStdout();
   const { isRawModeSupported } = useStdin();
   const { columns, rows, resizeKey } = useTerminalSize();
-
-  useEffect(() => {
-    if (resizeKey === 0) return;
-    stdout.write("\x1b[2J\x1b[3J\x1b[H");
-  }, [resizeKey, stdout]);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
