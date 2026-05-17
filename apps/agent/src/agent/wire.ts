@@ -580,6 +580,12 @@ export function buildAgentCoordinator(
   /** prUrl → last reviewer-ping ms timestamp. Prevents re-pinging within
    *  `codeReviewStaleHours`. Resets on agent restart (best-effort dedup). */
   const stalePingedAt = new Map<string, number>();
+  /** prUrl → ISO timestamp of the newest reviewer activity Ralph last
+   *  queued a code-review trigger for. In-process dedupe so a stalled
+   *  worker / missing Linear pickup comment doesn't make `scanCodeReview`
+   *  re-fire on every poll. Cleared on agent restart — the Linear pickup
+   *  comment remains the durable cross-restart fallback. */
+  const lastHandledReviewActivity = new Map<string, string>();
 
   const useWorktree = args.worktree || cfg.useWorktree;
 
@@ -1474,7 +1480,14 @@ export function buildAgentCoordinator(
       const last = t.comments[t.comments.length - 1]!.createdAt;
       return last > acc ? last : acc;
     }, "");
-    if (!lastRalphPickup || newestReviewerActivity > lastRalphPickup) {
+    const lastHandled = lastHandledReviewActivity.get(prUrl) ?? null;
+    const effectiveLastHandled =
+      lastRalphPickup && lastHandled
+        ? lastRalphPickup > lastHandled
+          ? lastRalphPickup
+          : lastHandled
+        : (lastRalphPickup ?? lastHandled);
+    if (!effectiveLastHandled || newestReviewerActivity > effectiveLastHandled) {
       const body = unresolved
         .map((t) => {
           const head = t.path ? `_${t.path}${t.line ? `:${t.line}` : ""}_` : "_(general)_";
@@ -1485,6 +1498,7 @@ export function buildAgentCoordinator(
           return [head, "", ...lines].join("\n");
         })
         .join("\n\n---\n\n");
+      lastHandledReviewActivity.set(prUrl, newestReviewerActivity);
       return {
         source: "github-review",
         body,
