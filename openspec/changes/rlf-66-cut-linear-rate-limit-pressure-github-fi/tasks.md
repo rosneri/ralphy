@@ -24,3 +24,12 @@
 - [x] Run `bunx openspec validate rlf-66-cut-linear-rate-limit-pressure-github-fi --strict`
 - [x] Run `bun run lint`
 - [x] Run `bun run test`
+
+## Manual Testing
+
+- [x] Re-run `bunx openspec validate rlf-66-cut-linear-rate-limit-pressure-github-fi --strict` to confirm the change spec still validates
+- [x] Run the focused PR-URL unit suite (`bun test apps/agent/src/__tests__/pr-url.test.ts`) and confirm GitHub-first, headRefName slug, OPEN tie-break, Linear fallback, and cache hit/miss/invalidate scenarios all pass
+- [x] Run the mention-reaction suite (`bun test apps/agent/src/__tests__/mention-reaction.test.ts`) and confirm `fetchIssueComments` is not invoked when candidate comments are embedded inline
+- [x] Run the agent integration suite (`bun test apps/agent/src/__tests__/agent-integration.test.ts`) and the code-review trigger dedupe suite to verify GitHub-first resolution does not regress conflict and code-review flows
+- [x] Smoke-test the `gh pr list --search "<identifier> in:title" --state all --json url,state,headRefName,title` command shape against a known PR in this repo and confirm the JSON fields used by `discoverPrUrlFromGitHub` are present
+- [x] Verify `apps/agent/src/agent/pr-url/index.ts` lives under the per-folder 10-file cap and that `apps/agent/src/agent/` itself is back under the cap (`bun scripts/check-folder-size.ts`)
