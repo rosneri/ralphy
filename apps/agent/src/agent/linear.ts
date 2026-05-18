@@ -276,7 +276,7 @@ const MAX_LINEAR_ATTEMPTS = 3;
 const MAX_RETRY_AFTER_MS = 2000;
 
 function isRetryableStatus(status: number): boolean {
-  return status === 429 || (status >= 500 && status <= 599);
+  return status >= 500 && status <= 599;
 }
 
 /** Parse a `Retry-After` header value (seconds or HTTP-date) into ms.
@@ -298,6 +298,22 @@ function backoffMs(attempt: number): number {
   return base + jitter;
 }
 
+/** Case-insensitive substring check for Linear's `Rate limit exceeded`
+ *  marker. Linear returns rate-limit signals inconsistently — sometimes as
+ *  HTTP 429, sometimes as HTTP 400 with the phrase in the body — so callers
+ *  rely on both signals. */
+function isRateLimitedBody(body: unknown): boolean {
+  if (typeof body !== "string" || body.length === 0) return false;
+  return body.toLowerCase().includes("rate limit exceeded");
+}
+
+/** Returns true when an error from `linearRequest` was marked rate-limited
+ *  (either HTTP 429 or a body containing "Rate limit exceeded"). */
+export function isRateLimitedError(err: unknown): boolean {
+  if (err === null || typeof err !== "object") return false;
+  return (err as { rateLimited?: boolean }).rateLimited === true;
+}
+
 /** Render a Linear API error in a structured form: status + truncated body
  *  for HTTP failures, GraphQL `messages` when present, falling back to
  *  `err.message` / `String(err)` for anything else. Exported so wire.ts can
@@ -310,13 +326,15 @@ export function formatLinearError(err: unknown): string {
     body?: string;
     messages?: string[];
     message?: string;
+    rateLimited?: boolean;
   };
   const parts: string[] = [];
+  if (e.rateLimited) parts.push("rate limited");
   if (typeof e.status === "number") parts.push(`HTTP ${e.status}`);
   if (Array.isArray(e.messages) && e.messages.length > 0) {
     parts.push(`graphql: ${e.messages.join("; ")}`);
   }
-  if (typeof e.body === "string" && e.body.length > 0) {
+  if (typeof e.body === "string" && e.body.length > 0 && !e.rateLimited) {
     const truncated = e.body.length > 200 ? `${e.body.slice(0, 200)}…` : e.body;
     parts.push(`body: ${truncated}`);
   }
@@ -324,7 +342,7 @@ export function formatLinearError(err: unknown): string {
     if (typeof e.message === "string" && e.message) return e.message;
     return String(err);
   }
-  if (typeof e.message === "string" && e.message) parts.unshift(e.message);
+  if (typeof e.message === "string" && e.message && !e.rateLimited) parts.unshift(e.message);
   return parts.join(" — ");
 }
 
@@ -345,9 +363,14 @@ async function linearRequest<T>(
       const err = new Error("Linear API request failed") as Error & {
         status?: number;
         body?: string;
+        rateLimited?: boolean;
       };
       err.status = res.status;
       err.body = await res.text();
+      if (res.status === 429 || isRateLimitedBody(err.body)) {
+        err.rateLimited = true;
+        throw err;
+      }
       lastHttpError = err;
       if (isRetryableStatus(res.status) && attempt < MAX_LINEAR_ATTEMPTS) {
         const ra = parseRetryAfter(res.headers.get("Retry-After"));
