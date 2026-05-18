@@ -556,6 +556,44 @@ describe("agent/linear", () => {
     expect(await fetchIssueAttachments("k", "missing")).toEqual([]);
   });
 
+  test("fetchIssueAttachments sends server-side title filter when titleFilter is set", async () => {
+    let captured: { query: string; variables: Record<string, unknown> } | null = null;
+    mockFetch(async (req) => {
+      captured = (await req.json()) as { query: string; variables: Record<string, unknown> };
+      return new Response(
+        JSON.stringify({
+          data: {
+            issue: {
+              attachments: {
+                nodes: [{ id: "a1", url: "https://x", sourceType: null, title: "Ralphy" }],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const out = await fetchIssueAttachments("k", "issue-1", { titleFilter: "Ralphy" });
+    expect(out).toHaveLength(1);
+    expect(captured!.variables).toEqual({ id: "issue-1", titleFilter: "Ralphy" });
+    expect(captured!.query).toContain("$titleFilter: String!");
+    expect(captured!.query).toContain("filter: { title: { eq: $titleFilter } }");
+  });
+
+  test("fetchIssueAttachments omits the title filter variable when titleFilter is not set", async () => {
+    let captured: { query: string; variables: Record<string, unknown> } | null = null;
+    mockFetch(async (req) => {
+      captured = (await req.json()) as { query: string; variables: Record<string, unknown> };
+      return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }), {
+        status: 200,
+      });
+    });
+    await fetchIssueAttachments("k", "issue-1");
+    expect(captured!.variables).toEqual({ id: "issue-1" });
+    expect(captured!.query).not.toContain("titleFilter");
+    expect(captured!.query).not.toContain("filter:");
+  });
+
   test("updateIssueState posts an issueUpdate mutation with stateId", async () => {
     let captured: { variables: { id: string; stateId: string } } | null = null;
     mockFetch(async (req) => {
