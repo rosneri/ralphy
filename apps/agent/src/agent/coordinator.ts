@@ -145,6 +145,10 @@ export interface ActiveWorker {
   kill: () => void;
   /** Highest iteration count we've already posted a progress comment for. */
   lastReportedIteration: number;
+  /** Iteration count last passed to `syncTasks`. Lets the poll loop skip
+   *  re-syncing when the worker hasn't ticked a new iteration. Initialized
+   *  to 0 on spawn since the launch path syncs iteration 0 immediately. */
+  lastSyncedIteration: number;
   /** Set by `restartWorker` so the exit handler skips notifyExited and
    *  re-queues the worker as a resume instead of finalizing the issue. */
   restarting: boolean;
@@ -356,6 +360,7 @@ export class AgentCoordinator {
     this.spawnNext();
     const prStatus = await this.scanDoneForConflicts();
     await this.reportProgress();
+    await this.syncWorkerTasks();
 
     const buckets: PollBuckets = {
       todo: todo.length,
@@ -436,15 +441,36 @@ export class AgentCoordinator {
           "red",
         );
       }
-      if (this.deps.syncTasks) {
-        try {
-          await this.deps.syncTasks(w, count);
-        } catch (err) {
-          this.deps.onLog(
-            `! sync-tasks (progress) failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
+    }
+  }
+
+  /** Refresh the tasks comment for every active worker whose iteration
+   *  count has advanced since the last sync. Runs every poll (independent
+   *  of the progress-comment cadence) so the tasks list reflects each
+   *  checked-off item promptly. Best-effort: failures log a yellow warning
+   *  and leave `lastSyncedIteration` unchanged so the next poll retries. */
+  private async syncWorkerTasks(): Promise<void> {
+    if (!this.deps.syncTasks || !this.deps.getIterationCount) return;
+    for (const w of this.workers) {
+      let count: number;
+      try {
+        count = await this.deps.getIterationCount(w.changeName);
+      } catch (err) {
+        this.deps.onLog(
+          `! iteration count read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+        continue;
+      }
+      if (count === w.lastSyncedIteration) continue;
+      try {
+        await this.deps.syncTasks(w, count);
+        w.lastSyncedIteration = count;
+      } catch (err) {
+        this.deps.onLog(
+          `! sync-tasks (poll) failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+          "yellow",
+        );
       }
     }
   }
@@ -670,6 +696,7 @@ export class AgentCoordinator {
       mode,
       kill: handle.kill,
       lastReportedIteration: 0,
+      lastSyncedIteration: 0,
       restarting: false,
     };
     this.workers.push(worker);
@@ -782,6 +809,7 @@ export class AgentCoordinator {
         mode,
         kill: () => {},
         lastReportedIteration: 0,
+        lastSyncedIteration: 0,
         restarting: false,
       };
       try {
