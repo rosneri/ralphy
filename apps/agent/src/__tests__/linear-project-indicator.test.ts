@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchOpenIssues, issueMatchesGetIndicator } from "../agent/linear";
+import {
+  fetchOpenIssues,
+  fetchProjectIdByName,
+  issueMatchesGetIndicator,
+  setIssueProject,
+} from "../agent/linear";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;
@@ -71,6 +76,42 @@ describe("issueMatchesGetIndicator with project markers", () => {
         filter: [{ type: "project", value: "Ralph Queue" }],
       }),
     ).toBe(false);
+  });
+
+  test("returns false for attachment markers (no attachments on Pick)", () => {
+    const issue = {
+      labels: [],
+      state: { name: "Todo", type: "unstarted" },
+      project: null,
+    };
+    expect(
+      issueMatchesGetIndicator(issue, {
+        filter: [{ type: "attachment", value: "Ralphy" }],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("fetchProjectIdByName", () => {
+  test("returns the first project id when Linear returns a match", async () => {
+    const { calls } = stubFetch(() => ({ projects: { nodes: [{ id: "proj-1" }] } }));
+    const id = await fetchProjectIdByName("key", "Ralph Queue");
+    expect(id).toBe("proj-1");
+    expect(calls[0]?.variables).toEqual({ name: "Ralph Queue" });
+  });
+
+  test("returns null when Linear returns no nodes", async () => {
+    stubFetch(() => ({ projects: { nodes: [] } }));
+    expect(await fetchProjectIdByName("key", "Missing")).toBeNull();
+  });
+});
+
+describe("setIssueProject", () => {
+  test("sends an issueUpdate mutation with projectId", async () => {
+    const { calls } = stubFetch(() => ({ issueUpdate: { success: true } }));
+    await setIssueProject("key", "issue-1", "proj-1");
+    expect(calls[0]?.variables).toEqual({ id: "issue-1", projectId: "proj-1" });
+    expect(calls[0]?.query).toContain("issueUpdate");
   });
 });
 

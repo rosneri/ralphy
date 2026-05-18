@@ -1,3 +1,54 @@
+## Fix failing CI checks (2026-05-18T07:19:21.106Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26019170065 ---
+ci Test affected files + coverage ﻿2026-05-18T07:18:21.7406544Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-18T07:18:21.7407261Z ^[[36;1mbun run test:affected-files:coverage:ci^[[0m
+ci Test affected files + coverage 2026-05-18T07:18:21.7456297Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-18T07:18:21.7456797Z env:
+ci Test affected files + coverage 2026-05-18T07:18:21.7457222Z NX_BASE: 7e7d6b912f7c1fa605d55ad549b769d5fdf3c7ff
+ci Test affected files + coverage 2026-05-18T07:18:21.7457878Z NX_HEAD: 1f0079ab097f224c4cde600aa81f58d17bc4cca8
+ci Test affected files + coverage 2026-05-18T07:18:21.7458413Z ##[endgroup]
+ci Test affected files + coverage 2026-05-18T07:18:21.7545667Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-18T07:18:21.7778365Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-18T07:18:21.7778705Z
+ci Test affected files + coverage 2026-05-18T07:18:27.9332630Z agent: 9 relevant test file(s)
+ci Test affected files + coverage 2026-05-18T07:18:27.9333587Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-18T07:18:27.9334236Z apps/agent/src/**tests**/agent.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9334677Z apps/agent/src/**tests**/coordinator-restart-worker.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9335107Z apps/agent/src/**tests**/coordinator.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9335562Z apps/agent/src/**tests**/linear-project-indicator.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9336003Z apps/agent/src/**tests**/linear.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9336336Z apps/agent/src/**tests**/post-task.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9336661Z apps/agent/src/**tests**/pr.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9337000Z apps/agent/src/**tests**/queue-order.test.ts
+ci Test affected files + coverage 2026-05-18T07:18:27.9337219Z
+ci Test affected files + coverage 2026-05-18T07:18:27.9347449Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-18T07:18:27.9440746Z
+ci Test affected files + coverage 2026-05-18T07:18:27.9441543Z ##[group]src/**tests**/wire-setup-worktree.test.ts:
+ci Test affected files + coverage 2026-05-18T07:18:28.1122570Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:true + createWorktree throws → no scaffold lands in projectRoot, red log emitted [58.65ms]
+ci Test affected files + coverage 2026-05-18T07:18:28.1290290Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:false preserves projectRoot fallback when no worktree is created [16.90ms]
+ci Test affected files + coverage 2026-05-18T07:18:28.1291080Z
+ci Test affected files + coverage 2026-05-18T07:18:28.1291448Z ##[endgroup]
+ci Test affected files + coverage 2026-05-18T07:18:28.1291579Z
+ci Test affected files + coverage 2026-05-18T07:18:28.1291881Z ##[group]src/**tests**/worktree-mcp-seed.test.ts:
+ci Test affected files + coverage 2026-05-18T07:18:28.1314560Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.1 copies project .mcp.json into worktree [1.08ms]
+ci Test affected files + coverage 2026-05-18T07:18:28.1319617Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.2 rewrites .ralph/ relative args to absolute paths under projectRoot [0.72ms]
+ci Test affected files + coverage 2026-05-18T07:18:28.1323676Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.3 no-op when neither project nor worktree has .mcp.json [0.40ms]
+ci Test affected files + coverage 2026-05-18T07:18:28.1329915Z (pass) seedWorktreeMcpConfig (§1 manual plan) > §1.4 worktree's existing .mcp.json takes precedence over project's [0.63ms]
+ci Test affected files + coverage 2026-05-18T07:18:28.1
+…[truncated 143017 chars]
+
+```
+
+```
+
 ## Resolve PR merge conflicts (2026-05-18T07:15:22.378Z)
 
 - [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
