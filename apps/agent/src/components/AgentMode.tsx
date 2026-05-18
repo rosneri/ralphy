@@ -36,6 +36,7 @@ export type AgentModeBuildCoordinator = (
   getWorkerCwd: (changeName: string) => string | undefined;
   runBaselineGate: () => Promise<void>;
 };
+import { computeFocusedTailLayout } from "@ralphy/core/agent-mode/tail-layout";
 import { countProgress } from "@ralphy/core/progress";
 import { isFlowTaskHeading } from "@ralphy/core/tasks-md";
 import {
@@ -733,17 +734,11 @@ export function AgentMode({
   const focusedWorker = coordRef.current?.activeWorkers[safeFocusedIdx];
   const steeringActive = isRawModeSupported && activeCount > 0 && focusedWorker !== undefined;
 
-  // Compute tail lines for the focused worker to fill available height.
-  // Logs flow into terminal scrollback via <Static> so they don't occupy live
-  // UI region. header-box(5) + poll-row(7) + tasks-box(5 when active)
-  //   + card-non-tail(8) + compact-cards(4 each)
-  const nonFocusedCount = Math.max(0, activeCount - 1);
-  const tasksBoxLines = activeCount > 1 ? 5 : 0;
-  // +3 rows for the steering field (top border + body row + bottom border)
-  // when it is rendered inside the focused card.
-  const steeringBoxLines = steeringActive ? 3 : 0;
-  const FIXED_OVERHEAD = 5 + 7 + tasksBoxLines + 8 + steeringBoxLines + nonFocusedCount * 4;
-  const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
+  // Tail lines for the focused worker are computed per-card below
+  // via computeFocusedTailLayout, since several inputs (subtasks,
+  // openspecPhase, currentTask, cmd) are per-worker. The pause banner
+  // is global so we capture it here.
+  const hasPauseBanner = (coordRef.current?.getPause?.() ?? null) !== null;
   const compactTailLines = displayTailLines(activeCount);
 
   return (
@@ -998,6 +993,34 @@ export function AgentMode({
           const mBadge = modeBadge(w.mode);
           const pColor = phaseColor(phase);
           const bColor = isFocused ? workerBorderColor(phase) : "gray";
+
+          const subtasksPanelVisible = shouldShowSubtasksPanel(
+            openspecPhase,
+            showPendingTasks,
+            subtasks.length > 0,
+          );
+          const subtasksRendered = subtasksPanelVisible
+            ? (showAllSubtasks
+                ? subtasks.length
+                : Math.min(subtasks.length, MAX_PENDING_DISPLAY)) +
+              (!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY ? 1 : 0)
+            : 0;
+          const progressBarVisible = shouldShowProgressBar(
+            openspecPhase,
+            showPendingTasks,
+            taskProgress !== null,
+          );
+          const { focusedTailLines, showOutputTail } = computeFocusedTailLayout({
+            termHeight,
+            activeCount,
+            steeringActive,
+            hasPauseBanner,
+            hasCurrentTask: !!currentTask,
+            hasCmd: !!cmd,
+            hasPhasePipeline: shouldShowPhasePipeline(openspecPhase),
+            subtasksPanel: { visible: subtasksPanelVisible, rendered: subtasksRendered },
+            hasProgressBar: progressBarVisible,
+          });
           const visibleTailLines = isFocused ? focusedTailLines : compactTailLines;
 
           /* Compact row for non-focused workers */
@@ -1124,7 +1147,7 @@ export function AgentMode({
               )}
 
               {/* ── Output tail ─────────────────────────────── */}
-              {tail.length > 0 && !(showPendingTasks && showAllSubtasks) && (
+              {tail.length > 0 && showOutputTail && (
                 <Box flexDirection="column" marginTop={0}>
                   <Text dimColor>
                     {"─ OUTPUT "}

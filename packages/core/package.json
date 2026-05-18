@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    ".": "./src/index.ts",
+    "./agent-mode/tail-layout": "./src/agent-mode/tail-layout.ts",
     "./state": "./src/state.ts",
     "./git": "./src/git.ts",
     "./format": "./src/format.ts",
