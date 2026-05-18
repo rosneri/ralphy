@@ -610,8 +610,10 @@ export async function upsertRalphyAttachment(
   issueUrl: string,
   subtitle: string,
 ): Promise<void> {
-  const attachments = await fetchIssueAttachments(apiKey, issueId);
-  const existing = attachments.find((a) => a.title === RALPHY_ATTACHMENT_TITLE);
+  const attachments = await fetchIssueAttachments(apiKey, issueId, {
+    titleFilter: RALPHY_ATTACHMENT_TITLE,
+  });
+  const existing = attachments[0];
   if (existing) {
     await updateAttachmentSubtitle(apiKey, existing.id, subtitle);
   } else {
@@ -627,17 +629,30 @@ export async function upsertRalphyAttachment(
 export async function fetchIssueAttachments(
   apiKey: string,
   issueId: string,
+  options?: { titleFilter?: string },
 ): Promise<LinearAttachment[]> {
-  const query = `query IssueAttachments($id: String!) {
+  const titleFilter = options?.titleFilter;
+  const query =
+    titleFilter !== undefined
+      ? `query IssueAttachments($id: String!, $titleFilter: String!) {
+    issue(id: $id) {
+      attachments(filter: { title: { eq: $titleFilter } }, first: 25) {
+        nodes { id url sourceType title }
+      }
+    }
+  }`
+      : `query IssueAttachments($id: String!) {
     issue(id: $id) {
       attachments(first: 25) {
         nodes { id url sourceType title }
       }
     }
   }`;
+  const variables: Record<string, unknown> =
+    titleFilter !== undefined ? { id: issueId, titleFilter } : { id: issueId };
   const data = await linearRequest<{
     issue: { attachments?: { nodes?: LinearAttachment[] } } | null;
-  }>(apiKey, query, { id: issueId });
+  }>(apiKey, query, variables);
   return data.issue?.attachments?.nodes ?? [];
 }
 
