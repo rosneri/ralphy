@@ -533,7 +533,7 @@ export async function fetchIssueComments(
   return data.issue?.comments.nodes ?? [];
 }
 
-interface LinearAttachment {
+export interface LinearAttachment {
   id: string;
   url: string;
   sourceType: string | null;
@@ -627,6 +627,41 @@ export async function fetchIssueAttachments(
     issue: { attachments?: { nodes?: LinearAttachment[] } } | null;
   }>(apiKey, query, { id: issueId });
   return data.issue?.attachments?.nodes ?? [];
+}
+
+/** Batched variant of `fetchIssueAttachments` — fetches attachments for many
+ *  issue ids in a single GraphQL request. Used by the dependency-base
+ *  resolution path so 5 blockers cost 1 Linear round-trip rather than 5.
+ *
+ *  Returns a Map keyed by issue id. Ids that Linear omits (e.g. permission
+ *  scoping) are simply absent — callers normalize with `?? []`. Empty input
+ *  short-circuits with no HTTP call. */
+export async function fetchAttachmentsForIssues(
+  apiKey: string,
+  issueIds: string[],
+): Promise<Map<string, LinearAttachment[]>> {
+  const out = new Map<string, LinearAttachment[]>();
+  if (issueIds.length === 0) return out;
+
+  // `first: 100` matches Linear's hard cap for IssueFilter result pages.
+  // Blocker counts in practice are well under this, so no pagination loop.
+  const query = `query IssuesAttachments($ids: [ID!]!) {
+    issues(filter: { id: { in: $ids } }, first: 100) {
+      nodes {
+        id
+        attachments(first: 25) {
+          nodes { id url sourceType title }
+        }
+      }
+    }
+  }`;
+  const data = await linearRequest<{
+    issues: { nodes: { id: string; attachments?: { nodes?: LinearAttachment[] } }[] };
+  }>(apiKey, query, { ids: issueIds });
+  for (const node of data.issues.nodes) {
+    out.set(node.id, node.attachments?.nodes ?? []);
+  }
+  return out;
 }
 
 /** Fetch all workflow states for a given team key (e.g. "ENG"). */

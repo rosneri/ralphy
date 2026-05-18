@@ -16,6 +16,7 @@ import {
   addReactionToComment,
   fetchIssueComments,
   fetchIssueAttachments,
+  fetchAttachmentsForIssues,
   createRalphyAttachment,
   updateAttachmentSubtitle,
   upsertRalphyAttachment,
@@ -554,6 +555,57 @@ describe("agent/linear", () => {
   test("fetchIssueAttachments returns [] when issue is null", async () => {
     mockFetch(async () => new Response(JSON.stringify({ data: { issue: null } }), { status: 200 }));
     expect(await fetchIssueAttachments("k", "missing")).toEqual([]);
+  });
+
+  test("fetchAttachmentsForIssues with empty input makes no HTTP call", async () => {
+    let calls = 0;
+    mockFetch(async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    });
+    const result = await fetchAttachmentsForIssues("k", []);
+    expect(calls).toBe(0);
+    expect(result.size).toBe(0);
+  });
+
+  test("fetchAttachmentsForIssues batches into a single request and maps by id", async () => {
+    const captured: { variables: { ids: string[] } }[] = [];
+    mockFetch(async (req) => {
+      captured.push((await req.json()) as { variables: { ids: string[] } });
+      return new Response(
+        JSON.stringify({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: "b1",
+                  attachments: {
+                    nodes: [
+                      {
+                        id: "a1",
+                        url: "https://github.com/o/r/pull/1",
+                        sourceType: "github",
+                        title: "x",
+                      },
+                    ],
+                  },
+                },
+                { id: "b2", attachments: { nodes: [] } },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const out = await fetchAttachmentsForIssues("k", ["b1", "b2", "b3"]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.variables).toEqual({ ids: ["b1", "b2", "b3"] });
+    expect(out.get("b1")).toHaveLength(1);
+    expect(out.get("b1")![0]!.url).toBe("https://github.com/o/r/pull/1");
+    expect(out.get("b2")).toEqual([]);
+    // Ids absent from the response are absent from the map (caller `?? []`s).
+    expect(out.get("b3")).toBeUndefined();
   });
 
   test("updateIssueState posts an issueUpdate mutation with stateId", async () => {
