@@ -11,37 +11,42 @@ const GetIndicatorSchema = z.object({
 
 const SetIndicatorSchema = z.union([z.array(MarkerSchema).min(1), MarkerSchema]);
 
-const IndicatorsSchema = z
-  .object({
-    getTodo: GetIndicatorSchema.optional(),
-    getInProgress: GetIndicatorSchema.optional(),
-    getConflicted: GetIndicatorSchema.optional(),
-    getReview: GetIndicatorSchema.optional(),
-    getAutoMerge: GetIndicatorSchema.optional(),
-    setInProgress: SetIndicatorSchema.optional(),
-    setDone: SetIndicatorSchema.optional(),
-    setError: SetIndicatorSchema.optional(),
-    setConflicted: SetIndicatorSchema.optional(),
-    clearConflicted: SetIndicatorSchema.optional(),
-    clearReview: SetIndicatorSchema.optional(),
-  })
-  .superRefine((value, ctx) => {
-    for (const key of ["clearConflicted", "clearReview"] as const) {
-      const clear = value[key];
-      if (!clear) continue;
-      const markers = Array.isArray(clear) ? clear : [clear];
-      for (const m of markers) {
-        if (m.type !== "label") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [key],
-            message: `${key} markers must be label-typed (status removal is not supported)`,
-          });
-          break;
+const IndicatorsSchema = z.preprocess(
+  // Accept `indicators:` (bare) — YAML parses that as null — as an empty
+  // map. Lets the default WORKFLOW.md leave the key open for inline edits.
+  (v) => (v == null ? {} : v),
+  z
+    .object({
+      getTodo: GetIndicatorSchema.optional(),
+      getInProgress: GetIndicatorSchema.optional(),
+      getConflicted: GetIndicatorSchema.optional(),
+      getReview: GetIndicatorSchema.optional(),
+      getAutoMerge: GetIndicatorSchema.optional(),
+      setInProgress: SetIndicatorSchema.optional(),
+      setDone: SetIndicatorSchema.optional(),
+      setError: SetIndicatorSchema.optional(),
+      setConflicted: SetIndicatorSchema.optional(),
+      clearConflicted: SetIndicatorSchema.optional(),
+      clearReview: SetIndicatorSchema.optional(),
+    })
+    .superRefine((value, ctx) => {
+      for (const key of ["clearConflicted", "clearReview"] as const) {
+        const clear = value[key];
+        if (!clear) continue;
+        const markers = Array.isArray(clear) ? clear : [clear];
+        for (const m of markers) {
+          if (m.type !== "label") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [key],
+              message: `${key} markers must be label-typed (status removal is not supported)`,
+            });
+            break;
+          }
         }
       }
-    }
-  });
+    }),
+);
 
 const ProjectSchema = z
   .object({
@@ -121,11 +126,10 @@ export const WorkflowConfigSchema = z.object({
       assignee: z.string().optional(),
       postComments: z.boolean().default(true),
       updateEveryIterations: z.number().int().nonnegative().default(10),
-      mentionTrigger: z.boolean().default(false),
+      mentionTrigger: z.boolean().default(true),
       mentionHandle: z.string().default("@ralphy"),
-      codeReviewTrigger: z.boolean().default(false),
+      codeReviewTrigger: z.boolean().default(true),
       codeReviewStaleHours: z.number().nonnegative().default(24),
-      syncTasksToDescription: z.boolean().default(false),
       syncTasksToComment: z.boolean().default(true),
       indicators: IndicatorsSchema.default({}),
     })
@@ -133,11 +137,10 @@ export const WorkflowConfigSchema = z.object({
     .default({
       postComments: true,
       updateEveryIterations: 10,
-      mentionTrigger: false,
+      mentionTrigger: true,
       mentionHandle: "@ralphy",
-      codeReviewTrigger: false,
+      codeReviewTrigger: true,
       codeReviewStaleHours: 24,
-      syncTasksToDescription: false,
       syncTasksToComment: true,
       indicators: {},
     }),

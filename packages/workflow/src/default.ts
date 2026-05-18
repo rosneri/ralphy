@@ -1,8 +1,8 @@
 /**
  * Canonical default `WORKFLOW.md` written by `ralph init` when no file exists.
- * Indicator block uses grouped-by-lifecycle layout: each `get…` sits beside
- * the `set…`/`clear…` that mutates the same status/label, under a comment
- * header naming the lifecycle.
+ * Top-level keys are grouped into thematic sections (scheduling, limits,
+ * engine, worktree, PRs, CI, base-branch gate, Linear). Indicator examples
+ * sit under the state they belong to so get/set/clear read top-to-bottom.
  */
 export const DEFAULT_WORKFLOW_MD = `---
 project:
@@ -33,69 +33,60 @@ boundaries:
     - "**/tasks.md"
     - "**/MANUAL_TESTING*.md"
 
+# ─── Scheduling ──────────────────────────────────────────────
 # How many tasks to run in parallel.
 concurrency: 1
-
 # Seconds between polls for new Linear issues (agent mode).
 pollIntervalSeconds: 60
-
-# Maximum iterations per task. 0 = unlimited.
-maxIterationsPerTask: 0
-
-# Maximum cost in USD per task. 0 = unlimited.
-maxCostUsdPerTask: 0
-
-# Maximum wall-clock minutes per task. 0 = unlimited.
-maxRuntimeMinutesPerTask: 0
-
-# Stop a task after this many consecutive identical failures.
-maxConsecutiveFailuresPerTask: 5
-
 # Seconds to wait between loop iterations (throttle).
 iterationDelaySeconds: 0
 
+# ─── Per-task limits (0 = unlimited) ─────────────────────────
+maxIterationsPerTask: 0
+maxCostUsdPerTask: 0
+maxRuntimeMinutesPerTask: 0
+# Stop a task after this many consecutive identical failures.
+maxConsecutiveFailuresPerTask: 5
+
+# ─── Engine ──────────────────────────────────────────────────
+# Underlying engine: "claude" or "codex".
+engine: claude
+# Model tier: "haiku", "sonnet", or "opus".
+model: opus
 # Log the raw engine stream to stdout.
 logRawStream: false
-
 # Pass --verbose to the ralph task sub-process.
 taskVerbose: false
 
+# ─── Worktree ────────────────────────────────────────────────
 # Run each task in an isolated git worktree.
 useWorktree: false
-
 # Delete the worktree after a successful task.
 cleanupWorktreeOnSuccess: false
 
+# ─── Pull requests ───────────────────────────────────────────
 # Open a pull request after a task succeeds.
 createPrOnSuccess: false
-
 # Base branch for pull requests.
 prBaseBranch: main
-
 # When true, stack dependent issues' PRs onto their blocker's open PR.
 stackPrsOnDependencies: false
-
 # Strategy used when GitHub auto-merge is enabled.
 autoMergeStrategy: squash
 
+# ─── CI auto-fix ─────────────────────────────────────────────
 # Let the agent attempt to fix CI failures after a PR is created.
 fixCiOnFailure: false
-
 # Maximum number of CI-fix attempts per task.
 maxCiFixAttempts: 5
-
 # Seconds between CI status polls.
 ciPollIntervalSeconds: 30
 
-# Underlying engine: "claude" or "codex".
-engine: claude
-
-# Model tier: "haiku", "sonnet", or "opus".
-model: opus
-
-# Pre-existing error check: gate the agent when the base branch is already broken.
-# When enabled, the agent runs these commands against the base branch HEAD before
-# scheduling new work; failures open a Linear ticket and pause new pickups.
+# ─── Base-branch health gate ─────────────────────────────────
+# Pre-existing error check: gate the agent when the base branch is already
+# broken. When enabled, the agent runs these commands against the base
+# branch HEAD before scheduling new work; failures open a Linear ticket
+# and pause new pickups.
 preExistingErrorCheck:
   enabled: false
   # Commands to run against the base branch. When empty, falls back to commands.lint / commands.test.
@@ -104,45 +95,49 @@ preExistingErrorCheck:
   label: "ralph:pre-existing-error"
   outputCharLimit: 4000
 
+# ─── Linear integration ──────────────────────────────────────
 linear:
   # Linear team key (e.g. "ENG"). Omit to match all teams.
   # team: ENG
 
   # Post progress comments on the Linear issue while a task is running.
   postComments: true
-
   # Post a progress update every N iterations. 0 disables.
   updateEveryIterations: 10
 
   # Watch done-issue comments + linked GitHub PR comments for @ralphy mentions.
-  mentionTrigger: false
+  mentionTrigger: true
   mentionHandle: "@ralphy"
 
   # Watch open tracked PRs for unresolved review-thread comments.
-  codeReviewTrigger: false
+  codeReviewTrigger: true
   codeReviewStaleHours: 24
 
   # Mirror the loop's tasks.md into a sticky Linear comment (always the
   # last comment on the issue). Updates on worker launch, on the same
-  # cadence as updateEveryIterations, and on done-transition. This is the
-  # recommended way to surface Ralph's progress on the Linear issue.
+  # cadence as updateEveryIterations, and on done-transition.
   syncTasksToComment: true
 
-  # Legacy: mirror tasks.md into the issue description body instead. Kept
-  # for back-compat only. When both syncTasksToComment and
-  # syncTasksToDescription are true, comment-sync wins and a warning is
-  # logged.
-  syncTasksToDescription: false
-
   # Indicators map Ralph lifecycle events to Linear labels/statuses.
-  # Grouped by lifecycle: each get* is followed by the set*/clear* that
-  # mutates the same state, so the lifecycle reads top-to-bottom.
-  indicators: {}
-    # Todo -> In Progress
+  #
+  # Filter semantics (per indicator's \`filter:\` list):
+  #   • Entries of the SAME type (e.g. two \`status\` entries) are ORed
+  #     — the issue matches if any value matches.
+  #   • Entries of DIFFERENT types (one \`status\` + one \`label\`) are
+  #     ANDed — the issue must satisfy every type.
+  #   Example: a filter with two statuses + one label matches issues
+  #   where status ∈ {A, B} AND label = L.
+  #
+  # Sections below group one state at a time; its get/set/clear sit
+  # adjacent so the lifecycle reads top-to-bottom.
+  indicators:
+    # ── Todo (pickup trigger) ────────────
     # getTodo:
     #   filter:
     #     - type: status
     #       value: Todo
+    #
+    # ── In Progress ──────────────────────
     # getInProgress:
     #   filter:
     #     - type: status
@@ -151,7 +146,7 @@ linear:
     #   type: status
     #   value: In Progress
     #
-    # # Done / review hand-off
+    # ── Done → Review hand-off ───────────
     # setDone:
     #   type: status
     #   value: In Review
@@ -163,7 +158,7 @@ linear:
     #   type: label
     #   value: "ralph:review"
     #
-    # # Conflict lifecycle
+    # ── Conflicted ───────────────────────
     # getConflicted:
     #   filter:
     #     - type: label
@@ -175,13 +170,13 @@ linear:
     #   type: label
     #   value: "ralph:conflict"
     #
-    # # Auto-merge opt-in
+    # ── Auto-merge (opt-in) ──────────────
     # getAutoMerge:
     #   filter:
     #     - type: label
     #       value: "ralph:auto-merge"
     #
-    # # Error quarantine
+    # ── Error quarantine ─────────────────
     # setError:
     #   type: label
     #   value: "ralph:error"
