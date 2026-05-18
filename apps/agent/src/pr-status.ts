@@ -80,14 +80,30 @@ interface RawPrView {
 }
 
 /**
+ * Optional transition hook passed by callers that maintain their own
+ * per-issue PR-URL cache (see `pr-url.ts::createPrUrlCache`). When the
+ * fetched PR state differs from `priorState`, `onTransition` fires so
+ * the caller can invalidate the cached URL — the canonical trigger for
+ * re-resolving the PR URL on the next poll.
+ */
+interface PrStatusTransitionHook {
+  priorState?: PrState | null;
+  onTransition: (next: PrState) => void;
+}
+
+/**
  * Fetch a PR's status via `gh pr view`. Returns `{ kind: "error" }` on any
  * failure (network, auth, malformed JSON) so a single bad PR doesn't break
  * the unified `agent list` table.
+ *
+ * When `transition` is supplied and the fetched state differs from
+ * `transition.priorState`, `transition.onTransition(next)` fires.
  */
 export async function fetchPrStatus(
   url: string,
   runner: CmdRunner,
   cwd: string,
+  transition?: PrStatusTransitionHook,
 ): Promise<PrStatus> {
   let stdout: string;
   try {
@@ -112,6 +128,9 @@ export async function fetchPrStatus(
   const mergeableUpper = (raw.mergeable ?? "UNKNOWN").toUpperCase();
   const mergeable: Mergeable =
     mergeableUpper === "MERGEABLE" || mergeableUpper === "CONFLICTING" ? mergeableUpper : "UNKNOWN";
+  if (transition && transition.priorState !== state) {
+    transition.onTransition(state);
+  }
   return {
     kind: "ok",
     state,

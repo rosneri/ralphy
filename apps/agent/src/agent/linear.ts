@@ -21,6 +21,13 @@ export interface LinearIssue {
    * Populated from Linear's "blocked_by" relations.
    */
   blockedByIds: string[];
+  /**
+   * Recent comments embedded with the mention-scan candidate query so the
+   * agent can skip a per-issue `fetchIssueComments` round-trip. Only
+   * populated by `fetchMentionScanIssues`; absent on issues returned by
+   * other fetchers.
+   */
+  comments?: LinearComment[];
 }
 
 /**
@@ -50,6 +57,7 @@ interface LinearNode {
   priority: number;
   createdAt: string;
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
+  comments?: { nodes: LinearComment[] };
 }
 
 interface Partitioned {
@@ -214,6 +222,9 @@ export async function fetchMentionScanIssues(
         relations(first: 50) {
           nodes { type relatedIssue { id state { type } } }
         }
+        comments(first: 50) {
+          nodes { id body createdAt user { name email } }
+        }
       }
     }
   }`;
@@ -238,6 +249,7 @@ export async function fetchMentionScanIssues(
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),
+    comments: n.comments?.nodes ?? [],
   }));
 }
 

@@ -50,8 +50,9 @@ import {
   type MentionTrigger,
 } from "./coordinator";
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
-import { createWorktree, seedWorktreeMcpConfig, branchForChange, type GitRunner } from "./worktree";
+import { createWorktree, seedWorktreeMcpConfig, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
+import { discoverPrUrlFromGitHub, createPrUrlCache } from "./pr-url";
 import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
 import { runBaselineGate } from "./baseline/gate";
@@ -602,6 +603,16 @@ export function buildAgentCoordinator(
    *  mismatch doesn't permanently silence the conflict scan. */
   const prUnavailable = new Map<string, number>();
   const PR_UNAVAILABLE_TTL_MS = 10 * 60 * 1000;
+  /**
+   * Per-issue PR URL cache (5-min TTL). The previous implementation only
+   * cached by `changeName`, which forced a fresh `gh pr list` + Linear
+   * attachment fetch every poll for issues with no tracked PR (most of
+   * them). Negative results are cached too so untracked issues only
+   * cost one resolve per TTL window. Invalidated explicitly when the
+   * agent observes a PR state transition (see `markPrUnavailable` and
+   * the `registerPr` callback).
+   */
+  const prUrlByIssue = createPrUrlCache(5 * 60 * 1000);
   /** prUrl → last reviewer-ping ms timestamp. Prevents re-pinging within
    *  `codeReviewStaleHours`. Resets on agent restart (best-effort dedup). */
   const stalePingedAt = new Map<string, number>();
@@ -1056,6 +1067,8 @@ export function buildAgentCoordinator(
           registerPr: (cn, url) => {
             prByChange.set(cn, url);
             prUnavailable.delete(cn);
+            const issue = issueByChange.get(cn);
+            if (issue) prUrlByIssue.invalidate(issue.id);
             input.onWorkerPr?.(cn, url);
           },
           ...(onWorkerPhase && {
@@ -1140,8 +1153,11 @@ export function buildAgentCoordinator(
       }
       if (state && state !== "OPEN") {
         // PR is MERGED/CLOSED — `mergeable` will never become known. Cache
-        // so subsequent polls don't even hit `gh` for this change.
+        // so subsequent polls don't even hit `gh` for this change. Drop
+        // the per-issue PR URL cache too so a fresh PR (re-opened or
+        // replacement) is rediscovered on the next poll.
         markPrUnavailable(changeName);
+        prUrlByIssue.invalidate(issue.id);
         return null;
       }
       if (m && m !== "UNKNOWN") {
@@ -1184,45 +1200,23 @@ export function buildAgentCoordinator(
 
   /**
    * Discover the PR URL for an issue. Tries two strategies in order:
-   *   1. `gh pr list --head ralph/<changeName>` — the branch ralphy
-   *      creates. Cheap and works while branch naming is intact.
-   *   2. Linear attachments — Linear's GitHub integration auto-attaches
-   *      the PR URL to the issue when the PR references the Linear
-   *      identifier (title / body / branch / commit). Canonical fallback
-   *      that handles branch-name drift, manual renames, or PRs opened
-   *      by hand outside ralph's worktree path.
+   *   1. GitHub search — `gh pr list --search "<identifier> in:title"` plus a
+   *      `headRefName`-contains-slug match. Single `gh` call regardless of
+   *      branch name; the canonical lookup now that Linear attachments
+   *      are the rate-limit hot path.
+   *   2. Linear attachments — fallback for PRs whose title and branch
+   *      don't reference the identifier but Linear's GitHub integration
+   *      has attached anyway.
    * Each failure logs once so the dashboard surfaces what's happening.
    */
   async function discoverPrUrl(issue: LinearIssue, changeName: string): Promise<string | null> {
-    const branch = branchForChange(changeName);
-    const tryGh = async (args: string[]): Promise<string | null> => {
-      try {
-        const res = await cmdRunner.run(args, projectRoot);
-        const found = res.stdout.trim();
-        return found || null;
-      } catch (err) {
-        onLog(
-          `! gh ${args[1] ?? ""} failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-        return null;
-      }
-    };
-
-    const byBranch = await tryGh([
-      "gh",
-      "pr",
-      "list",
-      "--head",
-      branch,
-      "--state",
-      "open",
-      "--json",
-      "url",
-      "--jq",
-      ".[0].url // empty",
-    ]);
-    if (byBranch) return byBranch;
+    const fromGitHub = await discoverPrUrlFromGitHub(
+      issue.identifier,
+      cmdRunner,
+      projectRoot,
+      onLog,
+    );
+    if (fromGitHub) return fromGitHub;
 
     const fromLinear = await discoverPrUrlFromLinear(issue);
     if (fromLinear.url) {
@@ -1241,7 +1235,7 @@ export function buildAgentCoordinator(
     }
 
     onLog(
-      `  ${issue.identifier}: no open PR found on head=${branch} or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
+      `  ${issue.identifier}: no PR found via GitHub search or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
       "gray",
     );
     markPrUnavailable(changeName);
@@ -1399,20 +1393,9 @@ export function buildAgentCoordinator(
       onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
     };
     for (const issue of candidates) {
-      let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
-      try {
-        comments = await fetchIssueComments(apiKey, issue.id);
-      } catch (err) {
-        if (isRateLimitedError(err)) {
-          logRateLimited();
-          break;
-        }
-        onLog(
-          `! mention scan: Linear comments failed for ${issue.identifier}: ${formatLinearError(err)}`,
-          "yellow",
-        );
-        continue;
-      }
+      // Comments come embedded on the mention-scan candidate now — one
+      // Linear request per poll instead of N+1.
+      const comments = issue.comments ?? [];
       const lastRalphPickup = findLastRalphPickupISO(comments);
 
       if (wantMention) {
@@ -1729,15 +1712,21 @@ export function buildAgentCoordinator(
     return re.test(body);
   }
 
-  /** Resolve the PR URL for an issue's tracked change, if any. Reuses the
-   *  conflict-scan discovery so branch-name drift falls back to title
-   *  search. Returns null silently for non-tracked PRs. */
+  /** Resolve the PR URL for an issue, reusing the conflict-scan discovery
+   *  (GitHub search first, Linear attachments fallback). Reads through a
+   *  per-issue 5-min cache so polls that find "no PR yet" don't burn a
+   *  fresh round-trip every cycle. Negative results are cached. */
   async function resolvePrUrlForIssue(issue: LinearIssue): Promise<string | null> {
     const changeName = changeNameForIssue(issue);
     if (isPrUnavailable(changeName)) return null;
-    const cached = prByChange.get(changeName);
-    if (cached) return cached;
+    const inflight = prByChange.get(changeName);
+    if (inflight) return inflight;
+
+    const cached = prUrlByIssue.get(issue.id);
+    if (cached !== undefined) return cached;
+
     const found = await discoverPrUrl(issue, changeName);
+    prUrlByIssue.set(issue.id, found);
     if (found) prByChange.set(changeName, found);
     return found;
   }
