@@ -18,3 +18,14 @@
 - [x] Run `bunx openspec validate rlf-64-logs-flicker-to-replace-view` and fix any reported issues.
 - [x] Run `bun run lint` and `bun run test`; fix any failures.
 - [x] Manually smoke-test the agent UI: with subtasks panel expanded and a short terminal, confirm there is no flicker when toggling Ctrl+T / Ctrl+Meta+T.
+
+## Manual Testing
+
+- [x] Short terminal + tall body (steering on, subtasks expanded, pause banner, progress bar): verify OUTPUT tail is suppressed entirely instead of flickering one frame of scrollback.
+- [x] Tall terminal (~50 rows), baseline state: verify OUTPUT tail renders with the expected row budget (`termHeight - 20` lines) and no overflow scroll occurs.
+- [x] Subtasks panel toggle: at a borderline terminal height (e.g. 23 rows), press Ctrl+T to show/hide the subtasks panel and confirm OUTPUT visibility flips cleanly with no flicker on either transition.
+- [x] Toggle-all-subtasks (Ctrl+Meta+T) at a borderline terminal height: confirm the OUTPUT block hides/reveals based on the new rendered row count without redraw flicker.
+- [x] Steering box activation: when a steering message is active, verify the 3 extra rows are subtracted from the OUTPUT tail (no overlap with the steering box).
+- [x] Multiple concurrent workers (activeCount ≥ 2): verify the focused card's OUTPUT tail shrinks by ~9 rows for the first sibling and ~4 rows for each additional sibling so siblings render in full without clipping.
+- [x] Terminal resize: drag the terminal smaller until OUTPUT disappears, then larger again, and confirm the transition is clean (no scrollback flicker, no stale frames).
+- [x] Edge case `termHeight === 0` (e.g. SIGWINCH burst): confirm the renderer does not crash and OUTPUT is hidden until the next valid measurement.
