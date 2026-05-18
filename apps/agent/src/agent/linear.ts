@@ -266,37 +266,113 @@ interface GraphQLResult<T> {
   errors?: { message: string }[];
 }
 
+/** Test seam: override `sleep` to make retry backoff instant in unit tests.
+ *  Defaults to `Bun.sleep`. Keep the public `linearRequest` signature stable. */
+export const linearRequestInternals: { sleep: (ms: number) => Promise<void> } = {
+  sleep: (ms: number) => Bun.sleep(ms),
+};
+
+const MAX_LINEAR_ATTEMPTS = 3;
+const MAX_RETRY_AFTER_MS = 2000;
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
+/** Parse a `Retry-After` header value (seconds or HTTP-date) into ms.
+ *  Returns undefined when missing/unparsable. Caller clamps. */
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (!trimmed) return undefined;
+  const asNum = Number(trimmed);
+  if (Number.isFinite(asNum)) return Math.max(0, asNum * 1000);
+  const asDate = Date.parse(trimmed);
+  if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now());
+  return undefined;
+}
+
+function backoffMs(attempt: number): number {
+  const base = 250 * 2 ** (attempt - 1);
+  const jitter = Math.floor(Math.random() * 100);
+  return base + jitter;
+}
+
+/** Render a Linear API error in a structured form: status + truncated body
+ *  for HTTP failures, GraphQL `messages` when present, falling back to
+ *  `err.message` / `String(err)` for anything else. Exported so wire.ts can
+ *  use it at every mention-scan / Linear catch site. */
+export function formatLinearError(err: unknown): string {
+  if (err === null || err === undefined) return String(err);
+  if (typeof err !== "object") return String(err);
+  const e = err as {
+    status?: number;
+    body?: string;
+    messages?: string[];
+    message?: string;
+  };
+  const parts: string[] = [];
+  if (typeof e.status === "number") parts.push(`HTTP ${e.status}`);
+  if (Array.isArray(e.messages) && e.messages.length > 0) {
+    parts.push(`graphql: ${e.messages.join("; ")}`);
+  }
+  if (typeof e.body === "string" && e.body.length > 0) {
+    const truncated = e.body.length > 200 ? `${e.body.slice(0, 200)}…` : e.body;
+    parts.push(`body: ${truncated}`);
+  }
+  if (parts.length === 0) {
+    if (typeof e.message === "string" && e.message) return e.message;
+    return String(err);
+  }
+  if (typeof e.message === "string" && e.message) parts.unshift(e.message);
+  return parts.join(" — ");
+}
+
 async function linearRequest<T>(
   apiKey: string,
   query: string,
   variables: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(LINEAR_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: apiKey },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!res.ok) {
-    const err = new Error("Linear API request failed") as Error & {
-      status?: number;
-      body?: string;
-    };
-    err.status = res.status;
-    err.body = await res.text();
-    throw err;
+  let lastHttpError: (Error & { status?: number; body?: string; messages?: string[] }) | undefined;
+
+  for (let attempt = 1; attempt <= MAX_LINEAR_ATTEMPTS; attempt++) {
+    const res = await fetch(LINEAR_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: apiKey },
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!res.ok) {
+      const err = new Error("Linear API request failed") as Error & {
+        status?: number;
+        body?: string;
+      };
+      err.status = res.status;
+      err.body = await res.text();
+      lastHttpError = err;
+      if (isRetryableStatus(res.status) && attempt < MAX_LINEAR_ATTEMPTS) {
+        const ra = parseRetryAfter(res.headers.get("Retry-After"));
+        const waitMs = Math.min(ra ?? backoffMs(attempt), MAX_RETRY_AFTER_MS);
+        await linearRequestInternals.sleep(waitMs);
+        continue;
+      }
+      throw err;
+    }
+    const json = (await res.json()) as GraphQLResult<T>;
+    if (json.errors?.length) {
+      const err = new Error("Linear API returned errors") as Error & {
+        messages?: string[];
+      };
+      err.messages = json.errors.map((e) => e.message);
+      throw err;
+    }
+    if (!json.data) {
+      throw new Error("Linear API returned no data");
+    }
+    return json.data;
   }
-  const json = (await res.json()) as GraphQLResult<T>;
-  if (json.errors?.length) {
-    const err = new Error("Linear API returned errors") as Error & {
-      messages?: string[];
-    };
-    err.messages = json.errors.map((e) => e.message);
-    throw err;
-  }
-  if (!json.data) {
-    throw new Error("Linear API returned no data");
-  }
-  return json.data;
+  // Loop only exits via `return` on success or `throw` on non-retryable.
+  // Retryable exhaustion falls out here.
+  throw lastHttpError ?? new Error("Linear API request failed");
 }
 
 /** Add a reaction (Linear `reactionCreate` mutation) to a comment.
