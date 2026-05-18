@@ -21,6 +21,13 @@ export interface LinearIssue {
    * Populated from Linear's "blocked_by" relations.
    */
   blockedByIds: string[];
+  /**
+   * Recent comments embedded with the mention-scan candidate query so the
+   * agent can skip a per-issue `fetchIssueComments` round-trip. Only
+   * populated by `fetchMentionScanIssues`; absent on issues returned by
+   * other fetchers.
+   */
+  comments?: LinearComment[];
 }
 
 /**
@@ -50,6 +57,7 @@ interface LinearNode {
   priority: number;
   createdAt: string;
   relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
+  comments?: { nodes: LinearComment[] };
 }
 
 interface Partitioned {
@@ -214,6 +222,9 @@ export async function fetchMentionScanIssues(
         relations(first: 50) {
           nodes { type relatedIssue { id state { type } } }
         }
+        comments(first: 50) {
+          nodes { id body createdAt user { name email } }
+        }
       }
     }
   }`;
@@ -238,6 +249,7 @@ export async function fetchMentionScanIssues(
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),
+    comments: n.comments?.nodes ?? [],
   }));
 }
 
@@ -598,8 +610,10 @@ export async function upsertRalphyAttachment(
   issueUrl: string,
   subtitle: string,
 ): Promise<void> {
-  const attachments = await fetchIssueAttachments(apiKey, issueId);
-  const existing = attachments.find((a) => a.title === RALPHY_ATTACHMENT_TITLE);
+  const attachments = await fetchIssueAttachments(apiKey, issueId, {
+    titleFilter: RALPHY_ATTACHMENT_TITLE,
+  });
+  const existing = attachments[0];
   if (existing) {
     await updateAttachmentSubtitle(apiKey, existing.id, subtitle);
   } else {
@@ -615,17 +629,30 @@ export async function upsertRalphyAttachment(
 export async function fetchIssueAttachments(
   apiKey: string,
   issueId: string,
+  options?: { titleFilter?: string },
 ): Promise<LinearAttachment[]> {
-  const query = `query IssueAttachments($id: String!) {
+  const titleFilter = options?.titleFilter;
+  const query =
+    titleFilter !== undefined
+      ? `query IssueAttachments($id: String!, $titleFilter: String!) {
+    issue(id: $id) {
+      attachments(filter: { title: { eq: $titleFilter } }, first: 25) {
+        nodes { id url sourceType title }
+      }
+    }
+  }`
+      : `query IssueAttachments($id: String!) {
     issue(id: $id) {
       attachments(first: 25) {
         nodes { id url sourceType title }
       }
     }
   }`;
+  const variables: Record<string, unknown> =
+    titleFilter !== undefined ? { id: issueId, titleFilter } : { id: issueId };
   const data = await linearRequest<{
     issue: { attachments?: { nodes?: LinearAttachment[] } } | null;
-  }>(apiKey, query, { id: issueId });
+  }>(apiKey, query, variables);
   return data.issue?.attachments?.nodes ?? [];
 }
 

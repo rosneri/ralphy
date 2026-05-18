@@ -156,9 +156,20 @@ async function setupHarness(tempDir: string, handlers: Handlers): Promise<Harnes
   const prUrl = "https://github.com/o/r/pull/42";
   const cmd: CmdRunner = {
     run: async (cmdArr) => {
-      // PR discovery via gh pr list — return our fake PR URL.
+      // PR discovery via `gh pr list --search ... --json url,state,...`.
       if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "list") {
-        return { stdout: `${prUrl}\n`, stderr: "" };
+        return {
+          stdout: JSON.stringify([
+            {
+              url: prUrl,
+              state: "OPEN",
+              headRefName: "ralph/eng-9-review",
+              title: "ENG-9: Code review pending",
+              updatedAt: "2026-05-01T00:00:00Z",
+            },
+          ]),
+          stderr: "",
+        };
       }
       // PR review-state graphql lookup.
       if (

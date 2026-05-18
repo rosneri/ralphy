@@ -290,21 +290,53 @@ function makeRunners(): {
       // gh pr view --json state,mergeable
       if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "view") {
         const url = cmdArr[3] ?? "";
-        // url looks like https://gh/pr/<changeName>; map back via mergeable map
-        const cn = url.split("/").pop() ?? "";
+        // url looks like https://gh/pr/<slug-or-changeName>; map back via
+        // the state/mergeable maps. Match by exact key, else by any key
+        // that starts with the slug (covers identifier-only stubs).
+        const tail = url.split("/").pop() ?? "";
+        const findKey = (m: Map<string, string>): string | undefined => {
+          if (m.has(tail)) return tail;
+          for (const k of m.keys()) if (k.startsWith(tail)) return k;
+          return undefined;
+        };
+        const sk = findKey(prState);
+        const mk = findKey(mergeable);
         const payload = {
-          state: prState.get(cn) ?? "OPEN",
-          mergeable: mergeable.get(cn) ?? "MERGEABLE",
+          state: (sk && prState.get(sk)) || "OPEN",
+          mergeable: (mk && mergeable.get(mk)) || "MERGEABLE",
         };
         return { stdout: JSON.stringify(payload), stderr: "" };
       }
-      // gh pr list --head <branch> --state open ...
+      // gh pr list --search "<identifier> in:title" --state all --json url,state,...
       if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "list") {
-        const headIdx = cmdArr.indexOf("--head");
-        const branch = headIdx >= 0 ? cmdArr[headIdx + 1] : "";
-        const cn = branch?.replace(/^ralph\//, "") ?? "";
-        // Pretend a PR exists at https://gh/pr/<cn>
-        return { stdout: `https://gh/pr/${cn}`, stderr: "" };
+        const searchIdx = cmdArr.indexOf("--search");
+        const search = searchIdx >= 0 ? (cmdArr[searchIdx + 1] ?? "") : "";
+        const identifier = search.split(" ")[0] ?? "";
+        // changeName matches `<identifier-lowercased>-...`; for stubs we
+        // can just key by identifier slug so prState/mergeable maps keep
+        // working off changeName as the test code expects.
+        const slug = identifier.toLowerCase();
+        // Find a known changeName in prState/mergeable matching this slug.
+        let cn = "";
+        for (const k of [...prState.keys(), ...mergeable.keys()]) {
+          if (k.startsWith(slug)) {
+            cn = k;
+            break;
+          }
+        }
+        if (!cn) cn = slug;
+        return {
+          stdout: JSON.stringify([
+            {
+              url: `https://gh/pr/${cn}`,
+              state: "OPEN",
+              headRefName: `ralph/${cn}`,
+              title: `${identifier}: stub`,
+              updatedAt: "2026-05-01T00:00:00Z",
+            },
+          ]),
+          stderr: "",
+        };
       }
       return { stdout: "", stderr: "" };
     },
