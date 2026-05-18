@@ -12,6 +12,7 @@ import {
 } from "./agent/linear";
 import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
+import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
 
 interface LocalRow {
@@ -269,10 +270,16 @@ async function fetchAndPrintLinear(
   }
   const rows = [...seen.values()];
 
-  // Resolve PR URLs in parallel.
+  // Resolve PR URLs in parallel — GitHub search first (cheap, no Linear
+  // load), Linear attachments only on miss.
   await Promise.all(
     rows.map(async (row) => {
       try {
+        const fromGitHub = await discoverPrUrlFromGitHub(row.identifier, runner, cwd);
+        if (fromGitHub) {
+          row.prUrl = fromGitHub;
+          return;
+        }
         const attachments = await fetchIssueAttachments(apiKey, row.issueId);
         row.prUrl = findPullRequestUrl(attachments);
       } catch {
