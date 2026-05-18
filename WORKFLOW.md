@@ -115,10 +115,7 @@ linear:
   # Mirror the loop's tasks.md into a sticky Linear comment that always
   # lands at the bottom of the issue timeline.
   syncTasksToComment: true
-
-  # Legacy: mirror tasks.md into the issue description body instead.
-  syncTasksToDescription: false
-
+  
   # Indicators grouped by lifecycle: each get* is followed by the set*/clear*
   # that mutates the same status/label, so a reader sees the whole lifecycle
   # in one block.
