@@ -56,6 +56,7 @@ describe("issueMatchesGetIndicator", () => {
   const issue = {
     labels: ["ralph:auto-merge"],
     state: { name: "In Progress", type: "started" },
+    project: null,
   };
 
   test("returns false when indicator is undefined or empty", () => {

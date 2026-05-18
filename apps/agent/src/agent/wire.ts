@@ -514,7 +514,13 @@ export function buildAgentCoordinator(
     } else if (m.type === "project") {
       const projectId = await fetchProjectIdByName(apiKey, m.value);
       if (!projectId) {
-        throw new Error(`Linear project not found: ${m.value}`);
+        const err = new Error("Linear project not found") as Error & {
+          project?: string;
+          issue?: string;
+        };
+        err.project = m.value;
+        err.issue = issue.identifier;
+        throw err;
       }
       await setIssueProject(apiKey, issue.id, projectId);
       onLog(`  → ${issue.identifier} project='${m.value}'`, "gray");

@@ -25,6 +25,7 @@ const FAKE_ISSUE: LinearIssue = {
   blockedByIds: [],
   state: { name: "In Progress", type: "started" },
   assignee: null,
+  project: null,
   labels: [],
 };
 
