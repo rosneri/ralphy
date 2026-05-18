@@ -122,9 +122,16 @@ linear:
   codeReviewTrigger: false
   codeReviewStaleHours: 24
 
-  # Mirror the loop's tasks.md into the Linear issue description as a
-  # checklist between sentinel markers. Updates on worker launch, on the
-  # same cadence as updateEveryIterations, and on done-transition.
+  # Mirror the loop's tasks.md into a sticky Linear comment (always the
+  # last comment on the issue). Updates on worker launch, on the same
+  # cadence as updateEveryIterations, and on done-transition. This is the
+  # recommended way to surface Ralph's progress on the Linear issue.
+  syncTasksToComment: true
+
+  # Legacy: mirror tasks.md into the issue description body instead. Kept
+  # for back-compat only. When both syncTasksToComment and
+  # syncTasksToDescription are true, comment-sync wins and a warning is
+  # logged.
   syncTasksToDescription: false
 
   # Indicators map Ralph lifecycle events to Linear labels/statuses.

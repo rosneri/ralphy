@@ -26,7 +26,8 @@ Object.assign(Bun, {
   },
 });
 
-const { OpenSpecChangeStore } = await import("../openspec-change-store");
+const { OpenSpecChangeStore, appendSteeringTaskToTasksMd } =
+  await import("../openspec-change-store");
 
 let tempDir: string;
 let originalCwd: string;
@@ -98,6 +99,44 @@ describe("OpenSpecChangeStore", () => {
     expect(existsSync(steeringPath)).toBe(true);
     const content = readFileSync(steeringPath, "utf-8");
     expect(content).toContain("Initial steering");
+  });
+
+  test("appendSteering also appends a task to tasks.md ## Steering section (creates section)", async () => {
+    const store = new OpenSpecChangeStore();
+    const tasksPath = join(tempDir, "openspec", "changes", "sample-change", "tasks.md");
+    writeFileSync(tasksPath, "## Planning\n\n- [x] do thing\n", "utf-8");
+
+    await store.appendSteering("sample-change", "Need to handle X\n\nMore detail here");
+
+    const tasks = readFileSync(tasksPath, "utf-8");
+    expect(tasks).toContain("## Steering");
+    expect(tasks).toContain("- [ ] Address steering: Need to handle X");
+    // Original Planning section is preserved.
+    expect(tasks).toContain("## Planning");
+    expect(tasks).toContain("- [x] do thing");
+  });
+
+  test("appendSteering appends new task under an existing ## Steering section", async () => {
+    const store = new OpenSpecChangeStore();
+    const tasksPath = join(tempDir, "openspec", "changes", "sample-change", "tasks.md");
+    writeFileSync(
+      tasksPath,
+      "## Planning\n\n- [x] plan\n\n## Steering\n\n- [ ] Address steering: first\n",
+      "utf-8",
+    );
+
+    await store.appendSteering("sample-change", "second nudge");
+
+    const tasks = readFileSync(tasksPath, "utf-8");
+    expect(tasks.match(/## Steering/g)?.length).toBe(1);
+    const idxFirst = tasks.indexOf("first");
+    const idxSecond = tasks.indexOf("second nudge");
+    expect(idxFirst).toBeGreaterThan(-1);
+    expect(idxSecond).toBeGreaterThan(idxFirst);
+  });
+
+  test("appendSteeringTaskToTasksMd handles empty input", () => {
+    expect(appendSteeringTaskToTasksMd("", "- [ ] X")).toBe("## Steering\n\n- [ ] X\n");
   });
 
   test("appendSteering prepends to existing steering.md", async () => {

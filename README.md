@@ -187,6 +187,7 @@ Example `ralphy.config.json`:
     "mentionHandle": "@ralphy",
     "codeReviewTrigger": true,
     "codeReviewStaleHours": 24,
+    "syncTasksToComment": true,
     "syncTasksToDescription": false,
     "indicators": {
       "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
@@ -231,9 +232,29 @@ Set `linear.codeReviewTrigger: true` (or pass `--code-review`) to watch open, un
 
 The loop exits; the next poll re-checks the PR. The cycle continues until the PR is **approved** or **merged**. If the reviewer is silent for more than `linear.codeReviewStaleHours` (default `24`, `0` disables) while Ralph is the last actor, one `@`-mention ping comment is posted on the GitHub PR.
 
-#### Sync tasks into Linear description
+#### Sync tasks into a Linear comment
 
-Set `linear.syncTasksToDescription: true` to mirror the active change's `tasks.md` into the linked Linear issue description. Ralph writes a checklist between sentinel HTML comments (`<!-- ralphy:tasks:start -->` / `<!-- ralphy:tasks:end -->`); any content outside the markers is preserved verbatim. The block is refreshed when the worker launches, on the same cadence as `updateEveryIterations`, and on done-transition. Sync failures are logged but never abort the loop.
+`linear.syncTasksToComment` (default `true`) mirrors the active change's
+`tasks.md` into a dedicated Linear **comment** instead of the issue
+description. The same comment is updated in place across iterations so
+the timeline stays clean. When `ralph_append_steering` is invoked the
+existing tasks comment is deleted and re-posted so it always lands at
+the bottom of the timeline, after the new steering comment.
+
+The first time planning completes (every `- [ ]` under `## Planning` in
+`tasks.md` becomes `- [x]`), Ralph posts a one-shot "📋 Plan" comment
+summarising `proposal.md` (`## Why` + `## What Changes`) and the first
+paragraph of `design.md`.
+
+##### Legacy: sync into the issue description
+
+Set `linear.syncTasksToDescription: true` to mirror `tasks.md` into the
+linked Linear issue description body instead (the pre-RLF-62 behavior).
+Ralph writes a checklist between sentinel HTML comments
+(`<!-- ralphy:tasks:start -->` / `<!-- ralphy:tasks:end -->`); content
+outside the markers is preserved verbatim. When both
+`syncTasksToComment` and `syncTasksToDescription` are true,
+comment-sync wins and a one-time warning is logged.
 
 #### Conflict re-fix
 

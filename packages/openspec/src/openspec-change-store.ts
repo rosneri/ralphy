@@ -21,6 +21,46 @@ function runOpenspec(args: string[], options: { inherit?: boolean } = {}): RunRe
   };
 }
 
+/** Append a `- [ ]` line to the `## Steering` section of a tasks.md
+ *  document. When the section is missing it is appended to the end of
+ *  the file (with a blank-line separator). Exported for unit tests. */
+export function appendSteeringTaskToTasksMd(existing: string, taskLine: string): string {
+  const SECTION = "## Steering";
+  const trimmed = existing.replace(/\s+$/, "");
+  if (trimmed.length === 0) {
+    return `${SECTION}\n\n${taskLine}\n`;
+  }
+  const lines = trimmed.split(/\r?\n/);
+  let sectionStart = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^##\s+Steering\s*$/i.test(lines[i]!)) {
+      sectionStart = i;
+      break;
+    }
+  }
+  if (sectionStart === -1) {
+    return `${trimmed}\n\n${SECTION}\n\n${taskLine}\n`;
+  }
+  // Find the next H2 (end of the section); insert before it.
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i += 1) {
+    if (/^##\s+/.test(lines[i]!)) {
+      sectionEnd = i;
+      break;
+    }
+  }
+  // Strip trailing blank lines inside the section so the new bullet
+  // sits flush against the existing ones.
+  let insertAt = sectionEnd;
+  while (insertAt - 1 > sectionStart && (lines[insertAt - 1] ?? "").trim() === "") {
+    insertAt -= 1;
+  }
+  const before = lines.slice(0, insertAt);
+  const after = lines.slice(insertAt);
+  const out = [...before, taskLine, ...(after.length ? [""] : []), ...after].join("\n");
+  return out.endsWith("\n") ? out : `${out}\n`;
+}
+
 /**
  * OpenSpec-backed implementation of ChangeStore.
  * Invokes the bundled `@fission-ai/openspec` bin with Bun — no PATH dependency.
@@ -85,6 +125,24 @@ export class OpenSpecChangeStore implements ChangeStore {
     const updated = existing ? `${message}\n\n${existing.trimStart()}` : `${message}\n`;
     await mkdir(dirname(path), { recursive: true });
     await Bun.write(path, updated);
+
+    // Mirror the steering note as a concrete `- [ ] Address steering: …`
+    // task so the next loop iteration picks it up. The full message stays
+    // in steering.md; tasks.md only carries the headline (first non-blank
+    // line, trimmed) so the checklist stays readable.
+    const firstLine =
+      message
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => l.length > 0) ?? message.trim();
+    if (firstLine.length === 0) return;
+    const tasksPath = join("openspec", "changes", name, "tasks.md");
+    const tasksFile = Bun.file(tasksPath);
+    const existingTasks = (await tasksFile.exists()) ? await tasksFile.text() : "";
+    const taskLine = `- [ ] Address steering: ${firstLine}`;
+    const next = appendSteeringTaskToTasksMd(existingTasks, taskLine);
+    await mkdir(dirname(tasksPath), { recursive: true });
+    await Bun.write(tasksPath, next);
   }
 
   async readSection(name: string, artifact: string, heading: string): Promise<string> {

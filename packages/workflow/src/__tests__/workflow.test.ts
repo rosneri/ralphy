@@ -87,6 +87,16 @@ describe("parseWorkflow", () => {
     expect(config.linear.syncTasksToDescription).toBe(true);
   });
 
+  test("linear.syncTasksToComment defaults to true", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.linear.syncTasksToComment).toBe(true);
+  });
+
+  test("linear.syncTasksToComment accepts explicit false", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  syncTasksToComment: false\n---\n`);
+    expect(config.linear.syncTasksToComment).toBe(false);
+  });
+
   test("linear.syncTasksToDescription round-trips through parse", () => {
     const { config } = parseWorkflow(
       `---\nlinear:\n  syncTasksToDescription: true\n  postComments: false\n---\n`,
