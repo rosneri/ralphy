@@ -6,7 +6,7 @@ import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
 import {
   fetchOpenIssues,
-  fetchIssueAttachments,
+  fetchIssuesAttachmentsBulk,
   type LinearFilterSpec,
   type LinearIssue,
 } from "./agent/linear";
@@ -269,17 +269,20 @@ async function fetchAndPrintLinear(
   }
   const rows = [...seen.values()];
 
-  // Resolve PR URLs in parallel.
-  await Promise.all(
-    rows.map(async (row) => {
-      try {
-        const attachments = await fetchIssueAttachments(apiKey, row.issueId);
-        row.prUrl = findPullRequestUrl(attachments);
-      } catch {
-        // leave prUrl null on attachment fetch failure
-      }
-    }),
-  );
+  // Resolve PR URLs via a single bulk attachments query (one Linear request
+  // for every row, instead of N parallel calls).
+  try {
+    const attachmentsByIssue = await fetchIssuesAttachmentsBulk(
+      apiKey,
+      rows.map((r) => r.issueId),
+    );
+    for (const row of rows) {
+      const attachments = attachmentsByIssue.get(row.issueId) ?? [];
+      row.prUrl = findPullRequestUrl(attachments);
+    }
+  } catch {
+    // leave prUrl null on bulk attachment fetch failure
+  }
 
   // Resolve PR status in parallel.
   await Promise.all(

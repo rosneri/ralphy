@@ -629,6 +629,42 @@ export async function fetchIssueAttachments(
   return data.issue?.attachments?.nodes ?? [];
 }
 
+/** Fetch attachments for many issues in a single GraphQL request.
+ *
+ *  Used by `ralphy list` to resolve PR URLs for every visible row with one
+ *  Linear call instead of N parallel `fetchIssueAttachments` requests — keeps
+ *  the interactive `list` command well under Linear's complexity budget even
+ *  when the row set is large.
+ *
+ *  Returns a map keyed by issue id. Issues that Linear omits from the
+ *  response (e.g. deleted between the bucket fetch and this call) simply
+ *  do not appear in the map; callers default to `[]`. An empty `issueIds`
+ *  short-circuits without issuing any HTTP request. */
+export async function fetchIssuesAttachmentsBulk(
+  apiKey: string,
+  issueIds: string[],
+): Promise<Map<string, LinearAttachment[]>> {
+  if (issueIds.length === 0) return new Map();
+  const query = `query IssuesAttachmentsBulk($ids: [ID!]!) {
+    issues(filter: { id: { in: $ids } }, first: 250) {
+      nodes {
+        id
+        attachments(first: 25) { nodes { id url sourceType title } }
+      }
+    }
+  }`;
+  const data = await linearRequest<{
+    issues: {
+      nodes: { id: string; attachments?: { nodes?: LinearAttachment[] } }[];
+    };
+  }>(apiKey, query, { ids: issueIds });
+  const out = new Map<string, LinearAttachment[]>();
+  for (const node of data.issues.nodes) {
+    out.set(node.id, node.attachments?.nodes ?? []);
+  }
+  return out;
+}
+
 /** Fetch all workflow states for a given team key (e.g. "ENG"). */
 export async function fetchWorkflowStates(
   apiKey: string,
