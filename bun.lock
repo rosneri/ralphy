@@ -164,6 +164,7 @@
       "name": "@ralphy/core",
       "version": "0.0.0",
       "dependencies": {
+        "@ralphy/change-store": "workspace:*",
         "@ralphy/content": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/types": "workspace:*",
