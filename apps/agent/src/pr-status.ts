@@ -86,7 +86,7 @@ interface RawPrView {
  * the caller can invalidate the cached URL — the canonical trigger for
  * re-resolving the PR URL on the next poll.
  */
-export interface PrStatusTransitionHook {
+interface PrStatusTransitionHook {
   priorState?: PrState | null;
   onTransition: (next: PrState) => void;
 }

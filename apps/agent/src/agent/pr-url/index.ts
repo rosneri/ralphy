@@ -1,6 +1,6 @@
-import type { CmdRunner } from "./pr";
+import type { CmdRunner } from "../pr";
 
-export interface GitHubPrRow {
+interface GitHubPrRow {
   url: string;
   state: string;
   headRefName: string;
@@ -65,12 +65,12 @@ export async function discoverPrUrlFromGitHub(
   return pool[0]?.url ?? null;
 }
 
-export interface PrUrlCacheEntry {
+interface PrUrlCacheEntry {
   url: string | null;
   fetchedAt: number;
 }
 
-export interface PrUrlCache {
+interface PrUrlCache {
   /** Returns cached url (possibly null for a cached "no PR"), or
    *  `undefined` when the key is missing/expired and must be recomputed. */
   get(issueId: string): string | null | undefined;

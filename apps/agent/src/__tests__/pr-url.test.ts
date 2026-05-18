@@ -129,7 +129,7 @@ describe("discoverPrUrlFromGitHub", () => {
     );
     const result = await discoverPrUrlFromGitHub("ENG-7", runner, "/cwd");
     // headRefName "eng-77" contains "eng-7" as a substring; current
-    // behaviour accepts it. Document via expectation so any future
+    // behavior accepts it. Document via expectation so any future
     // tightening is a deliberate breaking change.
     expect(result).toBe("https://github.com/o/r/pull/1");
   });
