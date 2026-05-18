@@ -62,11 +62,22 @@ class StubChangeStore implements ChangeStore {
     this.appendedSteering.push({ name, message });
     return Promise.resolve();
   }
-  readSection(_name: string, _artifact: string, _heading: string): Promise<string> {
-    return Promise.resolve("");
-  }
   validateChange(_name: string): Promise<{ valid: boolean; warnings: string[]; errors: string[] }> {
     return Promise.resolve({ valid: true, warnings: [], errors: [] });
+  }
+  getStatus(name: string) {
+    return Promise.resolve({
+      changeName: name,
+      isComplete: true,
+      applyRequires: [],
+      artifacts: [],
+    });
+  }
+  getInstructions(name: string, artifact: string) {
+    return Promise.resolve({ changeName: name, artifactId: artifact, instruction: "" });
+  }
+  showChange(name: string) {
+    return Promise.resolve({ id: name, deltaCount: 0, deltas: [] });
   }
   archiveChange(_name: string): Promise<void> {
     return Promise.resolve();

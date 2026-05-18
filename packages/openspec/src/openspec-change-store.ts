@@ -1,6 +1,12 @@
 import { dirname, join } from "node:path";
 import { readdir, mkdir } from "node:fs/promises";
-import type { ChangeStore, ValidationResult } from "@ralphy/change-store";
+import type {
+  ChangeStore,
+  ValidationResult,
+  ChangeStatus,
+  ArtifactInstructions,
+  ChangeDeltas,
+} from "@ralphy/change-store";
 import { resolveOpenspecBin } from "./openspec-bin";
 
 type RunResult = { status: number | null; stdout: string; stderr: string };
@@ -145,24 +151,6 @@ export class OpenSpecChangeStore implements ChangeStore {
     await Bun.write(tasksPath, next);
   }
 
-  async readSection(name: string, artifact: string, heading: string): Promise<string> {
-    const file = Bun.file(join("openspec", "changes", name, artifact));
-    if (!(await file.exists())) return "";
-
-    const content = await file.text();
-    const headingIndex = content.indexOf(heading);
-    if (headingIndex === -1) return "";
-
-    const afterHeading = content.slice(headingIndex + heading.length);
-    const levelMatch = heading.match(/^(#+)/);
-    const level = levelMatch ? levelMatch[1]!.length : 2;
-    const nextHeadingPattern = new RegExp(`\\n#{1,${level}} `);
-    const nextMatch = afterHeading.match(nextHeadingPattern);
-
-    const sectionContent = nextMatch ? afterHeading.slice(0, nextMatch.index) : afterHeading;
-    return sectionContent.trim();
-  }
-
   async validateChange(name: string): Promise<ValidationResult> {
     const result = runOpenspec(["validate", name, "--json", "--no-interactive"]);
 
@@ -190,8 +178,74 @@ export class OpenSpecChangeStore implements ChangeStore {
     };
   }
 
+  async getStatus(name: string): Promise<ChangeStatus> {
+    const result = runOpenspec(["status", "--change", name, "--json"]);
+    if (result.stdout) {
+      try {
+        const parsed = JSON.parse(result.stdout) as Partial<ChangeStatus>;
+        const status: ChangeStatus = {
+          changeName: parsed.changeName ?? name,
+          isComplete: parsed.isComplete ?? false,
+          applyRequires: parsed.applyRequires ?? [],
+          artifacts: parsed.artifacts ?? [],
+        };
+        if (parsed.schemaName !== undefined) status.schemaName = parsed.schemaName;
+        return status;
+      } catch {
+        // Fall through.
+      }
+    }
+    return {
+      changeName: name,
+      isComplete: false,
+      applyRequires: [],
+      artifacts: [],
+    };
+  }
+
+  async getInstructions(name: string, artifact: string): Promise<ArtifactInstructions> {
+    const result = runOpenspec(["instructions", artifact, "--change", name, "--json"]);
+    if (result.stdout) {
+      try {
+        const parsed = JSON.parse(result.stdout) as Partial<ArtifactInstructions>;
+        const out: ArtifactInstructions = {
+          changeName: parsed.changeName ?? name,
+          artifactId: parsed.artifactId ?? artifact,
+          instruction: parsed.instruction ?? "",
+        };
+        if (parsed.outputPath !== undefined) out.outputPath = parsed.outputPath;
+        if (parsed.description !== undefined) out.description = parsed.description;
+        if (parsed.template !== undefined) out.template = parsed.template;
+        if (parsed.dependencies !== undefined) out.dependencies = parsed.dependencies;
+        return out;
+      } catch {
+        // Fall through.
+      }
+    }
+    return { changeName: name, artifactId: artifact, instruction: "" };
+  }
+
+  async showChange(name: string): Promise<ChangeDeltas> {
+    const result = runOpenspec(["show", name, "--json", "--type", "change"]);
+    if (result.stdout) {
+      try {
+        const parsed = JSON.parse(result.stdout) as Partial<ChangeDeltas>;
+        const out: ChangeDeltas = {
+          id: parsed.id ?? name,
+          deltaCount: parsed.deltaCount ?? 0,
+          deltas: parsed.deltas ?? [],
+        };
+        if (parsed.title !== undefined) out.title = parsed.title;
+        return out;
+      } catch {
+        // Fall through.
+      }
+    }
+    return { id: name, deltaCount: 0, deltas: [] };
+  }
+
   async archiveChange(name: string): Promise<void> {
-    const result = runOpenspec(["archive", name, "-y", "--skip-specs"], { inherit: true });
+    const result = runOpenspec(["archive", name, "-y"], { inherit: true });
     if (result.status !== 0) {
       throw new Error("openspec archive failed");
     }

@@ -230,6 +230,19 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           writeState(stateDir, currentState);
           setState(currentState);
           try {
+            if (typeof opts.changeStore.getStatus === "function") {
+              const status = await opts.changeStore.getStatus(opts.name);
+              if (!status.isComplete) {
+                const blocked = status.artifacts
+                  .filter((a) => a.status !== "done")
+                  .map((a) => `${a.id}=${a.status}`)
+                  .join(", ");
+                addInfo(
+                  `Archive skipped: openspec status reports change incomplete (${blocked || "no artifacts"}).`,
+                );
+                throw new Error("openspec status: change not complete");
+              }
+            }
             await opts.changeStore.archiveChange(opts.name);
             addInfo("Change archived.");
           } catch (err) {
