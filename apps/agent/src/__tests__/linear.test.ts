@@ -149,7 +149,11 @@ describe("linearRequest retry (RLF-60)", () => {
     let i = 0;
     const fakeFetch: FetchLike = async () => {
       const r = responses[i++];
-      if (!r) throw new Error(`unexpected extra fetch call (#${i})`);
+      if (!r) {
+        const err = new Error("unexpected extra fetch call");
+        (err as Error & { callIndex?: number }).callIndex = i;
+        throw err;
+      }
       return r;
     };
     globalThis.fetch = fakeFetch as typeof fetch;
