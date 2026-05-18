@@ -126,6 +126,7 @@ export const WorkflowConfigSchema = z.object({
       codeReviewTrigger: z.boolean().default(false),
       codeReviewStaleHours: z.number().nonnegative().default(24),
       syncTasksToDescription: z.boolean().default(false),
+      syncTasksToComment: z.boolean().default(true),
       indicators: IndicatorsSchema.default({}),
     })
     .strict()
@@ -137,6 +138,7 @@ export const WorkflowConfigSchema = z.object({
       codeReviewTrigger: false,
       codeReviewStaleHours: 24,
       syncTasksToDescription: false,
+      syncTasksToComment: true,
       indicators: {},
     }),
   github: z

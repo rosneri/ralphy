@@ -407,6 +407,52 @@ export async function addIssueComment(
   });
 }
 
+/** Create a comment and return its id. Used by comment-sync to persist the
+ *  comment id for later in-place updates. */
+export async function createIssueComment(
+  apiKey: string,
+  issueId: string,
+  body: string,
+): Promise<string> {
+  const mutation = `mutation Comment($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) {
+      success
+      comment { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    commentCreate: { success: boolean; comment: { id: string } | null };
+  }>(apiKey, mutation, { issueId, body });
+  const id = data.commentCreate.comment?.id;
+  if (!id) throw new Error("commentCreate returned no comment id");
+  return id;
+}
+
+/** Edit an existing comment in place via Linear's `commentUpdate` mutation. */
+export async function updateIssueComment(
+  apiKey: string,
+  commentId: string,
+  body: string,
+): Promise<void> {
+  const mutation = `mutation UpdateComment($id: String!, $body: String!) {
+    commentUpdate(id: $id, input: { body: $body }) { success }
+  }`;
+  await linearRequest<{ commentUpdate: { success: boolean } }>(apiKey, mutation, {
+    id: commentId,
+    body,
+  });
+}
+
+/** Delete a comment via Linear's `commentDelete` mutation. */
+export async function deleteIssueComment(apiKey: string, commentId: string): Promise<void> {
+  const mutation = `mutation DeleteComment($id: String!) {
+    commentDelete(id: $id) { success }
+  }`;
+  await linearRequest<{ commentDelete: { success: boolean } }>(apiKey, mutation, {
+    id: commentId,
+  });
+}
+
 interface WorkflowState {
   id: string;
   name: string;

@@ -21,6 +21,7 @@ export interface AgentModeCoordinator {
   readonly queuedCount: number;
   getPause(): PauseState | null;
   restartWorker(changeName: string): Promise<boolean>;
+  notifySteeringAppended?(changeName: string, message: string): Promise<void>;
 }
 
 /** Builder function shape the AgentMode component depends on. The real
@@ -1232,6 +1233,14 @@ export function AgentMode({
                           "red",
                         );
                         throw err;
+                      }
+                      // Fire the comment-sync hook (best-effort) before the
+                      // worker restart so the steering comment lands on
+                      // Linear even if the new iteration hasn't synced yet.
+                      try {
+                        await coordRef.current?.notifySteeringAppended?.(w.changeName, message);
+                      } catch {
+                        /* hook errors are already logged inside the coordinator */
                       }
                       const restarted = await coordRef.current?.restartWorker(w.changeName);
                       if (restarted) {

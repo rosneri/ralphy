@@ -20,11 +20,21 @@ function safeTool<T extends Record<string, z.ZodTypeAny>>(
   server.registerTool(name, config, callback);
 }
 
+interface RegisterToolsHooks {
+  /** Invoked after `ralph_append_steering` successfully writes steering.md
+   *  + tasks.md. Lets an embedded coordinator post a fresh Linear
+   *  steering comment and refresh the tasks comment. No-op when omitted
+   *  (standalone MCP runs). Errors are logged via stderr but never
+   *  surface to the MCP client so the tool stays idempotent. */
+  onSteeringAppended?: (changeName: string, message: string) => Promise<void> | void;
+}
+
 export function registerTools(
   server: ToolRegistrar,
   changesDir: string,
   changeStore: ChangeStore,
   taskFilesDir: string = changesDir,
+  hooks: RegisterToolsHooks = {},
 ): void {
   // --- ralph_list_changes ---
   safeTool(
@@ -253,6 +263,19 @@ export function registerTools(
           }
 
           await changeStore.appendSteering(name, message);
+
+          if (hooks.onSteeringAppended) {
+            try {
+              await hooks.onSteeringAppended(name, message);
+            } catch (err) {
+              // Best-effort — never surface to the MCP client.
+              process.stderr.write(
+                `! onSteeringAppended hook failed for ${name}: ${
+                  err instanceof Error ? err.message : String(err)
+                }\n`,
+              );
+            }
+          }
 
           return {
             content: [{ type: "text" as const, text: `Steering appended to change '${name}'` }],

@@ -724,6 +724,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
         postComments: false,
         updateEveryIterations: 0,
         syncTasksToDescription: true,
+        syncTasksToComment: false,
         indicators: {
           getTodo: { filter: [{ type: "status", value: "Todo" }] },
           setInProgress: { type: "status", value: "In Progress" },

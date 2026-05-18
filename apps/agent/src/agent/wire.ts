@@ -29,6 +29,9 @@ import {
   addLabelToIssue,
   removeLabelFromIssue,
   createIssue,
+  createIssueComment,
+  updateIssueComment,
+  deleteIssueComment,
   updateIssueDescription,
   findOpenIssueByLabel,
   issueMatchesGetIndicator,
@@ -51,6 +54,12 @@ import { runPostTask, type PostTaskPhase } from "./post-task";
 import { runBaselineGate } from "./baseline/gate";
 import { resolveBaselineCommands } from "@ralphy/workflow";
 import { syncTasksToLinearDescription } from "./linear-sync";
+import {
+  postOrUpdateTasksComment,
+  postPlanCommentOnce,
+  postSteeringAndRefreshTasks,
+  type CommentMutations,
+} from "./linear-sync/comment-sync";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -1750,6 +1759,22 @@ export function buildAgentCoordinator(
     }
   }
 
+  const commentSyncEnabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
+  const descriptionSyncEnabled = Boolean(
+    cfg.linear.syncTasksToDescription && !cfg.linear.syncTasksToComment && apiKey,
+  );
+  if (cfg.linear.syncTasksToComment && cfg.linear.syncTasksToDescription) {
+    onLog(
+      "! linear.syncTasksToComment and syncTasksToDescription are both true — comment-sync wins",
+      "yellow",
+    );
+  }
+  const commentMutations: CommentMutations = {
+    createIssueComment,
+    updateIssueComment,
+    deleteIssueComment,
+  };
+
   const coord = new AgentCoordinator(
     {
       fetchTodo: () => fetchByGet(indicators.getTodo, excludeFromTodo),
@@ -1778,32 +1803,97 @@ export function buildAgentCoordinator(
         const json = (await file.json()) as { iteration?: number };
         return json.iteration ?? 0;
       },
-      ...(cfg.linear.syncTasksToDescription && apiKey
+      ...(commentSyncEnabled
         ? {
             syncTasks: async (worker, iteration) => {
               const root = cwdByChange.get(worker.changeName) ?? projectRoot;
-              const tasksPath = join(projectLayout(root).changeDir(worker.changeName), "tasks.md");
-              const cachedIssue = issueByChange.get(worker.changeName) ?? worker.issue;
-              const next = await syncTasksToLinearDescription({
-                apiKey,
+              const layout = projectLayout(root);
+              const changeDir = layout.changeDir(worker.changeName);
+              const statePath = layout.stateFile(worker.changeName);
+              await postPlanCommentOnce({
+                apiKey: apiKey!,
                 issueId: worker.issueId,
-                currentDescription: cachedIssue.description,
-                tasksPath,
+                statePath,
+                changeDir,
+                changeName: worker.changeName,
+                log: onLog,
+                mutations: commentMutations,
+              });
+              await postOrUpdateTasksComment({
+                apiKey: apiKey!,
+                issueId: worker.issueId,
+                statePath,
+                changeDir,
                 changeName: worker.changeName,
                 iteration,
                 log: onLog,
-                updateIssueDescription,
+                mutations: commentMutations,
               });
-              if (next !== null) {
-                // Update cached description so the next sync diffs against
-                // the value we just wrote.
-                const updated: LinearIssue = { ...cachedIssue, description: next };
-                issueByChange.set(worker.changeName, updated);
-                worker.issue = updated;
+            },
+            onSteeringAppended: async (changeName, message) => {
+              const root = cwdByChange.get(changeName) ?? projectRoot;
+              const layout = projectLayout(root);
+              const changeDir = layout.changeDir(changeName);
+              const statePath = layout.stateFile(changeName);
+              const issue = issueByChange.get(changeName) ?? null;
+              const issueId = issue?.id ?? null;
+              if (!issueId) {
+                onLog(
+                  `  comment-sync: no Linear issue cached for ${changeName}; skipping steering refresh`,
+                  "gray",
+                );
+                return;
               }
+              let iteration = 0;
+              try {
+                const f = Bun.file(statePath);
+                if (await f.exists()) {
+                  const json = (await f.json()) as { iteration?: number };
+                  iteration = json.iteration ?? 0;
+                }
+              } catch {
+                /* ignore */
+              }
+              await postSteeringAndRefreshTasks({
+                apiKey: apiKey!,
+                issueId,
+                statePath,
+                changeDir,
+                changeName,
+                iteration,
+                message,
+                log: onLog,
+                mutations: commentMutations,
+              });
             },
           }
-        : {}),
+        : descriptionSyncEnabled
+          ? {
+              syncTasks: async (worker, iteration) => {
+                const root = cwdByChange.get(worker.changeName) ?? projectRoot;
+                const tasksPath = join(
+                  projectLayout(root).changeDir(worker.changeName),
+                  "tasks.md",
+                );
+                const cachedIssue = issueByChange.get(worker.changeName) ?? worker.issue;
+                const next = await syncTasksToLinearDescription({
+                  apiKey: apiKey!,
+                  issueId: worker.issueId,
+                  currentDescription: cachedIssue.description,
+                  tasksPath,
+                  changeName: worker.changeName,
+                  iteration,
+                  log: onLog,
+                  updateIssueDescription,
+                });
+                if (next !== null) {
+                  const updated: LinearIssue = { ...cachedIssue, description: next };
+                  issueByChange.set(worker.changeName, updated);
+                  worker.issue = updated;
+                }
+              },
+            }
+          : {}),
     },
     {
       concurrency,
@@ -1886,7 +1976,7 @@ export function buildAgentCoordinator(
     concurrency,
     pollInterval,
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
-    syncTasksEnabled: Boolean(cfg.linear.syncTasksToDescription && apiKey),
+    syncTasksEnabled: commentSyncEnabled || descriptionSyncEnabled,
     runBaselineGate: runBaselineGateOnce,
   };
 }

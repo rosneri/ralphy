@@ -332,6 +332,7 @@ describe("setupWorktree — syncTasksToDescription flag wiring (RLF-56)", () => 
         postComments: false,
         updateEveryIterations: 0,
         syncTasksToDescription: false,
+        syncTasksToComment: false,
         indicators: {
           getTodo: { filter: [{ type: "status", value: "Todo" }] },
           setInProgress: { type: "status", value: "In Progress" },
