@@ -34,8 +34,8 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     const blockerIds = ["b1", "b2", "b3", "b4", "b5"];
     const openPrUrl = "https://github.com/owner/repo/pull/777";
     let linearCalls = 0;
-    let capturedIds: string[] | null = null;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    let capturedIds: string[] = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       linearCalls += 1;
       const body = JSON.parse((init?.body as string) ?? "{}") as {
         variables: { ids: string[] };
@@ -65,7 +65,7 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const ghCalls: string[][] = [];
     const runner: CmdRunner = {
@@ -96,9 +96,9 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     globalThis.fetch = (async () => {
       linearCalls += 1;
       return new Response("upstream boom", { status: 500 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
-    const logs: { msg: string; color?: string }[] = [];
+    const logs: { msg: string; color: string | undefined }[] = [];
     const runner: CmdRunner = {
       run: async () => ({ stdout: "", stderr: "" }),
     };
@@ -126,7 +126,7 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     globalThis.fetch = (async () => {
       linearCalls += 1;
       return new Response("{}", { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const runner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
     const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), runner, "/cwd", {

@@ -533,7 +533,7 @@ export async function fetchIssueComments(
   return data.issue?.comments.nodes ?? [];
 }
 
-export interface LinearAttachment {
+interface LinearAttachment {
   id: string;
   url: string;
   sourceType: string | null;
