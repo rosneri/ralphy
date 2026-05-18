@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const MarkerSchema = z.object({
-  type: z.enum(["label", "status", "attachment"]),
+  type: z.enum(["label", "status", "attachment", "project"]),
   value: z.string().min(1),
 });
 
@@ -35,7 +35,7 @@ const IndicatorsSchema = z
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [key],
-            message: `${key} markers must be label-typed (status removal is not supported)`,
+            message: `${key} markers must be label-typed`,
           });
           break;
         }

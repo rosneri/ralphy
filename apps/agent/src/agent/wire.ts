@@ -32,6 +32,8 @@ import {
   updateIssueDescription,
   findOpenIssueByLabel,
   issueMatchesGetIndicator,
+  fetchProjectIdByName,
+  setIssueProject,
   baseBranchFromLabels,
   type LinearIssue,
   type LinearFilterSpec,
@@ -509,6 +511,13 @@ export function buildAgentCoordinator(
     } else if (m.type === "attachment") {
       await upsertRalphyAttachment(apiKey, issue.id, issue.url, m.value);
       onLog(`  → ${issue.identifier} attachment='${m.value}'`, "gray");
+    } else if (m.type === "project") {
+      const projectId = await fetchProjectIdByName(apiKey, m.value);
+      if (!projectId) {
+        throw new Error(`Linear project not found: ${m.value}`);
+      }
+      await setIssueProject(apiKey, issue.id, projectId);
+      onLog(`  → ${issue.identifier} project='${m.value}'`, "gray");
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {

@@ -178,6 +178,17 @@ linear:
     # setError:
     #   type: label
     #   value: "ralph:error"
+    #
+    # # Project-based filter / assignment
+    # # getTodo can filter by Linear project name, and setInProgress can
+    # # reassign the issue into a different project.
+    # getTodo:
+    #   filter:
+    #     - type: project
+    #       value: "Ralph Queue"
+    # setInProgress:
+    #   type: project
+    #   value: "Ralph In Progress"
 ---
 You are working on {{ issue.identifier }}: {{ issue.title }}.
 

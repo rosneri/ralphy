@@ -8,6 +8,8 @@ export interface LinearIssue {
   url: string;
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
+  /** Linear project the issue belongs to, or null when unassigned. */
+  project: { id: string; name: string } | null;
   labels: string[];
   /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
@@ -43,6 +45,7 @@ interface LinearNode {
   url: string;
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
+  project: { id: string; name: string } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
   createdAt: string;
@@ -55,18 +58,22 @@ interface Partitioned {
   /** Attachment marker values — matched against the Ralphy attachment
    *  `subtitle` field (the agent always sets `title: "Ralphy"`). */
   attachmentSubtitles: string[];
+  /** Linear project names — matched case-sensitively by Linear's filter. */
+  projects: string[];
 }
 
 function partition(markers: Marker[]): Partitioned {
   const statuses: string[] = [];
   const labels: string[] = [];
   const attachmentSubtitles: string[] = [];
+  const projects: string[] = [];
   for (const m of markers) {
     if (m.type === "status") statuses.push(m.value);
     else if (m.type === "label") labels.push(m.value);
-    else attachmentSubtitles.push(m.value);
+    else if (m.type === "attachment") attachmentSubtitles.push(m.value);
+    else if (m.type === "project") projects.push(m.value);
   }
-  return { statuses, labels, attachmentSubtitles };
+  return { statuses, labels, attachmentSubtitles, projects };
 }
 
 /** Title used on every Ralphy-managed attachment (set in
@@ -92,7 +99,7 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
 
   const inc = spec.include ?? [];
   if (inc.length > 0) {
-    const { statuses, labels, attachmentSubtitles } = partition(inc);
+    const { statuses, labels, attachmentSubtitles, projects } = partition(inc);
     const branches: Record<string, unknown>[] = [];
     if (statuses.length > 0) branches.push({ state: { name: { in: statuses } } });
     if (labels.length > 0) branches.push({ labels: { some: { name: { in: labels } } } });
@@ -106,6 +113,7 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
         },
       });
     }
+    if (projects.length > 0) branches.push({ project: { name: { in: projects } } });
     for (const b of branches) Object.assign(where, b);
   } else {
     // Default: open issues only (preserves prior behavior when no
@@ -115,7 +123,22 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
 
   const exc = spec.exclude ?? [];
   if (exc.length > 0) {
-    const { statuses, labels, attachmentSubtitles: excludedSubtitles } = partition(exc);
+    const {
+      statuses,
+      labels,
+      attachmentSubtitles: excludedSubtitles,
+      projects: excludedProjects,
+    } = partition(exc);
+    if (excludedProjects.length > 0) {
+      const current = where.project as Record<string, unknown> | undefined;
+      const noProject = { project: { name: { nin: excludedProjects } } };
+      if (current === undefined) Object.assign(where, noProject);
+      else {
+        const existingAnd = (where.and as Record<string, unknown>[] | undefined) ?? [];
+        where.and = [...existingAnd, { project: current }, noProject];
+        delete where.project;
+      }
+    }
     if (excludedSubtitles.length > 0) {
       const existingAnd = (where.and as Record<string, unknown>[] | undefined) ?? [];
       where.and = [
@@ -186,6 +209,7 @@ export async function fetchMentionScanIssues(
         id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
+        project { id name }
         labels { nodes { name } }
         relations(first: 50) {
           nodes { type relatedIssue { id state { type } } }
@@ -207,6 +231,7 @@ export async function fetchMentionScanIssues(
     url: n.url,
     state: n.state,
     assignee: n.assignee,
+    project: n.project ?? null,
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
@@ -228,6 +253,7 @@ export async function fetchOpenIssues(
         id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
+        project { id name }
         labels { nodes { name } }
         relations(first: 50) {
           nodes {
@@ -252,6 +278,7 @@ export async function fetchOpenIssues(
     url: n.url,
     state: n.state,
     assignee: n.assignee,
+    project: n.project ?? null,
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
@@ -610,19 +637,54 @@ export function baseBranchFromLabels(labels: string[]): string | undefined {
 /** Does an already-fetched issue match a get-indicator? Used to decide
  *  per-issue opt-ins (e.g. auto-merge) without re-querying Linear. */
 export function issueMatchesGetIndicator(
-  issue: Pick<LinearIssue, "labels" | "state">,
+  issue: Pick<LinearIssue, "labels" | "state" | "project">,
   indicator: GetIndicator | undefined,
 ): boolean {
   if (!indicator || indicator.filter.length === 0) return false;
   const labels = new Set(issue.labels.map((l) => l.toLowerCase()));
   const stateName = issue.state.name.toLowerCase();
+  const projectName = issue.project?.name.toLowerCase() ?? null;
   return indicator.filter.some((m) => {
     if (m.type === "label") return labels.has(m.value.toLowerCase());
     if (m.type === "status") return stateName === m.value.toLowerCase();
+    if (m.type === "project") {
+      if (projectName === null) return false;
+      return projectName === m.value.toLowerCase();
+    }
     // attachment markers can only be verified via a separate API call
     // (LinearIssue's pick doesn't carry attachments). Callers that need
     // attachment-based matching should query attachments themselves.
     return false;
+  });
+}
+
+/** Look up a Linear project's id by exact name. Returns null when none
+ *  matches. Used by the set-side applier to resolve `project`-typed
+ *  markers before calling `issueUpdate`. */
+export async function fetchProjectIdByName(apiKey: string, name: string): Promise<string | null> {
+  const query = `query ProjectId($name: String!) {
+    projects(filter: { name: { eq: $name } }, first: 1) {
+      nodes { id }
+    }
+  }`;
+  const data = await linearRequest<{ projects: { nodes: { id: string }[] } }>(apiKey, query, {
+    name,
+  });
+  return data.projects.nodes[0]?.id ?? null;
+}
+
+/** Reassign an issue to a Linear project by id. */
+export async function setIssueProject(
+  apiKey: string,
+  issueId: string,
+  projectId: string,
+): Promise<void> {
+  const mutation = `mutation SetProject($id: String!, $projectId: String!) {
+    issueUpdate(id: $id, input: { projectId: $projectId }) { success }
+  }`;
+  await linearRequest<{ issueUpdate: { success: boolean } }>(apiKey, mutation, {
+    id: issueId,
+    projectId,
   });
 }
 

@@ -47,6 +47,23 @@ describe("parseWorkflow", () => {
     ).toThrow("invalid settings");
   });
 
+  test("project marker in getTodo.filter round-trips", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: project\n          value: "Ralph Queue"\n---\n`,
+    );
+    expect(config.linear.indicators.getTodo?.filter).toEqual([
+      { type: "project", value: "Ralph Queue" },
+    ]);
+  });
+
+  test("project marker in clearConflicted is rejected with label-only message", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    clearConflicted:\n      type: project\n      value: "Ralph Queue"\n---\n`,
+      ),
+    ).toThrow("markers must be label-typed");
+  });
+
   test("default workflow parses cleanly", () => {
     const { config } = parseWorkflow(DEFAULT_WORKFLOW_MD);
     expect(config.boundaries.never_touch).toContain("dist/**");
@@ -93,6 +110,23 @@ describe("parseWorkflow", () => {
     );
     expect(config.linear.syncTasksToDescription).toBe(true);
     expect(config.linear.postComments).toBe(false);
+  });
+
+  test("project marker in getTodo.filter round-trips through parseWorkflow", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: project\n          value: "Ralph Queue"\n---\n`,
+    );
+    expect(config.linear.indicators.getTodo?.filter).toEqual([
+      { type: "project", value: "Ralph Queue" },
+    ]);
+  });
+
+  test("rejects project-typed clearConflicted with label-only message", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    clearConflicted:\n      type: project\n      value: "Ralph In Progress"\n---\n`,
+      ),
+    ).toThrow("markers must be label-typed");
   });
 
   test("rejects inline JSON-array indicator filter", () => {
