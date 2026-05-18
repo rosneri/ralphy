@@ -302,7 +302,7 @@ function backoffMs(attempt: number): number {
  *  marker. Linear returns rate-limit signals inconsistently — sometimes as
  *  HTTP 429, sometimes as HTTP 400 with the phrase in the body — so callers
  *  rely on both signals. */
-export function isRateLimitedBody(body: unknown): boolean {
+function isRateLimitedBody(body: unknown): boolean {
   if (typeof body !== "string" || body.length === 0) return false;
   return body.toLowerCase().includes("rate limit exceeded");
 }
