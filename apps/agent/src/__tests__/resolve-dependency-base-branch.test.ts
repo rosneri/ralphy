@@ -35,7 +35,10 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     const openPrUrl = "https://github.com/owner/repo/pull/777";
     let linearCalls = 0;
     let capturedIds: string[] = [];
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const mockFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async (
+      _input,
+      init,
+    ) => {
       linearCalls += 1;
       const body = JSON.parse((init?.body as string) ?? "{}") as {
         variables: { ids: string[] };
@@ -65,7 +68,8 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
         }),
         { status: 200 },
       );
-    }) as unknown as typeof fetch;
+    };
+    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
 
     const ghCalls: string[][] = [];
     const runner: CmdRunner = {
@@ -93,10 +97,14 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
 
   test("batched fetch failure logs a yellow line and returns null", async () => {
     let linearCalls = 0;
-    globalThis.fetch = (async () => {
+    const mockFetch: (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response> = async () => {
       linearCalls += 1;
       return new Response("upstream boom", { status: 500 });
-    }) as unknown as typeof fetch;
+    };
+    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
 
     const logs: { msg: string; color: string | undefined }[] = [];
     const runner: CmdRunner = {
@@ -123,10 +131,14 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
 
   test("empty blockedByIds short-circuits with null and no HTTP call", async () => {
     let linearCalls = 0;
-    globalThis.fetch = (async () => {
+    const mockFetch: (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => Promise<Response> = async () => {
       linearCalls += 1;
       return new Response("{}", { status: 200 });
-    }) as unknown as typeof fetch;
+    };
+    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
 
     const runner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
     const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), runner, "/cwd", {
