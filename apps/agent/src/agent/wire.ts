@@ -34,6 +34,7 @@ import {
   issueMatchesGetIndicator,
   baseBranchFromLabels,
   formatLinearError,
+  isRateLimitedError,
   type LinearIssue,
   type LinearFilterSpec,
 } from "./linear";
@@ -1359,16 +1360,30 @@ export function buildAgentCoordinator(
     try {
       candidates = await fetchMentionScanIssues(apiKey, { team, assignee });
     } catch (err) {
+      if (isRateLimitedError(err)) {
+        onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
+        return [];
+      }
       onLog(`! mention scan: fetchMentionScanIssues failed: ${formatLinearError(err)}`, "yellow");
       return [];
     }
     const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
     const queued = new Set<string>();
+    let rateLimitedLogged = false;
+    const logRateLimited = (): void => {
+      if (rateLimitedLogged) return;
+      rateLimitedLogged = true;
+      onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
+    };
     for (const issue of candidates) {
       let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
       try {
         comments = await fetchIssueComments(apiKey, issue.id);
       } catch (err) {
+        if (isRateLimitedError(err)) {
+          logRateLimited();
+          break;
+        }
         onLog(
           `! mention scan: Linear comments failed for ${issue.identifier}: ${formatLinearError(err)}`,
           "yellow",
@@ -1395,6 +1410,11 @@ export function buildAgentCoordinator(
           try {
             await addReactionToComment(apiKey, c.id, "👀");
           } catch (err) {
+            if (isRateLimitedError(err)) {
+              logRateLimited();
+              queued.add(issue.id);
+              break;
+            }
             onLog(
               `! mention scan: Linear reaction failed for ${issue.identifier}: ${formatLinearError(err)}`,
               "yellow",
@@ -1403,6 +1423,7 @@ export function buildAgentCoordinator(
           queued.add(issue.id);
           break;
         }
+        if (rateLimitedLogged) break;
         if (queued.has(issue.id)) continue;
       }
 

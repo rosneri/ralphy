@@ -5,6 +5,7 @@ import {
   fetchMentionScanIssues,
   findOpenIssueByLabel,
   formatLinearError,
+  isRateLimitedError,
   issueMatchesGetIndicator,
   linearRequestInternals,
   updateIssueDescription,
@@ -172,12 +173,6 @@ describe("linearRequest retry (RLF-60)", () => {
     return new Response(body, { status });
   }
 
-  test("retries 429 then succeeds on the second attempt", async () => {
-    const { count } = stubResponses([errResponse(429), okResponse({ issues: { nodes: [] } })]);
-    await fetchMentionScanIssues("k", {});
-    expect(count()).toBe(2);
-  });
-
   test("retries 503 then succeeds", async () => {
     const { count } = stubResponses([errResponse(503), okResponse({ issues: { nodes: [] } })]);
     await fetchMentionScanIssues("k", {});
@@ -189,11 +184,61 @@ describe("linearRequest retry (RLF-60)", () => {
     await expect(fetchMentionScanIssues("k", {})).rejects.toMatchObject({ status: 404 });
     expect(count()).toBe(1);
   });
+});
 
-  test("gives up after 3 429s and rejects with status 429", async () => {
-    const { count } = stubResponses([errResponse(429), errResponse(429), errResponse(429)]);
-    await expect(fetchMentionScanIssues("k", {})).rejects.toMatchObject({ status: 429 });
-    expect(count()).toBe(3);
+describe("rate-limit detection (RLF-65)", () => {
+  const originalSleep = linearRequestInternals.sleep;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    linearRequestInternals.sleep = originalSleep;
+  });
+
+  function stubOnce(response: Response): { count: () => number } {
+    let i = 0;
+    const fakeFetch: FetchLike = async () => {
+      i++;
+      return response;
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    linearRequestInternals.sleep = async () => {};
+    return { count: () => i };
+  }
+
+  test("a 429 marks the error as rateLimited and is not retried", async () => {
+    const { count } = stubOnce(new Response("", { status: 429 }));
+    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    expect(isRateLimitedError(err)).toBe(true);
+    expect((err as { status?: number }).status).toBe(429);
+    expect(count()).toBe(1);
+  });
+
+  test("a 400 with 'Rate limit exceeded' body marks rateLimited", async () => {
+    const { count } = stubOnce(
+      new Response('{"errors":[{"message":"Rate limit exceeded for query"}]}', { status: 400 }),
+    );
+    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    expect(isRateLimitedError(err)).toBe(true);
+    expect((err as { status?: number }).status).toBe(400);
+    expect(count()).toBe(1);
+  });
+
+  test("a plain 400 is NOT marked rateLimited", async () => {
+    const { count } = stubOnce(new Response("nope", { status: 400 }));
+    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    expect(isRateLimitedError(err)).toBe(false);
+    expect((err as { status?: number }).status).toBe(400);
+    expect(count()).toBe(1);
+  });
+
+  test("formatLinearError prepends 'rate limited' for rate-limited errors", () => {
+    const err = Object.assign(new Error("Linear API request failed"), {
+      status: 429,
+      body: "a".repeat(500),
+      rateLimited: true,
+    });
+    const msg = formatLinearError(err);
+    expect(msg).toContain("rate limited");
+    expect(msg).not.toContain("aaaa");
   });
 });
 

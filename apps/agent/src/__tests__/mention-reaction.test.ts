@@ -259,4 +259,148 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
     expect(reactionCalls).toEqual([{ commentId: "comment-id-42", emoji: "👀" }]);
     expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
   });
+
+  test("rate-limit on fetchIssueComments stops the scan early (RLF-65)", async () => {
+    const commentsCalls: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (!url.includes("linear.app")) {
+        throw Object.assign(new Error("unexpected fetch in test"), { url });
+      }
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      const q = body.query;
+      if (q.includes("workflowStates")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              workflowStates: {
+                nodes: [
+                  { id: "s-todo", name: "Todo", type: "unstarted" },
+                  { id: "s-inprogress", name: "In Progress", type: "started" },
+                  { id: "s-done", name: "Done", type: "completed" },
+                ],
+              },
+            },
+          }),
+        );
+      }
+      if (q.includes("issueLabels")) {
+        return new Response(JSON.stringify({ data: { issueLabels: { nodes: [] } } }));
+      }
+      if (q.includes("MentionScanIssues")) {
+        const candidates = [
+          {
+            id: "uuid-a",
+            identifier: "ENG-1",
+            title: "first",
+            description: null,
+            url: "https://linear.app/x/ENG-1",
+            priority: 3,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            state: { name: "Todo", type: "unstarted" },
+            assignee: null,
+            labels: { nodes: [] },
+            relations: { nodes: [] },
+          },
+          {
+            id: "uuid-b",
+            identifier: "ENG-2",
+            title: "second",
+            description: null,
+            url: "https://linear.app/x/ENG-2",
+            priority: 3,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            state: { name: "Todo", type: "unstarted" },
+            assignee: null,
+            labels: { nodes: [] },
+            relations: { nodes: [] },
+          },
+        ];
+        return new Response(JSON.stringify({ data: { issues: { nodes: candidates } } }));
+      }
+      if (q.includes("issues(filter")) {
+        return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }));
+      }
+      if (q.includes("issue(id") && q.includes("comments")) {
+        const id = body.variables.id as string;
+        commentsCalls.push(id);
+        // First candidate: return a 429 rate-limit body.
+        if (id === "uuid-a") {
+          return new Response('{"errors":[{"message":"Rate limit exceeded"}]}', {
+            status: 400,
+          });
+        }
+        return new Response(JSON.stringify({ data: { issue: { comments: { nodes: [] } } } }));
+      }
+      if (q.includes("IssueAttachments") || q.includes("attachments(first")) {
+        return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }));
+      }
+      return new Response(JSON.stringify({ data: {} }));
+    }) as typeof fetch;
+
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      linear: {
+        team: "ENG",
+        postComments: false,
+        mentionTrigger: true,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+        },
+      },
+    });
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+    const git: GitRunner = {
+      run: async (cmdArgs) => {
+        if (cmdArgs[0] === "worktree" && cmdArgs[1] === "list") return { stdout: "", stderr: "" };
+        if (cmdArgs[0] === "rev-parse") {
+          const err = new Error("not found") as Error & { code?: number };
+          err.code = 1;
+          throw err;
+        }
+        return { stdout: "", stderr: "" };
+      },
+    };
+    const cmd: CmdRunner = {
+      run: async () => ({ stdout: "", stderr: "" }),
+    };
+    const spawnWorker = (): { exited: Promise<number>; kill: () => void } => ({
+      exited: Promise.resolve(0),
+      kill: () => {},
+    });
+    const runners: AgentRunners = { git, cmd, spawnWorker, runScript: async () => 0 };
+    const logs: { line: string; color?: string }[] = [];
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: (line, color) => {
+        logs.push({ line, ...(color ? { color } : {}) });
+      },
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+    await coord.pollOnce();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Only the first candidate's comments are fetched — the second is skipped.
+    expect(commentsCalls).toEqual(["uuid-a"]);
+    expect(logs.some((l) => l.line.includes("rate limited, deferring rest of scan"))).toBe(true);
+  });
 });
