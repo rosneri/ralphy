@@ -81,23 +81,30 @@ function truncate(s: string, max: number): string {
 }
 
 export function renderTasksBlock(tasksMd: string, meta: RenderMeta): string {
-  const sections = parseTasksMd(tasksMd);
+  const sections = parseTasksMd(tasksMd).filter(
+    (s) => s.heading.trim().toLowerCase() !== "planning",
+  );
   const out: string[] = [];
   out.push(RALPHY_TASKS_START);
   out.push("### Ralph progress");
   out.push("");
-  for (const section of sections) {
-    if (section.items.length === 0) continue;
-    out.push(`**${section.heading}**`);
+  const renderable = sections.filter((s) => s.items.length > 0);
+  if (renderable.length === 0) {
+    out.push("_No mission tasks yet — planning in progress._");
     out.push("");
-    for (const item of section.items) {
-      out.push(item.bullet);
-      if (item.code !== undefined) {
-        const inner = truncate(item.code, MAX_CODE_BLOCK_BYTES);
-        out.push(`  <details><summary>output</summary><pre>${inner}</pre></details>`);
+  } else {
+    for (const section of renderable) {
+      out.push(`**${section.heading}**`);
+      out.push("");
+      for (const item of section.items) {
+        out.push(item.bullet);
+        if (item.code !== undefined) {
+          const inner = truncate(item.code, MAX_CODE_BLOCK_BYTES);
+          out.push(`  <details><summary>output</summary><pre>${inner}</pre></details>`);
+        }
       }
+      out.push("");
     }
-    out.push("");
   }
   out.push(`<sub>\`${meta.changeName}\` · iteration ${meta.iteration}</sub>`);
   out.push(RALPHY_TASKS_END);
