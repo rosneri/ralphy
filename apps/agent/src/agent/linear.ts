@@ -656,13 +656,17 @@ export async function fetchIssueAttachments(
   return data.issue?.attachments?.nodes ?? [];
 }
 
-/** Batched variant of `fetchIssueAttachments` — fetches attachments for many
- *  issue ids in a single GraphQL request. Used by the dependency-base
- *  resolution path so 5 blockers cost 1 Linear round-trip rather than 5.
+/** Fetch attachments for many issues in a single GraphQL request.
  *
- *  Returns a Map keyed by issue id. Ids that Linear omits (e.g. permission
- *  scoping) are simply absent — callers normalize with `?? []`. Empty input
- *  short-circuits with no HTTP call. */
+ *  Used by `ralphy list` to resolve PR URLs for every visible row with one
+ *  Linear call instead of N parallel `fetchIssueAttachments` requests, and by
+ *  the dependency-base resolution path so multiple blockers cost a single
+ *  Linear round-trip.
+ *
+ *  Returns a map keyed by issue id. Issues that Linear omits from the
+ *  response (e.g. deleted between the bucket fetch and this call, or
+ *  permission scoping) simply do not appear in the map; callers default to
+ *  `[]`. An empty `issueIds` short-circuits without issuing any HTTP request. */
 export async function fetchAttachmentsForIssues(
   apiKey: string,
   issueIds: string[],
@@ -670,10 +674,8 @@ export async function fetchAttachmentsForIssues(
   const out = new Map<string, LinearAttachment[]>();
   if (issueIds.length === 0) return out;
 
-  // `first: 100` matches Linear's hard cap for IssueFilter result pages.
-  // Blocker counts in practice are well under this, so no pagination loop.
   const query = `query IssuesAttachments($ids: [ID!]!) {
-    issues(filter: { id: { in: $ids } }, first: 100) {
+    issues(filter: { id: { in: $ids } }, first: 250) {
       nodes {
         id
         attachments(first: 25) {
