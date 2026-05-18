@@ -11,15 +11,15 @@
 
 ## Implementation
 
-- [ ] In `apps/agent/src/agent/coordinator.ts`: add `lastSyncedIteration: number` to `ActiveWorker` (initialized to `0` on spawn since the launch path already syncs iteration 0).
-- [ ] In `apps/agent/src/agent/coordinator.ts`: introduce a `syncWorkerTasks()` private method that, when `deps.syncTasks` is wired, loops active workers, reads `getIterationCount`, and calls `syncTasks(w, count)` only when `count !== w.lastSyncedIteration`. On success, updates `lastSyncedIteration`. On error, logs a yellow warning and leaves the sentinel unchanged.
-- [ ] In `apps/agent/src/agent/coordinator.ts`: shrink `reportProgress` to only post the `🔄 Ralph progress update` comment (gated as today). Remove the duplicate `syncTasks` call from inside it.
-- [ ] In `apps/agent/src/agent/coordinator.ts`: invoke `syncWorkerTasks()` from `pollOnce` after `reportProgress()` so both run every poll.
-- [ ] Update `ActiveWorker` constructions in `coordinator.ts` (`spawn`, `notifyExited` synthetic) so the new field is set without breaking the typed shape.
-- [ ] Add test in `apps/agent/src/__tests__/coordinator.test.ts`: with `postComments: false`, `syncTasks` is called once per poll as iteration advances and no progress comment is posted.
-- [ ] Add test in `apps/agent/src/__tests__/coordinator.test.ts`: with `commentEveryIterations: 0`, `syncTasks` still fires but no progress comment is posted.
-- [ ] Add test in `apps/agent/src/__tests__/coordinator.test.ts`: when iteration count is unchanged between polls, `syncTasks` is NOT re-invoked.
-- [ ] Add test: when `syncTasks` throws, `lastSyncedIteration` is not advanced, so the next poll retries with the same count.
-- [ ] Run `bunx openspec validate rlf-73-task-sync-comment-must-update-on-every-c` and fix any reported issues.
-- [ ] Run `bun run lint` from repo root and fix any new findings.
-- [ ] Run `bun run test` (or the focused agent test suite) and ensure green.
+- [x] In `apps/agent/src/agent/coordinator.ts`: add `lastSyncedIteration: number` to `ActiveWorker` (initialized to `0` on spawn since the launch path already syncs iteration 0).
+- [x] In `apps/agent/src/agent/coordinator.ts`: introduce a `syncWorkerTasks()` private method that, when `deps.syncTasks` is wired, loops active workers, reads `getIterationCount`, and calls `syncTasks(w, count)` only when `count !== w.lastSyncedIteration`. On success, updates `lastSyncedIteration`. On error, logs a yellow warning and leaves the sentinel unchanged.
+- [x] In `apps/agent/src/agent/coordinator.ts`: shrink `reportProgress` to only post the `🔄 Ralph progress update` comment (gated as today). Remove the duplicate `syncTasks` call from inside it.
+- [x] In `apps/agent/src/agent/coordinator.ts`: invoke `syncWorkerTasks()` from `pollOnce` after `reportProgress()` so both run every poll.
+- [x] Update `ActiveWorker` constructions in `coordinator.ts` (`spawn`, `notifyExited` synthetic) so the new field is set without breaking the typed shape.
+- [x] Add test in `apps/agent/src/__tests__/coordinator.test.ts`: with `postComments: false`, `syncTasks` is called once per poll as iteration advances and no progress comment is posted.
+- [x] Add test in `apps/agent/src/__tests__/coordinator.test.ts`: with `commentEveryIterations: 0`, `syncTasks` still fires but no progress comment is posted.
+- [x] Add test in `apps/agent/src/__tests__/coordinator.test.ts`: when iteration count is unchanged between polls, `syncTasks` is NOT re-invoked.
+- [x] Add test: when `syncTasks` throws, `lastSyncedIteration` is not advanced, so the next poll retries with the same count.
+- [x] Run `bunx openspec validate rlf-73-task-sync-comment-must-update-on-every-c` and fix any reported issues.
+- [x] Run `bun run lint` from repo root and fix any new findings.
+- [x] Run `bun run test` (or the focused agent test suite) and ensure green.
