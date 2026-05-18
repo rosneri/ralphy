@@ -74,6 +74,15 @@ export const StateSchema = z.object({
   usage: UsageSchema.default({}),
   history: z.array(HistoryEntrySchema).default([]),
   metadata: z.object({ branch: z.string().optional() }).default({}),
+  /** Per-change Linear comment ids managed by comment-sync. Missing
+   *  fields default to null so an older state file migrates silently. */
+  linearComments: z
+    .object({
+      planCommentId: z.string().nullable().default(null),
+      tasksCommentId: z.string().nullable().default(null),
+      planPostedAt: z.string().nullable().default(null),
+    })
+    .default({ planCommentId: null, tasksCommentId: null, planPostedAt: null }),
 });
 
 // --- Inferred types ---

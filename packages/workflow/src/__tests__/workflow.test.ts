@@ -94,22 +94,20 @@ describe("parseWorkflow", () => {
     expect(config.model).toBe("sonnet");
   });
 
-  test("linear.syncTasksToDescription defaults to false", () => {
+  test("linear.syncTasksToComment defaults to true", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
-    expect(config.linear.syncTasksToDescription).toBe(false);
+    expect(config.linear.syncTasksToComment).toBe(true);
   });
 
-  test("linear.syncTasksToDescription accepts true", () => {
-    const { config } = parseWorkflow(`---\nlinear:\n  syncTasksToDescription: true\n---\n`);
-    expect(config.linear.syncTasksToDescription).toBe(true);
+  test("linear.syncTasksToComment accepts explicit false", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  syncTasksToComment: false\n---\n`);
+    expect(config.linear.syncTasksToComment).toBe(false);
   });
 
-  test("linear.syncTasksToDescription round-trips through parse", () => {
-    const { config } = parseWorkflow(
-      `---\nlinear:\n  syncTasksToDescription: true\n  postComments: false\n---\n`,
-    );
-    expect(config.linear.syncTasksToDescription).toBe(true);
-    expect(config.linear.postComments).toBe(false);
+  test("linear.mentionTrigger / codeReviewTrigger default to true", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.linear.mentionTrigger).toBe(true);
+    expect(config.linear.codeReviewTrigger).toBe(true);
   });
 
   test("project marker in getTodo.filter round-trips through parseWorkflow", () => {

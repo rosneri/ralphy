@@ -112,9 +112,9 @@ linear:
   codeReviewTrigger: true
   codeReviewStaleHours: 24
 
-  # Mirror the loop's tasks.md into the Linear issue description as a
-  # checklist between sentinel markers.
-  syncTasksToDescription: true
+  # Mirror the loop's tasks.md into a sticky Linear comment that always
+  # lands at the bottom of the issue timeline.
+  syncTasksToComment: true
 
   # Indicators grouped by lifecycle: each get* is followed by the set*/clear*
   # that mutates the same status/label, so a reader sees the whole lifecycle

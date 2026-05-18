@@ -21,6 +21,7 @@ export interface AgentModeCoordinator {
   readonly queuedCount: number;
   getPause(): PauseState | null;
   restartWorker(changeName: string): Promise<boolean>;
+  notifySteeringAppended?(changeName: string, message: string): Promise<void>;
 }
 
 /** Builder function shape the AgentMode component depends on. The real
@@ -404,7 +405,7 @@ export function AgentMode({
   /** Index into activeWorkers of the focused worker card (0-based). */
   const [focusedIdx, setFocusedIdx] = useState(0);
   /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
-  const [showPendingTasks, setShowPendingTasks] = useState(true);
+  const [showPendingTasks, setShowPendingTasks] = useState(false);
   /** Toggled by Ctrl+Alt+T (Opt+T on macOS) — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
@@ -1232,6 +1233,14 @@ export function AgentMode({
                           "red",
                         );
                         throw err;
+                      }
+                      // Fire the comment-sync hook (best-effort) before the
+                      // worker restart so the steering comment lands on
+                      // Linear even if the new iteration hasn't synced yet.
+                      try {
+                        await coordRef.current?.notifySteeringAppended?.(w.changeName, message);
+                      } catch {
+                        /* hook errors are already logged inside the coordinator */
                       }
                       const restarted = await coordRef.current?.restartWorker(w.changeName);
                       if (restarted) {

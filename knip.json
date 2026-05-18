@@ -30,7 +30,12 @@
       "entry": ["src/index.ts", "src/__tests__/**/*.ts"]
     },
     "apps/ui": {
-      "entry": ["src-sidecar/server.ts", "src/components/**/*.tsx", "src/lib/**/*.ts"]
+      "entry": [
+        "src-sidecar/server.ts",
+        "src/components/**/*.tsx",
+        "src/components/**/*.test.ts",
+        "src/lib/**/*.ts"
+      ]
     },
     "packages/content": {
       "entry": ["src/**/*.ts"]

@@ -1,13 +1,11 @@
 /**
- * Mirror `openspec/changes/<change>/tasks.md` into the linked Linear issue
- * description as a Markdown checklist. Updates between sentinel HTML
- * comment markers so manual edits outside the block are preserved.
+ * Renders `openspec/changes/<change>/tasks.md` into a Markdown block.
+ * Used by the sticky-comment sync in `comment-sync.ts`.
  */
 
 export const RALPHY_TASKS_START = "<!-- ralphy:tasks:start -->";
 export const RALPHY_TASKS_END = "<!-- ralphy:tasks:end -->";
 
-const MAX_BLOCK_BYTES = 60 * 1024;
 const MAX_CODE_BLOCK_BYTES = 2 * 1024;
 
 interface RenderMeta {
@@ -104,71 +102,4 @@ export function renderTasksBlock(tasksMd: string, meta: RenderMeta): string {
   out.push(`<sub>\`${meta.changeName}\` · iteration ${meta.iteration}</sub>`);
   out.push(RALPHY_TASKS_END);
   return out.join("\n");
-}
-
-export function applyTasksBlock(existingDescription: string | null, block: string): string {
-  const existing = existingDescription ?? "";
-  const startIdx = existing.indexOf(RALPHY_TASKS_START);
-  const endIdx =
-    startIdx >= 0 ? existing.indexOf(RALPHY_TASKS_END, startIdx + RALPHY_TASKS_START.length) : -1;
-  if (startIdx >= 0 && endIdx >= 0) {
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + RALPHY_TASKS_END.length);
-    return `${before}${block}${after}`;
-  }
-  // Append (markers absent or only one present).
-  if (existing.length === 0) return block;
-  const trimmed = existing.replace(/\s+$/, "");
-  return `${trimmed}\n\n${block}`;
-}
-
-interface SyncTasksDeps {
-  apiKey: string;
-  issueId: string;
-  currentDescription: string | null;
-  tasksPath: string;
-  changeName: string;
-  iteration: number;
-  log: (text: string, color?: string) => void;
-  updateIssueDescription: (apiKey: string, issueId: string, description: string) => Promise<void>;
-}
-
-/** Orchestrator. Returns the new description if a write occurred, else null. */
-export async function syncTasksToLinearDescription(deps: SyncTasksDeps): Promise<string | null> {
-  const file = Bun.file(deps.tasksPath);
-  if (!(await file.exists())) {
-    deps.log(`  sync-tasks: tasks.md missing at ${deps.tasksPath}, skipping`, "gray");
-    return null;
-  }
-  let tasksMd: string;
-  try {
-    tasksMd = await file.text();
-  } catch (err) {
-    deps.log(
-      `! sync-tasks: read failed for ${deps.tasksPath}: ${(err as Error).message}`,
-      "yellow",
-    );
-    return null;
-  }
-  const block = renderTasksBlock(tasksMd, {
-    changeName: deps.changeName,
-    iteration: deps.iteration,
-  });
-  if (block.length > MAX_BLOCK_BYTES) {
-    deps.log(
-      `! sync-tasks: rendered block exceeds ${MAX_BLOCK_BYTES} bytes (${block.length}), skipping update`,
-      "yellow",
-    );
-    return null;
-  }
-  const next = applyTasksBlock(deps.currentDescription, block);
-  if (next === (deps.currentDescription ?? "")) return null;
-  try {
-    await deps.updateIssueDescription(deps.apiKey, deps.issueId, next);
-    deps.log(`  sync-tasks: updated Linear description for ${deps.changeName}`, "gray");
-    return next;
-  } catch (err) {
-    deps.log(`! sync-tasks: updateIssueDescription failed: ${(err as Error).message}`, "yellow");
-    return null;
-  }
 }

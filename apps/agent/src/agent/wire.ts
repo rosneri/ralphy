@@ -29,12 +29,17 @@ import {
   addLabelToIssue,
   removeLabelFromIssue,
   createIssue,
+  createIssueComment,
+  updateIssueComment,
+  deleteIssueComment,
   updateIssueDescription,
   findOpenIssueByLabel,
   issueMatchesGetIndicator,
   fetchProjectIdByName,
   setIssueProject,
   baseBranchFromLabels,
+  formatLinearError,
+  isRateLimitedError,
   type LinearIssue,
   type LinearFilterSpec,
 } from "./linear";
@@ -51,7 +56,12 @@ import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
 import { runBaselineGate } from "./baseline/gate";
 import { resolveBaselineCommands } from "@ralphy/workflow";
-import { syncTasksToLinearDescription } from "./linear-sync";
+import {
+  postOrUpdateTasksComment,
+  postPlanCommentOnce,
+  postSteeringAndRefreshTasks,
+  type CommentMutations,
+} from "./linear-sync/comment-sync";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -253,7 +263,7 @@ interface BuildAgentCoordinatorResult {
   pollInterval: number;
   getWorkerCwd: (changeName: string) => string | undefined;
   /** True when a `syncTasks` hook was wired into the coordinator (i.e. the
-   *  `linear.syncTasksToDescription` flag is on and we have an API key). */
+   *  `linear.syncTasksToComment` flag is on and we have an API key). */
   syncTasksEnabled: boolean;
   /** Run one tick of the pre-existing-error baseline gate. Resolves to a
    *  no-op when the feature is disabled. Callers should invoke this before
@@ -1373,18 +1383,32 @@ export function buildAgentCoordinator(
     try {
       candidates = await fetchMentionScanIssues(apiKey, { team, assignee });
     } catch (err) {
-      onLog(`! mention scan: fetchMentionScanIssues failed: ${(err as Error).message}`, "yellow");
+      if (isRateLimitedError(err)) {
+        onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
+        return [];
+      }
+      onLog(`! mention scan: fetchMentionScanIssues failed: ${formatLinearError(err)}`, "yellow");
       return [];
     }
     const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
     const queued = new Set<string>();
+    let rateLimitedLogged = false;
+    const logRateLimited = (): void => {
+      if (rateLimitedLogged) return;
+      rateLimitedLogged = true;
+      onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
+    };
     for (const issue of candidates) {
       let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
       try {
         comments = await fetchIssueComments(apiKey, issue.id);
       } catch (err) {
+        if (isRateLimitedError(err)) {
+          logRateLimited();
+          break;
+        }
         onLog(
-          `! mention scan: Linear comments failed for ${issue.identifier}: ${(err as Error).message}`,
+          `! mention scan: Linear comments failed for ${issue.identifier}: ${formatLinearError(err)}`,
           "yellow",
         );
         continue;
@@ -1409,14 +1433,20 @@ export function buildAgentCoordinator(
           try {
             await addReactionToComment(apiKey, c.id, "👀");
           } catch (err) {
+            if (isRateLimitedError(err)) {
+              logRateLimited();
+              queued.add(issue.id);
+              break;
+            }
             onLog(
-              `! mention scan: Linear reaction failed for ${issue.identifier}: ${(err as Error).message}`,
+              `! mention scan: Linear reaction failed for ${issue.identifier}: ${formatLinearError(err)}`,
               "yellow",
             );
           }
           queued.add(issue.id);
           break;
         }
+        if (rateLimitedLogged) break;
         if (queued.has(issue.id)) continue;
       }
 
@@ -1450,7 +1480,7 @@ export function buildAgentCoordinator(
               );
             } catch (err) {
               onLog(
-                `! mention scan: GitHub reaction failed for ${prUrl}: ${(err as Error).message}`,
+                `! mention scan: GitHub reaction failed for ${prUrl}: ${formatLinearError(err)}`,
                 "yellow",
               );
             }
@@ -1759,10 +1789,17 @@ export function buildAgentCoordinator(
       }[];
       return parsed;
     } catch (err) {
-      onLog(`! mention scan: gh comments failed for ${prUrl}: ${(err as Error).message}`, "yellow");
+      onLog(`! mention scan: gh comments failed for ${prUrl}: ${formatLinearError(err)}`, "yellow");
       return [];
     }
   }
+
+  const commentSyncEnabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
+  const commentMutations: CommentMutations = {
+    createIssueComment,
+    updateIssueComment,
+    deleteIssueComment,
+  };
 
   const coord = new AgentCoordinator(
     {
@@ -1792,29 +1829,68 @@ export function buildAgentCoordinator(
         const json = (await file.json()) as { iteration?: number };
         return json.iteration ?? 0;
       },
-      ...(cfg.linear.syncTasksToDescription && apiKey
+      ...(commentSyncEnabled
         ? {
             syncTasks: async (worker, iteration) => {
               const root = cwdByChange.get(worker.changeName) ?? projectRoot;
-              const tasksPath = join(projectLayout(root).changeDir(worker.changeName), "tasks.md");
-              const cachedIssue = issueByChange.get(worker.changeName) ?? worker.issue;
-              const next = await syncTasksToLinearDescription({
-                apiKey,
+              const layout = projectLayout(root);
+              const changeDir = layout.changeDir(worker.changeName);
+              const statePath = layout.stateFile(worker.changeName);
+              await postPlanCommentOnce({
+                apiKey: apiKey!,
                 issueId: worker.issueId,
-                currentDescription: cachedIssue.description,
-                tasksPath,
+                statePath,
+                changeDir,
+                changeName: worker.changeName,
+                log: onLog,
+                mutations: commentMutations,
+              });
+              await postOrUpdateTasksComment({
+                apiKey: apiKey!,
+                issueId: worker.issueId,
+                statePath,
+                changeDir,
                 changeName: worker.changeName,
                 iteration,
                 log: onLog,
-                updateIssueDescription,
+                mutations: commentMutations,
               });
-              if (next !== null) {
-                // Update cached description so the next sync diffs against
-                // the value we just wrote.
-                const updated: LinearIssue = { ...cachedIssue, description: next };
-                issueByChange.set(worker.changeName, updated);
-                worker.issue = updated;
+            },
+            onSteeringAppended: async (changeName, message) => {
+              const root = cwdByChange.get(changeName) ?? projectRoot;
+              const layout = projectLayout(root);
+              const changeDir = layout.changeDir(changeName);
+              const statePath = layout.stateFile(changeName);
+              const issue = issueByChange.get(changeName) ?? null;
+              const issueId = issue?.id ?? null;
+              if (!issueId) {
+                onLog(
+                  `  comment-sync: no Linear issue cached for ${changeName}; skipping steering refresh`,
+                  "gray",
+                );
+                return;
               }
+              let iteration = 0;
+              try {
+                const f = Bun.file(statePath);
+                if (await f.exists()) {
+                  const json = (await f.json()) as { iteration?: number };
+                  iteration = json.iteration ?? 0;
+                }
+              } catch {
+                /* ignore */
+              }
+              await postSteeringAndRefreshTasks({
+                apiKey: apiKey!,
+                issueId,
+                statePath,
+                changeDir,
+                changeName,
+                iteration,
+                message,
+                log: onLog,
+                mutations: commentMutations,
+              });
             },
           }
         : {}),
@@ -1900,7 +1976,7 @@ export function buildAgentCoordinator(
     concurrency,
     pollInterval,
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
-    syncTasksEnabled: Boolean(cfg.linear.syncTasksToDescription && apiKey),
+    syncTasksEnabled: commentSyncEnabled,
     runBaselineGate: runBaselineGateOnce,
   };
 }

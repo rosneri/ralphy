@@ -112,6 +112,11 @@ export interface CoordinatorDeps {
    *  worker launch, on each milestone (same cadence as progress comments),
    *  and on done-transition. Failures are swallowed by the impl. */
   syncTasks?: (worker: ActiveWorker, iteration: number) => Promise<void>;
+  /** Optional hook: react to a steering note being appended to a change.
+   *  The MCP `ralph_append_steering` tool triggers this so comment-sync
+   *  can post a fresh steering comment and refresh the tasks comment on
+   *  Linear. Failures are swallowed by the caller. */
+  onSteeringAppended?: (changeName: string, message: string) => Promise<void>;
 }
 
 interface CoordinatorOptions {
@@ -744,6 +749,21 @@ export class AgentCoordinator {
       /* ignore */
     }
     return true;
+  }
+
+  /** Fire the onSteeringAppended hook (if configured). Best-effort —
+   *  errors are logged via onLog and never thrown to the caller so the
+   *  MCP `ralph_append_steering` tool stays idempotent. */
+  async notifySteeringAppended(changeName: string, message: string): Promise<void> {
+    if (!this.deps.onSteeringAppended) return;
+    try {
+      await this.deps.onSteeringAppended(changeName, message);
+    } catch (err) {
+      this.deps.onLog(
+        `! onSteeringAppended failed for ${changeName}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
   }
 
   private async notifyExited(

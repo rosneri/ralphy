@@ -293,37 +293,136 @@ interface GraphQLResult<T> {
   errors?: { message: string }[];
 }
 
+/** Test seam: override `sleep` to make retry backoff instant in unit tests.
+ *  Defaults to `Bun.sleep`. Keep the public `linearRequest` signature stable. */
+export const linearRequestInternals: { sleep: (ms: number) => Promise<void> } = {
+  sleep: (ms: number) => Bun.sleep(ms),
+};
+
+const MAX_LINEAR_ATTEMPTS = 3;
+const MAX_RETRY_AFTER_MS = 2000;
+
+function isRetryableStatus(status: number): boolean {
+  return status >= 500 && status <= 599;
+}
+
+/** Parse a `Retry-After` header value (seconds or HTTP-date) into ms.
+ *  Returns undefined when missing/unparsable. Caller clamps. */
+function parseRetryAfter(header: string | null): number | undefined {
+  if (!header) return undefined;
+  const trimmed = header.trim();
+  if (!trimmed) return undefined;
+  const asNum = Number(trimmed);
+  if (Number.isFinite(asNum)) return Math.max(0, asNum * 1000);
+  const asDate = Date.parse(trimmed);
+  if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now());
+  return undefined;
+}
+
+function backoffMs(attempt: number): number {
+  const base = 250 * 2 ** (attempt - 1);
+  const jitter = Math.floor(Math.random() * 100);
+  return base + jitter;
+}
+
+/** Case-insensitive substring check for Linear's `Rate limit exceeded`
+ *  marker. Linear returns rate-limit signals inconsistently — sometimes as
+ *  HTTP 429, sometimes as HTTP 400 with the phrase in the body — so callers
+ *  rely on both signals. */
+function isRateLimitedBody(body: unknown): boolean {
+  if (typeof body !== "string" || body.length === 0) return false;
+  return body.toLowerCase().includes("rate limit exceeded");
+}
+
+/** Returns true when an error from `linearRequest` was marked rate-limited
+ *  (either HTTP 429 or a body containing "Rate limit exceeded"). */
+export function isRateLimitedError(err: unknown): boolean {
+  if (err === null || typeof err !== "object") return false;
+  return (err as { rateLimited?: boolean }).rateLimited === true;
+}
+
+/** Render a Linear API error in a structured form: status + truncated body
+ *  for HTTP failures, GraphQL `messages` when present, falling back to
+ *  `err.message` / `String(err)` for anything else. Exported so wire.ts can
+ *  use it at every mention-scan / Linear catch site. */
+export function formatLinearError(err: unknown): string {
+  if (err === null || err === undefined) return String(err);
+  if (typeof err !== "object") return String(err);
+  const e = err as {
+    status?: number;
+    body?: string;
+    messages?: string[];
+    message?: string;
+    rateLimited?: boolean;
+  };
+  const parts: string[] = [];
+  if (e.rateLimited) parts.push("rate limited");
+  if (typeof e.status === "number") parts.push(`HTTP ${e.status}`);
+  if (Array.isArray(e.messages) && e.messages.length > 0) {
+    parts.push(`graphql: ${e.messages.join("; ")}`);
+  }
+  if (typeof e.body === "string" && e.body.length > 0 && !e.rateLimited) {
+    const truncated = e.body.length > 200 ? `${e.body.slice(0, 200)}…` : e.body;
+    parts.push(`body: ${truncated}`);
+  }
+  if (parts.length === 0) {
+    if (typeof e.message === "string" && e.message) return e.message;
+    return String(err);
+  }
+  if (typeof e.message === "string" && e.message && !e.rateLimited) parts.unshift(e.message);
+  return parts.join(" — ");
+}
+
 async function linearRequest<T>(
   apiKey: string,
   query: string,
   variables: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(LINEAR_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: apiKey },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!res.ok) {
-    const err = new Error("Linear API request failed") as Error & {
-      status?: number;
-      body?: string;
-    };
-    err.status = res.status;
-    err.body = await res.text();
-    throw err;
+  let lastHttpError: (Error & { status?: number; body?: string; messages?: string[] }) | undefined;
+
+  for (let attempt = 1; attempt <= MAX_LINEAR_ATTEMPTS; attempt++) {
+    const res = await fetch(LINEAR_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: apiKey },
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!res.ok) {
+      const err = new Error("Linear API request failed") as Error & {
+        status?: number;
+        body?: string;
+        rateLimited?: boolean;
+      };
+      err.status = res.status;
+      err.body = await res.text();
+      if (res.status === 429 || isRateLimitedBody(err.body)) {
+        err.rateLimited = true;
+        throw err;
+      }
+      lastHttpError = err;
+      if (isRetryableStatus(res.status) && attempt < MAX_LINEAR_ATTEMPTS) {
+        const ra = parseRetryAfter(res.headers.get("Retry-After"));
+        const waitMs = Math.min(ra ?? backoffMs(attempt), MAX_RETRY_AFTER_MS);
+        await linearRequestInternals.sleep(waitMs);
+        continue;
+      }
+      throw err;
+    }
+    const json = (await res.json()) as GraphQLResult<T>;
+    if (json.errors?.length) {
+      const err = new Error("Linear API returned errors") as Error & {
+        messages?: string[];
+      };
+      err.messages = json.errors.map((e) => e.message);
+      throw err;
+    }
+    if (!json.data) {
+      throw new Error("Linear API returned no data");
+    }
+    return json.data;
   }
-  const json = (await res.json()) as GraphQLResult<T>;
-  if (json.errors?.length) {
-    const err = new Error("Linear API returned errors") as Error & {
-      messages?: string[];
-    };
-    err.messages = json.errors.map((e) => e.message);
-    throw err;
-  }
-  if (!json.data) {
-    throw new Error("Linear API returned no data");
-  }
-  return json.data;
+  // Loop only exits via `return` on success or `throw` on non-retryable.
+  // Retryable exhaustion falls out here.
+  throw lastHttpError ?? new Error("Linear API request failed");
 }
 
 /** Add a reaction (Linear `reactionCreate` mutation) to a comment.
@@ -355,6 +454,52 @@ export async function addIssueComment(
   await linearRequest<{ commentCreate: { success: boolean } }>(apiKey, mutation, {
     issueId,
     body,
+  });
+}
+
+/** Create a comment and return its id. Used by comment-sync to persist the
+ *  comment id for later in-place updates. */
+export async function createIssueComment(
+  apiKey: string,
+  issueId: string,
+  body: string,
+): Promise<string> {
+  const mutation = `mutation Comment($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) {
+      success
+      comment { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    commentCreate: { success: boolean; comment: { id: string } | null };
+  }>(apiKey, mutation, { issueId, body });
+  const id = data.commentCreate.comment?.id;
+  if (!id) throw new Error("commentCreate returned no comment id");
+  return id;
+}
+
+/** Edit an existing comment in place via Linear's `commentUpdate` mutation. */
+export async function updateIssueComment(
+  apiKey: string,
+  commentId: string,
+  body: string,
+): Promise<void> {
+  const mutation = `mutation UpdateComment($id: String!, $body: String!) {
+    commentUpdate(id: $id, input: { body: $body }) { success }
+  }`;
+  await linearRequest<{ commentUpdate: { success: boolean } }>(apiKey, mutation, {
+    id: commentId,
+    body,
+  });
+}
+
+/** Delete a comment via Linear's `commentDelete` mutation. */
+export async function deleteIssueComment(apiKey: string, commentId: string): Promise<void> {
+  const mutation = `mutation DeleteComment($id: String!) {
+    commentDelete(id: $id) { success }
+  }`;
+  await linearRequest<{ commentDelete: { success: boolean } }>(apiKey, mutation, {
+    id: commentId,
   });
 }
 

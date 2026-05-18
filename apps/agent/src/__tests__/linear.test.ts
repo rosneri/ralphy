@@ -4,7 +4,10 @@ import {
   createIssue,
   fetchMentionScanIssues,
   findOpenIssueByLabel,
+  formatLinearError,
+  isRateLimitedError,
   issueMatchesGetIndicator,
+  linearRequestInternals,
   updateIssueDescription,
 } from "../agent/linear";
 
@@ -134,6 +137,150 @@ describe("createIssue / updateIssueDescription / findOpenIssueByLabel", () => {
     stubFetch(() => ({ issues: { nodes: [] } }));
     const none = await findOpenIssueByLabel("k", "RLF", "x");
     expect(none).toBeNull();
+  });
+});
+
+describe("linearRequest retry (RLF-60)", () => {
+  const originalSleep = linearRequestInternals.sleep;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    linearRequestInternals.sleep = originalSleep;
+  });
+
+  function stubResponses(responses: Response[]): { count: () => number } {
+    let i = 0;
+    const fakeFetch: FetchLike = async () => {
+      const r = responses[i++];
+      if (!r) {
+        const err = new Error("unexpected extra fetch call");
+        (err as Error & { callIndex?: number }).callIndex = i;
+        throw err;
+      }
+      return r;
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    linearRequestInternals.sleep = async () => {};
+    return { count: () => i };
+  }
+
+  function okResponse(data: unknown): Response {
+    return new Response(JSON.stringify({ data }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  function errResponse(status: number, body = ""): Response {
+    return new Response(body, { status });
+  }
+
+  test("retries 503 then succeeds", async () => {
+    const { count } = stubResponses([errResponse(503), okResponse({ issues: { nodes: [] } })]);
+    await fetchMentionScanIssues("k", {});
+    expect(count()).toBe(2);
+  });
+
+  test("does NOT retry 404", async () => {
+    const { count } = stubResponses([errResponse(404, "not found")]);
+    await expect(fetchMentionScanIssues("k", {})).rejects.toMatchObject({ status: 404 });
+    expect(count()).toBe(1);
+  });
+});
+
+describe("rate-limit detection (RLF-65)", () => {
+  const originalSleep = linearRequestInternals.sleep;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    linearRequestInternals.sleep = originalSleep;
+  });
+
+  function stubOnce(response: Response): { count: () => number } {
+    let i = 0;
+    const fakeFetch: FetchLike = async () => {
+      i++;
+      return response;
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    linearRequestInternals.sleep = async () => {};
+    return { count: () => i };
+  }
+
+  test("a 429 marks the error as rateLimited and is not retried", async () => {
+    const { count } = stubOnce(new Response("", { status: 429 }));
+    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    expect(isRateLimitedError(err)).toBe(true);
+    expect((err as { status?: number }).status).toBe(429);
+    expect(count()).toBe(1);
+  });
+
+  test("a 400 with 'Rate limit exceeded' body marks rateLimited", async () => {
+    const { count } = stubOnce(
+      new Response('{"errors":[{"message":"Rate limit exceeded for query"}]}', { status: 400 }),
+    );
+    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    expect(isRateLimitedError(err)).toBe(true);
+    expect((err as { status?: number }).status).toBe(400);
+    expect(count()).toBe(1);
+  });
+
+  test("a plain 400 is NOT marked rateLimited", async () => {
+    const { count } = stubOnce(new Response("nope", { status: 400 }));
+    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    expect(isRateLimitedError(err)).toBe(false);
+    expect((err as { status?: number }).status).toBe(400);
+    expect(count()).toBe(1);
+  });
+
+  test("formatLinearError prepends 'rate limited' for rate-limited errors", () => {
+    const err = Object.assign(new Error("Linear API request failed"), {
+      status: 429,
+      body: "a".repeat(500),
+      rateLimited: true,
+    });
+    const msg = formatLinearError(err);
+    expect(msg).toContain("rate limited");
+    expect(msg).not.toContain("aaaa");
+  });
+});
+
+describe("formatLinearError (RLF-60)", () => {
+  test("formats HTTP errors with status + body", () => {
+    const err = Object.assign(new Error("Linear API request failed"), {
+      status: 500,
+      body: "boom",
+    });
+    const msg = formatLinearError(err);
+    expect(msg).toContain("HTTP 500");
+    expect(msg).toContain("boom");
+  });
+
+  test("truncates body to 200 chars", () => {
+    const err = Object.assign(new Error("x"), {
+      status: 500,
+      body: "a".repeat(500),
+    });
+    const msg = formatLinearError(err);
+    expect(msg).toContain("…");
+    expect(msg.length).toBeLessThan(400);
+  });
+
+  test("formats GraphQL errors with messages", () => {
+    const err = Object.assign(new Error("Linear API returned errors"), {
+      messages: ["bad field", "missing var"],
+    });
+    const msg = formatLinearError(err);
+    expect(msg).toContain("graphql:");
+    expect(msg).toContain("bad field");
+    expect(msg).toContain("missing var");
+  });
+
+  test("falls back to message for plain errors", () => {
+    expect(formatLinearError(new Error("plain"))).toBe("plain");
+  });
+
+  test("falls back to String() for non-Error values", () => {
+    expect(formatLinearError("oops")).toBe("oops");
+    expect(formatLinearError(undefined)).toBe("undefined");
   });
 });
 
