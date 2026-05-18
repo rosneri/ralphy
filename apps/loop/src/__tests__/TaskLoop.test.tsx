@@ -81,6 +81,10 @@ afterEach(() => {
 
 const stubChangeStore = {
   archiveChange: (_name: string) => Promise.resolve(),
+  // Throwing keeps the loop's "still active" fallback — existing tests
+  // that never write a tasks.md should not be terminated as
+  // archived-externally.
+  listChanges: () => Promise.reject(new Error("listChanges not stubbed")),
 };
 
 function makeState(overrides: Partial<BuildInitialStateOptions> = {}): State {
@@ -961,6 +965,114 @@ describe("TaskLoop", () => {
       const allText = frames.join("\n");
       expect(allText).toContain("All tasks completed");
       expect(archived).toBe("all-done-task");
+    });
+  });
+
+  test("recovers from a partial-write .ralph-state.json (linear-sync race)", async () => {
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "partial-state");
+      mkdirSync(taskDir, { recursive: true });
+      // Simulate the linear-sync race: a state file exists but only carries
+      // the linearComments patch — no version/name/prompt/createdAt.
+      writeFileSync(
+        join(taskDir, ".ralph-state.json"),
+        JSON.stringify({
+          linearComments: {
+            planCommentId: null,
+            tasksCommentId: "preserve-me-123",
+            planPostedAt: null,
+          },
+          status: "active",
+          lastModified: "2026-05-18T17:43:45.968Z",
+        }),
+        "utf-8",
+      );
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] one\n", "utf-8");
+
+      const opts = {
+        name: "partial-state",
+        prompt: "Recover and run",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("malformed");
+      // tasks.md is fully checked off — recovered state should let the
+      // "all tasks completed" path run normally instead of crashing.
+      expect(allText).toContain("All tasks completed");
+
+      // linearComments id must survive recovery to avoid duplicate comments.
+      const rewritten = JSON.parse(
+        require("node:fs").readFileSync(join(taskDir, ".ralph-state.json"), "utf-8"),
+      );
+      expect(rewritten.linearComments?.tasksCommentId).toBe("preserve-me-123");
+      expect(rewritten.version).toBe("2");
+      expect(typeof rewritten.prompt).toBe("string");
+      expect(typeof rewritten.createdAt).toBe("string");
+    });
+  });
+
+  test("exits when tasks.md is missing on a resumed task (change archived externally)", async () => {
+    let runs = 0;
+    runEngineMock.mockImplementation(async () => {
+      runs++;
+      return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
+    });
+
+    const externallyArchivedStore = {
+      archiveChange: (_name: string) => Promise.resolve(),
+      // Change is no longer active — simulates `openspec archive` having run.
+      listChanges: () => Promise.resolve([] as string[]),
+    };
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "missing-tasks");
+      mkdirSync(taskDir, { recursive: true });
+      // iteration > 0 marks this as a resume — the change ran before and was
+      // archived out from under us.
+      const state = { ...makeState({ name: "missing-tasks" }), iteration: 5 };
+      writeState(taskDir, state);
+      // Intentionally do NOT write tasks.md — simulates archived change.
+
+      const opts = {
+        name: "missing-tasks",
+        prompt: "no tasks file",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 10,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: externallyArchivedStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("archived externally");
+      expect(runs).toBe(0);
     });
   });
 

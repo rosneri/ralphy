@@ -150,6 +150,52 @@ describe("createPullRequest", () => {
     expect(calls.find((c) => c[0] === "gh" && c[2] === "create")).toBeUndefined();
   });
 
+  test("returns null when only-meta but a merged PR exists for the branch", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git diff --name-only origin/main...HEAD": {
+        stdout: "openspec/changes/x/tasks.md\n",
+      },
+      "gh pr list --head ralph/eng-7 --state merged": { stdout: "328\n" },
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/wt",
+        branch: "ralph/eng-7",
+        issue,
+        metaOnlyFiles: ["openspec/**", "**/tasks.md"],
+      },
+      runner,
+    );
+    expect(result).toBeNull();
+    // Must not block (no fix-task respawn) and must not push.
+    expect(calls.find((c) => c[0] === "git" && c[1] === "push")).toBeUndefined();
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "create")).toBeUndefined();
+  });
+
+  test("returns null when only-meta and git cherry shows all commits already on base", async () => {
+    const { runner } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git diff --name-only origin/main...HEAD": {
+        stdout: "openspec/changes/x/tasks.md\n",
+      },
+      // No merged PR found.
+      "gh pr list --head ralph/eng-7 --state merged": { stdout: "" },
+      // Every line starts with "-" → already in base.
+      "git cherry main HEAD": { stdout: "- 1111111111111111111111111111111111111111\n" },
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/wt",
+        branch: "ralph/eng-7",
+        issue,
+        metaOnlyFiles: ["openspec/**", "**/tasks.md"],
+      },
+      runner,
+    );
+    expect(result).toBeNull();
+  });
+
   test("falls back to local <base>...HEAD when origin/<base> is not available", async () => {
     const { runner, calls } = makeRunner({
       "git log --oneline main..HEAD": { stdout: "abc x\n" },

@@ -2,7 +2,13 @@ import { useState, useEffect, useRef } from "react";
 import { join } from "node:path";
 import type { State } from "@ralphy/types";
 import type { FeedEvent } from "@ralphy/engine/feed-events";
-import { readState, writeState, buildInitialState, ensureState } from "@ralphy/core/state";
+import {
+  readState,
+  writeState,
+  buildInitialState,
+  ensureState,
+  tryReadStateRaw,
+} from "@ralphy/core/state";
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
 import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
@@ -89,11 +95,15 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       const tasksDir = join(opts.tasksDir, opts.name);
       const storage = getStorage();
 
-      // Init or resume state
+      // Init or resume state. External writers (e.g. linear-sync) may have
+      // partial-written `.ralph-state.json` before the loop scaffolded a full
+      // state object, leaving a file that exists but fails schema validation.
+      // Salvage any non-schema fields (linearComments, etc.) and re-init
+      // rather than crashing.
       let currentState: State;
-      const existingStateRaw = storage.read(join(stateDir, ".ralph-state.json"));
-      if (existingStateRaw !== null) {
-        currentState = readState(stateDir);
+      const { state: parsedState, raw: rawState } = tryReadStateRaw(stateDir);
+      if (parsedState !== null) {
+        currentState = parsedState;
         if (currentState.engine !== opts.engine || currentState.model !== opts.model) {
           currentState = {
             ...currentState,
@@ -103,6 +113,11 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           writeState(stateDir, currentState);
         }
       } else {
+        if (rawState !== null) {
+          addInfo(
+            `.ralph-state.json was malformed — reinitialising. External fields (linearComments) preserved.`,
+          );
+        }
         currentState = buildInitialState({
           name: opts.name,
           prompt: opts.prompt,
@@ -111,6 +126,12 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           manualTest: opts.manualTest,
           createPr: opts.createPr ?? false,
         });
+        // Carry over linearComments if linear-sync wrote it before the loop
+        // could scaffold full state — otherwise we'd orphan the sticky
+        // Linear comment ids and create duplicates on the next sync.
+        if (rawState !== null && rawState.linearComments) {
+          (currentState as Record<string, unknown>).linearComments = rawState.linearComments;
+        }
         writeState(stateDir, currentState);
       }
 
@@ -148,6 +169,41 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         // tasks (`agent-tasks.md`) have zero unchecked items.
         const tasksContent = storage.read(join(tasksDir, MISSION_TASKS_FILENAME));
         const agentTasksContent = storage.read(join(tasksDir, AGENT_TASKS_FILENAME));
+
+        // If the mission tasks file is missing AND the change is no longer in
+        // the active list, it was archived out from under the loop (e.g. by the
+        // agent running `openspec archive` directly). Exit instead of
+        // respawning forever on a no-op iteration. A fresh run with no
+        // tasks.md and no registered change still falls through so the engine
+        // can scaffold on its first turn.
+        if (
+          tasksContent === null &&
+          currentState.iteration > 0 &&
+          typeof opts.changeStore.listChanges === "function"
+        ) {
+          let stillActive = true;
+          try {
+            const active = await opts.changeStore.listChanges();
+            stillActive = active.includes(opts.name);
+          } catch {
+            stillActive = true;
+          }
+          if (!stillActive) {
+            addInfo(
+              `tasks.md not found and change "${opts.name}" is no longer active — it was archived externally. Exiting.`,
+            );
+            currentState = {
+              ...currentState,
+              status: "completed",
+              lastModified: new Date().toISOString(),
+            };
+            writeState(stateDir, currentState);
+            setState(currentState);
+            finalStopReason = "completed";
+            break;
+          }
+        }
+
         if (tasksContent !== null) {
           const remaining = countUncheckedTasks(tasksContent);
           const agentRemaining =

@@ -98,6 +98,66 @@ async function classifyDiffAgainstMeta(
 }
 
 /**
+ * Detect whether the branch's substantive work has already landed on `base`.
+ *
+ * Two signals — either is sufficient:
+ *
+ * 1. **`gh pr list --state merged`** — a PR was opened from this branch and
+ *    later merged. The most common cause of the "only-meta" false alarm:
+ *    the implementation lives on `base` now, the branch only carries
+ *    leftover meta files.
+ * 2. **`git cherry base HEAD`** — git's own "are these commits already in
+ *    base?" check. Every line starting with `-` means the commit is already
+ *    in `base` (likely via a squash-merge with a different SHA). When every
+ *    line is `-`, the branch contributes no new commits beyond what `base`
+ *    has — same conclusion.
+ *
+ * Either signal returning true means there is nothing left to PR; the loop
+ * should exit, not respawn a "reapply lost implementation" fix task.
+ */
+async function branchAlreadyMerged(
+  runner: CmdRunner,
+  cwd: string,
+  branch: string,
+  base: string,
+): Promise<boolean> {
+  try {
+    const r = await runner.run(
+      [
+        "gh",
+        "pr",
+        "list",
+        "--head",
+        branch,
+        "--state",
+        "merged",
+        "--json",
+        "number",
+        "--jq",
+        ".[0].number // empty",
+      ],
+      cwd,
+    );
+    if (r.stdout.trim() !== "") return true;
+  } catch {
+    // gh missing / offline / unauthenticated — fall through to git cherry.
+  }
+
+  try {
+    const r = await runner.run(["git", "cherry", base, "HEAD"], cwd);
+    const lines = r.stdout
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (lines.length > 0 && lines.every((l) => l.startsWith("-"))) return true;
+  } catch {
+    // Best-effort signal; absence means we cannot prove merged → return false.
+  }
+
+  return false;
+}
+
+/**
  * Push the worktree's branch to origin and open (or surface) a GitHub PR
  * via the `gh` CLI. Returns the PR URL.
  *
@@ -127,11 +187,18 @@ export async function createPullRequest(
 
   // Substantive-diff guard. If every changed file matches a meta glob,
   // the implementation has been lost (either deleted mid-loop or merged
-  // upstream) — refuse to push an empty PR.
+  // upstream) — refuse to push an empty PR. Distinguish "merged upstream"
+  // from "lost": when a prior PR for this branch is already merged, the
+  // substantive work is on `base` and there is genuinely nothing left to
+  // open; treat it as "nothing to PR" rather than a blocked failure that
+  // triggers a fix-task respawn.
   const metaOnlyFiles = input.metaOnlyFiles ?? [];
   if (metaOnlyFiles.length > 0) {
     const classification = await classifyDiffAgainstMeta(runner, input.cwd, base, metaOnlyFiles);
     if (classification.onlyMeta && classification.files.length > 0) {
+      if (await branchAlreadyMerged(runner, input.cwd, input.branch, base)) {
+        return null;
+      }
       return {
         url: null,
         created: false,

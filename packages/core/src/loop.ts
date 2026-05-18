@@ -25,6 +25,10 @@ export {
  */
 export interface LoopChangeStore {
   archiveChange(name: string): Promise<void>;
+  /** Optional: if provided, the loop uses this to detect "change archived
+   *  externally" (tasks.md missing AND name no longer active) and exit
+   *  instead of respawning forever on a no-op iteration. */
+  listChanges?(): Promise<string[]>;
 }
 
 export interface LoopOptions {

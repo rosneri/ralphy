@@ -16,6 +16,34 @@ export function readState(changeDir: string): State {
 }
 
 /**
+ * Attempt to read a valid state file. Returns null if the file does not
+ * exist, is unreadable JSON, or fails schema validation. Use this when a
+ * partial-write from an external writer (e.g. linear-sync) may have
+ * produced a half-formed `.ralph-state.json` that the loop needs to
+ * recover from rather than crash on.
+ *
+ * The raw parsed JSON (if any) is returned alongside so callers can salvage
+ * non-schema fields like `linearComments`.
+ */
+export function tryReadStateRaw(changeDir: string): {
+  state: State | null;
+  raw: Record<string, unknown> | null;
+} {
+  const filePath = join(changeDir, STATE_FILE);
+  const text = getStorage().read(filePath);
+  if (text === null) return { state: null, raw: null };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { state: null, raw: null };
+  }
+  const raw = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
+  const result = StateSchema.safeParse(parsed);
+  return { state: result.success ? result.data : null, raw };
+}
+
+/**
  * Write .ralph-state.json to a change directory.
  */
 export function writeState(changeDir: string, state: State): void {
