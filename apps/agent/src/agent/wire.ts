@@ -33,6 +33,7 @@ import {
   findOpenIssueByLabel,
   issueMatchesGetIndicator,
   baseBranchFromLabels,
+  formatLinearError,
   type LinearIssue,
   type LinearFilterSpec,
 } from "./linear";
@@ -1358,7 +1359,7 @@ export function buildAgentCoordinator(
     try {
       candidates = await fetchMentionScanIssues(apiKey, { team, assignee });
     } catch (err) {
-      onLog(`! mention scan: fetchMentionScanIssues failed: ${(err as Error).message}`, "yellow");
+      onLog(`! mention scan: fetchMentionScanIssues failed: ${formatLinearError(err)}`, "yellow");
       return [];
     }
     const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
@@ -1369,7 +1370,7 @@ export function buildAgentCoordinator(
         comments = await fetchIssueComments(apiKey, issue.id);
       } catch (err) {
         onLog(
-          `! mention scan: Linear comments failed for ${issue.identifier}: ${(err as Error).message}`,
+          `! mention scan: Linear comments failed for ${issue.identifier}: ${formatLinearError(err)}`,
           "yellow",
         );
         continue;
@@ -1395,7 +1396,7 @@ export function buildAgentCoordinator(
             await addReactionToComment(apiKey, c.id, "👀");
           } catch (err) {
             onLog(
-              `! mention scan: Linear reaction failed for ${issue.identifier}: ${(err as Error).message}`,
+              `! mention scan: Linear reaction failed for ${issue.identifier}: ${formatLinearError(err)}`,
               "yellow",
             );
           }
@@ -1435,7 +1436,7 @@ export function buildAgentCoordinator(
               );
             } catch (err) {
               onLog(
-                `! mention scan: GitHub reaction failed for ${prUrl}: ${(err as Error).message}`,
+                `! mention scan: GitHub reaction failed for ${prUrl}: ${formatLinearError(err)}`,
                 "yellow",
               );
             }
@@ -1744,7 +1745,7 @@ export function buildAgentCoordinator(
       }[];
       return parsed;
     } catch (err) {
-      onLog(`! mention scan: gh comments failed for ${prUrl}: ${(err as Error).message}`, "yellow");
+      onLog(`! mention scan: gh comments failed for ${prUrl}: ${formatLinearError(err)}`, "yellow");
       return [];
     }
   }
