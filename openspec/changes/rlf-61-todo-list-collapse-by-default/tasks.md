@@ -11,10 +11,10 @@
 
 ## Implementation
 
-- [ ] Update `apps/ui/src/components/ProgressList.tsx` to track per-section expanded state with `useState`, defaulting every section to collapsed.
-- [ ] Make each section header a clickable button/div that toggles its expanded state, with a caret/indicator and an item count (e.g. `2 / 5`) shown beside the title.
-- [ ] Render section items only when the section is expanded; keep the existing empty-state placeholder.
-- [ ] Add a unit/component test under `apps/ui/src/components/` (or appropriate test location) that verifies (a) sections start collapsed, (b) clicking a header expands the section, and (c) clicking again collapses it.
-- [ ] Run `bun run lint` from the repo root and fix any new findings.
-- [ ] Run `bun run test` from the repo root and ensure the suite (including the new test) passes.
-- [ ] Run `bunx openspec validate rlf-61-todo-list-collapse-by-default` and ensure it passes.
+- [x] Update `apps/ui/src/components/ProgressList.tsx` to track per-section expanded state with `useState`, defaulting every section to collapsed.
+- [x] Make each section header a clickable button/div that toggles its expanded state, with a caret/indicator and an item count (e.g. `2 / 5`) shown beside the title.
+- [x] Render section items only when the section is expanded; keep the existing empty-state placeholder.
+- [x] Add a unit/component test under `apps/ui/src/components/` (or appropriate test location) that verifies (a) sections start collapsed, (b) clicking a header expands the section, and (c) clicking again collapses it.
+- [x] Run `bun run lint` from the repo root and fix any new findings.
+- [x] Run `bun run test` from the repo root and ensure the suite (including the new test) passes.
+- [x] Run `bunx openspec validate rlf-61-todo-list-collapse-by-default` and ensure it passes.
