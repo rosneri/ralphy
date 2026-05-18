@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchIssuesAttachmentsBulk } from "../agent/linear";
+import { fetchAttachmentsForIssues } from "../agent/linear";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;
@@ -29,10 +29,10 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe("fetchIssuesAttachmentsBulk", () => {
+describe("fetchAttachmentsForIssues", () => {
   test("returns empty map and issues no fetch when issueIds is empty", async () => {
     const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
-    const result = await fetchIssuesAttachmentsBulk("key", []);
+    const result = await fetchAttachmentsForIssues("key", []);
     expect(result.size).toBe(0);
     expect(calls.length).toBe(0);
   });
@@ -67,9 +67,9 @@ describe("fetchIssuesAttachmentsBulk", () => {
         },
       };
     });
-    const result = await fetchIssuesAttachmentsBulk("key", ["i1", "i2", "i3"]);
+    const result = await fetchAttachmentsForIssues("key", ["i1", "i2", "i3"]);
     expect(calls.length).toBe(1);
-    expect(calls[0]!.query).toContain("IssuesAttachmentsBulk");
+    expect(calls[0]!.query).toContain("IssuesAttachments");
     expect(result.get("i1")?.[0]?.url).toBe("https://github.com/o/r/pull/1");
     expect(result.get("i2")).toEqual([]);
     expect(result.get("i3")?.[0]?.id).toBe("a3");
@@ -79,7 +79,7 @@ describe("fetchIssuesAttachmentsBulk", () => {
     stubFetch(() => ({
       issues: { nodes: [{ id: "i1", attachments: { nodes: [] } }] },
     }));
-    const result = await fetchIssuesAttachmentsBulk("key", ["i1", "i-missing"]);
+    const result = await fetchAttachmentsForIssues("key", ["i1", "i-missing"]);
     expect(result.has("i1")).toBe(true);
     expect(result.has("i-missing")).toBe(false);
     expect(result.get("i-missing") ?? []).toEqual([]);

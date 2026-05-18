@@ -16,6 +16,7 @@ import {
   addReactionToComment,
   fetchIssueComments,
   fetchIssueAttachments,
+  fetchAttachmentsForIssues,
   createRalphyAttachment,
   updateAttachmentSubtitle,
   upsertRalphyAttachment,
@@ -554,6 +555,95 @@ describe("agent/linear", () => {
   test("fetchIssueAttachments returns [] when issue is null", async () => {
     mockFetch(async () => new Response(JSON.stringify({ data: { issue: null } }), { status: 200 }));
     expect(await fetchIssueAttachments("k", "missing")).toEqual([]);
+  });
+
+  test("fetchAttachmentsForIssues with empty input makes no HTTP call", async () => {
+    let calls = 0;
+    mockFetch(async () => {
+      calls += 1;
+      return new Response("{}", { status: 200 });
+    });
+    const result = await fetchAttachmentsForIssues("k", []);
+    expect(calls).toBe(0);
+    expect(result.size).toBe(0);
+  });
+
+  test("fetchAttachmentsForIssues batches into a single request and maps by id", async () => {
+    const captured: { variables: { ids: string[] } }[] = [];
+    mockFetch(async (req) => {
+      captured.push((await req.json()) as { variables: { ids: string[] } });
+      return new Response(
+        JSON.stringify({
+          data: {
+            issues: {
+              nodes: [
+                {
+                  id: "b1",
+                  attachments: {
+                    nodes: [
+                      {
+                        id: "a1",
+                        url: "https://github.com/o/r/pull/1",
+                        sourceType: "github",
+                        title: "x",
+                      },
+                    ],
+                  },
+                },
+                { id: "b2", attachments: { nodes: [] } },
+              ],
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const out = await fetchAttachmentsForIssues("k", ["b1", "b2", "b3"]);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.variables).toEqual({ ids: ["b1", "b2", "b3"] });
+    expect(out.get("b1")).toHaveLength(1);
+    expect(out.get("b1")![0]!.url).toBe("https://github.com/o/r/pull/1");
+    expect(out.get("b2")).toEqual([]);
+    // Ids absent from the response are absent from the map (caller `?? []`s).
+    expect(out.get("b3")).toBeUndefined();
+  });
+
+  test("fetchIssueAttachments sends server-side title filter when titleFilter is set", async () => {
+    let captured: { query: string; variables: Record<string, unknown> } | null = null;
+    mockFetch(async (req) => {
+      captured = (await req.json()) as { query: string; variables: Record<string, unknown> };
+      return new Response(
+        JSON.stringify({
+          data: {
+            issue: {
+              attachments: {
+                nodes: [{ id: "a1", url: "https://x", sourceType: null, title: "Ralphy" }],
+              },
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    const out = await fetchIssueAttachments("k", "issue-1", { titleFilter: "Ralphy" });
+    expect(out).toHaveLength(1);
+    expect(captured!.variables).toEqual({ id: "issue-1", titleFilter: "Ralphy" });
+    expect(captured!.query).toContain("$titleFilter: String!");
+    expect(captured!.query).toContain("filter: { title: { eq: $titleFilter } }");
+  });
+
+  test("fetchIssueAttachments omits the title filter variable when titleFilter is not set", async () => {
+    let captured: { query: string; variables: Record<string, unknown> } | null = null;
+    mockFetch(async (req) => {
+      captured = (await req.json()) as { query: string; variables: Record<string, unknown> };
+      return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }), {
+        status: 200,
+      });
+    });
+    await fetchIssueAttachments("k", "issue-1");
+    expect(captured!.variables).toEqual({ id: "issue-1" });
+    expect(captured!.query).not.toContain("titleFilter");
+    expect(captured!.query).not.toContain("filter:");
   });
 
   test("updateIssueState posts an issueUpdate mutation with stateId", async () => {

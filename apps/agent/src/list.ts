@@ -6,12 +6,13 @@ import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
 import {
   fetchOpenIssues,
-  fetchIssuesAttachmentsBulk,
+  fetchAttachmentsForIssues,
   type LinearFilterSpec,
   type LinearIssue,
 } from "./agent/linear";
 import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
+import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
 
 interface LocalRow {
@@ -270,9 +271,10 @@ async function fetchAndPrintLinear(
   const rows = [...seen.values()];
 
   // Resolve PR URLs via a single bulk attachments query (one Linear request
-  // for every row, instead of N parallel calls).
+  // for every row, instead of N parallel calls). Falls back to a per-row
+  // GitHub search when Linear has no attachment for an identifier yet.
   try {
-    const attachmentsByIssue = await fetchIssuesAttachmentsBulk(
+    const attachmentsByIssue = await fetchAttachmentsForIssues(
       apiKey,
       rows.map((r) => r.issueId),
     );
@@ -283,6 +285,17 @@ async function fetchAndPrintLinear(
   } catch {
     // leave prUrl null on bulk attachment fetch failure
   }
+  await Promise.all(
+    rows.map(async (row) => {
+      if (row.prUrl) return;
+      try {
+        const fromGitHub = await discoverPrUrlFromGitHub(row.identifier, runner, cwd);
+        if (fromGitHub) row.prUrl = fromGitHub;
+      } catch {
+        // leave prUrl null on GitHub fallback failure
+      }
+    }),
+  );
 
   // Resolve PR status in parallel.
   await Promise.all(

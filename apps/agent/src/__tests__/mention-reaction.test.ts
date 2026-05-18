@@ -104,12 +104,13 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
       //   - `MentionScanIssues` (broad: state.type IN
       //     unstarted/started/backlog/triage/completed) drives the
       //     mention scan; it MUST return the candidate issue regardless
-      //     of its workflow state.
+      //     of its workflow state. Comments are now embedded so the
+      //     mention loop never round-trips for fetchIssueComments.
       //   - The legacy `Issues` query is used by the conflict scan and
       //     filters by `state.name: { in: ["Done"] }`; return the issue
       //     only when that Done include is present.
       const issueState = handlers.issueState ?? { name: "Done", type: "completed" };
-      const candidate = {
+      const candidateBase = {
         id: "uuid-eng-7",
         identifier: "ENG-7",
         title: "Shipped task",
@@ -124,11 +125,24 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
       };
       const isMentionScan = q.includes("MentionScanIssues");
       if (isMentionScan) {
-        return new Response(JSON.stringify({ data: { issues: { nodes: [candidate] } } }));
+        const withComments = {
+          ...candidateBase,
+          comments: {
+            nodes: [
+              {
+                id: "comment-id-42",
+                body: "@ralphy please retry",
+                createdAt: "2026-05-15T10:00:00Z",
+                user: { name: "alice", email: null },
+              },
+            ],
+          },
+        };
+        return new Response(JSON.stringify({ data: { issues: { nodes: [withComments] } } }));
       }
       const serialized = JSON.stringify(body.variables.filter ?? {});
       const isDone = serialized.includes('"Done"');
-      const nodes = isDone && issueState.type === "completed" ? [candidate] : [];
+      const nodes = isDone && issueState.type === "completed" ? [candidateBase] : [];
       return new Response(JSON.stringify({ data: { issues: { nodes } } }));
     }
     if (q.includes("IssueAttachments") || q.includes("attachments(first")) {
@@ -260,7 +274,7 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
     expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
   });
 
-  test("rate-limit on fetchIssueComments stops the scan early (RLF-65)", async () => {
+  test("mention scan uses inline comments without per-issue fetchIssueComments (RLF-66)", async () => {
     const commentsCalls: string[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -304,6 +318,7 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
             assignee: null,
             labels: { nodes: [] },
             relations: { nodes: [] },
+            comments: { nodes: [] },
           },
           {
             id: "uuid-b",
@@ -317,6 +332,7 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
             assignee: null,
             labels: { nodes: [] },
             relations: { nodes: [] },
+            comments: { nodes: [] },
           },
         ];
         return new Response(JSON.stringify({ data: { issues: { nodes: candidates } } }));
@@ -327,12 +343,6 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
       if (q.includes("issue(id") && q.includes("comments")) {
         const id = body.variables.id as string;
         commentsCalls.push(id);
-        // First candidate: return a 429 rate-limit body.
-        if (id === "uuid-a") {
-          return new Response('{"errors":[{"message":"Rate limit exceeded"}]}', {
-            status: 400,
-          });
-        }
         return new Response(JSON.stringify({ data: { issue: { comments: { nodes: [] } } } }));
       }
       if (q.includes("IssueAttachments") || q.includes("attachments(first")) {
@@ -399,8 +409,9 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
     await coord.pollOnce();
     await new Promise((r) => setTimeout(r, 20));
 
-    // Only the first candidate's comments are fetched — the second is skipped.
-    expect(commentsCalls).toEqual(["uuid-a"]);
-    expect(logs.some((l) => l.line.includes("rate limited, deferring rest of scan"))).toBe(true);
+    // Inline comments mean the per-issue fetchIssueComments query is
+    // never called during the mention scan, regardless of candidate count.
+    void logs;
+    expect(commentsCalls).toEqual([]);
   });
 });
