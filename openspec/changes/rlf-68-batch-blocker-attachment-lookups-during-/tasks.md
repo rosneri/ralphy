@@ -1,0 +1,16 @@
+# Tasks for RLF-68
+
+## Manual Testing
+
+- [x] `fetchAttachmentsForIssues(apiKey, issueIds)` is exported from `apps/agent/src/agent/linear.ts` and issues a single GraphQL request shaped as `issues(filter: { id: { in: $ids } }, first: 100)` selecting `attachments(first: 25) { nodes { id url sourceType title } }`. Verified by reading `apps/agent/src/agent/linear.ts:632-664`.
+- [x] `fetchAttachmentsForIssues` short-circuits with an empty `Map` and performs **no** HTTP request when `issueIds` is empty. Verified by reading the guard at the top of the function and by the unit test `5 blockers trigger exactly one Linear request and resolve the single open PR` in `apps/agent/src/__tests__/resolve-dependency-base-branch.test.ts` (which proves the batched call count is exactly 1).
+- [x] `fetchAttachmentsForIssues` returns a `Map<string, LinearAttachment[]>` keyed by issue id, and missing ids (e.g. permission-scoped) are absent — callers normalize with `?? []`. Verified in `resolveDependencyBaseBranchImpl` (`apps/agent/src/agent/wire.ts`), which reads `attachmentsByBlocker.get(blockerId) ?? []`.
+- [x] `resolveDependencyBaseBranchImpl(issue, runner, runnerCwd, { apiKey, onLog })` is exported from `apps/agent/src/agent/wire.ts` so unit tests can exercise it without booting the coordinator. Verified by the import in `apps/agent/src/__tests__/resolve-dependency-base-branch.test.ts`.
+- [x] The coordinator-internal `resolveDependencyBaseBranch` closure inside `buildAgentCoordinator` delegates to `resolveDependencyBaseBranchImpl` with the same `apiKey` / `onLog` and produces identical behavior to the pre-refactor inline implementation. Verified by reading `apps/agent/src/agent/wire.ts` (the closure is now a one-line delegation).
+- [x] When `issue.blockedByIds` is empty the resolver returns `null` without making any Linear or `gh` calls. Covered by the inline guard `if (blockerIds.length === 0) return null;` and exercised indirectly via existing agent-level tests that handle non-blocked issues.
+- [x] When the batched Linear call throws, the resolver logs a yellow warning `! could not fetch attachments for blockers of <ID>: <msg>` and returns `null` (no partial resolution). Verified by reading `resolveDependencyBaseBranchImpl` and the `try/catch` around `fetchAttachmentsForIssues`.
+- [x] Per-blocker behavior is preserved: exactly one open PR for a blocker contributes its `headRefName` as a candidate; multiple open PRs on a single blocker emit `blocker <id> has N open PRs — skipping dependency base resolution` and contribute nothing. Verified against `resolveDependencyBaseBranchImpl` and the test `multiple blockers with open PRs trigger fallback log and return null` in `resolve-dependency-base-branch.test.ts`.
+- [x] Aggregate behavior is preserved: exactly one blocker-with-open-PR returns that head branch; multiple distinct candidates fall back to `null` with a `<N> blockers have open PRs — falling back to default base` log. Verified by reading `resolveDependencyBaseBranchImpl` and the corresponding test case.
+- [x] `bun test apps/agent/src/__tests__/resolve-dependency-base-branch.test.ts` passes (3/3 tests, 11 expect calls). Run locally.
+- [x] `bun test apps/agent/src/__tests__/agent.test.ts` passes (49/49 tests, 126 expect calls). Run locally.
+- [x] `bunx nx run agent:typecheck` succeeds end-to-end. Run locally.
