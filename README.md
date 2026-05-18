@@ -243,7 +243,7 @@ the bottom of the timeline, after the new steering comment.
 
 The first time planning completes (every `- [ ]` under `## Planning` in
 `tasks.md` becomes `- [x]`), Ralph posts a one-shot "📋 Plan" comment
-summarising `proposal.md` (`## Why` + `## What Changes`) and the first
+summarizing `proposal.md` (`## Why` + `## What Changes`) and the first
 paragraph of `design.md`.
 
 ##### Legacy: sync into the issue description

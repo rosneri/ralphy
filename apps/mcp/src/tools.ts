@@ -20,7 +20,7 @@ function safeTool<T extends Record<string, z.ZodTypeAny>>(
   server.registerTool(name, config, callback);
 }
 
-export interface RegisterToolsHooks {
+interface RegisterToolsHooks {
   /** Invoked after `ralph_append_steering` successfully writes steering.md
    *  + tasks.md. Lets an embedded coordinator post a fresh Linear
    *  steering comment and refresh the tasks comment. No-op when omitted

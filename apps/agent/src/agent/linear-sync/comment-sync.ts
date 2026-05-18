@@ -16,11 +16,10 @@ import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { renderTasksBlock } from "./index";
 
-export const TASKS_COMMENT_TITLE = "📝 Ralph tasks";
-export const PLAN_COMMENT_TITLE = "📋 Ralph plan";
-export const STEERING_COMMENT_TITLE = "🧭 Ralph steering";
+const PLAN_COMMENT_TITLE = "📋 Ralph plan";
+const STEERING_COMMENT_TITLE = "🧭 Ralph steering";
 
-export interface LinearCommentsState {
+interface LinearCommentsState {
   planCommentId: string | null;
   tasksCommentId: string | null;
   planPostedAt: string | null;
@@ -31,7 +30,7 @@ interface PersistedState {
   [key: string]: unknown;
 }
 
-export type LogFn = (text: string, color?: string) => void;
+type LogFn = (text: string, color?: string) => void;
 
 export interface CommentMutations {
   createIssueComment: (apiKey: string, issueId: string, body: string) => Promise<string>;
@@ -181,8 +180,8 @@ interface SectionCheck {
   total: number;
 }
 
-/** Parse tasks.md and report whether the `## Planning` section has any
- *  remaining `- [ ]` items. */
+/** Parse tasks.md and report whether the `## Planning` section contains
+ *  unchecked `- [ ]` items. */
 export function planningComplete(tasksMd: string): SectionCheck {
   const lines = tasksMd.split(/\r?\n/);
   let inPlanning = false;
