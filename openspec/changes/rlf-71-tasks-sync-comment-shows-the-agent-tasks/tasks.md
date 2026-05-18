@@ -18,3 +18,10 @@
 - [x] Run `bunx openspec validate rlf-71-tasks-sync-comment-shows-the-agent-tasks` and confirm it passes
 - [x] Run `bun run lint` from the repo root and fix any new findings
 - [x] Run `bun run test` from the repo root and confirm all tests pass
+
+## Manual Testing
+
+- [x] Render a tasks.md with both `## Planning` and `## Implementation` sections via `renderTasksBlock` and confirm the output omits the Planning heading and bullets while keeping Implementation content, the markers, and the footer
+- [x] Render a tasks.md that contains only a `## Planning` section and confirm the placeholder `_No mission tasks yet — planning in progress._` is emitted between the markers, with no Planning bullets leaking through
+- [x] Render a tasks.md with a mixed-case `## PLANNING` heading and confirm the filter is case-insensitive (Planning section dropped, other sections preserved)
+- [x] Run `bunx openspec validate rlf-71-tasks-sync-comment-shows-the-agent-tasks` and confirm the change is still valid after adding the Manual Testing section
