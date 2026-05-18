@@ -1,9 +1,21 @@
 import { join } from "node:path";
 import { StateSchema, type State } from "@ralphy/types";
 import { getStorage } from "@ralphy/context";
-import { formatTaskName } from "./format";
 
 const STATE_FILE = ".ralph-state.json";
+
+/**
+ * Normalize a task name: trim, lowercase, replace spaces/underscores with
+ * hyphens, collapse runs of hyphens, and strip leading/trailing hyphens.
+ */
+export function formatTaskName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 /**
  * Read and parse .ralph-state.json from a change directory.

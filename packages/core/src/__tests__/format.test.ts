@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatTaskName } from "../format";
+import { formatTaskName } from "../state";
 
 describe("formatTaskName", () => {
   test("trims whitespace", () => {

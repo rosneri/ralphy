@@ -1000,9 +1000,7 @@ export function AgentMode({
             subtasks.length > 0,
           );
           const subtasksRendered = subtasksPanelVisible
-            ? (showAllSubtasks
-                ? subtasks.length
-                : Math.min(subtasks.length, MAX_PENDING_DISPLAY)) +
+            ? (showAllSubtasks ? subtasks.length : Math.min(subtasks.length, MAX_PENDING_DISPLAY)) +
               (!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY ? 1 : 0)
             : 0;
           const progressBarVisible = shouldShowProgressBar(
