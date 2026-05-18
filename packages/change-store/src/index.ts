@@ -12,6 +12,38 @@ export interface ValidationResult {
   errors: string[];
 }
 
+export interface ArtifactStatus {
+  id: string;
+  outputPath?: string;
+  status: "ready" | "done" | "blocked" | string;
+  missingDeps?: string[];
+}
+
+export interface ChangeStatus {
+  changeName: string;
+  schemaName?: string;
+  isComplete: boolean;
+  applyRequires: string[];
+  artifacts: ArtifactStatus[];
+}
+
+export interface ArtifactInstructions {
+  changeName: string;
+  artifactId: string;
+  outputPath?: string;
+  description?: string;
+  instruction: string;
+  template?: string;
+  dependencies?: { id: string; done: boolean; path?: string; description?: string }[];
+}
+
+export interface ChangeDeltas {
+  id: string;
+  title?: string;
+  deltaCount: number;
+  deltas: unknown[];
+}
+
 export interface ChangeStore {
   /**
    * Create a new change with the given name and description.
@@ -44,15 +76,25 @@ export interface ChangeStore {
   appendSteering(name: string, message: string): Promise<void>;
 
   /**
-   * Read a specific heading section from an artifact file (e.g. proposal.md).
-   * Returns the content under the heading, up to the next same-or-higher-level heading.
-   */
-  readSection(name: string, artifact: string, heading: string): Promise<string>;
-
-  /**
    * Validate the given change and return structured results.
    */
   validateChange(name: string): Promise<ValidationResult>;
+
+  /**
+   * Return artifact completion status for the change (canonical OpenSpec view).
+   */
+  getStatus(name: string): Promise<ChangeStatus>;
+
+  /**
+   * Return enriched instructions/template for creating a specific artifact
+   * (proposal | specs | design | tasks) within the change.
+   */
+  getInstructions(name: string, artifact: string): Promise<ArtifactInstructions>;
+
+  /**
+   * Return structured spec-delta info for the change.
+   */
+  showChange(name: string): Promise<ChangeDeltas>;
 
   /**
    * Archive the given change once it is complete.

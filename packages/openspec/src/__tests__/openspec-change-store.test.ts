@@ -56,8 +56,10 @@ describe("OpenSpecChangeStore", () => {
     expect(typeof store.readTaskList).toBe("function");
     expect(typeof store.writeTaskList).toBe("function");
     expect(typeof store.appendSteering).toBe("function");
-    expect(typeof store.readSection).toBe("function");
     expect(typeof store.listChanges).toBe("function");
+    expect(typeof store.getStatus).toBe("function");
+    expect(typeof store.getInstructions).toBe("function");
+    expect(typeof store.showChange).toBe("function");
   });
 
   test("getChangeDirectory returns the expected path", () => {
@@ -185,7 +187,7 @@ describe("OpenSpecChangeStore", () => {
     expect(result.errors).toEqual([]);
   });
 
-  test("archiveChange invokes the openspec bin with Node", async () => {
+  test("archiveChange invokes the openspec bin with Node and does not skip specs", async () => {
     const store = new OpenSpecChangeStore();
     await store.archiveChange("sample-change");
 
@@ -195,6 +197,89 @@ describe("OpenSpecChangeStore", () => {
     expect(cmd[1]).toMatch(/openspec\.js$/);
     expect(cmd).toContain("archive");
     expect(cmd).toContain("sample-change");
+    expect(cmd).not.toContain("--skip-specs");
+  });
+
+  test("getStatus parses JSON output into a ChangeStatus", async () => {
+    nextSpawnResult = {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        changeName: "sample-change",
+        isComplete: false,
+        applyRequires: ["tasks"],
+        artifacts: [
+          { id: "proposal", status: "ready", outputPath: "proposal.md" },
+          { id: "tasks", status: "blocked", missingDeps: ["proposal"] },
+        ],
+      }),
+      stderr: "",
+    };
+    const store = new OpenSpecChangeStore();
+    const status = await store.getStatus("sample-change");
+
+    expect(spawnCalls[0]!.cmd).toContain("status");
+    expect(spawnCalls[0]!.cmd).toContain("--change");
+    expect(spawnCalls[0]!.cmd).toContain("sample-change");
+    expect(spawnCalls[0]!.cmd).toContain("--json");
+    expect(status.isComplete).toBe(false);
+    expect(status.applyRequires).toEqual(["tasks"]);
+    expect(status.artifacts).toHaveLength(2);
+  });
+
+  test("getStatus returns a safe fallback when stdout is not JSON", async () => {
+    nextSpawnResult = { exitCode: 0, stdout: "not-json", stderr: "" };
+    const store = new OpenSpecChangeStore();
+    const status = await store.getStatus("sample-change");
+    expect(status.isComplete).toBe(false);
+    expect(status.artifacts).toEqual([]);
+  });
+
+  test("getInstructions parses JSON output into ArtifactInstructions", async () => {
+    nextSpawnResult = {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        changeName: "sample-change",
+        artifactId: "tasks",
+        instruction: "Create the task list…",
+        template: "## 1. Group\n\n- [ ] 1.1 task\n",
+        dependencies: [{ id: "specs", done: false, path: "specs/**/*.md" }],
+      }),
+      stderr: "",
+    };
+    const store = new OpenSpecChangeStore();
+    const instr = await store.getInstructions("sample-change", "tasks");
+
+    expect(spawnCalls[0]!.cmd).toContain("instructions");
+    expect(spawnCalls[0]!.cmd).toContain("tasks");
+    expect(spawnCalls[0]!.cmd).toContain("--change");
+    expect(spawnCalls[0]!.cmd).toContain("sample-change");
+    expect(spawnCalls[0]!.cmd).toContain("--json");
+    expect(instr.instruction).toContain("Create the task list");
+    expect(instr.template).toContain("1.1 task");
+    expect(instr.dependencies?.[0]?.id).toBe("specs");
+  });
+
+  test("showChange parses JSON output into ChangeDeltas", async () => {
+    nextSpawnResult = {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        id: "sample-change",
+        title: "Sample",
+        deltaCount: 2,
+        deltas: [{}, {}],
+      }),
+      stderr: "",
+    };
+    const store = new OpenSpecChangeStore();
+    const result = await store.showChange("sample-change");
+
+    expect(spawnCalls[0]!.cmd).toContain("show");
+    expect(spawnCalls[0]!.cmd).toContain("sample-change");
+    expect(spawnCalls[0]!.cmd).toContain("--json");
+    expect(spawnCalls[0]!.cmd).toContain("--type");
+    expect(spawnCalls[0]!.cmd).toContain("change");
+    expect(result.deltaCount).toBe(2);
+    expect(result.title).toBe("Sample");
   });
 
   test("archiveChange throws when spawn exits non-zero", async () => {
