@@ -17,6 +17,7 @@ function issue(
     url: `https://example/${identifier}`,
     state: { name: "Todo", type: "unstarted" },
     assignee: null,
+    project: null,
     labels,
     priority,
     createdAt,

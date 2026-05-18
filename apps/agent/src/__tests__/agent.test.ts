@@ -48,6 +48,7 @@ function makeIssue(overrides: Partial<LinearIssue> = {}): LinearIssue {
     url: "https://linear.app/eng/issue/ENG-42/add-dark-mode",
     state: { name: "Todo", type: "unstarted" },
     assignee: { id: "u1", email: "dev@example.com", name: "Dev" },
+    project: null,
     labels: ["frontend"],
     priority: 3,
     createdAt: "2026-01-01T00:00:00.000Z",

@@ -12,6 +12,7 @@ function issue(id: string, identifier: string): LinearIssue {
     url: `https://example/${identifier}`,
     state: { name: "Todo", type: "unstarted" },
     assignee: null,
+    project: null,
     labels: [],
     priority: 3,
     createdAt: "2026-01-01T00:00:00.000Z",

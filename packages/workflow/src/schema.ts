@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const MarkerSchema = z.object({
-  type: z.enum(["label", "status", "attachment"]),
+  type: z.enum(["label", "status", "attachment", "project"]),
   value: z.string().min(1),
 });
 
