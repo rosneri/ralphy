@@ -14,6 +14,23 @@ import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { isCommentNotFoundError } from "./comment-sync";
 
+/** Build a Linear-API error suffix that surfaces .status / .body / .messages
+ *  fields attached by linearRequest. Without this, every HTTP failure
+ *  collapses to the generic message "Linear API request failed", which
+ *  hides 4xx vs 5xx and makes recurring failures undiagnosable. */
+function describeLinearError(err: unknown): string {
+  const e = err as Error & { status?: number; body?: string; messages?: string[] };
+  const parts: string[] = [e.message ?? String(err)];
+  if (typeof e.status === "number") parts.push(`status=${e.status}`);
+  if (Array.isArray(e.messages) && e.messages.length > 0)
+    parts.push(`messages=${e.messages.join("; ")}`);
+  if (typeof e.body === "string" && e.body.length > 0) {
+    const trimmed = e.body.length > 200 ? `${e.body.slice(0, 200)}…` : e.body;
+    parts.push(`body=${trimmed.replace(/\s+/g, " ").trim()}`);
+  }
+  return parts.join(" ");
+}
+
 const ATTACHMENT_TITLES = {
   proposal: "Ralph proposal",
   design: "Ralph design",
@@ -156,7 +173,10 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     });
     assetUrl = uploaded.assetUrl;
   } catch (err) {
-    deps.log(`! spec-attachments: upload ${filename} failed: ${(err as Error).message}`, "yellow");
+    deps.log(
+      `! spec-attachments: upload ${filename} failed: ${describeLinearError(err)}`,
+      "yellow",
+    );
     return;
   }
 
@@ -177,7 +197,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     } catch (err) {
       if (!isCommentNotFoundError(err)) {
         deps.log(
-          `! spec-attachments: updateAttachmentUrl ${filename} failed: ${(err as Error).message}`,
+          `! spec-attachments: updateAttachmentUrl ${filename} failed: ${describeLinearError(err)}`,
           "yellow",
         );
         return;
@@ -200,7 +220,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     });
   } catch (err) {
     deps.log(
-      `! spec-attachments: createAttachmentForUrl ${filename} failed: ${(err as Error).message}`,
+      `! spec-attachments: createAttachmentForUrl ${filename} failed: ${describeLinearError(err)}`,
       "yellow",
     );
     return;
