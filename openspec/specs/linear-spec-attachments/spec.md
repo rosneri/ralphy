@@ -107,7 +107,7 @@ worker, MUST:
 - An `attachmentUpdate` that returns a "not found" / "could not find"
   error (manually deleted attachment) MUST fall through to a fresh
   `attachmentCreate` and persist the replacement id under the same slot,
-  mirroring the recreate behaviour already used by the tasks comment.
+  mirroring the recreate behavior already used by the tasks comment.
 
 #### Scenario: design.md missing skips only that slot
 

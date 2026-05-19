@@ -1,0 +1,119 @@
+## Fix failing CI checks (2026-05-19T05:57:34.002Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26079042407 ---
+ci Spell check ﻿2026-05-19T05:54:00.2811192Z ##[group]Run bunx cspell "**/\*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
+ci Spell check 2026-05-19T05:54:00.2811746Z [36;1mbunx cspell "**/\*.{ts,tsx,js,mjs,mts,json,md}" --no-progress[0m
+ci Spell check 2026-05-19T05:54:00.2844853Z shell: /usr/bin/bash -e {0}
+ci Spell check 2026-05-19T05:54:00.2845098Z env:
+ci Spell check 2026-05-19T05:54:00.2845558Z NX_BASE: 3ac12e43cfba347bc2609087c891350e69e21fe2
+ci Spell check 2026-05-19T05:54:00.2845914Z NX_HEAD: b4a963976f7ac180705f42f22a9b2915a0b79dc8
+ci Spell check 2026-05-19T05:54:00.2846197Z ##[endgroup]
+ci Spell check 2026-05-19T05:54:00.2947547Z Resolving dependencies
+ci Spell check 2026-05-19T05:54:02.0131719Z Resolved, downloaded and extracted [216]
+ci Spell check 2026-05-19T05:54:02.0407679Z Saved lockfile
+ci Spell check 2026-05-19T05:54:04.2514728Z openspec/specs/linear-spec-attachments/spec.md:110:26 - Unknown word (behaviour)
+ci Spell check 2026-05-19T05:54:04.7937161Z CSpell: Files checked: 302, Issues found: 1 in 1 file.
+ci Spell check 2026-05-19T05:54:04.8182839Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-19T05:54:10.0343751Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-19T05:54:10.0344159Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-19T05:54:10.0380027Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-19T05:54:10.0380280Z env:
+ci Test affected files + coverage 2026-05-19T05:54:10.0380511Z NX_BASE: 3ac12e43cfba347bc2609087c891350e69e21fe2
+ci Test affected files + coverage 2026-05-19T05:54:10.0380847Z NX_HEAD: b4a963976f7ac180705f42f22a9b2915a0b79dc8
+ci Test affected files + coverage 2026-05-19T05:54:10.0381127Z ##[endgroup]
+ci Test affected files + coverage 2026-05-19T05:54:10.0452054Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-19T05:54:10.0675862Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-19T05:54:10.0676588Z
+ci Test affected files + coverage 2026-05-19T05:54:12.2219804Z agent: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-19T05:54:12.2220575Z apps/agent/src/**tests**/linear-spec-attachments.test.ts
+ci Test affected files + coverage 2026-05-19T05:54:12.2220960Z
+ci Test affected files + coverage 2026-05-19T05:54:12.2234466Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-19T05:54:12.2325250Z
+ci Test affected files + coverage 2026-05-19T05:54:12.2326261Z ##[group]src/**tests**/wire-setup-worktree.test.ts:
+ci Test affected files + coverage 2026-05-19T05:54:12.3950970Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:true + createWorktree throws → no scaffold lands in projectRoot, red log emitted [57.78ms]
+ci Test affected files + coverage 2026-05-19T05:54:12.4110738Z (pass) setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot > useWorktree:false preserves projectRoot fallback when no worktree is created [16.02ms]
+ci Test affected files + coverage 2026-05-19T05:54:12.4111999Z
+ci Test affected files + coverage 2026-05-19T05:54:12.4112586Z ##[endgroup]
+ci Test affected files + coverage 2026-05-19T05:54:12.4112787Z
+ci Test affected files + coverage 2026-05-19T05:54:12.4113301Z ##[group]src/**tests**/agent-mode-show-all.test.tsx:
+ci Test affected files + coverage 2026-05-19T05:54:14.1285882Z (pass) AgentMode Ctrl+L expanded subtasks > Ctrl+L toggles the truncated footer hint to the expanded list [1610.97ms]
+ci Test affected files + coverage 2026-05-19T05:54:14.1292027Z
+ci Test affected files + coverage 2026-05-19T05:54:14.1292731Z ##[endgroup]
+ci Test affected files + coverage 2026-05-19T05:54:14.1292936Z
+ci Test affected files + coverage 2026-05-19T05:54:14.1293412Z ##[group]src/**tests**/worktree-mcp-seed.test.ts:
+ci Test affected files + coverag
+…[truncated 148407 chars]
+
+```
+
+```
+
+## Fix failing CI checks (2026-05-19T05:47:16.980Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26078756962 ---
+ci Typecheck (affected) ﻿2026-05-19T05:45:19.8581734Z ##[group]Run bun run typecheck:ci
+ci Typecheck (affected) 2026-05-19T05:45:19.8582076Z [36;1mbun run typecheck:ci[0m
+ci Typecheck (affected) 2026-05-19T05:45:19.8617380Z shell: /usr/bin/bash -e {0}
+ci Typecheck (affected) 2026-05-19T05:45:19.8617641Z env:
+ci Typecheck (affected) 2026-05-19T05:45:19.8617873Z NX_BASE: 3ac12e43cfba347bc2609087c891350e69e21fe2
+ci Typecheck (affected) 2026-05-19T05:45:19.8618226Z NX_HEAD: 5e7e3608746bcd2a11f93fadd9335a89f7c9f560
+ci Typecheck (affected) 2026-05-19T05:45:19.8618571Z NODE_OPTIONS: --max-old-space-size=8192
+ci Typecheck (affected) 2026-05-19T05:45:19.8618867Z ##[endgroup]
+ci Typecheck (affected) 2026-05-19T05:45:19.8690553Z $ nx affected -t typecheck --parallel=1 --exclude=ui
+ci Typecheck (affected) 2026-05-19T05:45:20.1308096Z
+ci Typecheck (affected) 2026-05-19T05:45:20.1313446Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --base argument provided, but found environment variable NX_BASE so using its value as the affected base: [1m3ac12e43cfba347bc2609087c891350e69e21fe2[22m[39m
+ci Typecheck (affected) 2026-05-19T05:45:20.1314959Z
+ci Typecheck (affected) 2026-05-19T05:45:20.1314975Z
+ci Typecheck (affected) 2026-05-19T05:45:20.1317023Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --head argument provided, but found environment variable NX_HEAD so using its value as the affected head: [1m5e7e3608746bcd2a11f93fadd9335a89f7c9f560[22m[39m
+ci Typecheck (affected) 2026-05-19T05:45:20.1318496Z
+ci Typecheck (affected) 2026-05-19T05:45:20.5264697Z
+ci Typecheck (affected) 2026-05-19T05:45:20.5266287Z [7m[1m[36m NX [39m[22m[27m [36mRunning target [1mtypecheck[22m for 4 projects and [1m14[22m tasks they depend on:[39m
+ci Typecheck (affected) 2026-05-19T05:45:20.5266819Z
+ci Typecheck (affected) 2026-05-19T05:45:20.5266959Z [2m-[22m agent
+ci Typecheck (affected) 2026-05-19T05:45:20.5267223Z [2m-[22m shell
+ci Typecheck (affected) 2026-05-19T05:45:20.5267476Z [2m-[22m workflow
+ci Typecheck (affected) 2026-05-19T05:45:20.5267716Z [2m-[22m loop
+ci Typecheck (affected) 2026-05-19T05:45:20.5267845Z
+ci Typecheck (affected) 2026-05-19T05:45:20.5267964Z [2m[36m[39m[22m
+ci Typecheck (affected) 2026-05-19T05:45:22.5455847Z
+ci Typecheck (affected) 2026-05-19T05:45:22.5457244Z ##[group]✅ [2m> [22m[2mnx run[22m types:typecheck
+ci Typecheck (affected) 2026-05-19T05:45:22.5457545Z
+ci Typecheck (affected) 2026-05-19T05:45:22.5457841Z [2m> [22mtsc -b packages/types/tsconfig.json
+ci Typecheck (affected) 2026-05-19T05:45:22.5458338Z
+ci Typecheck (affected) 2026-05-19T05:45:23.7080097Z ##[endgroup]
+ci Typecheck (affected) 2026-05-19T05:45:23.7080899Z ##[group]✅ [2m> [22m[2mnx run[22m version:typecheck
+ci Typecheck (affected) 2026-05-19T05:45:23.7081230Z
+ci Typecheck (affected) 2026-05-19T05:45:23.7081522Z [2m> [22mtsc -b packages/version/tsconfig.json
+ci Typecheck (affected) 2026-05-19T05:45:23.7081772Z
+ci Typecheck (affected) 2026-05-19T05:45:24.8592231Z ##[endgroup]
+ci Typecheck (affected) 2026-05-19T05:45:24.8593023Z ##[group]✅ [2m> [22m[2mnx run[22m context:typecheck
+ci Typecheck (affected) 2026-05-19T05:45:24.8593310Z
+ci Typecheck (affected) 2026-05-19T05:45:24.8593602Z [2m> [22mtsc -b packages/context/tsconfig.json
+ci Typecheck (affected) 2026-05-19T05:45:24.8593846Z
+ci Typecheck (affected) 2026-05-19T05:45:25.9782629Z ##[endgroup]
+ci Typecheck (affected) 2026-05-19T05:45:25.9783636Z ##[group]✅ [2m> [22m[2mnx run[22m output:typecheck
+ci Typecheck (affected) 2026-05-19T05:45:25.9783963Z
+ci Typecheck (affected) 2026-05-19T05:45:25.9784564Z [2m> [22mtsc -b packages/output/tsconfig.json
+ci Typecheck (affected) 2026-05-19T05:45:25.9784899Z
+ci Typecheck (affected) 2026-05-19T05:45:27.1023867Z ##[endgroup]
+ci Typecheck (affected) 2026-05-19T05:45:27.1024936Z ##[group]✅ [2m> [22m[2mnx run[22m telemetry:typecheck
+ci Typecheck (affected) 2026-05-19T05:45:
+…[truncated 161356 chars]
+
+```
+
+```
