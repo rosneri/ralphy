@@ -32,7 +32,7 @@ boundaries:
     - "**/MANUAL_TESTING*.md"
 
 # How many tasks to run in parallel.
-concurrency: 2
+concurrency: 1
 
 # Stop picking up new issues after N have been started this run. 0 = unlimited.
 maxTickets: 0
