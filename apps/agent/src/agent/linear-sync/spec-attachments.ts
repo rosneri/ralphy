@@ -37,7 +37,7 @@ function describeLinearError(err: unknown): string {
   return parts.join(" ");
 }
 
-export type AttachmentFormat = "md" | "pdf";
+type AttachmentFormat = "md" | "pdf";
 
 type Slot = "proposal" | "design" | "proposalPdf" | "designPdf";
 
@@ -126,13 +126,9 @@ export interface SpecAttachmentMutations {
     apiKey: string,
     input: { issueId: string; url: string; title: string; subtitle?: string },
   ) => Promise<string>;
-  updateAttachmentUrl: (
-    apiKey: string,
-    attachmentId: string,
-    url: string,
-    title: string,
-    subtitle?: string,
-  ) => Promise<void>;
+  /** Linear's AttachmentUpdateInput has no `url` field — the only way to
+   *  swing a Ralph attachment to new content is delete + create. */
+  deleteAttachment: (apiKey: string, attachmentId: string) => Promise<void>;
 }
 
 interface SpecAttachmentsDeps {
@@ -267,33 +263,27 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   }
 
   if (current.attachmentId) {
+    // Linear's attachmentUpdate has no `url` field, so refresh = delete +
+    // create. A failed delete is non-fatal (most often the attachment was
+    // already removed manually) — we still create the replacement.
     try {
-      await deps.mutations.updateAttachmentUrl(
-        deps.apiKey,
-        current.attachmentId,
-        assetUrl,
-        spec.title,
-        subtitle,
-      );
-      await patchSpecState(deps.statePath, {
-        slot,
-        value: { attachmentId: current.attachmentId, sha256: hash },
-      });
-      deps.log(`  spec-attachments: refreshed ${spec.uploadFilename}`, "gray");
-      return;
-    } catch (err) {
-      if (!isCommentNotFoundError(err)) {
-        deps.log(
-          `! spec-attachments: updateAttachmentUrl ${spec.uploadFilename} failed: ${describeLinearError(err)}`,
-          "yellow",
-        );
-        return;
-      }
+      await deps.mutations.deleteAttachment(deps.apiKey, current.attachmentId);
       deps.log(
-        `  spec-attachments: attachment ${current.attachmentId} not found — recreating`,
+        `  spec-attachments: deleted stale ${spec.uploadFilename} attachment ${current.attachmentId}`,
         "gray",
       );
-      // Fall through to create-fresh.
+    } catch (err) {
+      if (isCommentNotFoundError(err)) {
+        deps.log(
+          `  spec-attachments: attachment ${current.attachmentId} already gone — recreating`,
+          "gray",
+        );
+      } else {
+        deps.log(
+          `! spec-attachments: deleteAttachment ${spec.uploadFilename} failed (continuing): ${describeLinearError(err)}`,
+          "yellow",
+        );
+      }
     }
   }
 
