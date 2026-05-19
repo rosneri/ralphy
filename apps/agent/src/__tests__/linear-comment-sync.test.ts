@@ -163,6 +163,8 @@ describe("postOrUpdateTasksComment", () => {
       log: () => {},
       mutations: m,
     });
+    // Change tasks.md so the hash-skip doesn't short-circuit the update path.
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [x] one\n", "utf-8");
     m.failNextUpdateWithNotFound = true;
     const id = await postOrUpdateTasksComment({
       apiKey: "key",
@@ -178,6 +180,35 @@ describe("postOrUpdateTasksComment", () => {
     expect(m.createdBodies.length).toBe(2);
     const s = await readState();
     expect((s.linearComments as { tasksCommentId?: string }).tasksCommentId).toBe("c-2");
+  });
+
+  test("hash-skips the update when tasks.md is unchanged (RLF: no-op churn)", async () => {
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [ ] one\n", "utf-8");
+    const m = makeMutations();
+    await postOrUpdateTasksComment({
+      apiKey: "key",
+      issueId: "issue-1",
+      statePath,
+      changeDir,
+      changeName: "demo",
+      iteration: 1,
+      log: () => {},
+      mutations: m,
+    });
+    // Same content, next iteration: must not call updateIssueComment.
+    const id = await postOrUpdateTasksComment({
+      apiKey: "key",
+      issueId: "issue-1",
+      statePath,
+      changeDir,
+      changeName: "demo",
+      iteration: 2,
+      log: () => {},
+      mutations: m,
+    });
+    expect(id).toBe("c-1");
+    expect(m.createdBodies.length).toBe(1);
+    expect(m.updatedBodies.length).toBe(0);
   });
 
   test("skips when tasks.md is missing", async () => {
