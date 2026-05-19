@@ -113,20 +113,27 @@ function renderBlock(doc: PDFKit.PDFDocument, token: Tokens.Generic, indent: num
       );
       return;
     default:
-      if (typeof (token as unknown as { text?: string }).text === "string") {
-        const text = (token as unknown as { text: string }).text;
+      // Catch-all for token kinds the renderer hasn't special-cased
+      // (e.g. table, def). Fall back to emitting the raw text if any,
+      // so nothing is silently dropped.
+      if (hasTextField(token)) {
         renderParagraph(
           doc,
           {
             type: "paragraph",
             raw: token.raw,
-            text,
-            tokens: [{ type: "text", raw: token.raw, text } as Tokens.Text],
+            text: token.text,
+            tokens: [{ type: "text", raw: token.raw, text: token.text } as Tokens.Text],
           } as Tokens.Paragraph,
           indent,
         );
       }
   }
+}
+
+function hasTextField(token: Tokens.Generic): token is Tokens.Generic & { text: string } {
+  const candidate = (token as { text?: unknown }).text;
+  return typeof candidate === "string";
 }
 
 function renderHeading(doc: PDFKit.PDFDocument, token: Tokens.Heading, indent: number): void {
