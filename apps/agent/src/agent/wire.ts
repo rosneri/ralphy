@@ -28,7 +28,7 @@ import {
   fetchTeamIdByKey,
   uploadFileToLinear,
   createAttachmentForUrl,
-  updateAttachmentUrl,
+  deleteAttachment,
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
@@ -1834,7 +1834,7 @@ export function buildAgentCoordinator(
   const specAttachmentMutations: SpecAttachmentMutations = {
     uploadFileToLinear,
     createAttachmentForUrl,
-    updateAttachmentUrl,
+    deleteAttachment,
   };
 
   const coord = new AgentCoordinator(
@@ -1900,6 +1900,7 @@ export function buildAgentCoordinator(
                   iteration,
                   log: onLog,
                   mutations: specAttachmentMutations,
+                  formats: cfg.linear.specAttachmentFormats,
                 });
               }
             },

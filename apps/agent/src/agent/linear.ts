@@ -561,31 +561,17 @@ export async function createAttachmentForUrl(
   return id;
 }
 
-/** Replace the `url` (and optionally `subtitle`) of an existing attachment.
- *  Used to refresh a Ralphy spec attachment in place when the source file
- *  has changed. */
-export async function updateAttachmentUrl(
-  apiKey: string,
-  attachmentId: string,
-  url: string,
-  title: string,
-  subtitle?: string,
-): Promise<void> {
-  // AttachmentUpdateInput.title is `String!` (required) in Linear's schema —
-  // omitting it returns 400 on every refresh. Always thread it through.
-  const mutation =
-    subtitle === undefined
-      ? `mutation UpdateAttachmentUrl($id: String!, $url: String!, $title: String!) {
-    attachmentUpdate(id: $id, input: { url: $url, title: $title }) { success }
-  }`
-      : `mutation UpdateAttachmentUrl($id: String!, $url: String!, $title: String!, $subtitle: String!) {
-    attachmentUpdate(id: $id, input: { url: $url, title: $title, subtitle: $subtitle }) { success }
+/** Delete a Linear attachment by id. Used by spec-attachments to refresh
+ *  a Ralph proposal/design attachment: AttachmentUpdateInput has no `url`
+ *  field, so the only way to swing an attachment to new content is to
+ *  delete the old one and recreate. */
+export async function deleteAttachment(apiKey: string, attachmentId: string): Promise<void> {
+  const mutation = `mutation DeleteAttachment($id: String!) {
+    attachmentDelete(id: $id) { success }
   }`;
-  const variables: Record<string, unknown> =
-    subtitle === undefined
-      ? { id: attachmentId, url, title }
-      : { id: attachmentId, url, title, subtitle };
-  await linearRequest<{ attachmentUpdate: { success: boolean } }>(apiKey, mutation, variables);
+  await linearRequest<{ attachmentDelete: { success: boolean } }>(apiKey, mutation, {
+    id: attachmentId,
+  });
 }
 
 /** Add a reaction (Linear `reactionCreate` mutation) to a comment.

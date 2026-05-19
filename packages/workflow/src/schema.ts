@@ -132,6 +132,14 @@ export const WorkflowConfigSchema = z.object({
       codeReviewStaleHours: z.number().nonnegative().default(24),
       syncTasksToComment: z.boolean().default(true),
       syncSpecsAsAttachments: z.boolean().default(true),
+      /** Which rendered formats to upload for proposal.md / design.md.
+       *  "md" mirrors the source file as-is. "pdf" additionally
+       *  renders a pure-JS PDF (pdfkit) and uploads it as a peer
+       *  attachment. Default keeps the prior behaviour ("md" only). */
+      specAttachmentFormats: z
+        .array(z.enum(["md", "pdf"]))
+        .nonempty()
+        .default(["md"]),
       indicators: IndicatorsSchema.default({}),
     })
     .strict()
@@ -144,6 +152,7 @@ export const WorkflowConfigSchema = z.object({
       codeReviewStaleHours: 24,
       syncTasksToComment: true,
       syncSpecsAsAttachments: true,
+      specAttachmentFormats: ["md"],
       indicators: {},
     }),
   github: z

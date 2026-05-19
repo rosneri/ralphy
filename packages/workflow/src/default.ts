@@ -123,6 +123,11 @@ linear:
   # Requires syncTasksToComment.
   syncSpecsAsAttachments: true
 
+  # Which rendered formats to upload alongside each spec. "md" mirrors
+  # the source file as-is. Add "pdf" to also upload a pdfkit-rendered
+  # PDF as a peer attachment (handy when viewing Linear on mobile).
+  specAttachmentFormats: ["md"]
+
   # Indicators map Ralph lifecycle events to Linear labels/statuses.
   #
   # Filter semantics (per indicator's \`filter:\` list):
