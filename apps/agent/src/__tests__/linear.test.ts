@@ -179,13 +179,17 @@ describe("linearRequest retry (RLF-60)", () => {
 
   test("retries 503 then succeeds", async () => {
     const { count } = stubResponses([errResponse(503), okResponse({ issues: { nodes: [] } })]);
-    await fetchMentionScanIssues("k", {});
+    await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    });
     expect(count()).toBe(2);
   });
 
   test("does NOT retry 404", async () => {
     const { count } = stubResponses([errResponse(404, "not found")]);
-    await expect(fetchMentionScanIssues("k", {})).rejects.toMatchObject({ status: 404 });
+    await expect(
+      fetchMentionScanIssues("k", { indicators: { setDone: { type: "status", value: "Done" } } }),
+    ).rejects.toMatchObject({ status: 404 });
     expect(count()).toBe(1);
   });
 });
@@ -210,7 +214,9 @@ describe("rate-limit detection (RLF-65)", () => {
 
   test("a 429 marks the error as rateLimited and is not retried", async () => {
     const { count } = stubOnce(new Response("", { status: 429 }));
-    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    const err = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(true);
     expect((err as { status?: number }).status).toBe(429);
     expect(count()).toBe(1);
@@ -220,7 +226,9 @@ describe("rate-limit detection (RLF-65)", () => {
     const { count } = stubOnce(
       new Response('{"errors":[{"message":"Rate limit exceeded for query"}]}', { status: 400 }),
     );
-    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    const err = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(true);
     expect((err as { status?: number }).status).toBe(400);
     expect(count()).toBe(1);
@@ -228,7 +236,9 @@ describe("rate-limit detection (RLF-65)", () => {
 
   test("a plain 400 is NOT marked rateLimited", async () => {
     const { count } = stubOnce(new Response("nope", { status: 400 }));
-    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    const err = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(false);
     expect((err as { status?: number }).status).toBe(400);
     expect(count()).toBe(1);
@@ -292,24 +302,50 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("filter includes unstarted/started/backlog/triage/completed (excludes cancelled)", async () => {
+  test("filter ORs together getTodo, getInProgress, and setDone indicator clauses", async () => {
     const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
-    await fetchMentionScanIssues("k", { team: "RLF", assignee: "me" });
+    await fetchMentionScanIssues("k", {
+      team: "RLF",
+      assignee: "me",
+      indicators: {
+        getTodo: { filter: [{ type: "status", value: "Todo" }] },
+        getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+        setDone: { type: "status", value: "In Review" },
+      },
+    });
     const filter = calls[0]!.variables.filter as {
-      state: { type: { in: string[] } };
+      or: { state: { name: { in: string[] } } }[];
       team: { key: { eq: string } };
       assignee: { isMe: { eq: boolean } };
     };
-    expect(filter.state.type.in).toEqual([
-      "unstarted",
-      "started",
-      "backlog",
-      "triage",
-      "completed",
+    expect(filter.or).toHaveLength(3);
+    expect(filter.or.map((b) => b.state.name.in)).toEqual([
+      ["Todo"],
+      ["In Progress"],
+      ["In Review"],
     ]);
-    expect(filter.state.type.in).not.toContain("cancelled");
     expect(filter.team).toEqual({ key: { eq: "RLF" } });
     expect(filter.assignee).toEqual({ isMe: { eq: true } });
+  });
+
+  test("returns [] without a network call when no indicators are configured", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    const out = await fetchMentionScanIssues("k", { team: "RLF", indicators: {} });
+    expect(out).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("single-indicator config inlines the clause (no `or:` wrapper)", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "label", value: "ralph:done" } },
+    });
+    const filter = calls[0]!.variables.filter as {
+      or?: unknown;
+      labels: { some: { name: { in: string[] } } };
+    };
+    expect(filter.or).toBeUndefined();
+    expect(filter.labels.some.name.in).toEqual(["ralph:done"]);
   });
 
   test("assignee email and id forms are routed correctly", async () => {
@@ -318,8 +354,9 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
       seen.push(body.variables.filter as Record<string, unknown>);
       return { issues: { nodes: [] } };
     });
-    await fetchMentionScanIssues("k", { assignee: "user@example.com" });
-    await fetchMentionScanIssues("k", { assignee: "user-id-xyz" });
+    const indicators = { setDone: { type: "status" as const, value: "Done" } };
+    await fetchMentionScanIssues("k", { assignee: "user@example.com", indicators });
+    await fetchMentionScanIssues("k", { assignee: "user-id-xyz", indicators });
     expect(calls).toHaveLength(2);
     expect(seen[0]!.assignee).toEqual({ email: { eq: "user@example.com" } });
     expect(seen[1]!.assignee).toEqual({ id: { eq: "user-id-xyz" } });
@@ -360,7 +397,9 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
         ],
       },
     }));
-    const issues = await fetchMentionScanIssues("k", {});
+    const issues = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    });
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({
       id: "i1",

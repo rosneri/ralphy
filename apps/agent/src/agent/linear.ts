@@ -1,4 +1,5 @@
-import type { GetIndicator, Marker } from "@ralphy/types";
+import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
+import { markersOf } from "@ralphy/types";
 
 export interface LinearIssue {
   id: string;
@@ -189,21 +190,65 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   return where;
 }
 
+/** Build a Linear filter clause that matches issues satisfying all markers
+ *  in `markers` (AND across kinds, OR within a kind). Returns null when
+ *  the marker list is empty. Used to assemble per-indicator branches for
+ *  the mention scan's `or:` filter. */
+function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | null {
+  if (markers.length === 0) return null;
+  const { statuses, labels, attachmentSubtitles, projects } = partition(markers);
+  const parts: Record<string, unknown> = {};
+  if (statuses.length > 0) parts.state = { name: { in: statuses } };
+  if (labels.length > 0) parts.labels = { some: { name: { in: labels } } };
+  if (attachmentSubtitles.length > 0) {
+    parts.attachments = {
+      some: {
+        title: { eq: RALPHY_ATTACHMENT_TITLE_FILTER },
+        subtitle: { in: attachmentSubtitles },
+      },
+    };
+  }
+  if (projects.length > 0) parts.project = { name: { in: projects } };
+  return Object.keys(parts).length > 0 ? parts : null;
+}
+
 /**
- * Candidate set for the `@<handle>` mention scan. Returns every issue
- * for the configured `team` + `assignee` that is not in a cancelled
- * state. Unlike `fetchOpenIssues` (which defaults to
- * unstarted/started/backlog only) this also includes `completed` and
- * `triage`, so mentions are picked up regardless of whether the issue is
- * still Todo, In Progress, or already Done.
+ * Candidate set for the `@<handle>` mention scan. Returns issues matching
+ * any of the configured `getTodo`, `getInProgress`, or `setDone` indicators
+ * — i.e. work that ralphy is actively processing or has just shipped for
+ * review. Issues outside these indicators (raw Backlog, Triage, archived
+ * Done) are excluded so we don't burn `gh` round-trips looking for PRs
+ * that don't exist yet.
+ *
+ * Returns [] when none of the three indicators is configured.
  */
 export async function fetchMentionScanIssues(
   apiKey: string,
-  spec: { team?: string | undefined; assignee?: string | undefined },
+  spec: {
+    team?: string | undefined;
+    assignee?: string | undefined;
+    indicators: {
+      getTodo?: GetIndicator | undefined;
+      getInProgress?: GetIndicator | undefined;
+      setDone?: SetIndicator | undefined;
+    };
+  },
 ): Promise<LinearIssue[]> {
-  const where: Record<string, unknown> = {
-    state: { type: { in: ["unstarted", "started", "backlog", "triage", "completed"] } },
-  };
+  const branches: Record<string, unknown>[] = [];
+  const { getTodo, getInProgress, setDone } = spec.indicators;
+  for (const ind of [getTodo, getInProgress]) {
+    if (!ind) continue;
+    const c = clauseFromMarkers(ind.filter);
+    if (c) branches.push(c);
+  }
+  if (setDone) {
+    const c = clauseFromMarkers(markersOf(setDone));
+    if (c) branches.push(c);
+  }
+  if (branches.length === 0) return [];
+
+  const where: Record<string, unknown> =
+    branches.length === 1 ? { ...branches[0] } : { or: branches };
   if (spec.team) where.team = { key: { eq: spec.team } };
   if (spec.assignee) {
     if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };

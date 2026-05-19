@@ -162,6 +162,19 @@ describe("agent/scaffold", () => {
     expect(changeNameForIssue(makeIssue({ title: "!!!", identifier: "ENG-9" }))).toBe("eng-9");
   });
 
+  test("changeNameForIssue strips trailing dash re-introduced by slice", () => {
+    // Title whose 40-char slug slice lands on a `-` boundary — must not
+    // produce a trailing dash in the change name.
+    const name = changeNameForIssue(
+      makeIssue({
+        title: "Evolve mentor lost from grief to legacy and beyond",
+        identifier: "LIT-180",
+      }),
+    );
+    expect(name).toBe("lit-180-evolve-mentor-lost-from-grief-to-legacy");
+    expect(name.endsWith("-")).toBe(false);
+  });
+
   test("scaffoldChangeForIssue creates proposal/tasks/design files", async () => {
     const tasksDir = join(tempDir, "tasks");
     const statesDir = join(tempDir, "states");
