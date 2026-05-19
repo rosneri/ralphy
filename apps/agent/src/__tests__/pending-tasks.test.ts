@@ -107,6 +107,33 @@ describe("parseSubtasks", () => {
   });
 });
 
+describe("derived taskProgress from parseSubtasks", () => {
+  it("counts only Implementation items, ignoring Planning and flow-task sections", () => {
+    // Regression for RLF-70: the progress bar previously used countProgress()
+    // which counted every `- [ ]` / `- [x]` in tasks.md including Planning and
+    // flow-task sections. The derived value must match the parsed subtasks.
+    const planning = Array.from({ length: 6 }, (_, i) => `- [x] plan ${i + 1}`).join("\n");
+    const implementation = Array.from({ length: 10 }, (_, i) => `- [ ] impl ${i + 1}`).join("\n");
+    const tasksMd = [
+      "# Tasks",
+      "",
+      "## Planning",
+      planning,
+      "",
+      "## Implementation",
+      implementation,
+      "",
+      "## Fix failing CI checks (2026-05-01T12:00:00Z)",
+      "- [ ] hidden CI repair task",
+      "",
+    ].join("\n");
+    const subtasks = parseSubtasks(tasksMd);
+    const total = subtasks.length;
+    const checked = subtasks.filter((s) => s.done).length;
+    expect({ checked, total }).toEqual({ checked: 0, total: 10 });
+  });
+});
+
 describe("orderSubtasksForCappedDisplay", () => {
   it("puts unchecked items before completed items, stable in file order", () => {
     const subtasks = [

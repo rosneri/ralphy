@@ -37,7 +37,6 @@ export type AgentModeBuildCoordinator = (
   getWorkerCwd: (changeName: string) => string | undefined;
   runBaselineGate: () => Promise<void>;
 };
-import { countProgress } from "@ralphy/core/progress";
 import { isFlowTaskHeading } from "@ralphy/core/tasks-md";
 import {
   deriveOpenSpecPhase,
@@ -660,7 +659,8 @@ export function AgentMode({
                 const subtasks = parseSubtasks(tasksText);
                 meta.subtasks = subtasks;
                 meta.currentTask = subtasks.find((s) => !s.done)?.text ?? null;
-                const { checked, total } = countProgress(tasksText);
+                const total = subtasks.length;
+                const checked = subtasks.filter((s) => s.done).length;
                 meta.taskProgress = total > 0 ? { checked, total } : null;
               }
               meta.openspecPhase = deriveOpenSpecPhase({
