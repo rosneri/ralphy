@@ -472,7 +472,7 @@ export async function uploadFileToLinear(
   const res = await fetch(up.uploadUrl, {
     method: "PUT",
     headers,
-    body: input.bytes,
+    body: input.bytes as BodyInit,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");

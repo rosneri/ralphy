@@ -60,7 +60,7 @@ export interface SpecAttachmentMutations {
   ) => Promise<void>;
 }
 
-export interface SpecAttachmentsDeps {
+interface SpecAttachmentsDeps {
   apiKey: string;
   issueId: string;
   /** Absolute path to `.ralph-state.json` for this change. */
