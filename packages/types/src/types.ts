@@ -83,6 +83,30 @@ export const StateSchema = z.object({
       planPostedAt: z.string().nullable().default(null),
     })
     .default({ planCommentId: null, tasksCommentId: null, planPostedAt: null }),
+  /** Per-change Linear attachment ids + content hashes managed by
+   *  spec-attachments. Without this slot in the schema, loop-side
+   *  writeState() would strip the field every iteration, causing the
+   *  syncer to re-upload (and re-create) proposal.md / design.md
+   *  attachments forever — see lit-242 incident. */
+  specAttachments: z
+    .object({
+      proposal: z
+        .object({
+          attachmentId: z.string().nullable().default(null),
+          sha256: z.string().nullable().default(null),
+        })
+        .default({ attachmentId: null, sha256: null }),
+      design: z
+        .object({
+          attachmentId: z.string().nullable().default(null),
+          sha256: z.string().nullable().default(null),
+        })
+        .default({ attachmentId: null, sha256: null }),
+    })
+    .default({
+      proposal: { attachmentId: null, sha256: null },
+      design: { attachmentId: null, sha256: null },
+    }),
 });
 
 // --- Inferred types ---
