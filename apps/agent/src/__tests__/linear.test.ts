@@ -414,11 +414,12 @@ describe("spec attachment mutations (RLF-74)", () => {
   });
 
   test("uploadFileToLinear throws when fileUpload returns null payload", async () => {
-    globalThis.fetch = (async () =>
+    const fakeFetch: FetchLike = async () =>
       new Response(JSON.stringify({ data: { uploadFile: null } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      })) as typeof fetch;
+      });
+    globalThis.fetch = fakeFetch as typeof fetch;
     await expect(
       uploadFileToLinear("k", {
         filename: "f.md",
