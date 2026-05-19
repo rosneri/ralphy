@@ -43,6 +43,8 @@ interface FakeMutations extends SpecAttachmentMutations {
   creates: CreateCall[];
   updates: UpdateCall[];
   failUploadWith?: Error;
+  failCreateWith?: Error;
+  failUpdateWith?: Error;
   failNextUpdateWithNotFound: boolean;
 }
 
@@ -59,6 +61,7 @@ function makeMutations(initialId = 1): FakeMutations {
       return { assetUrl: `https://uploads.linear.app/${input.filename}-${nextId++}` };
     },
     createAttachmentForUrl: async (_apiKey, input) => {
+      if (m.failCreateWith) throw m.failCreateWith;
       m.creates.push(input);
       return `att-${nextId++}`;
     },
@@ -69,6 +72,7 @@ function makeMutations(initialId = 1): FakeMutations {
         err.messages = ["Entity not found: Attachment"];
         throw err;
       }
+      if (m.failUpdateWith) throw m.failUpdateWith;
       m.updates.push({ attachmentId, url, ...(subtitle !== undefined ? { subtitle } : {}) });
     },
   };
@@ -250,5 +254,84 @@ describe("syncSpecAttachments", () => {
     };
     expect(after.proposal.attachmentId).not.toBe(oldId);
     expect(m.creates.length).toBe(2);
+  });
+
+  test("updateAttachmentUrl generic failure logs yellow and does not advance state", async () => {
+    writeProposal("# proposal\n\nv1\n");
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    const before = (await readState()).specAttachments as {
+      proposal: { attachmentId: string; sha256: string };
+    };
+    writeProposal("# proposal\n\nv2\n");
+    m.failUpdateWith = new Error("boom-update");
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 2,
+      log: log.fn,
+      mutations: m,
+    });
+    const after = (await readState()).specAttachments as {
+      proposal: { attachmentId: string; sha256: string };
+    };
+    expect(after.proposal.attachmentId).toBe(before.proposal.attachmentId);
+    expect(after.proposal.sha256).toBe(before.proposal.sha256);
+    expect(
+      log.entries.some((e) => e.startsWith("yellow|") && e.includes("updateAttachmentUrl")),
+    ).toBe(true);
+  });
+
+  test("createAttachmentForUrl failure on first run logs yellow and leaves state empty", async () => {
+    writeProposal();
+    const m = makeMutations();
+    m.failCreateWith = new Error("boom-create");
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    expect(m.uploads).toHaveLength(1);
+    expect(
+      log.entries.some((e) => e.startsWith("yellow|") && e.includes("createAttachmentForUrl")),
+    ).toBe(true);
+    expect(await Bun.file(statePath).exists()).toBe(false);
+  });
+
+  test("malformed .ralph-state.json is treated as empty state (first-run path)", async () => {
+    writeProposal();
+    mkdirSync(join(tempDir, ".ralph", "tasks", "demo"), { recursive: true });
+    writeFileSync(statePath, "{not json");
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    expect(m.creates).toHaveLength(1);
+    const state = await readState();
+    const sa = state.specAttachments as { proposal: { attachmentId: string } };
+    expect(sa.proposal.attachmentId).toMatch(/^att-/);
   });
 });

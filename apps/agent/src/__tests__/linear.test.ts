@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   baseBranchFromLabels,
+  createAttachmentForUrl,
   createIssue,
   fetchMentionScanIssues,
   findOpenIssueByLabel,
@@ -8,7 +9,9 @@ import {
   isRateLimitedError,
   issueMatchesGetIndicator,
   linearRequestInternals,
+  updateAttachmentUrl,
   updateIssueDescription,
+  uploadFileToLinear,
 } from "../agent/linear";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -365,5 +368,143 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
       labels: ["x", "y"],
       blockedByIds: ["blocker-open"],
     });
+  });
+});
+
+describe("spec attachment mutations (RLF-74)", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("uploadFileToLinear performs fileUpload mutation then signed PUT and returns assetUrl", async () => {
+    const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
+    const fakeFetch: FetchLike = async (url, init) => {
+      const method = init?.method ?? "POST";
+      const headers: Record<string, string> = {};
+      const initHeaders = (init?.headers ?? {}) as Record<string, string>;
+      for (const [k, v] of Object.entries(initHeaders)) headers[k] = v;
+      calls.push({ url, method, headers });
+      if (url.includes("linear.app")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              uploadFile: {
+                uploadUrl: "https://put.example/abc",
+                assetUrl: "https://uploads.linear.app/abc",
+                headers: [{ key: "x-amz-acl", value: "private" }],
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("", { status: 200 });
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    const out = await uploadFileToLinear("k", {
+      filename: "proposal.md",
+      contentType: "text/markdown",
+      bytes: new TextEncoder().encode("hello"),
+    });
+    expect(out.assetUrl).toBe("https://uploads.linear.app/abc");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.method).toBe("PUT");
+    expect(calls[1]!.url).toBe("https://put.example/abc");
+    expect(calls[1]!.headers["x-amz-acl"]).toBe("private");
+  });
+
+  test("uploadFileToLinear throws when fileUpload returns null payload", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ data: { uploadFile: null } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    await expect(
+      uploadFileToLinear("k", {
+        filename: "f.md",
+        contentType: "text/markdown",
+        bytes: new Uint8Array([1]),
+      }),
+    ).rejects.toThrow(/no uploadFile payload/);
+  });
+
+  test("uploadFileToLinear throws with status+body when PUT fails", async () => {
+    let i = 0;
+    const fakeFetch: FetchLike = async () => {
+      i++;
+      if (i === 1) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              uploadFile: {
+                uploadUrl: "https://put.example/x",
+                assetUrl: "https://uploads.linear.app/x",
+                headers: [],
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("denied", { status: 403 });
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    let caught: (Error & { status?: number; body?: string }) | null = null;
+    try {
+      await uploadFileToLinear("k", {
+        filename: "f.md",
+        contentType: "text/markdown",
+        bytes: new Uint8Array([1]),
+      });
+    } catch (err) {
+      caught = err as Error & { status?: number; body?: string };
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.status).toBe(403);
+    expect(caught!.body).toBe("denied");
+  });
+
+  test("createAttachmentForUrl posts attachmentCreate and returns id", async () => {
+    const { calls } = stubFetch(() => ({
+      attachmentCreate: { success: true, attachment: { id: "att-42" } },
+    }));
+    const id = await createAttachmentForUrl("k", {
+      issueId: "iss-1",
+      url: "https://uploads.linear.app/x",
+      title: "Ralph proposal",
+      subtitle: "iteration 3",
+    });
+    expect(id).toBe("att-42");
+    expect(calls[0]!.variables).toMatchObject({
+      issueId: "iss-1",
+      url: "https://uploads.linear.app/x",
+      title: "Ralph proposal",
+      subtitle: "iteration 3",
+    });
+  });
+
+  test("createAttachmentForUrl throws when attachment is null", async () => {
+    stubFetch(() => ({ attachmentCreate: { success: false, attachment: null } }));
+    await expect(
+      createAttachmentForUrl("k", { issueId: "i", url: "u", title: "t" }),
+    ).rejects.toThrow(/no attachment id/);
+  });
+
+  test("updateAttachmentUrl omits subtitle from variables when not provided", async () => {
+    const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
+    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y");
+    expect(calls[0]!.variables).toEqual({ id: "att-1", url: "https://uploads.linear.app/y" });
+    expect(calls[0]!.query).not.toContain("subtitle");
+  });
+
+  test("updateAttachmentUrl threads subtitle into variables when provided", async () => {
+    const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
+    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y", "iteration 7");
+    expect(calls[0]!.variables).toEqual({
+      id: "att-1",
+      url: "https://uploads.linear.app/y",
+      subtitle: "iteration 7",
+    });
+    expect(calls[0]!.query).toContain("subtitle");
   });
 });
