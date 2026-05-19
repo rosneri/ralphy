@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { State, IterationUsage } from "@ralphy/types";
+import type { ChangeStatus } from "@ralphy/change-store";
 import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
@@ -29,6 +30,10 @@ export interface LoopChangeStore {
    *  externally" (tasks.md missing AND name no longer active) and exit
    *  instead of respawning forever on a no-op iteration. */
   listChanges?(): Promise<string[]>;
+  /** Optional: if provided, the loop consults the canonical OpenSpec
+   *  artifact status before archiving and refuses to archive while
+   *  required artifacts are still pending. */
+  getStatus?(name: string): Promise<ChangeStatus>;
 }
 
 export interface LoopOptions {

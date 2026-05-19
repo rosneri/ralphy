@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   baseBranchFromLabels,
+  createAttachmentForUrl,
   createIssue,
   fetchMentionScanIssues,
   findOpenIssueByLabel,
@@ -8,7 +9,9 @@ import {
   isRateLimitedError,
   issueMatchesGetIndicator,
   linearRequestInternals,
+  updateAttachmentUrl,
   updateIssueDescription,
+  uploadFileToLinear,
 } from "../agent/linear";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -176,13 +179,17 @@ describe("linearRequest retry (RLF-60)", () => {
 
   test("retries 503 then succeeds", async () => {
     const { count } = stubResponses([errResponse(503), okResponse({ issues: { nodes: [] } })]);
-    await fetchMentionScanIssues("k", {});
+    await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    });
     expect(count()).toBe(2);
   });
 
   test("does NOT retry 404", async () => {
     const { count } = stubResponses([errResponse(404, "not found")]);
-    await expect(fetchMentionScanIssues("k", {})).rejects.toMatchObject({ status: 404 });
+    await expect(
+      fetchMentionScanIssues("k", { indicators: { setDone: { type: "status", value: "Done" } } }),
+    ).rejects.toMatchObject({ status: 404 });
     expect(count()).toBe(1);
   });
 });
@@ -207,7 +214,9 @@ describe("rate-limit detection (RLF-65)", () => {
 
   test("a 429 marks the error as rateLimited and is not retried", async () => {
     const { count } = stubOnce(new Response("", { status: 429 }));
-    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    const err = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(true);
     expect((err as { status?: number }).status).toBe(429);
     expect(count()).toBe(1);
@@ -217,7 +226,9 @@ describe("rate-limit detection (RLF-65)", () => {
     const { count } = stubOnce(
       new Response('{"errors":[{"message":"Rate limit exceeded for query"}]}', { status: 400 }),
     );
-    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    const err = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(true);
     expect((err as { status?: number }).status).toBe(400);
     expect(count()).toBe(1);
@@ -225,7 +236,9 @@ describe("rate-limit detection (RLF-65)", () => {
 
   test("a plain 400 is NOT marked rateLimited", async () => {
     const { count } = stubOnce(new Response("nope", { status: 400 }));
-    const err = await fetchMentionScanIssues("k", {}).catch((e: unknown) => e);
+    const err = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(false);
     expect((err as { status?: number }).status).toBe(400);
     expect(count()).toBe(1);
@@ -289,24 +302,50 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("filter includes unstarted/started/backlog/triage/completed (excludes cancelled)", async () => {
+  test("filter ORs together getTodo, getInProgress, and setDone indicator clauses", async () => {
     const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
-    await fetchMentionScanIssues("k", { team: "RLF", assignee: "me" });
+    await fetchMentionScanIssues("k", {
+      team: "RLF",
+      assignee: "me",
+      indicators: {
+        getTodo: { filter: [{ type: "status", value: "Todo" }] },
+        getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+        setDone: { type: "status", value: "In Review" },
+      },
+    });
     const filter = calls[0]!.variables.filter as {
-      state: { type: { in: string[] } };
+      or: { state: { name: { in: string[] } } }[];
       team: { key: { eq: string } };
       assignee: { isMe: { eq: boolean } };
     };
-    expect(filter.state.type.in).toEqual([
-      "unstarted",
-      "started",
-      "backlog",
-      "triage",
-      "completed",
+    expect(filter.or).toHaveLength(3);
+    expect(filter.or.map((b) => b.state.name.in)).toEqual([
+      ["Todo"],
+      ["In Progress"],
+      ["In Review"],
     ]);
-    expect(filter.state.type.in).not.toContain("cancelled");
     expect(filter.team).toEqual({ key: { eq: "RLF" } });
     expect(filter.assignee).toEqual({ isMe: { eq: true } });
+  });
+
+  test("returns [] without a network call when no indicators are configured", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    const out = await fetchMentionScanIssues("k", { team: "RLF", indicators: {} });
+    expect(out).toEqual([]);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("single-indicator config inlines the clause (no `or:` wrapper)", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "label", value: "ralph:done" } },
+    });
+    const filter = calls[0]!.variables.filter as {
+      or?: unknown;
+      labels: { some: { name: { in: string[] } } };
+    };
+    expect(filter.or).toBeUndefined();
+    expect(filter.labels.some.name.in).toEqual(["ralph:done"]);
   });
 
   test("assignee email and id forms are routed correctly", async () => {
@@ -315,8 +354,9 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
       seen.push(body.variables.filter as Record<string, unknown>);
       return { issues: { nodes: [] } };
     });
-    await fetchMentionScanIssues("k", { assignee: "user@example.com" });
-    await fetchMentionScanIssues("k", { assignee: "user-id-xyz" });
+    const indicators = { setDone: { type: "status" as const, value: "Done" } };
+    await fetchMentionScanIssues("k", { assignee: "user@example.com", indicators });
+    await fetchMentionScanIssues("k", { assignee: "user-id-xyz", indicators });
     expect(calls).toHaveLength(2);
     expect(seen[0]!.assignee).toEqual({ email: { eq: "user@example.com" } });
     expect(seen[1]!.assignee).toEqual({ id: { eq: "user-id-xyz" } });
@@ -357,7 +397,9 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
         ],
       },
     }));
-    const issues = await fetchMentionScanIssues("k", {});
+    const issues = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    });
     expect(issues).toHaveLength(1);
     expect(issues[0]).toMatchObject({
       id: "i1",
@@ -365,5 +407,167 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
       labels: ["x", "y"],
       blockedByIds: ["blocker-open"],
     });
+  });
+});
+
+describe("spec attachment mutations (RLF-74)", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("uploadFileToLinear performs fileUpload mutation then signed PUT and returns assetUrl", async () => {
+    const calls: { url: string; method: string; headers: Record<string, string> }[] = [];
+    const fakeFetch: FetchLike = async (url, init) => {
+      const method = init?.method ?? "POST";
+      const headers: Record<string, string> = {};
+      const initHeaders = (init?.headers ?? {}) as Record<string, string>;
+      for (const [k, v] of Object.entries(initHeaders)) headers[k] = v;
+      calls.push({ url, method, headers });
+      if (url.includes("linear.app")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              fileUpload: {
+                uploadFile: {
+                  uploadUrl: "https://put.example/abc",
+                  assetUrl: "https://uploads.linear.app/abc",
+                  headers: [{ key: "x-amz-acl", value: "private" }],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("", { status: 200 });
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    const out = await uploadFileToLinear("k", {
+      filename: "proposal.md",
+      contentType: "text/markdown",
+      bytes: new TextEncoder().encode("hello"),
+    });
+    expect(out.assetUrl).toBe("https://uploads.linear.app/abc");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.method).toBe("PUT");
+    expect(calls[1]!.url).toBe("https://put.example/abc");
+    expect(calls[1]!.headers["x-amz-acl"]).toBe("private");
+  });
+
+  test("uploadFileToLinear throws when fileUpload returns null payload", async () => {
+    const fakeFetch: FetchLike = async () =>
+      new Response(JSON.stringify({ data: { fileUpload: { uploadFile: null } } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    globalThis.fetch = fakeFetch as typeof fetch;
+    await expect(
+      uploadFileToLinear("k", {
+        filename: "f.md",
+        contentType: "text/markdown",
+        bytes: new Uint8Array([1]),
+      }),
+    ).rejects.toThrow(/no uploadFile payload/);
+  });
+
+  test("uploadFileToLinear throws when GraphQL omits fileUpload entirely (regression: nesting bug)", async () => {
+    const fakeFetch: FetchLike = async () =>
+      new Response(
+        JSON.stringify({ data: { uploadFile: { uploadUrl: "x", assetUrl: "y", headers: [] } } }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    globalThis.fetch = fakeFetch as typeof fetch;
+    await expect(
+      uploadFileToLinear("k", {
+        filename: "f.md",
+        contentType: "text/markdown",
+        bytes: new Uint8Array([1]),
+      }),
+    ).rejects.toThrow(/no uploadFile payload/);
+  });
+
+  test("uploadFileToLinear throws with status+body when PUT fails", async () => {
+    let i = 0;
+    const fakeFetch: FetchLike = async () => {
+      i++;
+      if (i === 1) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              fileUpload: {
+                uploadFile: {
+                  uploadUrl: "https://put.example/x",
+                  assetUrl: "https://uploads.linear.app/x",
+                  headers: [],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("denied", { status: 403 });
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    let caught: (Error & { status?: number; body?: string }) | null = null;
+    try {
+      await uploadFileToLinear("k", {
+        filename: "f.md",
+        contentType: "text/markdown",
+        bytes: new Uint8Array([1]),
+      });
+    } catch (err) {
+      caught = err as Error & { status?: number; body?: string };
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!.status).toBe(403);
+    expect(caught!.body).toBe("denied");
+  });
+
+  test("createAttachmentForUrl posts attachmentCreate and returns id", async () => {
+    const { calls } = stubFetch(() => ({
+      attachmentCreate: { success: true, attachment: { id: "att-42" } },
+    }));
+    const id = await createAttachmentForUrl("k", {
+      issueId: "iss-1",
+      url: "https://uploads.linear.app/x",
+      title: "Ralph proposal",
+      subtitle: "iteration 3",
+    });
+    expect(id).toBe("att-42");
+    expect(calls[0]!.variables).toMatchObject({
+      issueId: "iss-1",
+      url: "https://uploads.linear.app/x",
+      title: "Ralph proposal",
+      subtitle: "iteration 3",
+    });
+  });
+
+  test("createAttachmentForUrl throws when attachment is null", async () => {
+    stubFetch(() => ({ attachmentCreate: { success: false, attachment: null } }));
+    await expect(
+      createAttachmentForUrl("k", { issueId: "i", url: "u", title: "t" }),
+    ).rejects.toThrow(/no attachment id/);
+  });
+
+  test("updateAttachmentUrl omits subtitle from variables when not provided", async () => {
+    const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
+    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y");
+    expect(calls[0]!.variables).toEqual({ id: "att-1", url: "https://uploads.linear.app/y" });
+    expect(calls[0]!.query).not.toContain("subtitle");
+  });
+
+  test("updateAttachmentUrl threads subtitle into variables when provided", async () => {
+    const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
+    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y", "iteration 7");
+    expect(calls[0]!.variables).toEqual({
+      id: "att-1",
+      url: "https://uploads.linear.app/y",
+      subtitle: "iteration 7",
+    });
+    expect(calls[0]!.query).toContain("subtitle");
   });
 });

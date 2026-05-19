@@ -1,4 +1,5 @@
-import type { GetIndicator, Marker } from "@ralphy/types";
+import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
+import { markersOf } from "@ralphy/types";
 
 export interface LinearIssue {
   id: string;
@@ -189,21 +190,65 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   return where;
 }
 
+/** Build a Linear filter clause that matches issues satisfying all markers
+ *  in `markers` (AND across kinds, OR within a kind). Returns null when
+ *  the marker list is empty. Used to assemble per-indicator branches for
+ *  the mention scan's `or:` filter. */
+function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | null {
+  if (markers.length === 0) return null;
+  const { statuses, labels, attachmentSubtitles, projects } = partition(markers);
+  const parts: Record<string, unknown> = {};
+  if (statuses.length > 0) parts.state = { name: { in: statuses } };
+  if (labels.length > 0) parts.labels = { some: { name: { in: labels } } };
+  if (attachmentSubtitles.length > 0) {
+    parts.attachments = {
+      some: {
+        title: { eq: RALPHY_ATTACHMENT_TITLE_FILTER },
+        subtitle: { in: attachmentSubtitles },
+      },
+    };
+  }
+  if (projects.length > 0) parts.project = { name: { in: projects } };
+  return Object.keys(parts).length > 0 ? parts : null;
+}
+
 /**
- * Candidate set for the `@<handle>` mention scan. Returns every issue
- * for the configured `team` + `assignee` that is not in a cancelled
- * state. Unlike `fetchOpenIssues` (which defaults to
- * unstarted/started/backlog only) this also includes `completed` and
- * `triage`, so mentions are picked up regardless of whether the issue is
- * still Todo, In Progress, or already Done.
+ * Candidate set for the `@<handle>` mention scan. Returns issues matching
+ * any of the configured `getTodo`, `getInProgress`, or `setDone` indicators
+ * — i.e. work that ralphy is actively processing or has just shipped for
+ * review. Issues outside these indicators (raw Backlog, Triage, archived
+ * Done) are excluded so we don't burn `gh` round-trips looking for PRs
+ * that don't exist yet.
+ *
+ * Returns [] when none of the three indicators is configured.
  */
 export async function fetchMentionScanIssues(
   apiKey: string,
-  spec: { team?: string | undefined; assignee?: string | undefined },
+  spec: {
+    team?: string | undefined;
+    assignee?: string | undefined;
+    indicators: {
+      getTodo?: GetIndicator | undefined;
+      getInProgress?: GetIndicator | undefined;
+      setDone?: SetIndicator | undefined;
+    };
+  },
 ): Promise<LinearIssue[]> {
-  const where: Record<string, unknown> = {
-    state: { type: { in: ["unstarted", "started", "backlog", "triage", "completed"] } },
-  };
+  const branches: Record<string, unknown>[] = [];
+  const { getTodo, getInProgress, setDone } = spec.indicators;
+  for (const ind of [getTodo, getInProgress]) {
+    if (!ind) continue;
+    const c = clauseFromMarkers(ind.filter);
+    if (c) branches.push(c);
+  }
+  if (setDone) {
+    const c = clauseFromMarkers(markersOf(setDone));
+    if (c) branches.push(c);
+  }
+  if (branches.length === 0) return [];
+
+  const where: Record<string, unknown> =
+    branches.length === 1 ? { ...branches[0] } : { or: branches };
   if (spec.team) where.team = { key: { eq: spec.team } };
   if (spec.assignee) {
     if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };
@@ -435,6 +480,107 @@ async function linearRequest<T>(
   // Loop only exits via `return` on success or `throw` on non-retryable.
   // Retryable exhaustion falls out here.
   throw lastHttpError ?? new Error("Linear API request failed");
+}
+
+/** Result of a Linear `fileUpload` mutation: the asset URL the agent
+ *  should persist + the signed PUT instructions used to upload bytes. */
+interface LinearFileUpload {
+  fileUpload: {
+    uploadFile: {
+      uploadUrl: string;
+      assetUrl: string;
+      headers: { key: string; value: string }[];
+    } | null;
+  } | null;
+}
+
+/** Upload bytes to Linear via the `fileUpload` mutation + the signed
+ *  PUT it returns. Resolves to the public `assetUrl` that can then be
+ *  passed to `attachmentCreate(url:)`. */
+export async function uploadFileToLinear(
+  apiKey: string,
+  input: { filename: string; contentType: string; bytes: Uint8Array },
+): Promise<{ assetUrl: string }> {
+  const mutation = `mutation FileUpload($filename: String!, $contentType: String!, $size: Int!) {
+    fileUpload(filename: $filename, contentType: $contentType, size: $size) {
+      uploadFile { uploadUrl assetUrl headers { key value } }
+    }
+  }`;
+  const data = await linearRequest<LinearFileUpload>(apiKey, mutation, {
+    filename: input.filename,
+    contentType: input.contentType,
+    size: input.bytes.byteLength,
+  });
+  const up = data.fileUpload?.uploadFile;
+  if (!up) throw new Error("fileUpload returned no uploadFile payload");
+
+  const headers: Record<string, string> = { "Content-Type": input.contentType };
+  for (const h of up.headers) headers[h.key] = h.value;
+  const res = await fetch(up.uploadUrl, {
+    method: "PUT",
+    headers,
+    body: input.bytes as BodyInit,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    const err = new Error("Linear file upload PUT failed") as Error & {
+      status?: number;
+      body?: string;
+    };
+    err.status = res.status;
+    err.body = body;
+    throw err;
+  }
+  return { assetUrl: up.assetUrl };
+}
+
+/** Create a Linear attachment that points at an already-uploaded asset URL
+ *  (or any external URL). Returns the new attachment id. */
+export async function createAttachmentForUrl(
+  apiKey: string,
+  input: { issueId: string; url: string; title: string; subtitle?: string },
+): Promise<string> {
+  const mutation = `mutation CreateAttachment(
+    $issueId: String!, $url: String!, $title: String!, $subtitle: String
+  ) {
+    attachmentCreate(input: { issueId: $issueId, url: $url, title: $title, subtitle: $subtitle }) {
+      success
+      attachment { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    attachmentCreate: { success: boolean; attachment: { id: string } | null };
+  }>(apiKey, mutation, {
+    issueId: input.issueId,
+    url: input.url,
+    title: input.title,
+    subtitle: input.subtitle ?? null,
+  });
+  const id = data.attachmentCreate.attachment?.id;
+  if (!id) throw new Error("attachmentCreate returned no attachment id");
+  return id;
+}
+
+/** Replace the `url` (and optionally `subtitle`) of an existing attachment.
+ *  Used to refresh a Ralphy spec attachment in place when the source file
+ *  has changed. */
+export async function updateAttachmentUrl(
+  apiKey: string,
+  attachmentId: string,
+  url: string,
+  subtitle?: string,
+): Promise<void> {
+  const mutation =
+    subtitle === undefined
+      ? `mutation UpdateAttachmentUrl($id: String!, $url: String!) {
+    attachmentUpdate(id: $id, input: { url: $url }) { success }
+  }`
+      : `mutation UpdateAttachmentUrl($id: String!, $url: String!, $subtitle: String!) {
+    attachmentUpdate(id: $id, input: { url: $url, subtitle: $subtitle }) { success }
+  }`;
+  const variables: Record<string, unknown> =
+    subtitle === undefined ? { id: attachmentId, url } : { id: attachmentId, url, subtitle };
+  await linearRequest<{ attachmentUpdate: { success: boolean } }>(apiKey, mutation, variables);
 }
 
 /** Add a reaction (Linear `reactionCreate` mutation) to a comment.

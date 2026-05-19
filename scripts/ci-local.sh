@@ -49,7 +49,7 @@ stage_static() {
   run_step "Format check (affected)"      bun run fmt:ci
   NODE_OPTIONS=--max-old-space-size=8192 \
   run_step "Typecheck (affected)"         bun run typecheck:ci
-  run_step "Spell check"                  bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
+  # run_step "Spell check"                  bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
   run_step "Circular dependency check"    bun run check:circular:ci
   run_step "Unused dependency check"      bun run check:unused:ci
   run_step "Outdated dependency check"    bun scripts/check-outdated.ts

@@ -23,6 +23,7 @@ interface LinearCommentsState {
   planCommentId: string | null;
   tasksCommentId: string | null;
   planPostedAt: string | null;
+  tasksCommentSha256: string | null;
 }
 
 interface PersistedState {
@@ -80,7 +81,14 @@ function readComments(state: PersistedState | null): LinearCommentsState {
     planCommentId: raw?.planCommentId ?? null,
     tasksCommentId: raw?.tasksCommentId ?? null,
     planPostedAt: raw?.planPostedAt ?? null,
+    tasksCommentSha256: raw?.tasksCommentSha256 ?? null,
   };
+}
+
+function sha256Hex(text: string): string {
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(text);
+  return hasher.digest("hex");
 }
 
 async function patchComments(
@@ -139,13 +147,19 @@ export async function postOrUpdateTasksComment(deps: TasksCommentDeps): Promise<
   const tasksMd = await readTasksMd(deps.changeDir, deps.log);
   if (!tasksMd) return null;
   const body = renderTasksCommentBody(tasksMd, deps.changeName, deps.iteration);
+  const hash = sha256Hex(tasksMd);
 
   const state = await readStateJson(deps.statePath);
   const comments = readComments(state);
 
   if (comments.tasksCommentId) {
+    if (comments.tasksCommentSha256 === hash) {
+      deps.log(`  comment-sync: tasks.md unchanged for ${deps.changeName}, skipping`, "gray");
+      return comments.tasksCommentId;
+    }
     try {
       await deps.mutations.updateIssueComment(deps.apiKey, comments.tasksCommentId, body);
+      await patchComments(deps.statePath, { tasksCommentSha256: hash });
       deps.log(`  comment-sync: updated tasks comment for ${deps.changeName}`, "gray");
       return comments.tasksCommentId;
     } catch (err) {
@@ -168,7 +182,7 @@ export async function postOrUpdateTasksComment(deps: TasksCommentDeps): Promise<
     deps.log(`! comment-sync: createIssueComment failed: ${(err as Error).message}`, "yellow");
     return null;
   }
-  await patchComments(deps.statePath, { tasksCommentId: newId });
+  await patchComments(deps.statePath, { tasksCommentId: newId, tasksCommentSha256: hash });
   deps.log(`  comment-sync: created tasks comment for ${deps.changeName}`, "gray");
   return newId;
 }
@@ -311,9 +325,9 @@ export async function postSteeringAndRefreshTasks(deps: SteeringDeps): Promise<v
         deps.log(`! comment-sync: deleteIssueComment failed: ${(err as Error).message}`, "yellow");
       }
     }
-    // Clear the persisted id regardless — either it's gone, or we
-    // failed to delete it but want a fresh one to land last anyway.
-    await patchComments(deps.statePath, { tasksCommentId: null });
+    // Clear the persisted id + hash regardless — either it's gone, or
+    // we failed to delete it but want a fresh one to land last anyway.
+    await patchComments(deps.statePath, { tasksCommentId: null, tasksCommentSha256: null });
   }
 
   await postOrUpdateTasksComment({

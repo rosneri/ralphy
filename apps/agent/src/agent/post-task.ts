@@ -573,6 +573,10 @@ async function fixConflictsAndCiLoop(
           pushBranch: async () => {
             await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
           },
+          getHeadSha: async () => {
+            const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
+            return r.stdout.trim();
+          },
           log: ctx.log,
           sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
         },

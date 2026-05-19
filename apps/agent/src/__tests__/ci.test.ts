@@ -307,6 +307,36 @@ describe("fixCiUntilGreen", () => {
     expect(r.reason).toBe("push-failed");
   });
 
+  test("bails with no-progress when worker produces no new commits", async () => {
+    const h = makeFixHarness();
+    // Always failing CI (e.g. Vercel rate-limited deploy).
+    h.deps.getStatus = async () => ({ bucket: "fail", failedRunIds: ["1"] });
+    // HEAD never advances → worker has nothing to push.
+    h.deps.getHeadSha = async () => "deadbeef";
+    const r = await fixCiUntilGreen(h.deps, { maxAttempts: 10, pollIntervalSeconds: 0 });
+    expect(r).toEqual({ success: false, attempts: 1, reason: "no-progress" });
+    // Exactly one worker turn, no push (we bail before pushing).
+    expect(h.taskCalls).toHaveLength(1);
+    expect(h.pushCalls).toBe(0);
+  });
+
+  test("keeps retrying when worker advances HEAD (real fixes)", async () => {
+    const h = makeFixHarness();
+    h.setStatuses([
+      { bucket: "fail", failedRunIds: ["1"] },
+      { bucket: "pass", failedRunIds: [] },
+    ]);
+    let sha = "aaaaaaa";
+    h.deps.getHeadSha = async () => sha;
+    h.deps.runTaskWithSteering = async () => {
+      sha = "bbbbbbb"; // worker committed a fix
+      return 0;
+    };
+    const r = await fixCiUntilGreen(h.deps, { maxAttempts: 3, pollIntervalSeconds: 0 });
+    expect(r.success).toBe(true);
+    expect(h.pushCalls).toBe(1);
+  });
+
   test("respects cancelled() and exits without further work", async () => {
     const h = makeFixHarness();
     h.deps.cancelled = () => true;

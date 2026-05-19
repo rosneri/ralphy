@@ -122,6 +122,36 @@ describe("StateSchema", () => {
     expect(result.metadata).toEqual({});
   });
 
+  test("preserves specAttachments across a parse round-trip (regression: lit-242 duplicate uploads)", () => {
+    const input = {
+      version: "2" as const,
+      name: "rlf-x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+      specAttachments: {
+        proposal: { attachmentId: "att-p", sha256: "hp" },
+        design: { attachmentId: "att-d", sha256: "hd" },
+      },
+    };
+    const result = StateSchema.parse(input);
+    expect(result.specAttachments.proposal.attachmentId).toBe("att-p");
+    expect(result.specAttachments.design.attachmentId).toBe("att-d");
+    expect(result.specAttachments.proposal.sha256).toBe("hp");
+  });
+
+  test("specAttachments defaults to null slots when omitted", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+    });
+    expect(result.specAttachments.proposal.attachmentId).toBeNull();
+    expect(result.specAttachments.design.attachmentId).toBeNull();
+  });
+
   test("rejects missing required fields", () => {
     expect(() => StateSchema.parse({})).toThrow();
     expect(() => StateSchema.parse({ name: "x" })).toThrow();

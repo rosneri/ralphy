@@ -15,6 +15,7 @@
     "./openspec-phase": "./src/openspec/phase.ts"
   },
   "dependencies": {
+    "@ralphy/change-store": "workspace:*",
     "@ralphy/content": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/types": "workspace:*"

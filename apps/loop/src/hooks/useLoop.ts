@@ -115,7 +115,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       } else {
         if (rawState !== null) {
           addInfo(
-            `.ralph-state.json was malformed — reinitialising. External fields (linearComments) preserved.`,
+            `.ralph-state.json was malformed — reinitialising. External fields (linearComments, specAttachments) preserved.`,
           );
         }
         currentState = buildInitialState({
@@ -126,11 +126,15 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           manualTest: opts.manualTest,
           createPr: opts.createPr ?? false,
         });
-        // Carry over linearComments if linear-sync wrote it before the loop
-        // could scaffold full state — otherwise we'd orphan the sticky
-        // Linear comment ids and create duplicates on the next sync.
+        // Carry over linearComments / specAttachments if linear-sync wrote
+        // them before the loop could scaffold full state — otherwise we'd
+        // orphan the sticky comment + attachment ids and create duplicates
+        // on the next sync.
         if (rawState !== null && rawState.linearComments) {
           (currentState as Record<string, unknown>).linearComments = rawState.linearComments;
+        }
+        if (rawState !== null && rawState.specAttachments) {
+          (currentState as Record<string, unknown>).specAttachments = rawState.specAttachments;
         }
         writeState(stateDir, currentState);
       }
@@ -230,6 +234,19 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           writeState(stateDir, currentState);
           setState(currentState);
           try {
+            if (typeof opts.changeStore.getStatus === "function") {
+              const status = await opts.changeStore.getStatus(opts.name);
+              if (!status.isComplete) {
+                const blocked = status.artifacts
+                  .filter((a) => a.status !== "done")
+                  .map((a) => `${a.id}=${a.status}`)
+                  .join(", ");
+                addInfo(
+                  `Archive skipped: openspec status reports change incomplete (${blocked || "no artifacts"}).`,
+                );
+                throw new Error("openspec status: change not complete");
+              }
+            }
             await opts.changeStore.archiveChange(opts.name);
             addInfo("Change archived.");
           } catch (err) {

@@ -26,6 +26,9 @@ import {
   updateIssueState,
   fetchIssueLabels,
   fetchTeamIdByKey,
+  uploadFileToLinear,
+  createAttachmentForUrl,
+  updateAttachmentUrl,
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
@@ -64,6 +67,7 @@ import {
   postSteeringAndRefreshTasks,
   type CommentMutations,
 } from "./linear-sync/comment-sync";
+import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -783,9 +787,20 @@ export function buildAgentCoordinator(
     const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch } = await setupWorktree(issue);
 
     let changeName: string;
-    // Mode classification: only `fresh` re-scaffolds. resume / conflict-fix /
-    // review all reuse the existing change directory.
-    const isFresh = mode === "fresh";
+    // Mode classification: `fresh` always re-scaffolds. resume / conflict-fix /
+    // review normally reuse the existing change directory, but if `tasks.md`
+    // is missing (e.g. branch was created before openspec scaffolding existed,
+    // or a prior slug-rename orphaned the resume path), fall through to a
+    // re-scaffold so comment-sync and the task loop have something to read.
+    const wtLayoutPre = projectLayout(workerCwd);
+    const derivedName = changeNameForIssue(issue);
+    const tasksMdPath = join(wtLayoutPre.changeDir(derivedName), "tasks.md");
+    const tasksMdExists = await Bun.file(tasksMdPath).exists();
+    const needsScaffold = !tasksMdExists;
+    if (mode !== "fresh" && needsScaffold) {
+      onLog(`  ${issue.identifier}: tasks.md missing at ${tasksMdPath} — rescaffolding`, "yellow");
+    }
+    const isFresh = mode === "fresh" || needsScaffold;
     if (isFresh) {
       // Fetch comments to embed in proposal — only on fresh runs to avoid
       // the round-trip cost on every resume/fix.
@@ -830,10 +845,9 @@ export function buildAgentCoordinator(
       );
     } else {
       // Resume / conflict-fix: do NOT re-scaffold (would overwrite tasks.md).
-      changeName = changeNameForIssue(issue);
-      const wtLayout = projectLayout(workerCwd);
-      await mkdir(wtLayout.changeDir(changeName), { recursive: true });
-      await mkdir(wtLayout.taskStateDir(changeName), { recursive: true });
+      changeName = derivedName;
+      await mkdir(wtLayoutPre.changeDir(changeName), { recursive: true });
+      await mkdir(wtLayoutPre.taskStateDir(changeName), { recursive: true });
     }
 
     cwdByChange.set(changeName, workerCwd);
@@ -1392,7 +1406,17 @@ export function buildAgentCoordinator(
     const handle = cfg.linear.mentionHandle;
     let candidates: LinearIssue[] = [];
     try {
-      candidates = await fetchMentionScanIssues(apiKey, { team, assignee });
+      candidates = await fetchMentionScanIssues(apiKey, {
+        team,
+        assignee,
+        indicators: {
+          ...(indicators.getTodo !== undefined ? { getTodo: indicators.getTodo } : {}),
+          ...(indicators.getInProgress !== undefined
+            ? { getInProgress: indicators.getInProgress }
+            : {}),
+          ...(indicators.setDone !== undefined ? { setDone: indicators.setDone } : {}),
+        },
+      });
     } catch (err) {
       if (isRateLimitedError(err)) {
         onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
@@ -1806,6 +1830,12 @@ export function buildAgentCoordinator(
     updateIssueComment,
     deleteIssueComment,
   };
+  const specAttachmentsEnabled = Boolean(commentSyncEnabled && cfg.linear.syncSpecsAsAttachments);
+  const specAttachmentMutations: SpecAttachmentMutations = {
+    uploadFileToLinear,
+    createAttachmentForUrl,
+    updateAttachmentUrl,
+  };
 
   const coord = new AgentCoordinator(
     {
@@ -1861,6 +1891,17 @@ export function buildAgentCoordinator(
                 log: onLog,
                 mutations: commentMutations,
               });
+              if (specAttachmentsEnabled) {
+                await syncSpecAttachments({
+                  apiKey: apiKey!,
+                  issueId: worker.issueId,
+                  statePath,
+                  changeDir,
+                  iteration,
+                  log: onLog,
+                  mutations: specAttachmentMutations,
+                });
+              }
             },
             onSteeringAppended: async (changeName, message) => {
               const root = cwdByChange.get(changeName) ?? projectRoot;

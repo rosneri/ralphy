@@ -866,6 +866,124 @@ describe("AgentCoordinator — progress comments", () => {
   });
 });
 
+describe("AgentCoordinator — task sync on every poll", () => {
+  test("with postComments:false, syncTasks fires every poll as iteration advances and no progress comment posted", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    let count = 0;
+    ctx.deps.getIterationCount = async () => count;
+    const syncCalls: { changeName: string; iteration: number }[] = [];
+    ctx.deps.syncTasks = async (w, iteration) => {
+      syncCalls.push({ changeName: w.changeName, iteration });
+    };
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      commentEveryIterations: 10,
+      postComments: false,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // launch sync (iteration 0)
+    expect(syncCalls).toEqual([{ changeName: "change-eng-1", iteration: 0 }]);
+
+    count = 3;
+    await coord.pollOnce();
+    expect(syncCalls).toContainEqual({ changeName: "change-eng-1", iteration: 3 });
+
+    count = 5;
+    await coord.pollOnce();
+    expect(syncCalls).toContainEqual({ changeName: "change-eng-1", iteration: 5 });
+
+    // No progress comment posted.
+    expect(ctx.comments.filter((c) => c.body.includes("progress"))).toEqual([]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("with commentEveryIterations:0, syncTasks still fires every poll but no progress comment posted", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    let count = 0;
+    ctx.deps.getIterationCount = async () => count;
+    const syncCalls: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      syncCalls.push(iteration);
+    };
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      commentEveryIterations: 0,
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(syncCalls).toEqual([0]);
+
+    count = 2;
+    await coord.pollOnce();
+    expect(syncCalls).toEqual([0, 2]);
+
+    count = 4;
+    await coord.pollOnce();
+    expect(syncCalls).toEqual([0, 2, 4]);
+
+    expect(ctx.comments.filter((c) => c.body.includes("progress"))).toEqual([]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("syncTasks is NOT re-invoked when iteration count is unchanged between polls", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.getIterationCount = async () => 0;
+    const syncCalls: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      syncCalls.push(iteration);
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // launch syncs iteration 0; poll-loop sync sees count===lastSynced and skips.
+    expect(syncCalls).toEqual([0]);
+
+    await coord.pollOnce();
+    await coord.pollOnce();
+    expect(syncCalls).toEqual([0]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("when syncTasks throws, lastSyncedIteration is not advanced and the next poll retries with the same count", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    let count = 0;
+    ctx.deps.getIterationCount = async () => count;
+    const seen: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      seen.push(iteration);
+      if (iteration === 5) throw new Error("upload failed");
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(seen).toEqual([0]);
+
+    count = 5;
+    await coord.pollOnce();
+    // attempted but threw — lastSyncedIteration stays 0
+    expect(seen).toEqual([0, 5]);
+    expect(ctx.logs.some((l) => l.text.includes("sync-tasks (poll) failed"))).toBe(true);
+
+    // count still 5 — retry should fire again because lastSyncedIteration didn't advance.
+    await coord.pollOnce();
+    expect(seen).toEqual([0, 5, 5]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+});
+
 describe("AgentCoordinator — poll summary log routing", () => {
   test("poll summary goes to onFileLog, not onLog", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });

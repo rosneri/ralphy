@@ -127,6 +127,10 @@ async function setupHarness(tempDir: string, handlers: Handlers): Promise<Harnes
     linear: {
       team: "ENG",
       postComments: handlers.postComments ?? false,
+      // Off so the sticky tasks comment doesn't fire when scaffolding runs
+      // on the review-mode resume path (this test only cares about
+      // pickup-comment dedupe, not comment-sync output).
+      syncTasksToComment: false,
       mentionTrigger: false,
       codeReviewTrigger: true,
       codeReviewStaleHours: 0,

@@ -137,6 +137,13 @@ export interface CiFixDeps {
   runTaskWithSteering: (steering: string) => Promise<number>;
   /** Push the worker's branch so CI re-runs on the PR. */
   pushBranch: () => Promise<void>;
+  /** Optional: return the current HEAD SHA. When provided, the fix loop
+   *  bails after a worker turn that produced no new commits — there is
+   *  nothing to push, so re-pushing and re-polling cannot change CI
+   *  status. This typically means the failure is external (Vercel rate
+   *  limit, infra outage, account block) and not fixable by re-running
+   *  the worker. */
+  getHeadSha?: () => Promise<string>;
   log: (text: string, color?: string) => void;
   /** Sleep helper (injected for testability). Returns when timer elapses. */
   sleep: (ms: number) => Promise<void>;
@@ -155,6 +162,15 @@ interface CiFixResult {
   success: boolean;
   attempts: number;
   reason?: string;
+}
+
+async function safeSha(getHeadSha: () => Promise<string>): Promise<string | null> {
+  try {
+    const sha = (await getHeadSha()).trim();
+    return sha || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -193,9 +209,25 @@ export async function fixCiUntilGreen(deps: CiFixDeps, opts: CiFixOptions): Prom
         const logs = await deps.getFailedLogs(s.failedRunIds);
         deps.onPhase?.("ci-fix", `attempt ${attempt}/${opts.maxAttempts} · re-running worker`);
         const steering = `CI is failing on this PR. Investigate and fix:\n\n\`\`\`\n${logs}\n\`\`\``;
+        const shaBefore = deps.getHeadSha ? await safeSha(deps.getHeadSha) : null;
         const code = await deps.runTaskWithSteering(steering);
         if (code !== 0) {
           deps.log(`! task loop exited code ${code} during CI fix attempt ${attempt}`, "red");
+        }
+        // No-progress guard: if the worker produced no new commits, pushing
+        // and re-polling cannot change CI. Bail out so the supervisor can
+        // mark the issue as CI-failed and move on to other work, instead of
+        // burning the full maxAttempts budget on something the worker
+        // already decided it cannot fix.
+        if (shaBefore !== null) {
+          const shaAfter = await safeSha(deps.getHeadSha!);
+          if (shaAfter !== null && shaAfter === shaBefore) {
+            deps.log(
+              `! worker produced no new commits on CI fix attempt ${attempt} — failure looks external (e.g. rate-limited deploy). Giving up CI watch.`,
+              "yellow",
+            );
+            return { success: false, attempts: attempt, reason: "no-progress" };
+          }
         }
         try {
           deps.onPhase?.("ci-fix", `attempt ${attempt}/${opts.maxAttempts} · pushing fix`);

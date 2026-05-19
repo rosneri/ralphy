@@ -2,13 +2,15 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import type { LinearComment, LinearIssue } from "./linear";
 
-/** Convert a Linear identifier (e.g. "ENG-123") into a safe change-name slug. */
+/** Convert a Linear identifier (e.g. "ENG-123") into a safe change-name slug.
+ *  The trailing-dash trim runs *after* the 40-char slice so that titles whose
+ *  slice boundary lands on a separator don't re-introduce the trailing `-`. */
 export function changeNameForIssue(issue: LinearIssue): string {
   const slug = issue.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, "");
   return slug ? `${issue.identifier.toLowerCase()}-${slug}` : issue.identifier.toLowerCase();
 }
 

@@ -98,7 +98,7 @@ describe("isCommentNotFoundError", () => {
 
 describe("postOrUpdateTasksComment", () => {
   test("first sync creates a fresh comment and persists the id", async () => {
-    writeFileSync(join(changeDir, "tasks.md"), "## Planning\n\n- [ ] one\n", "utf-8");
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [ ] one\n", "utf-8");
     const m = makeMutations();
     const id = await postOrUpdateTasksComment({
       apiKey: "key",
@@ -119,7 +119,7 @@ describe("postOrUpdateTasksComment", () => {
   });
 
   test("subsequent sync updates in place using the persisted id", async () => {
-    writeFileSync(join(changeDir, "tasks.md"), "## Planning\n\n- [ ] one\n", "utf-8");
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [ ] one\n", "utf-8");
     const m = makeMutations();
     await postOrUpdateTasksComment({
       apiKey: "key",
@@ -132,7 +132,7 @@ describe("postOrUpdateTasksComment", () => {
       mutations: m,
     });
     // Change tasks.md, then sync again.
-    writeFileSync(join(changeDir, "tasks.md"), "## Planning\n\n- [x] one\n", "utf-8");
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [x] one\n", "utf-8");
     const id = await postOrUpdateTasksComment({
       apiKey: "key",
       issueId: "issue-1",
@@ -151,7 +151,7 @@ describe("postOrUpdateTasksComment", () => {
   });
 
   test("recovers when comment was deleted manually (update returns not found)", async () => {
-    writeFileSync(join(changeDir, "tasks.md"), "## Planning\n\n- [ ] one\n", "utf-8");
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [ ] one\n", "utf-8");
     const m = makeMutations();
     await postOrUpdateTasksComment({
       apiKey: "key",
@@ -163,6 +163,8 @@ describe("postOrUpdateTasksComment", () => {
       log: () => {},
       mutations: m,
     });
+    // Change tasks.md so the hash-skip doesn't short-circuit the update path.
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [x] one\n", "utf-8");
     m.failNextUpdateWithNotFound = true;
     const id = await postOrUpdateTasksComment({
       apiKey: "key",
@@ -178,6 +180,35 @@ describe("postOrUpdateTasksComment", () => {
     expect(m.createdBodies.length).toBe(2);
     const s = await readState();
     expect((s.linearComments as { tasksCommentId?: string }).tasksCommentId).toBe("c-2");
+  });
+
+  test("hash-skips the update when tasks.md is unchanged (RLF: no-op churn)", async () => {
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [ ] one\n", "utf-8");
+    const m = makeMutations();
+    await postOrUpdateTasksComment({
+      apiKey: "key",
+      issueId: "issue-1",
+      statePath,
+      changeDir,
+      changeName: "demo",
+      iteration: 1,
+      log: () => {},
+      mutations: m,
+    });
+    // Same content, next iteration: must not call updateIssueComment.
+    const id = await postOrUpdateTasksComment({
+      apiKey: "key",
+      issueId: "issue-1",
+      statePath,
+      changeDir,
+      changeName: "demo",
+      iteration: 2,
+      log: () => {},
+      mutations: m,
+    });
+    expect(id).toBe("c-1");
+    expect(m.createdBodies.length).toBe(1);
+    expect(m.updatedBodies.length).toBe(0);
   });
 
   test("skips when tasks.md is missing", async () => {
@@ -269,7 +300,7 @@ describe("postPlanCommentOnce", () => {
 
 describe("postSteeringAndRefreshTasks", () => {
   test("posts steering comment, deletes prior tasks comment, recreates it", async () => {
-    writeFileSync(join(changeDir, "tasks.md"), "## Planning\n\n- [ ] one\n", "utf-8");
+    writeFileSync(join(changeDir, "tasks.md"), "## Implementation\n\n- [ ] one\n", "utf-8");
     const m = makeMutations();
     // Seed with an existing tasks comment.
     await postOrUpdateTasksComment({
