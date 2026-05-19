@@ -121,6 +121,11 @@ linear:
   # otherwise. Requires syncTasksToComment.
   syncSpecsAsAttachments: true
 
+  # Which rendered formats to upload for each spec. "md" mirrors the
+  # source file as-is. "pdf" also uploads a pdfkit-rendered PDF mirror
+  # as a peer attachment (handy when viewing Linear on mobile).
+  specAttachmentFormats: ["md", "pdf"]
+
   # Indicators grouped by lifecycle: each get* is followed by the set*/clear*
   # that mutates the same status/label, so a reader sees the whole lifecycle
   # in one block.
