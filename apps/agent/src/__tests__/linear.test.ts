@@ -553,21 +553,34 @@ describe("spec attachment mutations (RLF-74)", () => {
     ).rejects.toThrow(/no attachment id/);
   });
 
-  test("updateAttachmentUrl omits subtitle from variables when not provided", async () => {
+  test("updateAttachmentUrl threads required title and omits subtitle when not provided", async () => {
     const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
-    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y");
-    expect(calls[0]!.variables).toEqual({ id: "att-1", url: "https://uploads.linear.app/y" });
-    expect(calls[0]!.query).not.toContain("subtitle");
-  });
-
-  test("updateAttachmentUrl threads subtitle into variables when provided", async () => {
-    const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
-    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y", "iteration 7");
+    await updateAttachmentUrl("k", "att-1", "https://uploads.linear.app/y", "Ralph proposal");
     expect(calls[0]!.variables).toEqual({
       id: "att-1",
       url: "https://uploads.linear.app/y",
+      title: "Ralph proposal",
+    });
+    expect(calls[0]!.query).toContain("title");
+    expect(calls[0]!.query).not.toContain("subtitle");
+  });
+
+  test("updateAttachmentUrl threads title + subtitle into variables when provided", async () => {
+    const { calls } = stubFetch(() => ({ attachmentUpdate: { success: true } }));
+    await updateAttachmentUrl(
+      "k",
+      "att-1",
+      "https://uploads.linear.app/y",
+      "Ralph proposal",
+      "iteration 7",
+    );
+    expect(calls[0]!.variables).toEqual({
+      id: "att-1",
+      url: "https://uploads.linear.app/y",
+      title: "Ralph proposal",
       subtitle: "iteration 7",
     });
+    expect(calls[0]!.query).toContain("title");
     expect(calls[0]!.query).toContain("subtitle");
   });
 });

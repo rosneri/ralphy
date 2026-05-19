@@ -73,6 +73,7 @@ export interface SpecAttachmentMutations {
     apiKey: string,
     attachmentId: string,
     url: string,
+    title: string,
     subtitle?: string,
   ) => Promise<void>;
 }
@@ -186,6 +187,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
         deps.apiKey,
         current.attachmentId,
         assetUrl,
+        ATTACHMENT_TITLES[slot],
         subtitle,
       );
       await patchSpecState(deps.statePath, {
