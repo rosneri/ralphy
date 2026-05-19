@@ -118,6 +118,11 @@ linear:
   # cadence as updateEveryIterations, and on done-transition.
   syncTasksToComment: true
 
+  # Upload openspec proposal.md and design.md as Linear attachments on the
+  # parent issue. Refreshed when file contents change, no-op otherwise.
+  # Requires syncTasksToComment.
+  syncSpecsAsAttachments: true
+
   # Indicators map Ralph lifecycle events to Linear labels/statuses.
   #
   # Filter semantics (per indicator's \`filter:\` list):
