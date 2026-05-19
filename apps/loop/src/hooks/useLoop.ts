@@ -115,7 +115,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       } else {
         if (rawState !== null) {
           addInfo(
-            `.ralph-state.json was malformed — reinitialising. External fields (linearComments) preserved.`,
+            `.ralph-state.json was malformed — reinitialising. External fields (linearComments, specAttachments) preserved.`,
           );
         }
         currentState = buildInitialState({
@@ -126,11 +126,15 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           manualTest: opts.manualTest,
           createPr: opts.createPr ?? false,
         });
-        // Carry over linearComments if linear-sync wrote it before the loop
-        // could scaffold full state — otherwise we'd orphan the sticky
-        // Linear comment ids and create duplicates on the next sync.
+        // Carry over linearComments / specAttachments if linear-sync wrote
+        // them before the loop could scaffold full state — otherwise we'd
+        // orphan the sticky comment + attachment ids and create duplicates
+        // on the next sync.
         if (rawState !== null && rawState.linearComments) {
           (currentState as Record<string, unknown>).linearComments = rawState.linearComments;
+        }
+        if (rawState !== null && rawState.specAttachments) {
+          (currentState as Record<string, unknown>).specAttachments = rawState.specAttachments;
         }
         writeState(stateDir, currentState);
       }
