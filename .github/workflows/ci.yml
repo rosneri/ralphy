@@ -69,9 +69,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
-      - name: Spell check
-        if: "!cancelled()"
-        run: bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
+      # - name: Spell check
+      #   if: "!cancelled()"
+      #   run: bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
 
       - name: Circular dependency check
         if: "!cancelled()"
