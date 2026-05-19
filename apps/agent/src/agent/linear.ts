@@ -437,6 +437,105 @@ async function linearRequest<T>(
   throw lastHttpError ?? new Error("Linear API request failed");
 }
 
+/** Result of a Linear `fileUpload` mutation: the asset URL the agent
+ *  should persist + the signed PUT instructions used to upload bytes. */
+interface LinearFileUpload {
+  uploadFile: {
+    uploadUrl: string;
+    assetUrl: string;
+    headers: { key: string; value: string }[];
+  } | null;
+}
+
+/** Upload bytes to Linear via the `fileUpload` mutation + the signed
+ *  PUT it returns. Resolves to the public `assetUrl` that can then be
+ *  passed to `attachmentCreate(url:)`. */
+export async function uploadFileToLinear(
+  apiKey: string,
+  input: { filename: string; contentType: string; bytes: Uint8Array },
+): Promise<{ assetUrl: string }> {
+  const mutation = `mutation FileUpload($filename: String!, $contentType: String!, $size: Int!) {
+    fileUpload(filename: $filename, contentType: $contentType, size: $size) {
+      uploadFile { uploadUrl assetUrl headers { key value } }
+    }
+  }`;
+  const data = await linearRequest<LinearFileUpload>(apiKey, mutation, {
+    filename: input.filename,
+    contentType: input.contentType,
+    size: input.bytes.byteLength,
+  });
+  const up = data.uploadFile;
+  if (!up) throw new Error("fileUpload returned no uploadFile payload");
+
+  const headers: Record<string, string> = { "Content-Type": input.contentType };
+  for (const h of up.headers) headers[h.key] = h.value;
+  const res = await fetch(up.uploadUrl, {
+    method: "PUT",
+    headers,
+    body: input.bytes as BodyInit,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    const err = new Error("Linear file upload PUT failed") as Error & {
+      status?: number;
+      body?: string;
+    };
+    err.status = res.status;
+    err.body = body;
+    throw err;
+  }
+  return { assetUrl: up.assetUrl };
+}
+
+/** Create a Linear attachment that points at an already-uploaded asset URL
+ *  (or any external URL). Returns the new attachment id. */
+export async function createAttachmentForUrl(
+  apiKey: string,
+  input: { issueId: string; url: string; title: string; subtitle?: string },
+): Promise<string> {
+  const mutation = `mutation CreateAttachment(
+    $issueId: String!, $url: String!, $title: String!, $subtitle: String
+  ) {
+    attachmentCreate(input: { issueId: $issueId, url: $url, title: $title, subtitle: $subtitle }) {
+      success
+      attachment { id }
+    }
+  }`;
+  const data = await linearRequest<{
+    attachmentCreate: { success: boolean; attachment: { id: string } | null };
+  }>(apiKey, mutation, {
+    issueId: input.issueId,
+    url: input.url,
+    title: input.title,
+    subtitle: input.subtitle ?? null,
+  });
+  const id = data.attachmentCreate.attachment?.id;
+  if (!id) throw new Error("attachmentCreate returned no attachment id");
+  return id;
+}
+
+/** Replace the `url` (and optionally `subtitle`) of an existing attachment.
+ *  Used to refresh a Ralphy spec attachment in place when the source file
+ *  has changed. */
+export async function updateAttachmentUrl(
+  apiKey: string,
+  attachmentId: string,
+  url: string,
+  subtitle?: string,
+): Promise<void> {
+  const mutation =
+    subtitle === undefined
+      ? `mutation UpdateAttachmentUrl($id: String!, $url: String!) {
+    attachmentUpdate(id: $id, input: { url: $url }) { success }
+  }`
+      : `mutation UpdateAttachmentUrl($id: String!, $url: String!, $subtitle: String!) {
+    attachmentUpdate(id: $id, input: { url: $url, subtitle: $subtitle }) { success }
+  }`;
+  const variables: Record<string, unknown> =
+    subtitle === undefined ? { id: attachmentId, url } : { id: attachmentId, url, subtitle };
+  await linearRequest<{ attachmentUpdate: { success: boolean } }>(apiKey, mutation, variables);
+}
+
 /** Add a reaction (Linear `reactionCreate` mutation) to a comment.
  *  Best-effort acknowledgement that Ralphy has seen a mention. Linear
  *  treats the (user, comment, emoji) tuple as idempotent, so re-running

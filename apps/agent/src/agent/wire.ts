@@ -26,6 +26,9 @@ import {
   updateIssueState,
   fetchIssueLabels,
   fetchTeamIdByKey,
+  uploadFileToLinear,
+  createAttachmentForUrl,
+  updateAttachmentUrl,
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
@@ -64,6 +67,7 @@ import {
   postSteeringAndRefreshTasks,
   type CommentMutations,
 } from "./linear-sync/comment-sync";
+import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -1806,6 +1810,12 @@ export function buildAgentCoordinator(
     updateIssueComment,
     deleteIssueComment,
   };
+  const specAttachmentsEnabled = Boolean(commentSyncEnabled && cfg.linear.syncSpecsAsAttachments);
+  const specAttachmentMutations: SpecAttachmentMutations = {
+    uploadFileToLinear,
+    createAttachmentForUrl,
+    updateAttachmentUrl,
+  };
 
   const coord = new AgentCoordinator(
     {
@@ -1861,6 +1871,17 @@ export function buildAgentCoordinator(
                 log: onLog,
                 mutations: commentMutations,
               });
+              if (specAttachmentsEnabled) {
+                await syncSpecAttachments({
+                  apiKey: apiKey!,
+                  issueId: worker.issueId,
+                  statePath,
+                  changeDir,
+                  iteration,
+                  log: onLog,
+                  mutations: specAttachmentMutations,
+                });
+              }
             },
             onSteeringAppended: async (changeName, message) => {
               const root = cwdByChange.get(changeName) ?? projectRoot;

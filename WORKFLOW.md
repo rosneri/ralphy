@@ -116,6 +116,11 @@ linear:
   # lands at the bottom of the issue timeline.
   syncTasksToComment: true
 
+  # Upload openspec proposal.md and design.md as Linear attachments on
+  # the parent issue. Refreshed when file contents change, no-op
+  # otherwise. Requires syncTasksToComment.
+  syncSpecsAsAttachments: true
+
   # Indicators grouped by lifecycle: each get* is followed by the set*/clear*
   # that mutates the same status/label, so a reader sees the whole lifecycle
   # in one block.
