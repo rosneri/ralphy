@@ -427,10 +427,12 @@ describe("spec attachment mutations (RLF-74)", () => {
         return new Response(
           JSON.stringify({
             data: {
-              uploadFile: {
-                uploadUrl: "https://put.example/abc",
-                assetUrl: "https://uploads.linear.app/abc",
-                headers: [{ key: "x-amz-acl", value: "private" }],
+              fileUpload: {
+                uploadFile: {
+                  uploadUrl: "https://put.example/abc",
+                  assetUrl: "https://uploads.linear.app/abc",
+                  headers: [{ key: "x-amz-acl", value: "private" }],
+                },
               },
             },
           }),
@@ -454,10 +456,29 @@ describe("spec attachment mutations (RLF-74)", () => {
 
   test("uploadFileToLinear throws when fileUpload returns null payload", async () => {
     const fakeFetch: FetchLike = async () =>
-      new Response(JSON.stringify({ data: { uploadFile: null } }), {
+      new Response(JSON.stringify({ data: { fileUpload: { uploadFile: null } } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
+    globalThis.fetch = fakeFetch as typeof fetch;
+    await expect(
+      uploadFileToLinear("k", {
+        filename: "f.md",
+        contentType: "text/markdown",
+        bytes: new Uint8Array([1]),
+      }),
+    ).rejects.toThrow(/no uploadFile payload/);
+  });
+
+  test("uploadFileToLinear throws when GraphQL omits fileUpload entirely (regression: nesting bug)", async () => {
+    const fakeFetch: FetchLike = async () =>
+      new Response(
+        JSON.stringify({ data: { uploadFile: { uploadUrl: "x", assetUrl: "y", headers: [] } } }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     globalThis.fetch = fakeFetch as typeof fetch;
     await expect(
       uploadFileToLinear("k", {
@@ -476,10 +497,12 @@ describe("spec attachment mutations (RLF-74)", () => {
         return new Response(
           JSON.stringify({
             data: {
-              uploadFile: {
-                uploadUrl: "https://put.example/x",
-                assetUrl: "https://uploads.linear.app/x",
-                headers: [],
+              fileUpload: {
+                uploadFile: {
+                  uploadUrl: "https://put.example/x",
+                  assetUrl: "https://uploads.linear.app/x",
+                  headers: [],
+                },
               },
             },
           }),

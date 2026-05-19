@@ -485,10 +485,12 @@ async function linearRequest<T>(
 /** Result of a Linear `fileUpload` mutation: the asset URL the agent
  *  should persist + the signed PUT instructions used to upload bytes. */
 interface LinearFileUpload {
-  uploadFile: {
-    uploadUrl: string;
-    assetUrl: string;
-    headers: { key: string; value: string }[];
+  fileUpload: {
+    uploadFile: {
+      uploadUrl: string;
+      assetUrl: string;
+      headers: { key: string; value: string }[];
+    } | null;
   } | null;
 }
 
@@ -509,7 +511,7 @@ export async function uploadFileToLinear(
     contentType: input.contentType,
     size: input.bytes.byteLength,
   });
-  const up = data.uploadFile;
+  const up = data.fileUpload?.uploadFile;
   if (!up) throw new Error("fileUpload returned no uploadFile payload");
 
   const headers: Record<string, string> = { "Content-Type": input.contentType };
