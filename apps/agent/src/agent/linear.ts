@@ -568,18 +568,23 @@ export async function updateAttachmentUrl(
   apiKey: string,
   attachmentId: string,
   url: string,
+  title: string,
   subtitle?: string,
 ): Promise<void> {
+  // AttachmentUpdateInput.title is `String!` (required) in Linear's schema —
+  // omitting it returns 400 on every refresh. Always thread it through.
   const mutation =
     subtitle === undefined
-      ? `mutation UpdateAttachmentUrl($id: String!, $url: String!) {
-    attachmentUpdate(id: $id, input: { url: $url }) { success }
+      ? `mutation UpdateAttachmentUrl($id: String!, $url: String!, $title: String!) {
+    attachmentUpdate(id: $id, input: { url: $url, title: $title }) { success }
   }`
-      : `mutation UpdateAttachmentUrl($id: String!, $url: String!, $subtitle: String!) {
-    attachmentUpdate(id: $id, input: { url: $url, subtitle: $subtitle }) { success }
+      : `mutation UpdateAttachmentUrl($id: String!, $url: String!, $title: String!, $subtitle: String!) {
+    attachmentUpdate(id: $id, input: { url: $url, title: $title, subtitle: $subtitle }) { success }
   }`;
   const variables: Record<string, unknown> =
-    subtitle === undefined ? { id: attachmentId, url } : { id: attachmentId, url, subtitle };
+    subtitle === undefined
+      ? { id: attachmentId, url, title }
+      : { id: attachmentId, url, title, subtitle };
   await linearRequest<{ attachmentUpdate: { success: boolean } }>(apiKey, mutation, variables);
 }
 

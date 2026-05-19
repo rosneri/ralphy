@@ -35,6 +35,7 @@ interface CreateCall {
 interface UpdateCall {
   attachmentId: string;
   url: string;
+  title: string;
   subtitle?: string;
 }
 
@@ -65,7 +66,7 @@ function makeMutations(initialId = 1): FakeMutations {
       m.creates.push(input);
       return `att-${nextId++}`;
     },
-    updateAttachmentUrl: async (_apiKey, attachmentId, url, subtitle) => {
+    updateAttachmentUrl: async (_apiKey, attachmentId, url, title, subtitle) => {
       if (m.failNextUpdateWithNotFound) {
         m.failNextUpdateWithNotFound = false;
         const err = new Error("Linear API returned errors") as Error & { messages?: string[] };
@@ -73,7 +74,12 @@ function makeMutations(initialId = 1): FakeMutations {
         throw err;
       }
       if (m.failUpdateWith) throw m.failUpdateWith;
-      m.updates.push({ attachmentId, url, ...(subtitle !== undefined ? { subtitle } : {}) });
+      m.updates.push({
+        attachmentId,
+        url,
+        title,
+        ...(subtitle !== undefined ? { subtitle } : {}),
+      });
     },
   };
   return m;
@@ -180,6 +186,9 @@ describe("syncSpecAttachments", () => {
       mutations: m,
     });
     expect(m.updates).toHaveLength(1);
+    // RLF: AttachmentUpdateInput.title is required — the slot title must
+    // be threaded through every refresh or Linear returns 400.
+    expect(m.updates[0]!.title).toBe("Ralph proposal");
     expect(m.uploads.map((u) => u.filename)).toEqual(["proposal.md", "design.md", "proposal.md"]);
   });
 
