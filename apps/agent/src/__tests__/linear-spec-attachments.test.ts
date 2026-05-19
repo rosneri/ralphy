@@ -323,6 +323,70 @@ describe("syncSpecAttachments", () => {
     expect(await Bun.file(statePath).exists()).toBe(false);
   });
 
+  test("formats: ['md','pdf'] uploads both .md and .pdf peer slots with a PDF byte stream", async () => {
+    writeProposal();
+    writeDesign();
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+      formats: ["md", "pdf"],
+    });
+    // 4 uploads: proposal.md, design.md, proposal.pdf, design.pdf
+    expect(m.uploads.map((u) => u.filename)).toEqual([
+      "proposal.md",
+      "design.md",
+      "proposal.pdf",
+      "design.pdf",
+    ]);
+    // PDF uploads must actually be PDF bytes (magic %PDF prefix), not raw markdown.
+    const pdfUploads = m.uploads.filter((u) => u.filename.endsWith(".pdf"));
+    expect(pdfUploads).toHaveLength(2);
+    for (const u of pdfUploads) {
+      expect(new TextDecoder().decode(u.bytes.slice(0, 4))).toBe("%PDF");
+    }
+    const state = await readState();
+    const sa = state.specAttachments as {
+      proposal: { attachmentId: string; sha256: string };
+      design: { attachmentId: string; sha256: string };
+      proposalPdf: { attachmentId: string; sha256: string };
+      designPdf: { attachmentId: string; sha256: string };
+    };
+    expect(sa.proposalPdf.attachmentId).toMatch(/^att-/);
+    expect(sa.designPdf.attachmentId).toMatch(/^att-/);
+    // PDF slot hash mirrors the source-md hash so a re-render is skipped
+    // when the underlying markdown is unchanged.
+    expect(sa.proposalPdf.sha256).toBe(sa.proposal.sha256);
+    expect(sa.designPdf.sha256).toBe(sa.design.sha256);
+  });
+
+  test("formats: ['md','pdf'] hash-skips PDF when proposal.md is unchanged", async () => {
+    writeProposal();
+    writeDesign();
+    const m = makeMutations();
+    const log = makeLog();
+    const deps = {
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+      formats: ["md", "pdf"] as ("md" | "pdf")[],
+    };
+    await syncSpecAttachments({ ...deps });
+    const baseline = m.uploads.length;
+    await syncSpecAttachments({ ...deps, iteration: 2 });
+    expect(m.uploads.length).toBe(baseline);
+  });
+
   test("malformed .ralph-state.json is treated as empty state (first-run path)", async () => {
     writeProposal();
     mkdirSync(join(tempDir, ".ralph", "tasks", "demo"), { recursive: true });

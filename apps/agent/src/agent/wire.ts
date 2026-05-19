@@ -1900,6 +1900,7 @@ export function buildAgentCoordinator(
                   iteration,
                   log: onLog,
                   mutations: specAttachmentMutations,
+                  formats: cfg.linear.specAttachmentFormats,
                 });
               }
             },

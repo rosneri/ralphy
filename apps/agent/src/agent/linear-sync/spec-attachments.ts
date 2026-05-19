@@ -8,11 +8,17 @@
  * re-uploaded and `attachmentUpdate(url:)` swings the existing
  * attachment to the new asset URL. If Linear reports the persisted
  * attachment id as missing (manual deletion) the slot is recreated.
+ *
+ * Each source file may produce up to two slots — the raw .md and, when
+ * `specAttachmentFormats` includes "pdf", a pdfkit-rendered PDF mirror.
+ * Both share the same source-file sha so the PDF skip-decision tracks
+ * the markdown content directly.
  */
 
 import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { isCommentNotFoundError } from "./comment-sync";
+import { renderMarkdownToPdf } from "./render-pdf";
 
 /** Build a Linear-API error suffix that surfaces .status / .body / .messages
  *  fields attached by linearRequest. Without this, every HTTP failure
@@ -31,16 +37,65 @@ function describeLinearError(err: unknown): string {
   return parts.join(" ");
 }
 
-const ATTACHMENT_TITLES = {
-  proposal: "Ralph proposal",
-  design: "Ralph design",
-} as const;
+export type AttachmentFormat = "md" | "pdf";
 
-type Slot = keyof typeof ATTACHMENT_TITLES;
+type Slot = "proposal" | "design" | "proposalPdf" | "designPdf";
 
-const SLOT_FILES: Record<Slot, string> = {
-  proposal: "proposal.md",
-  design: "design.md",
+interface SlotSpec {
+  /** Source file (always a .md) on disk to read. */
+  sourceFile: string;
+  /** Filename to give Linear at upload time. */
+  uploadFilename: string;
+  /** MIME type Linear should record. */
+  contentType: string;
+  /** Attachment title (required by AttachmentUpdateInput). */
+  title: string;
+  /** Which format flag this slot belongs to. */
+  format: AttachmentFormat;
+  /** Transform the source bytes into the bytes to upload. md is
+   *  identity; pdf renders via pdfkit. */
+  renderBytes: (sourceBytes: Uint8Array) => Promise<Uint8Array>;
+}
+
+const identityRender = async (b: Uint8Array): Promise<Uint8Array> => b;
+const pdfRender =
+  (title: string) =>
+  async (b: Uint8Array): Promise<Uint8Array> =>
+    renderMarkdownToPdf(new TextDecoder().decode(b), title);
+
+const SLOT_SPECS: Record<Slot, SlotSpec> = {
+  proposal: {
+    sourceFile: "proposal.md",
+    uploadFilename: "proposal.md",
+    contentType: "text/markdown",
+    title: "Ralph proposal",
+    format: "md",
+    renderBytes: identityRender,
+  },
+  design: {
+    sourceFile: "design.md",
+    uploadFilename: "design.md",
+    contentType: "text/markdown",
+    title: "Ralph design",
+    format: "md",
+    renderBytes: identityRender,
+  },
+  proposalPdf: {
+    sourceFile: "proposal.md",
+    uploadFilename: "proposal.pdf",
+    contentType: "application/pdf",
+    title: "Ralph proposal (PDF)",
+    format: "pdf",
+    renderBytes: pdfRender("Ralph proposal"),
+  },
+  designPdf: {
+    sourceFile: "design.md",
+    uploadFilename: "design.pdf",
+    contentType: "application/pdf",
+    title: "Ralph design (PDF)",
+    format: "pdf",
+    renderBytes: pdfRender("Ralph design"),
+  },
 };
 
 interface SpecAttachmentSlot {
@@ -51,6 +106,8 @@ interface SpecAttachmentSlot {
 interface SpecAttachmentsState {
   proposal: SpecAttachmentSlot;
   design: SpecAttachmentSlot;
+  proposalPdf: SpecAttachmentSlot;
+  designPdf: SpecAttachmentSlot;
 }
 
 interface PersistedState {
@@ -88,6 +145,10 @@ interface SpecAttachmentsDeps {
   iteration: number;
   log: LogFn;
   mutations: SpecAttachmentMutations;
+  /** Formats to upload. Defaults to ["md"] to preserve the legacy
+   *  behaviour. Add "pdf" to also upload a pdfkit-rendered mirror as
+   *  a peer slot keyed off the same source-md hash. */
+  formats?: AttachmentFormat[];
 }
 
 const EMPTY_SLOT: SpecAttachmentSlot = { attachmentId: null, sha256: null };
@@ -118,6 +179,14 @@ function readSpecState(state: PersistedState | null): SpecAttachmentsState {
       attachmentId: raw?.design?.attachmentId ?? null,
       sha256: raw?.design?.sha256 ?? null,
     },
+    proposalPdf: {
+      attachmentId: raw?.proposalPdf?.attachmentId ?? null,
+      sha256: raw?.proposalPdf?.sha256 ?? null,
+    },
+    designPdf: {
+      attachmentId: raw?.designPdf?.attachmentId ?? null,
+      sha256: raw?.designPdf?.sha256 ?? null,
+    },
   };
 }
 
@@ -138,28 +207,44 @@ function sha256Hex(bytes: Uint8Array): string {
 }
 
 async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
-  const filename = SLOT_FILES[slot];
-  const path = join(deps.changeDir, filename);
-  const file = Bun.file(path);
+  const spec = SLOT_SPECS[slot];
+  const sourcePath = join(deps.changeDir, spec.sourceFile);
+  const file = Bun.file(sourcePath);
   if (!(await file.exists())) {
-    deps.log(`  spec-attachments: ${filename} missing, skipping`, "gray");
+    deps.log(`  spec-attachments: ${spec.sourceFile} missing, skipping`, "gray");
     return;
   }
 
-  let bytes: Uint8Array;
+  let sourceBytes: Uint8Array;
   try {
-    bytes = await file.bytes();
+    sourceBytes = await file.bytes();
   } catch (err) {
-    deps.log(`! spec-attachments: read ${filename} failed: ${(err as Error).message}`, "yellow");
+    deps.log(
+      `! spec-attachments: read ${spec.sourceFile} failed: ${(err as Error).message}`,
+      "yellow",
+    );
     return;
   }
 
-  const hash = sha256Hex(bytes);
+  // Hash the *source* so the md and pdf slots track the same content
+  // signal. A change to proposal.md invalidates both proposal/proposalPdf.
+  const hash = sha256Hex(sourceBytes);
   const state = await readStateJson(deps.statePath);
   const current = readSpecState(state)[slot] ?? EMPTY_SLOT;
 
   if (current.attachmentId && current.sha256 === hash) {
-    deps.log(`  spec-attachments: ${filename} unchanged, skipping`, "gray");
+    deps.log(`  spec-attachments: ${spec.uploadFilename} unchanged, skipping`, "gray");
+    return;
+  }
+
+  let uploadBytes: Uint8Array;
+  try {
+    uploadBytes = await spec.renderBytes(sourceBytes);
+  } catch (err) {
+    deps.log(
+      `! spec-attachments: render ${spec.uploadFilename} failed: ${(err as Error).message}`,
+      "yellow",
+    );
     return;
   }
 
@@ -168,14 +253,14 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   let assetUrl: string;
   try {
     const uploaded = await deps.mutations.uploadFileToLinear(deps.apiKey, {
-      filename,
-      contentType: "text/markdown",
-      bytes,
+      filename: spec.uploadFilename,
+      contentType: spec.contentType,
+      bytes: uploadBytes,
     });
     assetUrl = uploaded.assetUrl;
   } catch (err) {
     deps.log(
-      `! spec-attachments: upload ${filename} failed: ${describeLinearError(err)}`,
+      `! spec-attachments: upload ${spec.uploadFilename} failed: ${describeLinearError(err)}`,
       "yellow",
     );
     return;
@@ -187,19 +272,19 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
         deps.apiKey,
         current.attachmentId,
         assetUrl,
-        ATTACHMENT_TITLES[slot],
+        spec.title,
         subtitle,
       );
       await patchSpecState(deps.statePath, {
         slot,
         value: { attachmentId: current.attachmentId, sha256: hash },
       });
-      deps.log(`  spec-attachments: refreshed ${filename}`, "gray");
+      deps.log(`  spec-attachments: refreshed ${spec.uploadFilename}`, "gray");
       return;
     } catch (err) {
       if (!isCommentNotFoundError(err)) {
         deps.log(
-          `! spec-attachments: updateAttachmentUrl ${filename} failed: ${describeLinearError(err)}`,
+          `! spec-attachments: updateAttachmentUrl ${spec.uploadFilename} failed: ${describeLinearError(err)}`,
           "yellow",
         );
         return;
@@ -217,12 +302,12 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     newId = await deps.mutations.createAttachmentForUrl(deps.apiKey, {
       issueId: deps.issueId,
       url: assetUrl,
-      title: ATTACHMENT_TITLES[slot],
+      title: spec.title,
       subtitle,
     });
   } catch (err) {
     deps.log(
-      `! spec-attachments: createAttachmentForUrl ${filename} failed: ${describeLinearError(err)}`,
+      `! spec-attachments: createAttachmentForUrl ${spec.uploadFilename} failed: ${describeLinearError(err)}`,
       "yellow",
     );
     return;
@@ -231,12 +316,17 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     slot,
     value: { attachmentId: newId, sha256: hash },
   });
-  deps.log(`  spec-attachments: created ${filename} attachment`, "gray");
+  deps.log(`  spec-attachments: created ${spec.uploadFilename} attachment`, "gray");
 }
 
-/** Sync proposal.md and design.md as Linear attachments. Slots are
- *  independent — a missing or failing slot does not affect the other. */
+/** Sync proposal.md / design.md (and, optionally, their pdfkit-rendered
+ *  PDF mirrors) as Linear attachments. Slots are independent — a missing
+ *  or failing slot does not affect the others. */
 export async function syncSpecAttachments(deps: SpecAttachmentsDeps): Promise<void> {
-  await syncSlot(deps, "proposal");
-  await syncSlot(deps, "design");
+  const enabled = new Set<AttachmentFormat>(deps.formats ?? ["md"]);
+  const order: Slot[] = ["proposal", "design", "proposalPdf", "designPdf"];
+  for (const slot of order) {
+    if (!enabled.has(SLOT_SPECS[slot].format)) continue;
+    await syncSlot(deps, slot);
+  }
 }

@@ -111,10 +111,28 @@ export const StateSchema = z.object({
           sha256: z.string().nullable().default(null),
         })
         .default({ attachmentId: null, sha256: null }),
+      /** Peer slots for the rendered PDF mirror of proposal.md /
+       *  design.md when `specAttachmentFormats` includes "pdf". The
+       *  sha256 hashes the source MD (not the rendered bytes) so an
+       *  identical input deterministically skips re-rendering. */
+      proposalPdf: z
+        .object({
+          attachmentId: z.string().nullable().default(null),
+          sha256: z.string().nullable().default(null),
+        })
+        .default({ attachmentId: null, sha256: null }),
+      designPdf: z
+        .object({
+          attachmentId: z.string().nullable().default(null),
+          sha256: z.string().nullable().default(null),
+        })
+        .default({ attachmentId: null, sha256: null }),
     })
     .default({
       proposal: { attachmentId: null, sha256: null },
       design: { attachmentId: null, sha256: null },
+      proposalPdf: { attachmentId: null, sha256: null },
+      designPdf: { attachmentId: null, sha256: null },
     }),
 });
 
