@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-sidecar/
 .DS_Store
+.envrc
 .nx/
 *.tsbuildinfo
 .ralph
