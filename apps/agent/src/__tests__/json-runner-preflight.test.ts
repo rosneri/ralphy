@@ -7,7 +7,7 @@ import { runAgentJson } from "../agent/json-runner";
 
 let tempDir: string;
 let originalApiKey: string | undefined;
-let originalExitCode: number | undefined;
+let originalExitCode: string | number | null | undefined;
 let writes: string[] = [];
 let originalWrite: typeof process.stdout.write;
 
@@ -20,11 +20,10 @@ beforeEach(() => {
   originalExitCode = process.exitCode;
   writes = [];
   originalWrite = process.stdout.write.bind(process.stdout);
-  // @ts-expect-error — narrow override for tests
-  process.stdout.write = (chunk: string | Uint8Array): boolean => {
+  process.stdout.write = ((chunk: string | Uint8Array): boolean => {
     writes.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
     return true;
-  };
+  }) as typeof process.stdout.write;
 });
 
 afterEach(() => {

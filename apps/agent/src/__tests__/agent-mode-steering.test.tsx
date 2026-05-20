@@ -139,7 +139,7 @@ describe("AgentMode steering", () => {
         buildCoordinator: makeBuilder([fakeWorker]),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true }),
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush(150);
@@ -161,7 +161,7 @@ describe("AgentMode steering", () => {
         buildCoordinator: makeBuilder([fakeWorker]),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true }),
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush(150);
@@ -198,7 +198,7 @@ describe("AgentMode steering", () => {
         }),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true }),
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush(150);
@@ -224,7 +224,7 @@ describe("AgentMode steering", () => {
         buildCoordinator: makeBuilder([]),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true }),
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush(150);

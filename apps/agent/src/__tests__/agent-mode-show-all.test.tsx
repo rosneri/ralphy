@@ -151,7 +151,7 @@ describe("AgentMode Ctrl+L expanded subtasks", () => {
         buildCoordinator: makeBuilder([fakeWorker], changeDir),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true }),
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     // Wait for the 1s polling effect to read tasks.md and populate subtasks.
