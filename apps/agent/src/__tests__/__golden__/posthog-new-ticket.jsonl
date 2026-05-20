@@ -1,0 +1,2 @@
+{"event":"agent_worker_spawned","properties":{"spawn_mode":"fresh","issue_identifier":"ENG-1"}}
+{"event":"agent_worker_exited","properties":{"spawn_mode":"fresh","issue_identifier":"ENG-1","exit_code":0,"ok":true}}
