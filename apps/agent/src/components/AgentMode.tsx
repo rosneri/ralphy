@@ -347,6 +347,8 @@ function openspecPhaseColor(phase: OpenSpecPhase): string {
       return "blue";
     case "tasks":
       return "cyan";
+    case "awaiting-confirmation":
+      return "yellow";
     case "implement":
       return "yellow";
     case "done":

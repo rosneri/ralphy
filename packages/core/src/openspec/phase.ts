@@ -8,7 +8,13 @@
  * loop's own runtime phase (working / pushing / ci-poll / ...).
  */
 
-export type OpenSpecPhase = "proposal" | "design" | "tasks" | "implement" | "done";
+export type OpenSpecPhase =
+  | "proposal"
+  | "design"
+  | "tasks"
+  | "awaiting-confirmation"
+  | "implement"
+  | "done";
 
 export interface OpenSpecPhaseInputs {
   /** Contents of `proposal.md`, or `null` if the file does not exist. */
@@ -17,6 +23,17 @@ export interface OpenSpecPhaseInputs {
   design: string | null;
   /** Contents of `tasks.md`, or `null` if the file does not exist. */
   tasks: string | null;
+  /**
+   * True when this ticket is currently subject to the human-confirmation gate
+   * (confirmation mode enabled and the opt-out label is absent). Defaults to
+   * false so callers that do not pass it behave exactly as before.
+   */
+  confirmationGated?: boolean;
+  /**
+   * True when the human has signalled approval (e.g. the `getApproved`
+   * indicator matched). Defaults to false.
+   */
+  approved?: boolean;
 }
 
 /**
@@ -51,20 +68,24 @@ function tasksAllChecked(tasks: string): boolean {
  * Derive the current OpenSpec phase from the change's artifacts.
  *
  * Priority (highest-progress first):
- *   1. `done`     — `tasks.md` exists and has no unchecked items
- *   2. `proposal` — `proposal.md` missing or stub
- *   3. `design`   — `design.md` missing or stub
- *   4. `implement`— `tasks.md` has unchecked items
- *   5. `tasks`    — fallback (no tasks file yet, but earlier artifacts present)
+ *   1. `done`                  — `tasks.md` exists and has no unchecked items
+ *   2. `proposal`              — `proposal.md` missing or stub
+ *   3. `design`                — `design.md` missing or stub
+ *   4. `awaiting-confirmation` — gated + tasks have unchecked items + not yet approved
+ *   5. `implement`             — `tasks.md` has unchecked items
+ *   6. `tasks`                 — fallback (no tasks file yet, but earlier artifacts present)
  */
 export function deriveOpenSpecPhase(inputs: OpenSpecPhaseInputs): OpenSpecPhase {
-  const { proposal, design, tasks } = inputs;
+  const { proposal, design, tasks, confirmationGated = false, approved = false } = inputs;
   if (tasks !== null && tasks.trim() !== "" && tasksAllChecked(tasks)) {
     return "done";
   }
   if (isStubArtifact(proposal)) return "proposal";
   if (isStubArtifact(design)) return "design";
-  if (tasks !== null && /^- \[ \]/m.test(tasks)) return "implement";
+  if (tasks !== null && /^- \[ \]/m.test(tasks)) {
+    if (confirmationGated && !approved) return "awaiting-confirmation";
+    return "implement";
+  }
   return "tasks";
 }
 
@@ -76,10 +97,11 @@ export interface PhaseSegment {
   status: PhaseSegmentStatus;
 }
 
-const PIPELINE_PHASES: ReadonlyArray<Exclude<OpenSpecPhase, "done">> = [
+export const PIPELINE_PHASES: ReadonlyArray<Exclude<OpenSpecPhase, "done">> = [
   "proposal",
   "design",
   "tasks",
+  "awaiting-confirmation",
   "implement",
 ];
 
