@@ -1016,9 +1016,7 @@ export function AgentMode({
 
         {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
         {Array.from(gatedTicketsRef.current.entries()).map(([changeName, g]) => {
-          const askedAgo = g.since
-            ? fmtElapsed(now - Date.parse(g.since))
-            : "just now";
+          const askedAgo = g.since ? fmtElapsed(now - Date.parse(g.since)) : "just now";
           const cardLabelWidth = g.issueIdentifier.length + 2;
           const cardLabelNode = (
             <>

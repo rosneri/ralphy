@@ -80,7 +80,7 @@ import {
   readConfirmationState,
   restartFromDesign as restartFromDesignFs,
   writeConfirmationState,
-} from "./awaiting-confirmation";
+} from "./confirmation";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */

@@ -49,7 +49,14 @@ const baseArgs: ParsedArgs = {
 
 function makeBuilderWithAwaiting(
   awaitingCount: number,
-  fireAwaiting?: { changeName: string; issueIdentifier: string; issueUrl: string; issueTitle: string; since: string | null; round: number },
+  fireAwaiting?: {
+    changeName: string;
+    issueIdentifier: string;
+    issueUrl: string;
+    issueTitle: string;
+    since: string | null;
+    round: number;
+  },
 ): AgentModeBuildCoordinator {
   return (input) => {
     const onAwaitingTicket = input.onAwaitingTicket;
