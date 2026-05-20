@@ -105,3 +105,4 @@ Never modify: dist/**, .claude/worktrees/**.
 ## Steering
 
 - 2026-05-20: Linear @ralphy mention on the issue is the automated "plan ready, awaiting approval" notification (no concrete revise/instruction in the message body). Interpretation: nothing to act on — the plan stays as-is awaiting human approval or a `@ralphy revise: <reason>` reply. Acknowledged and ticked the agent-task; not modifying proposal/design/specs in response.
+- 2026-05-20 (16:13Z, round 2): Second identical plan-ready @ralphy mention picked up after the implementation already shipped on this branch (PR #216 open with commits dfcb857..d0b247b). No concrete revise text in the body — only the literal template `@ralphy revise: <reason>` example. Interpretation: still nothing to act on; plan and implementation remain as-is awaiting human approval. Acknowledging and ticking the agent-task without further edits.
