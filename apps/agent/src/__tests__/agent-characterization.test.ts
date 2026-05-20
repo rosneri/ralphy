@@ -1247,4 +1247,213 @@ describe("agent characterization — Stage-0 regression net", () => {
       expect(planReadyCount).toBe(1);
     },
   );
+
+  // Scenario 6: round-cap exhaustion → stuck. Driving `maxConfirmationRounds`
+  // consecutive revise rounds (each loop is a worker iteration that ends in
+  // an `@ralphy revise: …` reviewer comment instead of approval) exhausts
+  // the cap. On the next poll the gate sees `rounds >= cap` and fires the
+  // stuck path — applying the `ralph:stuck` label, posting the stuck
+  // comment, AND issuing no further spawn for the change on that poll. The
+  // ticket stays in awaiting (no implement work fires while stuck).
+  test("scenario 6: round-cap exhaustion → stuck (green)", async () => {
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.labelIds.set("ralph:conflicted", "label-conf");
+    linear.labelIds.set("ralph:error", "label-err");
+    linear.labelIds.set("ralph:approved", "label-approved");
+    linear.labelIds.set("ralph:stuck", "label-stuck");
+
+    const issue: FakeIssue = {
+      id: "uuid-eng-6",
+      identifier: "ENG-6",
+      title: "Add notifications",
+      description: "Users want notifications",
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    };
+    linear.add(issue);
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (!url.includes("linear.app")) {
+        throw new Error("unexpected fetch in test");
+      }
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      return linear.handle(body);
+    }) as typeof fetch;
+
+    const confirmationWorkflow = {
+      ...baseWorkflow,
+      linear: {
+        ...baseWorkflow.linear,
+        confirmationMode: {
+          enabled: true,
+          optOutLabel: "ralph:auto-approve",
+          timeoutHours: 48,
+          // Small cap so two revise rounds are enough to exhaust it.
+          maxConfirmationRounds: 2,
+        },
+        indicators: {
+          ...baseWorkflow.linear.indicators,
+          getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+          getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+          clearApproved: { type: "label", value: "ralph:approved" },
+        },
+      },
+    };
+    await writeWorkflow(tempDir, confirmationWorkflow);
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const { runners, workers, spawnCalls } = makeRunners();
+    const logs: string[] = [];
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: (text) => logs.push(text),
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+
+    const changeName = "eng-6-add-notifications";
+    const changeDir = join(tempDir, "openspec", "changes", changeName);
+    const designPath = join(changeDir, "design.md");
+    const tasksPath = join(changeDir, "tasks.md");
+
+    // The deriver only returns `awaiting-confirmation` when design.md is
+    // filled AND tasks.md has at least one unchecked `- [ ]` item. Each
+    // revise round re-stubs both, so the test must repopulate both before
+    // the next gate fires.
+    const fillDesign = async (variant: string): Promise<void> => {
+      await Bun.write(
+        designPath,
+        [`# Design for ${changeName}`, "", `## Approach (${variant})`, "", "Plan body.", ""].join(
+          "\n",
+        ),
+      );
+      await Bun.write(
+        tasksPath,
+        [
+          `# Tasks for ${changeName}`,
+          "",
+          "## Implementation",
+          "",
+          "- [ ] Implement notifications",
+          "",
+        ].join("\n"),
+      );
+    };
+
+    // Poll 1: Todo pickup → fresh-mode spawn.
+    await coord.pollOnce();
+    await tick();
+    expect(workers.has(changeName)).toBe(true);
+    expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(1);
+
+    // Fill design → Poll 2 will gate.
+    await fillDesign("v1");
+
+    // Poll 2: gate fires (rounds=0), plan-ready posted, worker reaped.
+    await coord.pollOnce();
+    await tick();
+    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+
+    // Inject revise #1 (createdAt strictly after the askedAt watermark).
+    linear.addExternalComment("uuid-eng-6", {
+      id: "revise-1",
+      body: "@ralphy revise: reconsider the API surface",
+      createdAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // Poll 3: revise consumed → rounds=1, design restubbed.
+    await coord.pollOnce();
+    await tick();
+    const statePath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.json");
+    const stateAfterRevise1 = JSON.parse(readFileSync(statePath, "utf-8")) as {
+      confirmation?: { rounds?: number };
+    };
+    expect(stateAfterRevise1.confirmation?.rounds).toBe(1);
+
+    // Worker re-fills design for round 2.
+    await fillDesign("v2");
+
+    // Poll 4: gate fires again (rounds=1).
+    await coord.pollOnce();
+    await tick();
+
+    // Inject revise #2 (newer than the previous lastReviseConsumedAt).
+    linear.addExternalComment("uuid-eng-6", {
+      id: "revise-2",
+      body: "@ralphy revise: still not right",
+      createdAt: new Date(Date.now() + 120_000).toISOString(),
+    });
+
+    // Poll 5: revise consumed → rounds=2 (== cap), design restubbed.
+    await coord.pollOnce();
+    await tick();
+    const stateAfterRevise2 = JSON.parse(readFileSync(statePath, "utf-8")) as {
+      confirmation?: { rounds?: number };
+    };
+    expect(stateAfterRevise2.confirmation?.rounds).toBe(2);
+
+    // Worker re-fills design — but the next poll's gate will trip the cap
+    // BEFORE any revise/approval logic runs.
+    await fillDesign("v3");
+
+    const spawnsBeforeStuck = spawnCalls.filter((c) => c.includes(changeName)).length;
+
+    // Poll 6: round-cap exhaustion — rounds >= cap → stuck.
+    await coord.pollOnce();
+    await tick();
+
+    // `ralph:stuck` label was applied to the issue.
+    expect(
+      linear.labelMutations.some(
+        (m) => m.op === "add" && m.labelName === "ralph:stuck" && m.issueId === "uuid-eng-6",
+      ),
+    ).toBe(true);
+    expect(linear.issues.get("uuid-eng-6")!.labels.has("ralph:stuck")).toBe(true);
+
+    // Stuck comment was posted on the issue.
+    expect(linear.comments.some((c) => c.body.includes("confirmation gate stuck"))).toBe(true);
+
+    // `stuckPostedAt` watermark persisted so subsequent polls don't re-post.
+    const stateAfterStuck = JSON.parse(readFileSync(statePath, "utf-8")) as {
+      confirmation?: { stuckPostedAt?: string | null };
+    };
+    expect(stateAfterStuck.confirmation?.stuckPostedAt).not.toBeNull();
+    expect(typeof stateAfterStuck.confirmation?.stuckPostedAt).toBe("string");
+
+    // No new spawn was issued on this poll — the ticket is parked, no
+    // implement / resume / revise worker fires while stuck.
+    const spawnsAfterStuck = spawnCalls.filter((c) => c.includes(changeName)).length;
+    expect(spawnsAfterStuck).toBe(spawnsBeforeStuck);
+
+    // A subsequent poll while still stuck does NOT repost the stuck comment
+    // (idempotency via stuckPostedAt) and STILL issues no spawn.
+    const commentsBeforeRepoll = linear.comments.length;
+    const spawnsBeforeRepoll = spawnCalls.filter((c) => c.includes(changeName)).length;
+    await coord.pollOnce();
+    await tick();
+    expect(linear.comments.filter((c) => c.body.includes("confirmation gate stuck")).length).toBe(
+      1,
+    );
+    expect(linear.comments.length).toBe(commentsBeforeRepoll);
+    expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(spawnsBeforeRepoll);
+  });
 });
