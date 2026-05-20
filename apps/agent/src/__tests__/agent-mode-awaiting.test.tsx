@@ -121,6 +121,7 @@ describe("AgentMode awaiting-confirmation", () => {
         buildCoordinator: makeBuilderWithAwaiting(2),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush();
@@ -152,6 +153,7 @@ describe("AgentMode awaiting-confirmation", () => {
         }),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush();
