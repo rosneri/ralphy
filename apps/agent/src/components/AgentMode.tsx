@@ -9,6 +9,7 @@ import {
 } from "../agent/config";
 import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
 import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
+import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 
 /** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
  *  Exported so tests can supply lightweight mocks without bypassing types. */
@@ -76,6 +77,8 @@ interface AgentModeProps {
   ensureConfig?: typeof ensureRalphyConfigImpl;
   /** Test injection — defaults to the real `loadRalphyConfig`. */
   loadConfig?: typeof loadRalphyConfigImpl;
+  /** Test injection — defaults to the real `runPreflight`. */
+  runPreflight?: () => Promise<PreflightResult>;
 }
 
 interface LogLine {
@@ -396,11 +399,15 @@ export function AgentMode({
   buildCoordinator = buildAgentCoordinatorImpl,
   ensureConfig = ensureRalphyConfigImpl,
   loadConfig = loadRalphyConfigImpl,
+  runPreflight = runPreflightImpl,
 }: AgentModeProps) {
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const { columns, rows, resizeKey } = useTerminalSize();
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [preflightError, setPreflightError] = useState<{ tool: string; message: string } | null>(
+    null,
+  );
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
   /** Index into activeWorkers of the focused worker card (0-based). */
@@ -479,6 +486,17 @@ export function AgentMode({
       const apiKey = process.env["LINEAR_API_KEY"];
       if (!apiKey) {
         throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
+      }
+
+      const pf = await runPreflight();
+      if (!pf.ok) {
+        setPreflightError({ tool: pf.tool, message: pf.message });
+        process.exitCode = 2;
+        setTimeout(() => {
+          exit();
+          setTimeout(() => process.exit(2), 200);
+        }, 100);
+        return;
       }
 
       const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildCoordinator({
@@ -777,6 +795,17 @@ export function AgentMode({
   const FIXED_OVERHEAD = 5 + 7 + tasksBoxLines + 8 + steeringBoxLines + nonFocusedCount * 4;
   const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
   const compactTailLines = displayTailLines(activeCount);
+
+  if (preflightError) {
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor="red" paddingX={1}>
+        <Text color="red" bold>
+          ✖ Preflight failed — {preflightError.tool}
+        </Text>
+        <Text color="red">{preflightError.message}</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box key={resizeKey} flexDirection="column">

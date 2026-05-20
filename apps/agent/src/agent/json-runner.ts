@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
+import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 
 // Reuse the same line-cleaning regexes as the Ink dashboard.
 const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
@@ -50,11 +51,13 @@ export async function runAgentJson({
   projectRoot,
   statesDir,
   tasksDir,
+  runPreflight = runPreflightImpl,
 }: {
   args: ParsedArgs;
   projectRoot: string;
   statesDir: string;
   tasksDir: string;
+  runPreflight?: () => Promise<PreflightResult>;
 }): Promise<void> {
   await mkdir(join(homedir(), ".ralph"), { recursive: true }).catch(() => undefined);
 
@@ -65,6 +68,13 @@ export async function runAgentJson({
   if (!apiKey) {
     emit({ type: "error", text: "LINEAR_API_KEY not set — cannot poll Linear" });
     process.exitCode = 1;
+    return;
+  }
+
+  const pf = await runPreflight();
+  if (!pf.ok) {
+    emit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });
+    process.exitCode = 2;
     return;
   }
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { IterationUsage } from "@ralphy/types";
 import { spawn } from "../spawn";
+import { scrubClaudeEnv } from "../preflight";
 import { parseClaudeLine } from "../formatters/claude-stream";
 import { streamLines } from "./stream";
 import type { Agent, AgentRequest, AgentRunResult } from "./protocol";
@@ -60,6 +61,7 @@ async function runInteractive(req: AgentRequest): Promise<AgentRunResult> {
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
+      env: scrubClaudeEnv(process.env as Record<string, string | undefined>),
     });
 
     const exitCode = await proc.exited;
@@ -92,6 +94,7 @@ export const claudeAgent: Agent = {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "inherit",
+      env: scrubClaudeEnv(process.env as Record<string, string | undefined>),
       ...(req.cwd ? { cwd: req.cwd } : {}),
     });
 
