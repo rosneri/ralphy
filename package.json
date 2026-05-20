@@ -81,6 +81,7 @@
     "oxc-parser": "^0.126.0",
     "oxfmt": "^0.36.0",
     "oxlint": "^1.63.0",
+    "pdf-parse": "^2.4.5",
     "secretlint": "^11.7.1",
     "typescript": "^5.9.3",
     "zod": "^3.25.76"
