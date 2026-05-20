@@ -7,7 +7,7 @@ import { runAgentJson } from "../agent/json-runner";
 
 let tempDir: string;
 let originalApiKey: string | undefined;
-let originalExitCode: number | undefined;
+let originalExitCode: string | number | null | undefined;
 let writes: string[] = [];
 let originalWrite: typeof process.stdout.write;
 
