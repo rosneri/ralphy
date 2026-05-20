@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./state": "./src/state.ts",
+    "./state": "./src/state/store.ts",
     "./git": "./src/git.ts",
     "./format": "./src/format.ts",
     "./init": "./src/init.ts",

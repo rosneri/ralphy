@@ -186,6 +186,29 @@ describe("StateSchema", () => {
     expect(result.specAttachments.design.attachmentId).toBeNull();
   });
 
+  test("review defaults to { lastConsumedCommentAt: null } when omitted (old state migrates silently)", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+    });
+    expect(result.review).toEqual({ lastConsumedCommentAt: null });
+  });
+
+  test("review preserves provided lastConsumedCommentAt across a parse round-trip", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+      review: { lastConsumedCommentAt: "2026-05-15T10:00:00Z" },
+    });
+    expect(result.review.lastConsumedCommentAt).toBe("2026-05-15T10:00:00Z");
+  });
+
   test("rejects missing required fields", () => {
     expect(() => StateSchema.parse({})).toThrow();
     expect(() => StateSchema.parse({ name: "x" })).toThrow();

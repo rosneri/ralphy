@@ -177,6 +177,11 @@ export interface CoordinatorDeps {
    *  no-op bus when omitted — Stage 1 wiring is purely additive, so existing
    *  callers don't have to thread it through. */
   bus?: Bus;
+  /** Optional hook fired at the start of each poll cycle (before any Linear
+   *  fetch). Wire uses this to reset its per-poll `PollContext` memo so
+   *  duplicate `gh pr view` calls within the same poll share a single
+   *  invocation. Synchronous to avoid sequencing concerns. */
+  beforePoll?: () => void;
 }
 
 interface CoordinatorOptions {
@@ -309,6 +314,7 @@ export class AgentCoordinator {
    */
   async pollOnce(): Promise<PollResult> {
     if (this.stopped) return emptyPollResult();
+    this.deps.beforePoll?.();
 
     let todo: LinearIssue[] = [];
     let inProgress: LinearIssue[] = [];
