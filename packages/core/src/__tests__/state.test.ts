@@ -1,5 +1,12 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { readState, writeState, updateState, buildInitialState, ensureState } from "../state";
+import {
+  readState,
+  writeState,
+  updateState,
+  buildInitialState,
+  ensureState,
+  tryReadStateRaw,
+} from "../state";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -46,6 +53,49 @@ describe("readState / writeState", () => {
       const raw = readFileSync(join(tempDir, ".ralph-state.json"), "utf-8");
       expect(raw.endsWith("\n")).toBe(true);
       expect(() => JSON.parse(raw)).not.toThrow();
+    }));
+});
+
+describe("tryReadStateRaw", () => {
+  test("returns null state and raw when file is missing", () =>
+    withStorage(() => {
+      expect(tryReadStateRaw(tempDir)).toEqual({ state: null, raw: null });
+    }));
+
+  test("returns null state and raw when JSON is malformed", () =>
+    withStorage(() => {
+      writeFileSync(join(tempDir, ".ralph-state.json"), "not json", "utf-8");
+      expect(tryReadStateRaw(tempDir)).toEqual({ state: null, raw: null });
+    }));
+
+  test("returns parsed state and raw when file is a valid state", () =>
+    withStorage(() => {
+      const state = buildInitialState({ name: "valid", prompt: "p" });
+      writeState(tempDir, state);
+      const result = tryReadStateRaw(tempDir);
+      expect(result.state?.name).toBe("valid");
+      expect(result.raw).not.toBeNull();
+      expect((result.raw as { name?: string }).name).toBe("valid");
+    }));
+
+  test("returns null state but raw object when schema validation fails", () =>
+    withStorage(() => {
+      writeFileSync(
+        join(tempDir, ".ralph-state.json"),
+        JSON.stringify({ unexpected: "shape", linearComments: ["c"] }),
+        "utf-8",
+      );
+      const result = tryReadStateRaw(tempDir);
+      expect(result.state).toBeNull();
+      expect(result.raw).toEqual({ unexpected: "shape", linearComments: ["c"] });
+    }));
+
+  test("treats non-object JSON (e.g. a bare string) as empty raw", () =>
+    withStorage(() => {
+      writeFileSync(join(tempDir, ".ralph-state.json"), JSON.stringify("plain string"), "utf-8");
+      const result = tryReadStateRaw(tempDir);
+      expect(result.state).toBeNull();
+      expect(result.raw).toEqual({});
     }));
 });
 

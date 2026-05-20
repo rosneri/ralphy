@@ -1,3 +1,51 @@
+## Fix failing CI checks (2026-05-20T10:41:39.431Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26157241479 ---
+ci Test affected files + coverage ﻿2026-05-20T10:40:27.3984182Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-20T10:40:27.3984587Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-20T10:40:27.4020565Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-20T10:40:27.4020838Z env:
+ci Test affected files + coverage 2026-05-20T10:40:27.4021097Z NX_BASE: 3a94ae08add05d95d6396fc18cebbd8ae845e1ef
+ci Test affected files + coverage 2026-05-20T10:40:27.4021445Z NX_HEAD: 1d60a61654ab6a8298a19532b1ba0ed9d46c6cda
+ci Test affected files + coverage 2026-05-20T10:40:27.4021743Z ##[endgroup]
+ci Test affected files + coverage 2026-05-20T10:40:27.4103606Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-20T10:40:27.4346053Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-20T10:40:27.4346438Z
+ci Test affected files + coverage 2026-05-20T10:40:33.4797449Z agent: 6 relevant test file(s)
+ci Test affected files + coverage 2026-05-20T10:40:33.4798717Z apps/agent/src/**tests**/agent-mode-awaiting.test.tsx
+ci Test affected files + coverage 2026-05-20T10:40:33.4799272Z apps/agent/src/**tests**/agent-mode-header.test.tsx
+ci Test affected files + coverage 2026-05-20T10:40:33.4799694Z apps/agent/src/**tests**/agent-mode-show-all.test.tsx
+ci Test affected files + coverage 2026-05-20T10:40:33.4800099Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-20T10:40:33.4800582Z apps/agent/src/**tests**/awaiting-confirmation.test.ts
+ci Test affected files + coverage 2026-05-20T10:40:33.4800971Z apps/agent/src/**tests**/coordinator.test.ts
+ci Test affected files + coverage 2026-05-20T10:40:33.4801191Z
+ci Test affected files + coverage 2026-05-20T10:40:33.4813995Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-20T10:40:33.4911051Z
+ci Test affected files + coverage 2026-05-20T10:40:33.4911883Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-20T10:40:33.5061080Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.82ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5065396Z (pass) inspectAwaitingTicket — revise path > appends steering, restarts design, bumps rounds, resets confirmedAt [0.50ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5066891Z (pass) inspectAwaitingTicket — revise path > ignores revise comments at or before lastReviseConsumedAt watermark [0.16ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5070210Z (pass) inspectAwaitingTicket — reminder cadence > posts reminder once timeoutHours elapsed, persists lastReminderAt [0.31ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5072055Z (pass) inspectAwaitingTicket — reminder cadence > does not re-post reminder before timeoutHours have elapsed since lastReminderAt [0.18ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5081089Z (pass) readConfirmationState / writeConfirmationState > returns defaults when state file is absent [0.90ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5089164Z (pass) readConfirmationState / writeConfirmationState > round-trips confirmation through write + read [0.77ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5093904Z (pass) readConfirmationState / writeConfirmationState > recovers from malformed json by returning defaults [0.49ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5100664Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign rewrites design.md and stubs tasks.md when present [0.66ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5104172Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign leaves tasks.md absent if it never existed [0.35ms]
+ci Test affected files + coverage 2026-05-20T10:40:33.5111731Z (pass) restartFrom
+…[truncated 258336 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-20T10:37:54.965Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
