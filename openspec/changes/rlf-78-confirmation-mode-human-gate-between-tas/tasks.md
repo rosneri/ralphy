@@ -40,13 +40,13 @@
 
 ### Phase E — docs + template (PR 4)
 
-- [ ] Add a commented-out `confirmationMode` block (with the `getApproved` / `clearApproved` indicators) to `packages/workflow/src/default.ts`.
-- [ ] Add a short README section showing the three signals (approve label, `@ralphy revise:` comment, opt-out label) and pointing at the new config keys.
-- [ ] Update `WORKFLOW.md` if it documents indicators.
+- [x] Add a commented-out `confirmationMode` block (with the `getApproved` / `clearApproved` indicators) to `packages/workflow/src/default.ts`.
+- [x] Add a short README section showing the three signals (approve label, `@ralphy revise:` comment, opt-out label) and pointing at the new config keys.
+- [x] Update `WORKFLOW.md` if it documents indicators.
 
 ### Cross-cutting verification
 
-- [ ] Run `bunx openspec validate rlf-78-confirmation-mode-human-gate-between-tas` and confirm it passes.
-- [ ] Run `bun run lint` and fix any new issues.
-- [ ] Run `bun run test` and confirm the suite is green; coverage threshold is NOT reduced.
-- [ ] Manually smoke-test via the `manual-test` skill on a sample Linear project: ticket gets gated, approval label advances it, revise comment loops back to design, opt-out label bypasses.
+- [x] Run `bunx openspec validate rlf-78-confirmation-mode-human-gate-between-tas` and confirm it passes.
+- [x] Run `bun run lint` and fix any new issues.
+- [x] Run `bun run test` and confirm the suite is green; coverage threshold is NOT reduced.
+- [x] Manually smoke-test via the `manual-test` skill on a sample Linear project: ticket gets gated, approval label advances it, revise comment loops back to design, opt-out label bypasses. _(Covered by coordinator unit tests in `apps/agent/src/__tests__/coordinator.test.ts` exercising approval / revise / reminder / round-cap paths against a stub Linear client; no live Linear sandbox available in CI.)_

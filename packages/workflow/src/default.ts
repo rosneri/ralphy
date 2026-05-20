@@ -128,6 +128,24 @@ linear:
   # PDF as a peer attachment (handy when viewing Linear on mobile).
   specAttachmentFormats: ["md"]
 
+  # Confirmation mode — opt-in human gate between the OpenSpec \`tasks\`
+  # and \`implement\` phases. When \`enabled: true\`, after the agent
+  # finishes drafting tasks it posts a one-shot "📋 Ralphy plan ready"
+  # comment and parks the ticket in \`awaiting-confirmation\` until a
+  # human reacts:
+  #   • Approve  → apply the \`getApproved\` label (Ralphy then strips
+  #                it via \`clearApproved\` and moves on to implement).
+  #   • Revise   → leave a \`@ralphy revise: <reason>\` comment. Ralphy
+  #                writes the reason into steering, bumps the round
+  #                counter, and loops back to \`design\`.
+  #   • Skip     → label the ticket with \`optOutLabel\` (default
+  #                \`ralph:auto-approve\`) to bypass the gate entirely.
+  # confirmationMode:
+  #   enabled: true
+  #   optOutLabel: "ralph:auto-approve"
+  #   timeoutHours: 48
+  #   maxConfirmationRounds: 3
+
   # Indicators map Ralph lifecycle events to Linear labels/statuses.
   #
   # Filter semantics (per indicator's \`filter:\` list):
@@ -179,6 +197,18 @@ linear:
     # clearConflicted:
     #   type: label
     #   value: "ralph:conflict"
+    #
+    # ── Confirmation gate (opt-in) ───────
+    # Pairs with linear.confirmationMode above. The agent parks gated
+    # tickets in \`awaiting-confirmation\` until \`getApproved\` matches,
+    # then strips the marker via \`clearApproved\` and proceeds.
+    # getApproved:
+    #   filter:
+    #     - type: label
+    #       value: "ralph:approved"
+    # clearApproved:
+    #   type: label
+    #   value: "ralph:approved"
     #
     # ── Auto-merge (opt-in) ──────────────
     # getAutoMerge:

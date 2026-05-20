@@ -155,6 +155,8 @@ Linear is the source of truth for which issues Ralph has touched. The `linear.in
 | `setConflicted`   | `Marker` or `Marker[]` | Applied when a done-PR is detected as conflicted                                |
 | `clearConflicted` | `Marker` or `Marker[]` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
 | `clearReview`     | `Marker` or `Marker[]` | Label(s) removed when a review pickup happens (status removal is not supported) |
+| `getApproved`     | `{filter: Marker[]}`   | Approval signal that releases a confirmation-gated ticket into `implement`      |
+| `clearApproved`   | `Marker` or `Marker[]` | Label(s) removed once an approval is consumed (status removal is not supported) |
 
 A `Marker` is one of three types:
 
@@ -214,6 +216,29 @@ Example `ralphy.config.json`:
   },
 }
 ```
+
+#### Confirmation mode (human gate before `implement`)
+
+Set `linear.confirmationMode.enabled: true` to insert a human review step between the OpenSpec `tasks` and `implement` phases. Once the agent finishes drafting `tasks.md`, the ticket parks in the new `awaiting-confirmation` phase and Ralphy posts a one-shot **📋 Ralphy plan ready** Linear comment summarising the plan. Gated tickets do **not** consume a `concurrency` slot — the agent is free to pick up other work while waiting.
+
+Three signals release (or skip) the gate:
+
+| Signal                          | Effect                                                                                                                                                |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Apply the `getApproved` marker  | Ralphy strips it via `clearApproved`, records the approval, and advances the ticket into `implement`.                                                 |
+| Comment `@ralphy revise: <why>` | The reason is written into steering, the round counter bumps, the ticket loops back to `design`. Any in-flight worker is reaped immediately.          |
+| Apply `optOutLabel`             | (default `ralph:auto-approve`) Bypasses the gate entirely — the ticket flows straight through `tasks` → `implement` as if confirmation mode were off. |
+
+After `timeoutHours` (default `48`) with no activity Ralphy posts a single nudge comment per round. Tickets that exceed `maxConfirmationRounds` (default `3`) are labelled `ralph:stuck` and skipped on future polls until a human intervenes.
+
+Wire up the matching indicators alongside the rest of the `linear.indicators` map:
+
+```jsonc
+"getApproved":   { "filter": [{ "type": "label", "value": "ralph:approved" }] },
+"clearApproved": { "type": "label", "value": "ralph:approved" }
+```
+
+See `linear.confirmationMode` in `WORKFLOW.md` for the full set of knobs.
 
 #### Review follow-ups (label trigger)
 

@@ -126,6 +126,17 @@ linear:
   # as a peer attachment (handy when viewing Linear on mobile).
   specAttachmentFormats: ["md", "pdf"]
 
+  # Confirmation mode — opt-in human gate between the OpenSpec `tasks`
+  # and `implement` phases. Set `enabled: true` to park each gated
+  # ticket in `awaiting-confirmation` until a human approves (via
+  # `getApproved`), comments `@ralphy revise: <reason>` (loops back to
+  # `design`), or applies `optOutLabel` to skip the gate entirely.
+  # confirmationMode:
+  #   enabled: true
+  #   optOutLabel: "ralph:auto-approve"
+  #   timeoutHours: 48
+  #   maxConfirmationRounds: 3
+
   # Indicators grouped by lifecycle: each get* is followed by the set*/clear*
   # that mutates the same status/label, so a reader sees the whole lifecycle
   # in one block.
@@ -172,6 +183,15 @@ linear:
       filter:
         - type: label
           value: "ralph:auto-merge"
+
+    # Confirmation gate (opt-in, paired with linear.confirmationMode above)
+    # getApproved:
+    #   filter:
+    #     - type: label
+    #       value: "ralph:approved"
+    # clearApproved:
+    #   type: label
+    #   value: "ralph:approved"
 
     # Error quarantine
     setError:
