@@ -28,9 +28,9 @@
 - [x] Extend `PollBuckets` in `apps/agent/src/agent/coordinator.ts` with `awaiting: number`. Route `awaiting-confirmation` tickets into that bucket. Ensure they are excluded from `getInProgress` results and never consume `concurrency` slots.
 - [x] In `apps/agent/src/agent/wire.ts`, on the transition into `awaiting-confirmation` post a one-shot "📋 Ralphy plan ready" Linear comment, idempotent via `state.confirmation.askedAt`. Persist `askedAt = now`.
 - [x] In the coordinator's per-poll inspection of `awaiting` tickets: detect `getApproved` matches → fire `clearApproved`, set `confirmedAt`; detect `@ralphy revise: <reason>` comments → consume, write to steering, bump `rounds`, reset `confirmedAt`, loop back to `design`; honour `timeoutHours` reminder cadence; honour `maxConfirmationRounds` cap (post stuck comment, apply `ralph:stuck` label, skip on further polls).
-- [ ] Suppress `createPrOnSuccess` for any change in `awaiting-confirmation`. Keep `syncTasksToComment` and `syncSpecsAsAttachments` running.
-- [ ] Reap any in-flight worker the moment a ticket flips to `awaiting-confirmation` (revise mid-implement edge case).
-- [ ] Add coordinator tests: `concurrency=1` + one gated ticket + one fresh Todo ticket → the fresh ticket runs; gated ticket never appears in `workers.active`/`workers.queue`. Add tests for the approval, revise, reminder, and round-cap paths.
+- [x] Suppress `createPrOnSuccess` for any change in `awaiting-confirmation`. Keep `syncTasksToComment` and `syncSpecsAsAttachments` running.
+- [x] Reap any in-flight worker the moment a ticket flips to `awaiting-confirmation` (revise mid-implement edge case).
+- [x] Add coordinator tests: `concurrency=1` + one gated ticket + one fresh Todo ticket → the fresh ticket runs; gated ticket never appears in `workers.active`/`workers.queue`. Add tests for the approval, revise, reminder, and round-cap paths.
 
 ### Phase D — UI surface (still PR 3 or split as PR 3b)
 

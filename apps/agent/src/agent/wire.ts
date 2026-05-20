@@ -715,6 +715,15 @@ export function buildAgentCoordinator(
 
   const useWorktree = args.worktree || cfg.useWorktree;
 
+  /** Changes currently known to be parked in `awaiting-confirmation`.
+   *  Populated by `classifyAwaitingConfirmation` each poll. Read by the
+   *  worker exit handler to suppress PR creation while the gate is open. */
+  const awaitingChangeSet = new Set<string>();
+  /** Late-bound reference to the coordinator so closures defined before
+   *  `new AgentCoordinator(...)` can call methods on it (e.g. reap an
+   *  in-flight worker the moment a ticket flips to awaiting-confirmation). */
+  const coordRef: { current: AgentCoordinator | null } = { current: null };
+
   const scriptRunner =
     input.runners?.runScript ??
     (async (cmd: string, cwd: string): Promise<number> => {
@@ -1104,7 +1113,7 @@ export function buildAgentCoordinator(
         )
       : cmdRunner;
 
-    const wantPr = args.createPr || cfg.createPrOnSuccess;
+    const wantPrBase = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
     const issueForChange = issueByChange.get(changeName);
     const wantAutoMerge = issueForChange
@@ -1130,6 +1139,14 @@ export function buildAgentCoordinator(
       } catch (err) {
         onLog(`! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
       }
+      // Suppress PR creation while the ticket is parked in the
+      // confirmation gate. The worker may have been reaped (code != 0) or
+      // exited cleanly between the classify step and now; either way we
+      // do not want to open a PR for a plan that has not been approved.
+      const wantPr =
+        wantPrBase &&
+        !awaitingChangeSet.has(changeName) &&
+        !(coordRef.current?.isAwaitingConfirmation(changeName) ?? false);
       const effectiveCode = await runPostTask(
         {
           changeName,
@@ -1972,6 +1989,7 @@ export function buildAgentCoordinator(
         approved: effectiveApproved,
       });
       if (phase !== "awaiting-confirmation") {
+        awaitingChangeSet.delete(changeName);
         // Transitioning out of the gate. If approval landed on this poll
         // (label still on the ticket) but we haven't yet persisted
         // confirmedAt, fire `clearApproved` once and record the timestamp
@@ -2001,6 +2019,12 @@ export function buildAgentCoordinator(
         continue;
       }
       out.add(issue.id);
+      awaitingChangeSet.add(changeName);
+      // Reap any in-flight worker that was still iterating when the
+      // ticket flipped into the gate. The worker's exit handler skips
+      // finalization and PR creation; future polls re-resume after
+      // approval or a revise comment.
+      coordRef.current?.reapForAwaiting(changeName);
       await postPlanReadyCommentOnce(issue, statePath, changeName);
       // Re-read after the plan-ready comment was (possibly) just written.
       const { stateObj: state2, confirmation: confirmation2 } =
@@ -2054,6 +2078,7 @@ export function buildAgentCoordinator(
         // Transitioning out of the gate on this poll — drop from awaiting
         // so the next poll picks the ticket up via the normal queue.
         out.delete(issue.id);
+        awaitingChangeSet.delete(changeName);
       }
     }
     return out;
@@ -2191,6 +2216,8 @@ export function buildAgentCoordinator(
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
     },
   );
+
+  coordRef.current = coord;
 
   const filterDesc = describeIndicators(indicators, team, assignee);
 

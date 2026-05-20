@@ -165,6 +165,12 @@ export interface ActiveWorker {
   /** Set by `restartWorker` so the exit handler skips notifyExited and
    *  re-queues the worker as a resume instead of finalizing the issue. */
   restarting: boolean;
+  /** Set by `reapForAwaiting` when the coordinator kills the worker
+   *  because the ticket has flipped into `awaiting-confirmation`. The
+   *  exit handler skips notifyExited (no setError, no setDone) and does
+   *  NOT re-queue — the ticket will be resumed on a future poll once the
+   *  gate clears (approval or revise comment). */
+  reapedForAwaiting: boolean;
 }
 
 /** Pause state set by the baseline gate when the project's base branch is broken.
@@ -750,6 +756,7 @@ export class AgentCoordinator {
       lastReportedIteration: 0,
       lastSyncedIteration: 0,
       restarting: false,
+      reapedForAwaiting: false,
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
@@ -787,6 +794,19 @@ export class AgentCoordinator {
         // steering note we just appended.
         this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
         this.queue.unshift({ issue, mode: "resume" });
+        this.deps.onWorkersChanged();
+        this.spawnNext();
+        return;
+      }
+      if (worker.reapedForAwaiting) {
+        // Ticket flipped into awaiting-confirmation while this worker was
+        // running. Do not finalize the issue (no setError/setDone). A
+        // future poll will re-classify and resume after approval/revise.
+        this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
+        this.deps.onLog(
+          `  ${issue.identifier}: worker reaped (awaiting human confirmation)`,
+          "gray",
+        );
         this.deps.onWorkersChanged();
         this.spawnNext();
         return;
@@ -830,6 +850,34 @@ export class AgentCoordinator {
     return true;
   }
 
+  /** Kill the active worker for `changeName` because the ticket has
+   *  flipped into `awaiting-confirmation`. The exit handler skips
+   *  finalization (no setDone/setError) and does NOT re-queue — a
+   *  future poll resumes the ticket once the gate clears. Returns
+   *  `true` if a matching active worker was found and reaped. */
+  reapForAwaiting(changeName: string): boolean {
+    if (this.stopped) return false;
+    const worker = this.workers.find((w) => w.changeName === changeName);
+    if (!worker) return false;
+    if (worker.reapedForAwaiting) return true;
+    worker.reapedForAwaiting = true;
+    capture("agent_worker_reaped_for_awaiting", { change_name: changeName });
+    try {
+      worker.kill();
+    } catch {
+      /* ignore */
+    }
+    return true;
+  }
+
+  /** True when there is an active worker reaped (or being reaped) for
+   *  awaiting-confirmation. Used by the wire layer to suppress PR
+   *  creation in the post-task block of that worker's exit handler. */
+  isAwaitingConfirmation(changeName: string): boolean {
+    const w = this.workers.find((w) => w.changeName === changeName);
+    return w ? w.reapedForAwaiting : false;
+  }
+
   /** Fire the onSteeringAppended hook (if configured). Best-effort —
    *  errors are logged via onLog and never thrown to the caller so the
    *  MCP `ralph_append_steering` tool stays idempotent. */
@@ -863,6 +911,7 @@ export class AgentCoordinator {
         lastReportedIteration: 0,
         lastSyncedIteration: 0,
         restarting: false,
+        reapedForAwaiting: false,
       };
       try {
         let iteration = 0;

@@ -45,6 +45,7 @@ const fakeWorker: ActiveWorker = {
   lastReportedIteration: 0,
   lastSyncedIteration: 0,
   restarting: false,
+  reapedForAwaiting: false,
 };
 
 function makeFakeCoord(
