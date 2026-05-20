@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
@@ -8,7 +8,13 @@ import {
   MISSION_TASKS_FILENAME,
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
-import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
+import {
+  loadWorkflow,
+  renderWorkflowPrompt,
+  computeConfirmationFlags,
+  type ConfirmationTicketView,
+} from "@ralphy/workflow";
+import { deriveOpenSpecPhase } from "@ralphy/core/openspec-phase";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { ParsedArgs } from "../cli";
@@ -54,7 +60,7 @@ import {
   type MentionTrigger,
 } from "./coordinator";
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
-import { createWorktree, seedWorktreeMcpConfig, type GitRunner } from "./worktree";
+import { createWorktree, seedWorktreeMcpConfig, worktreesDir, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "./pr-url";
 import { getPrChecksStatus } from "./ci";
@@ -1831,6 +1837,132 @@ export function buildAgentCoordinator(
     deleteIssueComment,
   };
   const specAttachmentsEnabled = Boolean(commentSyncEnabled && cfg.linear.syncSpecsAsAttachments);
+
+  /** Resolve the directory holding `.ralph-state.json` + `openspec/changes/...`
+   *  for a given in-progress issue. Falls back to projectRoot when `useWorktree`
+   *  is off or the worktree path doesn't exist on disk yet. */
+  async function resolveChangeCwdForIssue(changeName: string): Promise<string> {
+    const tracked = cwdByChange.get(changeName);
+    if (tracked) return tracked;
+    if (!useWorktree) return projectRoot;
+    const wtPath = join(worktreesDir(projectRoot), changeName);
+    return (await Bun.file(join(wtPath, "openspec", "changes", changeName, "tasks.md")).exists())
+      ? wtPath
+      : projectRoot;
+  }
+
+  async function readTextOrNull(path: string): Promise<string | null> {
+    const f = Bun.file(path);
+    if (!(await f.exists())) return null;
+    try {
+      return await f.text();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Post the one-shot "📋 Ralphy plan ready" Linear comment on the first
+   *  poll that observes the ticket in the `awaiting-confirmation` phase.
+   *  Idempotent via `state.confirmation.askedAt` — the slot is written only
+   *  after the Linear API confirms the comment landed. */
+  async function postPlanReadyCommentOnce(
+    issue: LinearIssue,
+    statePath: string,
+    changeName: string,
+  ): Promise<void> {
+    if (!apiKey) return;
+    if (cfg.linear.postComments === false) return;
+    let stateObj: Record<string, unknown> = {};
+    const f = Bun.file(statePath);
+    if (await f.exists()) {
+      try {
+        stateObj = (await f.json()) as Record<string, unknown>;
+      } catch {
+        stateObj = {};
+      }
+    }
+    const confirmation =
+      (stateObj.confirmation as {
+        askedAt?: string | null;
+        lastReminderAt?: string | null;
+        confirmedAt?: string | null;
+        rounds?: number;
+      } | null) ?? null;
+    if (confirmation?.askedAt) return;
+    const body =
+      `📋 Ralphy plan ready for \`${changeName}\` — review proposal.md / design.md / tasks.md ` +
+      `and approve to continue, or reply with \`@ralphy revise: <reason>\` to send it back to design.`;
+    try {
+      await addIssueComment(apiKey, issue.id, body);
+    } catch (err) {
+      onLog(
+        `! Linear plan-ready comment failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+      return;
+    }
+    const nextConfirmation = {
+      askedAt: new Date().toISOString(),
+      lastReminderAt: confirmation?.lastReminderAt ?? null,
+      confirmedAt: confirmation?.confirmedAt ?? null,
+      rounds: confirmation?.rounds ?? 0,
+    };
+    try {
+      await mkdir(dirname(statePath), { recursive: true });
+      await Bun.write(
+        statePath,
+        JSON.stringify({ ...stateObj, confirmation: nextConfirmation }, null, 2) + "\n",
+      );
+    } catch (err) {
+      onLog(
+        `! could not persist confirmation.askedAt for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+    onLog(`  ${issue.identifier}: posted "📋 Ralphy plan ready" comment`, "gray");
+  }
+
+  /**
+   * Per in-progress issue, derive the OpenSpec phase against the change
+   * directory on disk and the workflow's confirmation-mode config. Returns
+   * the set of issue ids currently parked in `awaiting-confirmation`. As a
+   * side effect, on the transition into that phase the agent posts a
+   * one-shot `📋 Ralphy plan ready` Linear comment (idempotent via
+   * `state.confirmation.askedAt`).
+   */
+  async function classifyAwaitingConfirmation(issues: LinearIssue[]): Promise<ReadonlySet<string>> {
+    const out = new Set<string>();
+    if (issues.length === 0) return out;
+    if (!cfg.linear.confirmationMode.enabled) return out;
+    for (const issue of issues) {
+      const changeName = changeNameForIssue(issue);
+      const cwd = await resolveChangeCwdForIssue(changeName);
+      const layout = projectLayout(cwd);
+      const changeDir = layout.changeDir(changeName);
+      const [proposal, design, tasks] = await Promise.all([
+        readTextOrNull(join(changeDir, "proposal.md")),
+        readTextOrNull(join(changeDir, "design.md")),
+        readTextOrNull(join(changeDir, "tasks.md")),
+      ]);
+      const ticketView: ConfirmationTicketView = {
+        labels: issue.labels,
+        state: issue.state,
+        project: issue.project,
+      };
+      const { confirmationGated, approved } = computeConfirmationFlags(cfg, ticketView);
+      const phase = deriveOpenSpecPhase({
+        proposal,
+        design,
+        tasks,
+        confirmationGated,
+        approved,
+      });
+      if (phase !== "awaiting-confirmation") continue;
+      out.add(issue.id);
+      await postPlanReadyCommentOnce(issue, layout.stateFile(changeName), changeName);
+    }
+    return out;
+  }
   const specAttachmentMutations: SpecAttachmentMutations = {
     uploadFileToLinear,
     createAttachmentForUrl,
@@ -1858,6 +1990,7 @@ export function buildAgentCoordinator(
       onLog,
       ...(onFileLog ? { onFileLog } : {}),
       onWorkersChanged,
+      classifyAwaitingConfirmation,
       getIterationCount: async (changeName) => {
         const root = cwdByChange.get(changeName) ?? projectRoot;
         const file = Bun.file(projectLayout(root).stateFile(changeName));
