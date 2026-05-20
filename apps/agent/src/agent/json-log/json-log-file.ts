@@ -1,7 +1,7 @@
 import { mkdir, appendFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-export interface JsonLogFileSink {
+interface JsonLogFileSink {
   emit(event: Record<string, unknown>): void;
 }
 

@@ -1,3 +1,30 @@
+## Fix failing CI checks (2026-05-20T16:07:54.609Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26174680484 ---
+ci Unused dependency check ﻿2026-05-20T16:06:31.2582494Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-20T16:06:31.2582862Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-20T16:06:31.2618765Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-20T16:06:31.2619046Z env:
+ci Unused dependency check 2026-05-20T16:06:31.2619318Z NX_BASE: 9a9c1cd76ee74ebafa22b4d4fcf5ffbc682ce0fb
+ci Unused dependency check 2026-05-20T16:06:31.2619692Z NX_HEAD: ff3ede345f0a33961e60c111ff12a7544f6aa168
+ci Unused dependency check 2026-05-20T16:06:31.2619996Z ##[endgroup]
+ci Unused dependency check 2026-05-20T16:06:31.3180842Z $ knip
+ci Unused dependency check 2026-05-20T16:06:34.6969869Z [93m[4mUnused exported types[24m[39m (1)
+ci Unused dependency check 2026-05-20T16:06:34.6978746Z JsonLogFileSink interface apps/agent/src/agent/json-log/json-log-file.ts:4:18
+ci Unused dependency check 2026-05-20T16:06:34.7250341Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-20T16:06:34.7261175Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-20T16:01:49.538Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
