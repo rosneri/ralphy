@@ -342,6 +342,18 @@ interface BuildAgentCoordinatorInput {
   ) => void;
   /** Called when a PR URL is registered for a worker — dashboard shows it. */
   onWorkerPr?: (changeName: string, prUrl: string) => void;
+  /** Called once per poll per ticket parked in `awaiting-confirmation`. The
+   *  dashboard renders these as gated cards; the JSON runner emits a one-shot
+   *  `awaiting_confirmation` event per round entry (deduped via the round
+   *  number). */
+  onAwaitingTicket?: (info: {
+    changeName: string;
+    issueIdentifier: string;
+    issueUrl: string;
+    issueTitle: string;
+    since: string | null;
+    round: number;
+  }) => void;
   /** Optional side-effect overrides (test injection). */
   runners?: AgentRunners;
 }
@@ -499,6 +511,7 @@ export function buildAgentCoordinator(
     onWorkerPhase,
     onWorkerOutput,
     onWorkerCmd,
+    onAwaitingTicket,
   } = input;
 
   const logsDir = join(projectRoot, ".ralph", "logs");
@@ -2079,6 +2092,15 @@ export function buildAgentCoordinator(
         // so the next poll picks the ticket up via the normal queue.
         out.delete(issue.id);
         awaitingChangeSet.delete(changeName);
+      } else {
+        onAwaitingTicket?.({
+          changeName,
+          issueIdentifier: issue.identifier,
+          issueUrl: issue.url,
+          issueTitle: issue.title,
+          since: next.askedAt,
+          round: next.rounds,
+        });
       }
     }
     return out;

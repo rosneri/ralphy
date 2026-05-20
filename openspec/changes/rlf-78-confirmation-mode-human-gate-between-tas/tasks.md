@@ -34,9 +34,9 @@
 
 ### Phase D — UI surface (still PR 3 or split as PR 3b)
 
-- [ ] Ink TUI: render `[GATE]  Awaiting confirmation  ·  round N  ·  asked Xm ago` on change-cards in the new phase; add the `awaiting-confirmation` segment to the phase-pipeline renderer; add `awaiting N` to the poll-status block.
-- [ ] `apps/agent/src/agent/json-runner.ts`: add `buckets.awaiting` to every `poll_done` payload; emit a one-shot `{"type":"awaiting_confirmation","changeName":"...","since":"...","round":N}` event per round entry (idempotent via a `lastEmittedRound` sentinel).
-- [ ] Add tests/snapshots for the TUI rendering and the JSON event shape.
+- [x] Ink TUI: render `[GATE]  Awaiting confirmation  ·  round N  ·  asked Xm ago` on change-cards in the new phase; add the `awaiting-confirmation` segment to the phase-pipeline renderer; add `awaiting N` to the poll-status block.
+- [x] `apps/agent/src/agent/json-runner.ts`: add `buckets.awaiting` to every `poll_done` payload; emit a one-shot `{"type":"awaiting_confirmation","changeName":"...","since":"...","round":N}` event per round entry (idempotent via a `lastEmittedRound` sentinel).
+- [x] Add tests/snapshots for the TUI rendering and the JSON event shape.
 
 ### Phase E — docs + template (PR 4)
 

@@ -40,6 +40,9 @@ function emit(event: Record<string, unknown>): void {
  *   worker_cmd_start — an external command (git, gh, …) started inside post-task
  *   worker_cmd_end   — that command finished; includes durationMs and ok
  *   worker_pr        — a PR URL was registered for a worker
+ *   awaiting_confirmation — a ticket entered the confirmation gate this round
+ *                          (one-shot per round entry; `round` is the deriver's
+ *                          round counter, `since` is `confirmation.askedAt`)
  *   stopped          — SIGINT/SIGTERM received; coordinator is stopping
  */
 export async function runAgentJson({
@@ -65,6 +68,7 @@ export async function runAgentJson({
     return;
   }
 
+  const lastEmittedRoundByChange = new Map<string, number>();
   const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildAgentCoordinator({
     args,
     cfg,
@@ -108,6 +112,23 @@ export async function runAgentJson({
     },
     onWorkerPr: (changeName, prUrl) => {
       emit({ type: "worker_pr", changeName, prUrl });
+    },
+    onAwaitingTicket: (info) => {
+      // One-shot per round-entry: only emit when this ticket's round number
+      // exceeds the last value we already emitted for it. The deriver bumps
+      // `rounds` on every revise comment, so each human-driven round produces
+      // exactly one event.
+      const last = lastEmittedRoundByChange.get(info.changeName);
+      if (last !== undefined && info.round <= last) return;
+      lastEmittedRoundByChange.set(info.changeName, info.round);
+      emit({
+        type: "awaiting_confirmation",
+        changeName: info.changeName,
+        issueIdentifier: info.issueIdentifier,
+        issueUrl: info.issueUrl,
+        since: info.since,
+        round: info.round,
+      });
     },
   });
 
