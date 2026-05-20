@@ -109,6 +109,18 @@ describe("checkGhAuth", () => {
       expect(res.message).toContain("gh auth login");
     }
   });
+
+  test("returns failure when spawn throws (catch branch)", async () => {
+    spawnMock.mockImplementationOnce(() => {
+      throw new Error("ENOENT: gh not found");
+    });
+    const res = await checkGhAuth();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.tool).toBe("gh");
+      expect(res.message).toBe(GH_AUTH_FAIL_MESSAGE);
+    }
+  });
 });
 
 describe("checkClaudeAuth", () => {
@@ -140,6 +152,18 @@ describe("checkClaudeAuth", () => {
     nextResults.push({ exitCode: 1, stdout: "" });
     const res = await checkClaudeAuth();
     expect(res.ok).toBe(false);
+  });
+
+  test("returns failure when spawn throws (catch branch)", async () => {
+    spawnMock.mockImplementationOnce(() => {
+      throw new Error("ENOENT: claude not found");
+    });
+    const res = await checkClaudeAuth();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.tool).toBe("claude");
+      expect(res.message).toBe(CLAUDE_AUTH_FAIL_MESSAGE);
+    }
   });
 
   test("spawns with scrubbed env (no CLAUDECODE)", async () => {
