@@ -583,14 +583,45 @@ function createJsonRecorder(): JsonRecorderHandle {
 // Normaliser + golden-file helper
 //
 // The captured event stream contains values that vary across runs
-// (timestamps, the per-test `tempDir`, durations). Before diffing against
-// a checked-in golden, these are replaced with stable tokens so the file
-// only changes when the contract itself changes. The unit-coverage of the
-// normaliser is added in a later task.
+// (timestamps, the per-test `tempDir`, durations, pids, random ids).
+// Before diffing against a checked-in golden, `normalisePath` rewrites
+// those volatile values to stable tokens so the file only changes when
+// the contract itself changes. Inline unit tests live in the
+// `describe("normalisePath", ...)` block below.
 //
 // When the JSON contract intentionally changes, re-record the golden:
 //   UPDATE_GOLDEN=1 bun --cwd apps/agent test agent-characterization
 // ---------------------------------------------------------------------------
+const ISO_TS_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+const TIMESTAMP_KEYS = new Set(["ts", "since", "started_at", "finished_at"]);
+const DURATION_KEYS = new Set(["durationMs", "duration_ms", "elapsed_ms", "wall_ms", "cost_usd"]);
+const PID_KEYS_ALL = new Set(["pid", "worker_pid"]);
+
+// Leaf-level token replacement shared by the JSON-output and PostHog
+// normalisers. Handles five classes of volatile values:
+//   - timestamps (key-based + ISO-8601 substrings inside strings)
+//   - tempDir paths (substring replacement)
+//   - durations / wall-clock measurements (key-based)
+//   - process ids (key-based)
+//   - random ids (UUID substrings inside strings)
+// Non-leaf values (arrays, objects) pass through unchanged; the calling
+// recursive normaliser is responsible for descending into them.
+function normalisePath(key: string, value: unknown, ctx: { tempDir: string }): unknown {
+  if (TIMESTAMP_KEYS.has(key)) return "<TIMESTAMP>";
+  if (DURATION_KEYS.has(key)) return "<DURATION>";
+  if (PID_KEYS_ALL.has(key)) return "<PID>";
+  if (typeof value === "string") {
+    let s = value;
+    if (ctx.tempDir) s = s.split(ctx.tempDir).join("<TMPDIR>");
+    s = s.replace(ISO_TS_RE, "<TIMESTAMP>");
+    s = s.replace(UUID_RE, "<UUID>");
+    return s;
+  }
+  return value;
+}
+
 function normaliseEvent(
   event: Record<string, unknown>,
   ctx: { tempDir: string },
@@ -602,23 +633,73 @@ function normaliseEvent(
   return out;
 }
 
-const ISO_TS_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
-
 function normaliseValue(key: string, value: unknown, ctx: { tempDir: string }): unknown {
-  if (key === "ts") return "<TIMESTAMP>";
-  if (key === "durationMs") return "<DURATION>";
-  if (key === "since") return "<TIMESTAMP>";
-  if (typeof value === "string") {
-    let s = value;
-    if (ctx.tempDir) s = s.split(ctx.tempDir).join("<TMPDIR>");
-    s = s.replace(ISO_TS_RE, "<TIMESTAMP>");
-    return s;
-  }
   if (Array.isArray(value)) return value.map((v) => normaliseValue(key, v, ctx));
   if (value && typeof value === "object")
     return normaliseEvent(value as Record<string, unknown>, ctx);
-  return value;
+  return normalisePath(key, value, ctx);
 }
+
+describe("normalisePath", () => {
+  const ctx = { tempDir: "/tmp/ralph-xyz" };
+
+  test("rewrites timestamp keys to <TIMESTAMP>", () => {
+    expect(normalisePath("ts", 1234567890, ctx)).toBe("<TIMESTAMP>");
+    expect(normalisePath("since", "anything", ctx)).toBe("<TIMESTAMP>");
+    expect(normalisePath("started_at", "2026-01-01T00:00:00Z", ctx)).toBe("<TIMESTAMP>");
+  });
+
+  test("rewrites duration keys to <DURATION>", () => {
+    expect(normalisePath("durationMs", 42, ctx)).toBe("<DURATION>");
+    expect(normalisePath("duration_ms", 42, ctx)).toBe("<DURATION>");
+    expect(normalisePath("wall_ms", 42, ctx)).toBe("<DURATION>");
+    expect(normalisePath("cost_usd", 0.123, ctx)).toBe("<DURATION>");
+  });
+
+  test("rewrites pid keys to <PID>", () => {
+    expect(normalisePath("pid", 12345, ctx)).toBe("<PID>");
+    expect(normalisePath("worker_pid", 12345, ctx)).toBe("<PID>");
+  });
+
+  test("replaces tempDir substrings inside strings", () => {
+    expect(normalisePath("path", "/tmp/ralph-xyz/foo/bar", ctx)).toBe("<TMPDIR>/foo/bar");
+    expect(normalisePath("path", "leading /tmp/ralph-xyz/x", ctx)).toBe("leading <TMPDIR>/x");
+  });
+
+  test("replaces ISO-8601 timestamps inside strings", () => {
+    expect(normalisePath("text", "at 2026-01-01T12:34:56.789Z done", ctx)).toBe(
+      "at <TIMESTAMP> done",
+    );
+    expect(normalisePath("text", "no-fraction 2026-05-20T00:00:00Z", ctx)).toBe(
+      "no-fraction <TIMESTAMP>",
+    );
+  });
+
+  test("replaces UUIDs inside strings with <UUID>", () => {
+    expect(normalisePath("text", "id=550e8400-e29b-41d4-a716-446655440000 ok", ctx)).toBe(
+      "id=<UUID> ok",
+    );
+    // Non-UUID identifiers (e.g. test-fixture stubs) pass through.
+    expect(normalisePath("text", "uuid-eng-1", ctx)).toBe("uuid-eng-1");
+  });
+
+  test("returns non-string scalars unchanged for non-special keys", () => {
+    expect(normalisePath("found", 3, ctx)).toBe(3);
+    expect(normalisePath("ok", true, ctx)).toBe(true);
+    expect(normalisePath("ok", null, ctx)).toBe(null);
+  });
+
+  test("passes arrays and objects through (caller recurses)", () => {
+    const arr = [1, 2];
+    const obj = { a: 1 };
+    expect(normalisePath("any", arr, ctx)).toBe(arr);
+    expect(normalisePath("any", obj, ctx)).toBe(obj);
+  });
+
+  test("no-op when tempDir is empty", () => {
+    expect(normalisePath("path", "/tmp/ralph-xyz/foo", { tempDir: "" })).toBe("/tmp/ralph-xyz/foo");
+  });
+});
 
 async function assertOrUpdateGolden(
   goldenPath: string,
@@ -676,22 +757,11 @@ function normaliseTelemetryEvent(
   return out;
 }
 
-const PID_KEYS = new Set(["pid", "worker_pid"]);
-const DURATION_KEYS = new Set(["duration_ms", "durationMs", "elapsed_ms", "wall_ms", "cost_usd"]);
-
 function normaliseTelemetryValue(
   key: string,
   value: unknown,
   ctx: { tempDir: string; changeNames: Map<string, string> },
 ): unknown {
-  if (DURATION_KEYS.has(key)) return "<DURATION>";
-  if (PID_KEYS.has(key)) return "<PID>";
-  if (typeof value === "string") {
-    let s = value;
-    if (ctx.tempDir) s = s.split(ctx.tempDir).join("<TMPDIR>");
-    s = s.replace(ISO_TS_RE, "<TIMESTAMP>");
-    return s;
-  }
   if (Array.isArray(value)) return value.map((v) => normaliseTelemetryValue(key, v, ctx));
   if (value && typeof value === "object") {
     const inner: Record<string, unknown> = {};
@@ -700,7 +770,7 @@ function normaliseTelemetryValue(
     }
     return inner;
   }
-  return value;
+  return normalisePath(key, value, ctx);
 }
 
 async function assertOrUpdateTelemetryGolden(
