@@ -22,8 +22,8 @@
 - [x] Implement scenario 7: `finished + PR conflicting → conflict-fix` (green) — anchor for RLF-81 promotion; assert conflict promotion comment + telemetry event
 - [x] Add the JSON-output recorder for scenario 1 and capture the normalised event stream
 - [x] Write the golden file `apps/agent/src/__tests__/__golden__/json-output-new-ticket.jsonl` and add the diff assertion + `UPDATE_GOLDEN=1` re-record path
-- [ ] Add the PostHog capture recorder for scenario 1 via the telemetry client fake seam
-- [ ] Write the golden file `apps/agent/src/__tests__/__golden__/posthog-new-ticket.jsonl` and add the diff assertion + `UPDATE_GOLDEN=1` re-record path
+- [x] Add the PostHog capture recorder for scenario 1 via the telemetry client fake seam
+- [x] Write the golden file `apps/agent/src/__tests__/__golden__/posthog-new-ticket.jsonl` and add the diff assertion + `UPDATE_GOLDEN=1` re-record path
 - [ ] Add the path normaliser helper (timestamps, tempDir, durations, pids, random ids → stable tokens) and unit-cover it inline in the test file
 - [ ] Verify the diff includes no changes under `apps/agent/src/agent/**` (production code untouched) by running `git diff --stat main -- apps/agent/src/agent` and confirming an empty result
 - [ ] Run `bun --cwd apps/agent test agent-characterization` and confirm all 7 scenarios pass (the 3 `.failing` ones pass by failing as expected)

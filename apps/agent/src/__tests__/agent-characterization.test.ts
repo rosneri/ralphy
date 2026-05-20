@@ -27,12 +27,49 @@
  *   6. round-cap exhaustion → stuck                              (green)
  *   7. finished + PR conflicting → conflict-fix                  (green)
  */
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
+
+// PostHog capture seam.
+//
+// `apps/agent/src/agent/coordinator.ts` imports `capture` from
+// `@ralphy/telemetry`. We replace the whole telemetry module with a
+// fake that pushes every `capture()` call into the `capturedTelemetry`
+// array below. Scenarios that want to assert telemetry behavior snap
+// a slice of this array around their poll calls; scenario 1 also
+// diffs the slice against a golden file. `mock.module(...)` must
+// appear before the imports that pull in coordinator.ts (any import
+// from `../agent/wire`).
+interface CapturedTelemetry {
+  event: string;
+  properties: Record<string, unknown> | undefined;
+}
+const capturedTelemetry: CapturedTelemetry[] = [];
+mock.module("@ralphy/telemetry", () => ({
+  capture: (event: string, properties?: Record<string, unknown>) => {
+    capturedTelemetry.push({ event, properties });
+  },
+  captureError: (event: string, error: unknown, properties?: Record<string, unknown>) => {
+    const err = error instanceof Error ? error : new Error(String(error));
+    capturedTelemetry.push({
+      event,
+      properties: {
+        ...properties,
+        error_message: err.message,
+        error_name: err.name,
+        error_stack: err.stack,
+      },
+    });
+  },
+  init: async () => {},
+  shutdown: async () => {},
+  setDefaultProperties: () => {},
+}));
+
 import { parseArgs } from "../cli";
 import { loadRalphyConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
@@ -604,6 +641,89 @@ async function assertOrUpdateGolden(
   expect(serialised).toBe(expected);
 }
 
+// ---------------------------------------------------------------------------
+// PostHog telemetry recorder
+//
+// `mock.module("@ralphy/telemetry", ...)` at the top of the file pushes every
+// `capture(event, properties)` call into the module-level `capturedTelemetry`
+// array. `recordTelemetry()` returns a handle that snapshots the current
+// length on creation, so scenarios can isolate the events emitted during
+// their own poll calls without interference from previous scenarios sharing
+// the same mocked module.
+// ---------------------------------------------------------------------------
+interface TelemetryRecorderHandle {
+  events: () => CapturedTelemetry[];
+}
+
+function recordTelemetry(): TelemetryRecorderHandle {
+  const startIdx = capturedTelemetry.length;
+  return {
+    events: () => capturedTelemetry.slice(startIdx),
+  };
+}
+
+function normaliseTelemetryEvent(
+  event: CapturedTelemetry,
+  ctx: { tempDir: string; changeNames: Map<string, string> },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { event: event.event };
+  if (event.properties === undefined) return out;
+  const props: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(event.properties)) {
+    props[k] = normaliseTelemetryValue(k, v, ctx);
+  }
+  out["properties"] = props;
+  return out;
+}
+
+const PID_KEYS = new Set(["pid", "worker_pid"]);
+const DURATION_KEYS = new Set(["duration_ms", "durationMs", "elapsed_ms", "wall_ms", "cost_usd"]);
+
+function normaliseTelemetryValue(
+  key: string,
+  value: unknown,
+  ctx: { tempDir: string; changeNames: Map<string, string> },
+): unknown {
+  if (DURATION_KEYS.has(key)) return "<DURATION>";
+  if (PID_KEYS.has(key)) return "<PID>";
+  if (typeof value === "string") {
+    let s = value;
+    if (ctx.tempDir) s = s.split(ctx.tempDir).join("<TMPDIR>");
+    s = s.replace(ISO_TS_RE, "<TIMESTAMP>");
+    return s;
+  }
+  if (Array.isArray(value)) return value.map((v) => normaliseTelemetryValue(key, v, ctx));
+  if (value && typeof value === "object") {
+    const inner: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      inner[k] = normaliseTelemetryValue(k, v, ctx);
+    }
+    return inner;
+  }
+  return value;
+}
+
+async function assertOrUpdateTelemetryGolden(
+  goldenPath: string,
+  events: CapturedTelemetry[],
+  ctx: { tempDir: string; changeNames: Map<string, string> },
+): Promise<void> {
+  const normalised = events.map((e) => normaliseTelemetryEvent(e, ctx));
+  const serialised = normalised.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  if (process.env["UPDATE_GOLDEN"] === "1") {
+    await Bun.write(goldenPath, serialised);
+    return;
+  }
+  const file = Bun.file(goldenPath);
+  if (!(await file.exists())) {
+    throw new Error(
+      `Golden file missing: ${goldenPath}. Re-record with: UPDATE_GOLDEN=1 bun test agent-characterization`,
+    );
+  }
+  const expected = await file.text();
+  expect(serialised).toBe(expected);
+}
+
 const baseWorkflow = {
   concurrency: 1,
   useWorktree: false,
@@ -671,6 +791,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     const { runners, workers, spawnCalls } = makeRunners();
     const recorder = createJsonRecorder();
+    const telemetryRecorder = recordTelemetry();
 
     const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
       args,
@@ -780,6 +901,20 @@ describe("agent characterization — Stage-0 regression net", () => {
       join(import.meta.dir, "__golden__", "json-output-new-ticket.jsonl"),
       recorder.events,
       { tempDir },
+    );
+
+    // PostHog telemetry contract: scenario 1 should emit at least the
+    // `agent_worker_spawned` and `agent_worker_exited` capture()s. The full
+    // normalised stream is diffed against the golden so a drift in event
+    // shape (or a silent new emission) is flagged.
+    const telemetryEvents = telemetryRecorder.events();
+    const telemetryEventNames = telemetryEvents.map((e) => e.event);
+    expect(telemetryEventNames).toContain("agent_worker_spawned");
+    expect(telemetryEventNames).toContain("agent_worker_exited");
+    await assertOrUpdateTelemetryGolden(
+      join(import.meta.dir, "__golden__", "posthog-new-ticket.jsonl"),
+      telemetryEvents,
+      { tempDir, changeNames: new Map([[changeName, "<CHANGE_NAME>"]]) },
     );
   });
 
