@@ -9,6 +9,7 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
 }
 
 import * as telemetry from "@ralphy/telemetry";
+import { attachDefaults, createBus, setProcessBus } from "@ralphy/events";
 import { VERSION } from "@ralphy/version";
 
 const SUBCOMMANDS = new Set<string>(["loop", "agent"]);
@@ -59,15 +60,30 @@ async function run(): Promise<number> {
 
   await telemetry.init();
   telemetry.setDefaultProperties({ subcommand });
+  const bus = createBus();
+  setProcessBus(bus);
+  const detachBus = attachDefaults({ bus });
   telemetry.capture("command_run", { subcommand });
+  bus.emit({ type: "command_run", subcommand });
   try {
     const code = await dispatch(subcommand, argv.slice(1));
     telemetry.capture("command_exit", { subcommand, exit_code: code });
+    bus.emit({ type: "command_exit", subcommand, exit_code: code });
     return code;
   } catch (err) {
     telemetry.captureError("command_error", err, { subcommand });
+    const e = err instanceof Error ? err : new Error(String(err));
+    bus.emit({
+      type: "command_error",
+      subcommand,
+      error_message: e.message,
+      error_name: e.name,
+      ...(e.stack ? { error_stack: e.stack } : {}),
+    });
     throw err;
   } finally {
+    detachBus();
+    setProcessBus(null);
     await telemetry.shutdown();
   }
 }

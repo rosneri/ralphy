@@ -6,6 +6,7 @@ import { ensureRalphyConfig, loadRalphyConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
+import { getProcessBus } from "@ralphy/events";
 
 // Reuse the same line-cleaning regexes as the Ink dashboard.
 const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
@@ -29,6 +30,10 @@ function makeEmit(fileSink: {
     const payload = { ts: Date.now(), ...event };
     process.stdout.write(JSON.stringify(payload) + "\n");
     fileSink.emit(event);
+    const t = (event as { type?: unknown }).type;
+    if (typeof t === "string") {
+      getProcessBus().emit(payload as never);
+    }
   };
 }
 
