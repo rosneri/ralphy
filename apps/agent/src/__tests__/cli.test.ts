@@ -152,6 +152,13 @@ describe("agent parseArgs", () => {
     expect(result.debug).toBe(true);
   });
 
+  test("--json-log-file captures the path; omitted when absent", async () => {
+    const omitted = await parseArgs([]);
+    expect(omitted.jsonLogFile).toBeUndefined();
+    const provided = await parseArgs(["--json-log-file", "/tmp/x.jsonl"]);
+    expect(provided.jsonLogFile).toBe("/tmp/x.jsonl");
+  });
+
   test("rejects unknown argument with helpful hint", async () => {
     await expect(parseArgs(["--no-such-flag"])).rejects.toThrow("Unknown argument");
   });

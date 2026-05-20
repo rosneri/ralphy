@@ -35,6 +35,8 @@ export interface ParsedArgs extends CommonArgs {
   maxTickets: number;
   /** Emit JSONL to stdout instead of rendering the Ink dashboard. */
   jsonOutput: boolean;
+  /** Optional path to mirror JSONL events to a file (works in both TUI and --json-output modes). */
+  jsonLogFile?: string;
   /** Optional task prompt appended to every scaffolded proposal. */
   prompt: string;
   /** Enable manual testing phase passthrough for the inner loop. */
@@ -111,6 +113,7 @@ const HELP_TEXT = [
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
+  "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
   "  --pre-existing-error-check  Run baseline commands against the base branch; pause new pickups + open a Linear ticket when red",
   "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
   "  --help, -h              Show this help message",
@@ -205,6 +208,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
   let expectIndicator = false;
   let expectPrompt = false;
   let expectPromptFile = false;
+  let expectJsonLogFile = false;
 
   for (const arg of argv) {
     if (expectName) {
@@ -251,6 +255,11 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     if (expectPromptFile) {
       result.prompt = await Bun.file(arg).text();
       expectPromptFile = false;
+      continue;
+    }
+    if (expectJsonLogFile) {
+      result.jsonLogFile = arg;
+      expectJsonLogFile = false;
       continue;
     }
 
@@ -301,6 +310,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--json-output":
         result.jsonOutput = true;
+        break;
+      case "--json-log-file":
+        expectJsonLogFile = true;
         break;
       case "--manual-test":
         result.manualTest = true;

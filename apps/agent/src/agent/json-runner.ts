@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
+import { createJsonLogFileSink } from "./json-log-file";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 
 // Reuse the same line-cleaning regexes as the Ink dashboard.
@@ -21,8 +22,14 @@ function cleanOutputLine(raw: string): string | null {
   return clean;
 }
 
-function emit(event: Record<string, unknown>): void {
-  process.stdout.write(JSON.stringify({ ts: Date.now(), ...event }) + "\n");
+function makeEmit(fileSink: {
+  emit(event: Record<string, unknown>): void;
+}): (event: Record<string, unknown>) => void {
+  return (event) => {
+    const payload = { ts: Date.now(), ...event };
+    process.stdout.write(JSON.stringify(payload) + "\n");
+    fileSink.emit(event);
+  };
 }
 
 /**
@@ -60,6 +67,9 @@ export async function runAgentJson({
   runPreflight?: () => Promise<PreflightResult>;
 }): Promise<void> {
   await mkdir(join(homedir(), ".ralph"), { recursive: true }).catch(() => undefined);
+
+  const fileSink = createJsonLogFileSink(args.jsonLogFile);
+  const emit = makeEmit(fileSink);
 
   const cfgPath = await ensureRalphyConfig(projectRoot);
   const cfg = await loadRalphyConfig(projectRoot);

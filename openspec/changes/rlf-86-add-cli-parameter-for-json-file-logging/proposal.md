@@ -9,7 +9,18 @@ Add a new CLI parameter to write logs (all logs we currently have + json output)
 
 ## What Changes
 
-_Describe the concrete changes this proposal introduces (one bullet per change)._
+- Add a new agent CLI flag `--json-log-file <path>` that, when set, appends every coordinator/worker event (the same events emitted by `--json-output`: `started`, `log`, `poll_start`, `poll_done`, `worker_started`, `worker_exited`, `worker_phase`, `worker_output`, `worker_cmd_start`, `worker_cmd_end`, `worker_pr`, `awaiting_confirmation`, `stopped`, `error`) as one JSON object per line to the given file.
+- The flag is independent of `--json-output`: it works whether the agent is running the Ink TUI or the JSON stdout mode. Both can be on at the same time; the file receives the same events that go to stdout.
+- The parent directory is created if needed; the file is truncated at startup so each run owns its log. Writes are append-only after that and best-effort (a failing write must not crash the loop).
+- `ParsedArgs.jsonLogFile?: string` is added to the agent CLI types, the help text gets a one-line entry, and the new flag is parsed in the existing `parseArgs` switch.
+- The TUI path (`AgentMode`) and the JSON path (`runAgentJson`) both wire a tiny `emitJsonLog` helper alongside their existing callbacks so each event reaches the file exactly once.
+
+## Acceptance Criteria
+
+- `ralph agent --json-log-file <path>` writes valid JSONL with one event per line for every event emitted during a run.
+- The same events appear both on stdout and in the file when `--json-output` and `--json-log-file` are combined.
+- Omitting `--json-log-file` keeps behavior identical to today.
+- `bun run lint` and `bun run test` pass.
 
 ## Linear comments
 

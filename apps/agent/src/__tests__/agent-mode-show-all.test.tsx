@@ -108,6 +108,7 @@ const baseArgs: ParsedArgs = {
   codeReview: false,
   maxTickets: 0,
   jsonOutput: false,
+  jsonLogFile: undefined,
   prompt: "",
   manualTest: false,
   debug: false,
