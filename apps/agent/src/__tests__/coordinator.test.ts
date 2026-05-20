@@ -237,7 +237,14 @@ describe("AgentCoordinator — todo polling", () => {
     const r = await coord.pollOnce();
     expect(r.found).toBe(0);
     expect(r.added).toBe(0);
-    expect(r.buckets).toEqual({ todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 });
+    expect(r.buckets).toEqual({
+      todo: 0,
+      inProgress: 0,
+      conflicted: 0,
+      review: 0,
+      mentions: 0,
+      awaiting: 0,
+    });
     expect(ctx.logs.some((l) => l.text.includes("Linear poll failed: network down"))).toBe(true);
   });
 
@@ -314,8 +321,108 @@ describe("AgentCoordinator — todo polling", () => {
       conflicted: 1,
       review: 1,
       mentions: 1,
+      awaiting: 0,
     });
     expect(r.found).toBe(6);
+  });
+
+  test("awaiting-confirmation in-progress tickets are diverted into buckets.awaiting and never enqueued", async () => {
+    const gated = issue("c", "ENG-3");
+    const resumable = issue("d", "ENG-4");
+    const fresh = issue("e", "ENG-5");
+    const ctx = makeDeps({ todo: [fresh] });
+    ctx.setInProgress([gated, resumable]);
+    ctx.deps.classifyAwaitingConfirmation = async (issues) =>
+      new Set(issues.filter((i) => i.id === "c").map((i) => i.id));
+
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    const r = await coord.pollOnce();
+    await tick();
+
+    expect(r.buckets).toEqual({
+      todo: 1,
+      inProgress: 1,
+      conflicted: 0,
+      review: 0,
+      mentions: 0,
+      awaiting: 1,
+    });
+    expect(r.found).toBe(3);
+
+    // concurrency=1 → the resumable in-progress ticket wins the slot.
+    // The gated ticket must NOT appear among active workers or in the queue.
+    expect(coord.activeCount).toBe(1);
+    expect(coord.activeWorkers[0]!.changeName).toBe("change-eng-4");
+    expect(ctx.workers.has("change-eng-3")).toBe(false);
+    // Fresh todo is queued but not running (concurrency budget consumed).
+    expect(coord.queuedCount).toBe(1);
+  });
+
+  test("concurrency=1 + gated ticket + fresh Todo: fresh runs, gated never queued or active", async () => {
+    const gated = issue("g", "ENG-1");
+    const fresh = issue("f", "ENG-2");
+    const ctx = makeDeps({ todo: [fresh] });
+    ctx.setInProgress([gated]);
+    ctx.deps.classifyAwaitingConfirmation = async (issues) =>
+      new Set(issues.filter((i) => i.id === "g").map((i) => i.id));
+
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(coord.activeCount).toBe(1);
+    expect(coord.activeWorkers[0]!.changeName).toBe("change-eng-2");
+    expect(coord.queuedCount).toBe(0);
+    expect(ctx.workers.has("change-eng-1")).toBe(false);
+  });
+
+  test("reapForAwaiting kills the in-flight worker without finalizing the issue", async () => {
+    const setDone: SetIndicator = { type: "label", value: "done" };
+    const setError: SetIndicator = { type: "label", value: "error" };
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone, setError });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(coord.activeCount).toBe(1);
+
+    // Drop the "started" comment posted at launch — we only care about
+    // what notifyExited would (or shouldn't) add after the reap.
+    ctx.applies.length = 0;
+    ctx.comments.length = 0;
+    ctx.removes.length = 0;
+
+    const reaped = coord.reapForAwaiting("change-eng-1");
+    expect(reaped).toBe(true);
+    expect(ctx.workers.get("change-eng-1")!.killed).toBe(true);
+    await tick();
+
+    // Worker exit handler skipped notifyExited entirely — no setDone /
+    // setError / completion comment should have been applied.
+    expect(coord.activeCount).toBe(0);
+    expect(ctx.applies).toEqual([]);
+    expect(ctx.comments).toEqual([]);
+    expect(ctx.removes).toEqual([]);
+  });
+
+  test("reapForAwaiting returns false when no active worker matches", async () => {
+    const ctx = makeDeps();
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    expect(coord.reapForAwaiting("unknown")).toBe(false);
+  });
+
+  test("isAwaitingConfirmation reflects reap state of an active worker", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(coord.isAwaitingConfirmation("change-eng-1")).toBe(false);
+    coord.reapForAwaiting("change-eng-1");
+    expect(coord.isAwaitingConfirmation("change-eng-1")).toBe(true);
   });
 
   test("maxTickets caps how many issues are started this run", async () => {

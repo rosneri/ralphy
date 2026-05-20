@@ -32,6 +32,12 @@ export interface PollBuckets {
   conflicted: number;
   review: number;
   mentions: number;
+  /** In-progress issues whose OpenSpec phase is `awaiting-confirmation`. They
+   *  are excluded from the resumable bucket — the coordinator never enqueues
+   *  them and they do not consume `concurrency` slots. The poll loop still
+   *  surfaces them in this count so the dashboard / JSON output can show
+   *  how many tickets are gated awaiting human confirmation. */
+  awaiting: number;
 }
 /** Per-status counts across the done-candidate PRs scanned this tick.
  *  Surfaced in the dashboard so operators can see at a glance how many
@@ -52,7 +58,7 @@ const emptyPrStatus = (): PrStatusCounts => ({ mergeable: 0, conflicted: 0, ciFa
 const emptyPollResult = (): PollResult => ({
   found: 0,
   added: 0,
-  buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 },
+  buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0, awaiting: 0 },
   prStatus: emptyPrStatus(),
 });
 
@@ -105,6 +111,13 @@ export interface CoordinatorDeps {
    *  when not provided. */
   onFileLog?: (text: string) => void;
   onWorkersChanged: () => void;
+  /** Optional hook: classify which of the supplied in-progress issues are
+   *  currently in the `awaiting-confirmation` OpenSpec phase. The coordinator
+   *  uses the returned set to (a) split them out of the resumable bucket so
+   *  they never consume a concurrency slot and (b) report the bucket count
+   *  for the dashboard. Returning an empty set (or omitting the hook) keeps
+   *  the legacy behaviour — every in-progress issue resumes. */
+  classifyAwaitingConfirmation?: (issues: LinearIssue[]) => Promise<ReadonlySet<string>>;
   /** Returns the current iteration count for an active worker (for
    *  periodic progress comments). */
   getIterationCount?: (changeName: string) => Promise<number>;
@@ -152,6 +165,12 @@ export interface ActiveWorker {
   /** Set by `restartWorker` so the exit handler skips notifyExited and
    *  re-queues the worker as a resume instead of finalizing the issue. */
   restarting: boolean;
+  /** Set by `reapForAwaiting` when the coordinator kills the worker
+   *  because the ticket has flipped into `awaiting-confirmation`. The
+   *  exit handler skips notifyExited (no setError, no setDone) and does
+   *  NOT re-queue — the ticket will be resumed on a future poll once the
+   *  gate clears (approval or revise comment). */
+  reapedForAwaiting: boolean;
 }
 
 /** Pause state set by the baseline gate when the project's base branch is broken.
@@ -253,9 +272,36 @@ export class AgentCoordinator {
       return emptyPollResult();
     }
 
-    if (todo.length + inProgress.length + conflicted.length + review.length + mentions.length > 0) {
+    // Pull awaiting-confirmation tickets out of the resumable bucket so the
+    // coordinator never enqueues them as `resume`. They stay surfaced via
+    // `buckets.awaiting` so the dashboard can render the gated count.
+    let awaiting: LinearIssue[] = [];
+    if (this.deps.classifyAwaitingConfirmation && inProgress.length > 0) {
+      try {
+        const awaitingIds = await this.deps.classifyAwaitingConfirmation(inProgress);
+        if (awaitingIds.size > 0) {
+          awaiting = inProgress.filter((i) => awaitingIds.has(i.id));
+          inProgress = inProgress.filter((i) => !awaitingIds.has(i.id));
+        }
+      } catch (err) {
+        this.deps.onLog(
+          `! awaiting-confirmation classify failed: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
+
+    if (
+      todo.length +
+        inProgress.length +
+        conflicted.length +
+        review.length +
+        mentions.length +
+        awaiting.length >
+      0
+    ) {
       this.deps.onFileLog?.(
-        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention`,
+        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention, ${awaiting.length} awaiting`,
       );
     }
 
@@ -275,9 +321,15 @@ export class AgentCoordinator {
         conflicted: conflicted.length,
         review: review.length,
         mentions: mentions.length,
+        awaiting: awaiting.length,
       };
       const found =
-        buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
+        buckets.todo +
+        buckets.inProgress +
+        buckets.conflicted +
+        buckets.review +
+        buckets.mentions +
+        buckets.awaiting;
       return { found, added: 0, buckets, prStatus: emptyPrStatus() };
     }
 
@@ -368,9 +420,15 @@ export class AgentCoordinator {
       conflicted: conflicted.length,
       review: review.length,
       mentions: mentions.length,
+      awaiting: awaiting.length,
     };
     const found =
-      buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
+      buckets.todo +
+      buckets.inProgress +
+      buckets.conflicted +
+      buckets.review +
+      buckets.mentions +
+      buckets.awaiting;
     return { found, added, buckets, prStatus };
   }
 
@@ -698,6 +756,7 @@ export class AgentCoordinator {
       lastReportedIteration: 0,
       lastSyncedIteration: 0,
       restarting: false,
+      reapedForAwaiting: false,
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
@@ -735,6 +794,19 @@ export class AgentCoordinator {
         // steering note we just appended.
         this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
         this.queue.unshift({ issue, mode: "resume" });
+        this.deps.onWorkersChanged();
+        this.spawnNext();
+        return;
+      }
+      if (worker.reapedForAwaiting) {
+        // Ticket flipped into awaiting-confirmation while this worker was
+        // running. Do not finalize the issue (no setError/setDone). A
+        // future poll will re-classify and resume after approval/revise.
+        this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
+        this.deps.onLog(
+          `  ${issue.identifier}: worker reaped (awaiting human confirmation)`,
+          "gray",
+        );
         this.deps.onWorkersChanged();
         this.spawnNext();
         return;
@@ -778,6 +850,34 @@ export class AgentCoordinator {
     return true;
   }
 
+  /** Kill the active worker for `changeName` because the ticket has
+   *  flipped into `awaiting-confirmation`. The exit handler skips
+   *  finalization (no setDone/setError) and does NOT re-queue — a
+   *  future poll resumes the ticket once the gate clears. Returns
+   *  `true` if a matching active worker was found and reaped. */
+  reapForAwaiting(changeName: string): boolean {
+    if (this.stopped) return false;
+    const worker = this.workers.find((w) => w.changeName === changeName);
+    if (!worker) return false;
+    if (worker.reapedForAwaiting) return true;
+    worker.reapedForAwaiting = true;
+    capture("agent_worker_reaped_for_awaiting", { change_name: changeName });
+    try {
+      worker.kill();
+    } catch {
+      /* ignore */
+    }
+    return true;
+  }
+
+  /** True when there is an active worker reaped (or being reaped) for
+   *  awaiting-confirmation. Used by the wire layer to suppress PR
+   *  creation in the post-task block of that worker's exit handler. */
+  isAwaitingConfirmation(changeName: string): boolean {
+    const w = this.workers.find((w) => w.changeName === changeName);
+    return w ? w.reapedForAwaiting : false;
+  }
+
   /** Fire the onSteeringAppended hook (if configured). Best-effort —
    *  errors are logged via onLog and never thrown to the caller so the
    *  MCP `ralph_append_steering` tool stays idempotent. */
@@ -811,6 +911,7 @@ export class AgentCoordinator {
         lastReportedIteration: 0,
         lastSyncedIteration: 0,
         restarting: false,
+        reapedForAwaiting: false,
       };
       try {
         let iteration = 0;

@@ -44,6 +44,7 @@ const fakeWorker: ActiveWorker = {
   lastReportedIteration: 0,
   lastSyncedIteration: 0,
   restarting: false,
+  reapedForAwaiting: false,
 };
 
 function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
@@ -55,7 +56,7 @@ function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
     pollOnce: async () => ({
       found: 0,
       added: 0,
-      buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 },
+      buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0, awaiting: 0 },
       prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0 },
     }),
     stop: () => {},

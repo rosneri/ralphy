@@ -22,15 +22,17 @@ const IndicatorsSchema = z.preprocess(
       getConflicted: GetIndicatorSchema.optional(),
       getReview: GetIndicatorSchema.optional(),
       getAutoMerge: GetIndicatorSchema.optional(),
+      getApproved: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setConflicted: SetIndicatorSchema.optional(),
       clearConflicted: SetIndicatorSchema.optional(),
       clearReview: SetIndicatorSchema.optional(),
+      clearApproved: SetIndicatorSchema.optional(),
     })
     .superRefine((value, ctx) => {
-      for (const key of ["clearConflicted", "clearReview"] as const) {
+      for (const key of ["clearConflicted", "clearReview", "clearApproved"] as const) {
         const clear = value[key];
         if (!clear) continue;
         const markers = Array.isArray(clear) ? clear : [clear];
@@ -140,6 +142,20 @@ export const WorkflowConfigSchema = z.object({
         .array(z.enum(["md", "pdf"]))
         .nonempty()
         .default(["md"]),
+      confirmationMode: z
+        .object({
+          enabled: z.boolean().default(false),
+          optOutLabel: z.string().default("ralph:auto-approve"),
+          timeoutHours: z.number().positive().default(48),
+          maxConfirmationRounds: z.number().int().positive().default(3),
+        })
+        .strict()
+        .default({
+          enabled: false,
+          optOutLabel: "ralph:auto-approve",
+          timeoutHours: 48,
+          maxConfirmationRounds: 3,
+        }),
       indicators: IndicatorsSchema.default({}),
     })
     .strict()
@@ -153,6 +169,12 @@ export const WorkflowConfigSchema = z.object({
       syncTasksToComment: true,
       syncSpecsAsAttachments: true,
       specAttachmentFormats: ["md"],
+      confirmationMode: {
+        enabled: false,
+        optOutLabel: "ralph:auto-approve",
+        timeoutHours: 48,
+        maxConfirmationRounds: 3,
+      },
       indicators: {},
     }),
   github: z

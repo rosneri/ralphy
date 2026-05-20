@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
@@ -8,7 +8,13 @@ import {
   MISSION_TASKS_FILENAME,
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
-import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
+import {
+  loadWorkflow,
+  renderWorkflowPrompt,
+  computeConfirmationFlags,
+  type ConfirmationTicketView,
+} from "@ralphy/workflow";
+import { deriveOpenSpecPhase } from "@ralphy/core/openspec-phase";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { ParsedArgs } from "../cli";
@@ -54,7 +60,7 @@ import {
   type MentionTrigger,
 } from "./coordinator";
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
-import { createWorktree, seedWorktreeMcpConfig, type GitRunner } from "./worktree";
+import { createWorktree, seedWorktreeMcpConfig, worktreesDir, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "./pr-url";
 import { getPrChecksStatus } from "./ci";
@@ -68,6 +74,13 @@ import {
   type CommentMutations,
 } from "./linear-sync/comment-sync";
 import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
+import {
+  appendSteeringNote,
+  inspectAwaitingTicket,
+  readConfirmationState,
+  restartFromDesign as restartFromDesignFs,
+  writeConfirmationState,
+} from "./confirmation";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -329,6 +342,18 @@ interface BuildAgentCoordinatorInput {
   ) => void;
   /** Called when a PR URL is registered for a worker — dashboard shows it. */
   onWorkerPr?: (changeName: string, prUrl: string) => void;
+  /** Called once per poll per ticket parked in `awaiting-confirmation`. The
+   *  dashboard renders these as gated cards; the JSON runner emits a one-shot
+   *  `awaiting_confirmation` event per round entry (deduped via the round
+   *  number). */
+  onAwaitingTicket?: (info: {
+    changeName: string;
+    issueIdentifier: string;
+    issueUrl: string;
+    issueTitle: string;
+    since: string | null;
+    round: number;
+  }) => void;
   /** Optional side-effect overrides (test injection). */
   runners?: AgentRunners;
 }
@@ -486,6 +511,7 @@ export function buildAgentCoordinator(
     onWorkerPhase,
     onWorkerOutput,
     onWorkerCmd,
+    onAwaitingTicket,
   } = input;
 
   const logsDir = join(projectRoot, ".ralph", "logs");
@@ -701,6 +727,15 @@ export function buildAgentCoordinator(
   const lastHandledReviewActivity = new Map<string, string>();
 
   const useWorktree = args.worktree || cfg.useWorktree;
+
+  /** Changes currently known to be parked in `awaiting-confirmation`.
+   *  Populated by `classifyAwaitingConfirmation` each poll. Read by the
+   *  worker exit handler to suppress PR creation while the gate is open. */
+  const awaitingChangeSet = new Set<string>();
+  /** Late-bound reference to the coordinator so closures defined before
+   *  `new AgentCoordinator(...)` can call methods on it (e.g. reap an
+   *  in-flight worker the moment a ticket flips to awaiting-confirmation). */
+  const coordRef: { current: AgentCoordinator | null } = { current: null };
 
   const scriptRunner =
     input.runners?.runScript ??
@@ -1091,7 +1126,7 @@ export function buildAgentCoordinator(
         )
       : cmdRunner;
 
-    const wantPr = args.createPr || cfg.createPrOnSuccess;
+    const wantPrBase = args.createPr || cfg.createPrOnSuccess;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
     const issueForChange = issueByChange.get(changeName);
     const wantAutoMerge = issueForChange
@@ -1117,6 +1152,14 @@ export function buildAgentCoordinator(
       } catch (err) {
         onLog(`! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
       }
+      // Suppress PR creation while the ticket is parked in the
+      // confirmation gate. The worker may have been reaped (code != 0) or
+      // exited cleanly between the classify step and now; either way we
+      // do not want to open a PR for a plan that has not been approved.
+      const wantPr =
+        wantPrBase &&
+        !awaitingChangeSet.has(changeName) &&
+        !(coordRef.current?.isAwaitingConfirmation(changeName) ?? false);
       const effectiveCode = await runPostTask(
         {
           changeName,
@@ -1831,6 +1874,237 @@ export function buildAgentCoordinator(
     deleteIssueComment,
   };
   const specAttachmentsEnabled = Boolean(commentSyncEnabled && cfg.linear.syncSpecsAsAttachments);
+
+  /** Resolve the directory holding `.ralph-state.json` + `openspec/changes/...`
+   *  for a given in-progress issue. Falls back to projectRoot when `useWorktree`
+   *  is off or the worktree path doesn't exist on disk yet. */
+  async function resolveChangeCwdForIssue(changeName: string): Promise<string> {
+    const tracked = cwdByChange.get(changeName);
+    if (tracked) return tracked;
+    if (!useWorktree) return projectRoot;
+    const wtPath = join(worktreesDir(projectRoot), changeName);
+    return (await Bun.file(join(wtPath, "openspec", "changes", changeName, "tasks.md")).exists())
+      ? wtPath
+      : projectRoot;
+  }
+
+  async function readTextOrNull(path: string): Promise<string | null> {
+    const f = Bun.file(path);
+    if (!(await f.exists())) return null;
+    try {
+      return await f.text();
+    } catch {
+      return null;
+    }
+  }
+
+  /** Post the one-shot "📋 Ralphy plan ready" Linear comment on the first
+   *  poll that observes the ticket in the `awaiting-confirmation` phase.
+   *  Idempotent via `state.confirmation.askedAt` — the slot is written only
+   *  after the Linear API confirms the comment landed. */
+  async function postPlanReadyCommentOnce(
+    issue: LinearIssue,
+    statePath: string,
+    changeName: string,
+  ): Promise<void> {
+    if (!apiKey) return;
+    if (cfg.linear.postComments === false) return;
+    let stateObj: Record<string, unknown> = {};
+    const f = Bun.file(statePath);
+    if (await f.exists()) {
+      try {
+        stateObj = (await f.json()) as Record<string, unknown>;
+      } catch {
+        stateObj = {};
+      }
+    }
+    const confirmation =
+      (stateObj.confirmation as {
+        askedAt?: string | null;
+        lastReminderAt?: string | null;
+        confirmedAt?: string | null;
+        rounds?: number;
+      } | null) ?? null;
+    if (confirmation?.askedAt) return;
+    const body =
+      `📋 Ralphy plan ready for \`${changeName}\` — review proposal.md / design.md / tasks.md ` +
+      `and approve to continue, or reply with \`@ralphy revise: <reason>\` to send it back to design.`;
+    try {
+      await addIssueComment(apiKey, issue.id, body);
+    } catch (err) {
+      onLog(
+        `! Linear plan-ready comment failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+      return;
+    }
+    const nextConfirmation = {
+      askedAt: new Date().toISOString(),
+      lastReminderAt: confirmation?.lastReminderAt ?? null,
+      confirmedAt: confirmation?.confirmedAt ?? null,
+      rounds: confirmation?.rounds ?? 0,
+    };
+    try {
+      await mkdir(dirname(statePath), { recursive: true });
+      await Bun.write(
+        statePath,
+        JSON.stringify({ ...stateObj, confirmation: nextConfirmation }, null, 2) + "\n",
+      );
+    } catch (err) {
+      onLog(
+        `! could not persist confirmation.askedAt for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+    onLog(`  ${issue.identifier}: posted "📋 Ralphy plan ready" comment`, "gray");
+  }
+
+  /**
+   * Per in-progress issue, derive the OpenSpec phase against the change
+   * directory on disk and the workflow's confirmation-mode config. Returns
+   * the set of issue ids currently parked in `awaiting-confirmation`. As a
+   * side effect, on the transition into that phase the agent posts a
+   * one-shot `📋 Ralphy plan ready` Linear comment (idempotent via
+   * `state.confirmation.askedAt`).
+   */
+  async function classifyAwaitingConfirmation(issues: LinearIssue[]): Promise<ReadonlySet<string>> {
+    const out = new Set<string>();
+    if (issues.length === 0) return out;
+    if (!cfg.linear.confirmationMode.enabled) return out;
+    const cm = cfg.linear.confirmationMode;
+    for (const issue of issues) {
+      const changeName = changeNameForIssue(issue);
+      const cwd = await resolveChangeCwdForIssue(changeName);
+      const layout = projectLayout(cwd);
+      const changeDir = layout.changeDir(changeName);
+      const statePath = layout.stateFile(changeName);
+      const [proposal, design, tasks] = await Promise.all([
+        readTextOrNull(join(changeDir, "proposal.md")),
+        readTextOrNull(join(changeDir, "design.md")),
+        readTextOrNull(join(changeDir, "tasks.md")),
+      ]);
+      const ticketView: ConfirmationTicketView = {
+        labels: issue.labels,
+        state: issue.state,
+        project: issue.project,
+      };
+      const { confirmationGated, approved: approvalMatches } = computeConfirmationFlags(
+        cfg,
+        ticketView,
+      );
+      const { stateObj, confirmation } = await readConfirmationState(statePath);
+      const effectiveApproved = approvalMatches || confirmation.confirmedAt !== null;
+      const phase = deriveOpenSpecPhase({
+        proposal,
+        design,
+        tasks,
+        confirmationGated,
+        approved: effectiveApproved,
+      });
+      if (phase !== "awaiting-confirmation") {
+        awaitingChangeSet.delete(changeName);
+        // Transitioning out of the gate. If approval landed on this poll
+        // (label still on the ticket) but we haven't yet persisted
+        // confirmedAt, fire `clearApproved` once and record the timestamp
+        // so future polls keep the ticket in `implement` even after the
+        // label is removed.
+        if (approvalMatches && confirmation.confirmedAt === null) {
+          if (indicators.clearApproved) {
+            try {
+              await removeIndicator(issue, indicators.clearApproved);
+            } catch (err) {
+              onLog(
+                `! clearApproved failed for ${issue.identifier}: ${(err as Error).message}`,
+                "yellow",
+              );
+            }
+          }
+          confirmation.confirmedAt = new Date().toISOString();
+          try {
+            await writeConfirmationState(statePath, stateObj, confirmation);
+          } catch (err) {
+            onLog(
+              `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
+              "yellow",
+            );
+          }
+        }
+        continue;
+      }
+      out.add(issue.id);
+      awaitingChangeSet.add(changeName);
+      // Reap any in-flight worker that was still iterating when the
+      // ticket flipped into the gate. The worker's exit handler skips
+      // finalization and PR creation; future polls re-resume after
+      // approval or a revise comment.
+      coordRef.current?.reapForAwaiting(changeName);
+      await postPlanReadyCommentOnce(issue, statePath, changeName);
+      // Re-read after the plan-ready comment was (possibly) just written.
+      const { stateObj: state2, confirmation: confirmation2 } =
+        await readConfirmationState(statePath);
+      const { outcome, next } = await inspectAwaitingTicket(
+        confirmation2,
+        {
+          mentionHandle: cfg.linear.mentionHandle,
+          timeoutHours: cm.timeoutHours,
+          maxConfirmationRounds: cm.maxConfirmationRounds,
+          postComments: cfg.linear.postComments !== false && Boolean(apiKey),
+        },
+        {
+          approvalMatches,
+          fetchComments: async () => {
+            if (!apiKey) return [];
+            try {
+              const cs = await fetchIssueComments(apiKey, issue.id);
+              return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
+            } catch {
+              return [];
+            }
+          },
+          ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
+          applyIndicator: (ind) => applyIndicator(issue, ind),
+          postComment: async (body) => {
+            if (!apiKey) return;
+            await addIssueComment(apiKey, issue.id, body);
+          },
+          reactToComment: async (commentId, emoji) => {
+            if (!apiKey) return;
+            await addReactionToComment(apiKey, commentId, emoji);
+          },
+          applyStuckLabel: async () => {
+            await applyMarker(issue, { type: "label", value: "ralph:stuck" });
+          },
+          appendSteering: (msg) => appendSteeringNote(changeDir, msg),
+          restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
+          log: onLog,
+        },
+      );
+      try {
+        await writeConfirmationState(statePath, state2, next);
+      } catch (err) {
+        onLog(
+          `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+      if (outcome === "approved" || outcome === "revised") {
+        // Transitioning out of the gate on this poll — drop from awaiting
+        // so the next poll picks the ticket up via the normal queue.
+        out.delete(issue.id);
+        awaitingChangeSet.delete(changeName);
+      } else {
+        onAwaitingTicket?.({
+          changeName,
+          issueIdentifier: issue.identifier,
+          issueUrl: issue.url,
+          issueTitle: issue.title,
+          since: next.askedAt,
+          round: next.rounds,
+        });
+      }
+    }
+    return out;
+  }
   const specAttachmentMutations: SpecAttachmentMutations = {
     uploadFileToLinear,
     createAttachmentForUrl,
@@ -1858,6 +2132,7 @@ export function buildAgentCoordinator(
       onLog,
       ...(onFileLog ? { onFileLog } : {}),
       onWorkersChanged,
+      classifyAwaitingConfirmation,
       getIterationCount: async (changeName) => {
         const root = cwdByChange.get(changeName) ?? projectRoot;
         const file = Bun.file(projectLayout(root).stateFile(changeName));
@@ -1963,6 +2238,8 @@ export function buildAgentCoordinator(
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
     },
   );
+
+  coordRef.current = coord;
 
   const filterDesc = describeIndicators(indicators, team, assignee);
 

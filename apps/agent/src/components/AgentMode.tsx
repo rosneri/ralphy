@@ -350,6 +350,8 @@ function openspecPhaseColor(phase: OpenSpecPhase): string {
       return "blue";
     case "tasks":
       return "cyan";
+    case "awaiting-confirmation":
+      return "yellow";
     case "implement":
       return "yellow";
     case "done":
@@ -416,6 +418,21 @@ export function AgentMode({
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
+  /** Tickets parked in `awaiting-confirmation`, populated by `onAwaitingTicket`
+   *  during each pollOnce. Cleared at the start of every poll so the dashboard
+   *  only renders the gated set the latest poll actually observed. */
+  const gatedTicketsRef = useRef<
+    Map<
+      string,
+      {
+        issueIdentifier: string;
+        issueUrl: string;
+        issueTitle: string;
+        since: string | null;
+        round: number;
+      }
+    >
+  >(new Map());
   const nextPollAtRef = useRef<number>(0);
   const cfgRef = useRef<RalphyConfig | null>(null);
   const [effective, setEffective] = useState<{ concurrency: number; pollInterval: number } | null>(
@@ -433,6 +450,7 @@ export function AgentMode({
       conflicted: number;
       review: number;
       mentions: number;
+      awaiting: number;
     } | null;
     lastPrStatus: {
       mergeable: number;
@@ -545,6 +563,15 @@ export function AgentMode({
           const m = workerMetaRef.current.get(changeName);
           if (m) m.prUrl = prUrl;
         },
+        onAwaitingTicket: (info) => {
+          gatedTicketsRef.current.set(info.changeName, {
+            issueIdentifier: info.issueIdentifier,
+            issueUrl: info.issueUrl,
+            issueTitle: info.issueTitle,
+            since: info.since,
+            round: info.round,
+          });
+        },
       });
       setEffective({ concurrency, pollInterval });
 
@@ -560,6 +587,10 @@ export function AgentMode({
           appendLog(`! baseline gate failed: ${(err as Error).message}`, "yellow");
         }
         if (cancelled) return;
+        // Refreshed inside coord.pollOnce via the onAwaitingTicket callback —
+        // clear first so tickets that have transitioned out of the gate stop
+        // rendering on the next frame.
+        gatedTicketsRef.current.clear();
         const { found, added, buckets, prStatus } = await coord.pollOnce();
         if (cancelled) return;
         if (added > 0) {
@@ -909,6 +940,11 @@ export function AgentMode({
                       <Text color={pollStatus.lastBuckets.mentions > 0 ? "magenta" : "white"}>
                         {pollStatus.lastBuckets.mentions}
                       </Text>
+                      <Text dimColor>·</Text>
+                      <Text dimColor>awaiting</Text>
+                      <Text color={pollStatus.lastBuckets.awaiting > 0 ? "yellow" : "white"}>
+                        {pollStatus.lastBuckets.awaiting}
+                      </Text>
                     </>
                   )}
                 </>
@@ -1006,6 +1042,46 @@ export function AgentMode({
             </Box>
           </LabeledBox>
         )}
+
+        {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
+        {Array.from(gatedTicketsRef.current.entries()).map(([changeName, g]) => {
+          const askedAgo = g.since ? fmtElapsed(now - Date.parse(g.since)) : "just now";
+          const cardLabelWidth = g.issueIdentifier.length + 2;
+          const cardLabelNode = (
+            <>
+              <Text color="yellow"> </Text>
+              <Link url={g.issueUrl} label={g.issueIdentifier} color="yellow" />
+              <Text color="yellow"> </Text>
+            </>
+          );
+          return (
+            <LabeledBox
+              key={`gated-${changeName}`}
+              labelNode={cardLabelNode}
+              labelVisualWidth={cardLabelWidth}
+              borderColor="yellow"
+              paddingX={1}
+              gap={2}
+              width={termWidth}
+            >
+              <Text color="yellow" bold>
+                [GATE]
+              </Text>
+              <Text color="yellow">Awaiting confirmation</Text>
+              <Text dimColor>·</Text>
+              <Text dimColor>round</Text>
+              <Text color="white" bold>
+                {g.round}
+              </Text>
+              <Text dimColor>·</Text>
+              <Text dimColor>asked</Text>
+              <Text color="white">{askedAgo}</Text>
+              <Text dimColor>ago</Text>
+              <Text dimColor>│</Text>
+              <Text dimColor>{trunc(g.issueTitle, Math.max(20, termWidth - 70))}</Text>
+            </LabeledBox>
+          );
+        })}
 
         {/* ── Active worker cards ─────────────────────────────── */}
         {coord?.activeWorkers.map((w, idx) => {

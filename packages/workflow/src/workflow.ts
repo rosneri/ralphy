@@ -7,6 +7,11 @@ import { renderTemplate } from "./template";
 export type { WorkflowConfig } from "./schema";
 export { renderTemplate } from "./template";
 export { DEFAULT_WORKFLOW_MD } from "./default";
+export {
+  computeConfirmationFlags,
+  matchesIndicator,
+  type ConfirmationTicketView,
+} from "./confirmation";
 
 export interface ParsedWorkflow {
   config: WorkflowConfig;
