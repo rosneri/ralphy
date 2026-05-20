@@ -1070,4 +1070,181 @@ describe("agent characterization — Stage-0 regression net", () => {
     ).length;
     expect(planReadyCount).toBe(1);
   });
+
+  // Scenario 5 (test.failing): Stage-2-correct behavior is that once a user
+  // has approved a ticket, the `ralph:approved` label AND the persisted
+  // approval state survive a subsequent conflict-fix reset — the user is
+  // NOT asked to re-approve and the audit trail (the label on the issue)
+  // remains intact. Today the coordinator fires `clearApproved` eagerly
+  // the first time it observes the approval label (wire.ts ~L2039),
+  // stripping the label from Linear immediately. The persisted
+  // `confirmation.confirmedAt` watermark then carries the approval
+  // forward in state, but the label-on-issue evidence is gone — so an
+  // observer (or a downstream system reading Linear) cannot tell the
+  // ticket was ever approved once conflict-fix resets it. Flipping
+  // `test.failing` → `test` after Stage 2 stops the eager clear is the
+  // only edit needed.
+  test.failing(
+    "scenario 5: approval persisted + tasks reset for conflict-fix → no re-gate (test.failing)",
+    async () => {
+      const linear = new FakeLinear();
+      linear.stateIds.set("Todo", "state-todo");
+      linear.stateIds.set("In Progress", "state-inprogress");
+      linear.stateIds.set("Done", "state-done");
+      linear.labelIds.set("ralph:conflicted", "label-conf");
+      linear.labelIds.set("ralph:error", "label-err");
+      linear.labelIds.set("ralph:approved", "label-approved");
+
+      const issue: FakeIssue = {
+        id: "uuid-eng-5",
+        identifier: "ENG-5",
+        title: "Add sidebar",
+        description: "Users want a sidebar",
+        state: { name: "Todo", type: "unstarted" },
+        labels: new Set(),
+        priority: 3,
+      };
+      linear.add(issue);
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (!url.includes("linear.app")) {
+          throw new Error("unexpected fetch in test");
+        }
+        const body = JSON.parse(init?.body as string) as {
+          query: string;
+          variables: Record<string, unknown>;
+        };
+        return linear.handle(body);
+      }) as typeof fetch;
+
+      const confirmationWorkflow = {
+        ...baseWorkflow,
+        linear: {
+          ...baseWorkflow.linear,
+          confirmationMode: {
+            enabled: true,
+            optOutLabel: "ralph:auto-approve",
+            timeoutHours: 48,
+            maxConfirmationRounds: 3,
+          },
+          indicators: {
+            ...baseWorkflow.linear.indicators,
+            getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+            getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+            clearApproved: { type: "label", value: "ralph:approved" },
+          },
+        },
+      };
+      await writeWorkflow(tempDir, confirmationWorkflow);
+      const cfg = await loadRalphyConfig(tempDir);
+      const args = await parseArgs([]);
+
+      const { runners, workers, spawnCalls, setMergeable } = makeRunners();
+      const logs: string[] = [];
+
+      const { coord } = buildAgentCoordinator({
+        args,
+        cfg,
+        projectRoot: tempDir,
+        statesDir: join(tempDir, ".ralph", "tasks"),
+        tasksDir: join(tempDir, "openspec", "changes"),
+        apiKey: "fake-key",
+        onLog: (text) => logs.push(text),
+        onWorkersChanged: () => {},
+        onWorkerStarted: () => {},
+        onWorkerExited: () => {},
+        runners,
+      });
+
+      await coord.init();
+
+      const changeName = "eng-5-add-sidebar";
+      const changeDir = join(tempDir, "openspec", "changes", changeName);
+      const designPath = join(changeDir, "design.md");
+      const tasksPath = join(changeDir, "tasks.md");
+
+      // Poll 1: fresh spawn.
+      await coord.pollOnce();
+      await tick();
+      expect(workers.has(changeName)).toBe(true);
+
+      // Fill design.md so the next poll moves into awaiting-confirmation.
+      await Bun.write(
+        designPath,
+        [`# Design for ${changeName}`, "", "## Approach", "", "Add a sidebar.", ""].join("\n"),
+      );
+
+      // Poll 2: gate fires — plan-ready posted, worker reaped.
+      await coord.pollOnce();
+      await tick();
+      expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+
+      // Populate tasks.md with unchecked implementation items so the
+      // post-approval phase resolves to `implement` rather than `done`.
+      await Bun.write(
+        tasksPath,
+        [
+          `# Tasks for ${changeName}`,
+          "",
+          "## Implementation",
+          "",
+          "- [ ] Implement sidebar",
+          "",
+        ].join("\n"),
+      );
+
+      // Approval arrives — label flips on.
+      issue.labels.add("ralph:approved");
+
+      // Poll 3: gate clears, approval persisted, resume spawn issues.
+      await coord.pollOnce();
+      await tick();
+      expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBeGreaterThanOrEqual(2);
+
+      // The PR for the change now goes CONFLICTING while the ticket is
+      // mid-implement.
+      setMergeable(changeName, "CONFLICTING");
+
+      // Poll 4: conflict-fix path engages — tasks.md is prepended with
+      // the conflict-fix instructions, conflict-fix worker spawns.
+      await coord.pollOnce();
+      await tick();
+      const tasksAfterConflict = readFileSync(tasksPath, "utf-8");
+      expect(tasksAfterConflict).toContain("Resolve PR merge conflicts");
+
+      // Stage-2-correct assertion 1: the `ralph:approved` label is STILL
+      // on the issue (preserved across the conflict-fix reset). Today
+      // this fails because `clearApproved` was fired on poll 3 — the
+      // label was stripped immediately on approval and never restored.
+      expect(linear.issues.get("uuid-eng-5")!.labels.has("ralph:approved")).toBe(true);
+
+      // Stage-2-correct assertion 2: no `clearApproved` remove mutation
+      // was issued for this issue. Today this fails for the same reason.
+      expect(
+        linear.labelMutations.some(
+          (m) =>
+            m.op === "remove" && m.labelName === "ralph:approved" && m.issueId === "uuid-eng-5",
+        ),
+      ).toBe(false);
+
+      // Stage-2-correct assertion 3: persisted approval watermark
+      // survives the conflict-fix tasks.md reset. The state file's
+      // `confirmation.confirmedAt` must remain a non-null ISO string.
+      const statePath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.json");
+      const stateAfterConflict = JSON.parse(readFileSync(statePath, "utf-8")) as {
+        confirmation?: { confirmedAt?: string | null };
+      };
+      expect(stateAfterConflict.confirmation?.confirmedAt).not.toBeNull();
+      expect(typeof stateAfterConflict.confirmation?.confirmedAt).toBe("string");
+
+      // Stage-2-correct assertion 4: no re-gate. Plan-ready was posted
+      // exactly once — the user is NOT asked to re-approve after the
+      // conflict-fix reset.
+      const planReadyCount = linear.comments.filter((c) =>
+        c.body.includes("Ralphy plan ready"),
+      ).length;
+      expect(planReadyCount).toBe(1);
+    },
+  );
 });
