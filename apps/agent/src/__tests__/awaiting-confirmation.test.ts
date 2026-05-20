@@ -119,6 +119,28 @@ describe("inspectAwaitingTicket — revise path", () => {
     expect(rec.reactedComments).toEqual([{ id: "c1", emoji: "👀" }]);
   });
 
+  test("ignores revise mention inside backticks (e.g. our own plan-ready template)", async () => {
+    const { deps, rec } = makeDeps({
+      comments: [
+        {
+          id: "c1",
+          body:
+            "📋 Ralphy plan ready for `rlf-87` — review proposal.md / design.md / tasks.md " +
+            "and approve to continue, or reply with `@ralphy revise: <reason>` to send it back to design.",
+          createdAt: "2026-05-20T10:00:00.000Z",
+        },
+      ],
+    });
+    const start: ConfirmationState = {
+      ...defaultConfirmation(),
+      askedAt: "2026-05-20T09:00:00.000Z",
+    };
+    const { outcome } = await inspectAwaitingTicket(start, baseConfig(), deps);
+    expect(outcome).toBe("stay-awaiting");
+    expect(rec.steering).toEqual([]);
+    expect(rec.restarts).toBe(0);
+  });
+
   test("ignores revise comments at or before lastReviseConsumedAt watermark", async () => {
     const { deps } = makeDeps({
       comments: [
