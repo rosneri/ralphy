@@ -7,7 +7,7 @@ import { runAgentJson } from "../agent/json-runner";
 
 let tempDir: string;
 let originalApiKey: string | undefined;
-let originalExitCode: string | number | null | undefined;
+let originalExitCode: number | undefined;
 let writes: string[] = [];
 let originalWrite: typeof process.stdout.write;
 
@@ -30,7 +30,7 @@ afterEach(() => {
   process.stdout.write = originalWrite;
   if (originalApiKey === undefined) delete process.env["LINEAR_API_KEY"];
   else process.env["LINEAR_API_KEY"] = originalApiKey;
-  process.exitCode = originalExitCode;
+  process.exitCode = originalExitCode ?? 0;
   rmSync(tempDir, { recursive: true, force: true });
 });
 
