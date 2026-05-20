@@ -41,7 +41,7 @@
 ### UI: phase + flow as independent surfaces
 
 - [x] Edit `apps/agent/src/components/AgentMode.tsx`: rebuild the pipeline bar over the shrunken `PIPELINE_PHASES` and add an activity chip beside it. The chip renders `awaiting` (gate active) / `conflict-fix` / `ci-fix` / `working` / `review`, picked independently of the pipeline.
-- [ ] Update `apps/agent/src/components/__tests__/AgentMode.test.tsx` (or the closest existing test) to assert the chip renders alongside the pipeline.
+- [x] Update `apps/agent/src/components/__tests__/AgentMode.test.tsx` (or the closest existing test) to assert the chip renders alongside the pipeline.
 
 ### `--json-output` `poll_done`
 
