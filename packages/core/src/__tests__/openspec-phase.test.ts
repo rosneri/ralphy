@@ -3,6 +3,7 @@ import {
   deriveOpenSpecPhase,
   isStubArtifact,
   phasePipeline,
+  PIPELINE_PHASES,
   shouldShowPhasePipeline,
   shouldShowProgressBar,
   shouldShowSubtasksPanel,
@@ -92,6 +93,74 @@ describe("deriveOpenSpecPhase", () => {
 
   test("proposal when every artifact is missing", () => {
     expect(deriveOpenSpecPhase({ proposal: null, design: null, tasks: null })).toBe("proposal");
+  });
+
+  test("awaiting-confirmation when gated and not yet approved", () => {
+    expect(
+      deriveOpenSpecPhase({
+        proposal: "# Proposal\n\nReal description.",
+        design: "# Design\n\nReal design.",
+        tasks: "# Tasks\n\n- [ ] Pending\n",
+        confirmationGated: true,
+        approved: false,
+      }),
+    ).toBe("awaiting-confirmation");
+  });
+
+  test("implement when gated but approved", () => {
+    expect(
+      deriveOpenSpecPhase({
+        proposal: "# Proposal\n\nReal description.",
+        design: "# Design\n\nReal design.",
+        tasks: "# Tasks\n\n- [ ] Pending\n",
+        confirmationGated: true,
+        approved: true,
+      }),
+    ).toBe("implement");
+  });
+
+  test("implement when ungated regardless of approved flag (no regression)", () => {
+    expect(
+      deriveOpenSpecPhase({
+        proposal: "# Proposal\n\nReal description.",
+        design: "# Design\n\nReal design.",
+        tasks: "# Tasks\n\n- [ ] Pending\n",
+        confirmationGated: false,
+        approved: false,
+      }),
+    ).toBe("implement");
+  });
+
+  test("done wins over awaiting-confirmation even when gated", () => {
+    expect(
+      deriveOpenSpecPhase({
+        proposal: "# Proposal\n\nReal description.",
+        design: "# Design\n\nReal design.",
+        tasks: "# Tasks\n\n- [x] Done one\n- [x] Done two\n",
+        confirmationGated: true,
+        approved: false,
+      }),
+    ).toBe("done");
+  });
+});
+
+describe("PIPELINE_PHASES", () => {
+  test("contains the expected ordered phases", () => {
+    expect([...PIPELINE_PHASES]).toEqual([
+      "proposal",
+      "design",
+      "tasks",
+      "awaiting-confirmation",
+      "implement",
+    ]);
+  });
+
+  test("awaiting-confirmation sits between tasks and implement", () => {
+    const tasksIdx = PIPELINE_PHASES.indexOf("tasks");
+    const awaitingIdx = PIPELINE_PHASES.indexOf("awaiting-confirmation");
+    const implementIdx = PIPELINE_PHASES.indexOf("implement");
+    expect(awaitingIdx).toBe(tasksIdx + 1);
+    expect(implementIdx).toBe(awaitingIdx + 1);
   });
 });
 

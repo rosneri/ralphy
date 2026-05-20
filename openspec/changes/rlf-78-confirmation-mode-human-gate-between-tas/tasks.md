@@ -14,7 +14,7 @@
 ### Phase A — schema + deriver (PR 1)
 
 - [x] Extend `OpenSpecPhase` in `packages/core/src/openspec/phase.ts` with `"awaiting-confirmation"`; add `confirmationGated` and `approved` to `OpenSpecPhaseInputs`; insert the new branch into `deriveOpenSpecPhase` after the `tasks` check and before the `implement` check; add `awaiting-confirmation` to `PIPELINE_PHASES` between `tasks` and `implement`.
-- [ ] Add unit tests in `packages/core/src/__tests__/openspec-phase.test.ts` covering: (a) gated + no approval → `awaiting-confirmation`, (b) gated + approval → `implement`, (c) ungated → `implement` (no regression), (d) gated + all-checked → `done` (terminal still wins), (e) `PIPELINE_PHASES` order.
+- [x] Add unit tests in `packages/core/src/__tests__/openspec-phase.test.ts` covering: (a) gated + no approval → `awaiting-confirmation`, (b) gated + approval → `implement`, (c) ungated → `implement` (no regression), (d) gated + all-checked → `done` (terminal still wins), (e) `PIPELINE_PHASES` order.
 - [ ] Add `confirmation` slot to `StateSchema` in `packages/types/src/types.ts` with `askedAt`, `lastReminderAt`, `confirmedAt`, `rounds` fields, all defaulting safely. Add tests proving defaults and that old persisted state without the slot still parses.
 
 ### Phase B — workflow config + indicators (PR 2)
