@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "no
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { createJsonLogFileSink } from "../agent/json-log-file";
+import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
 
 let tempDir: string;
 

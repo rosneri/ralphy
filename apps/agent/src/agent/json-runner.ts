@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { VERSION, type ParsedArgs } from "../cli";
 import { ensureRalphyConfig, loadRalphyConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
-import { createJsonLogFileSink } from "./json-log-file";
+import { createJsonLogFileSink } from "./json-log/json-log-file";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 
 // Reuse the same line-cleaning regexes as the Ink dashboard.

@@ -10,7 +10,7 @@ import {
 import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
 import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
-import { createJsonLogFileSink } from "../agent/json-log-file";
+import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
 
 /** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
  *  Exported so tests can supply lightweight mocks without bypassing types. */
