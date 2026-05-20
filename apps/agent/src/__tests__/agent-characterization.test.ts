@@ -542,6 +542,68 @@ function createJsonRecorder(): JsonRecorderHandle {
   return { events, callbacks, emit, poll };
 }
 
+// ---------------------------------------------------------------------------
+// Normaliser + golden-file helper
+//
+// The captured event stream contains values that vary across runs
+// (timestamps, the per-test `tempDir`, durations). Before diffing against
+// a checked-in golden, these are replaced with stable tokens so the file
+// only changes when the contract itself changes. The unit-coverage of the
+// normaliser is added in a later task.
+//
+// When the JSON contract intentionally changes, re-record the golden:
+//   UPDATE_GOLDEN=1 bun --cwd apps/agent test agent-characterization
+// ---------------------------------------------------------------------------
+function normaliseEvent(
+  event: Record<string, unknown>,
+  ctx: { tempDir: string },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(event)) {
+    out[k] = normaliseValue(k, v, ctx);
+  }
+  return out;
+}
+
+const ISO_TS_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g;
+
+function normaliseValue(key: string, value: unknown, ctx: { tempDir: string }): unknown {
+  if (key === "ts") return "<TIMESTAMP>";
+  if (key === "durationMs") return "<DURATION>";
+  if (key === "since") return "<TIMESTAMP>";
+  if (typeof value === "string") {
+    let s = value;
+    if (ctx.tempDir) s = s.split(ctx.tempDir).join("<TMPDIR>");
+    s = s.replace(ISO_TS_RE, "<TIMESTAMP>");
+    return s;
+  }
+  if (Array.isArray(value)) return value.map((v) => normaliseValue(key, v, ctx));
+  if (value && typeof value === "object")
+    return normaliseEvent(value as Record<string, unknown>, ctx);
+  return value;
+}
+
+async function assertOrUpdateGolden(
+  goldenPath: string,
+  events: Record<string, unknown>[],
+  ctx: { tempDir: string },
+): Promise<void> {
+  const normalised = events.map((e) => normaliseEvent(e, ctx));
+  const serialised = normalised.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  if (process.env["UPDATE_GOLDEN"] === "1") {
+    await Bun.write(goldenPath, serialised);
+    return;
+  }
+  const file = Bun.file(goldenPath);
+  if (!(await file.exists())) {
+    throw new Error(
+      `Golden file missing: ${goldenPath}. Re-record with: UPDATE_GOLDEN=1 bun test agent-characterization`,
+    );
+  }
+  const expected = await file.text();
+  expect(serialised).toBe(expected);
+}
+
 const baseWorkflow = {
   concurrency: 1,
   useWorktree: false,
@@ -710,6 +772,15 @@ describe("agent characterization — Stage-0 regression net", () => {
       (e) => e.type === "worker_exited" && e.changeName === changeName,
     );
     expect(startIdx).toBeLessThan(exitIdx);
+
+    // Diff the full normalised event stream against the checked-in golden.
+    // Re-record with `UPDATE_GOLDEN=1 bun test agent-characterization` when
+    // the JSON event contract intentionally changes.
+    await assertOrUpdateGolden(
+      join(import.meta.dir, "__golden__", "json-output-new-ticket.jsonl"),
+      recorder.events,
+      { tempDir },
+    );
   });
 
   test("scenario 2: new ticket → revise → design → approval → implement (green)", async () => {
