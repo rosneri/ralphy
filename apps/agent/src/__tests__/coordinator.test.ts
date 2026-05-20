@@ -237,7 +237,14 @@ describe("AgentCoordinator — todo polling", () => {
     const r = await coord.pollOnce();
     expect(r.found).toBe(0);
     expect(r.added).toBe(0);
-    expect(r.buckets).toEqual({ todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 });
+    expect(r.buckets).toEqual({
+      todo: 0,
+      inProgress: 0,
+      conflicted: 0,
+      review: 0,
+      mentions: 0,
+      awaiting: 0,
+    });
     expect(ctx.logs.some((l) => l.text.includes("Linear poll failed: network down"))).toBe(true);
   });
 
@@ -314,8 +321,42 @@ describe("AgentCoordinator — todo polling", () => {
       conflicted: 1,
       review: 1,
       mentions: 1,
+      awaiting: 0,
     });
     expect(r.found).toBe(6);
+  });
+
+  test("awaiting-confirmation in-progress tickets are diverted into buckets.awaiting and never enqueued", async () => {
+    const gated = issue("c", "ENG-3");
+    const resumable = issue("d", "ENG-4");
+    const fresh = issue("e", "ENG-5");
+    const ctx = makeDeps({ todo: [fresh] });
+    ctx.setInProgress([gated, resumable]);
+    ctx.deps.classifyAwaitingConfirmation = async (issues) =>
+      new Set(issues.filter((i) => i.id === "c").map((i) => i.id));
+
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    const r = await coord.pollOnce();
+    await tick();
+
+    expect(r.buckets).toEqual({
+      todo: 1,
+      inProgress: 1,
+      conflicted: 0,
+      review: 0,
+      mentions: 0,
+      awaiting: 1,
+    });
+    expect(r.found).toBe(3);
+
+    // concurrency=1 → the resumable in-progress ticket wins the slot.
+    // The gated ticket must NOT appear among active workers or in the queue.
+    expect(coord.activeCount).toBe(1);
+    expect(coord.activeWorkers[0]!.changeName).toBe("change-eng-4");
+    expect(ctx.workers.has("change-eng-3")).toBe(false);
+    // Fresh todo is queued but not running (concurrency budget consumed).
+    expect(coord.queuedCount).toBe(1);
   });
 
   test("maxTickets caps how many issues are started this run", async () => {

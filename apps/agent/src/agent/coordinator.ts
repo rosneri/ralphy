@@ -32,6 +32,12 @@ export interface PollBuckets {
   conflicted: number;
   review: number;
   mentions: number;
+  /** In-progress issues whose OpenSpec phase is `awaiting-confirmation`. They
+   *  are excluded from the resumable bucket — the coordinator never enqueues
+   *  them and they do not consume `concurrency` slots. The poll loop still
+   *  surfaces them in this count so the dashboard / JSON output can show
+   *  how many tickets are gated awaiting human confirmation. */
+  awaiting: number;
 }
 /** Per-status counts across the done-candidate PRs scanned this tick.
  *  Surfaced in the dashboard so operators can see at a glance how many
@@ -52,7 +58,7 @@ const emptyPrStatus = (): PrStatusCounts => ({ mergeable: 0, conflicted: 0, ciFa
 const emptyPollResult = (): PollResult => ({
   found: 0,
   added: 0,
-  buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0 },
+  buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0, awaiting: 0 },
   prStatus: emptyPrStatus(),
 });
 
@@ -105,6 +111,13 @@ export interface CoordinatorDeps {
    *  when not provided. */
   onFileLog?: (text: string) => void;
   onWorkersChanged: () => void;
+  /** Optional hook: classify which of the supplied in-progress issues are
+   *  currently in the `awaiting-confirmation` OpenSpec phase. The coordinator
+   *  uses the returned set to (a) split them out of the resumable bucket so
+   *  they never consume a concurrency slot and (b) report the bucket count
+   *  for the dashboard. Returning an empty set (or omitting the hook) keeps
+   *  the legacy behaviour — every in-progress issue resumes. */
+  classifyAwaitingConfirmation?: (issues: LinearIssue[]) => Promise<ReadonlySet<string>>;
   /** Returns the current iteration count for an active worker (for
    *  periodic progress comments). */
   getIterationCount?: (changeName: string) => Promise<number>;
@@ -253,9 +266,36 @@ export class AgentCoordinator {
       return emptyPollResult();
     }
 
-    if (todo.length + inProgress.length + conflicted.length + review.length + mentions.length > 0) {
+    // Pull awaiting-confirmation tickets out of the resumable bucket so the
+    // coordinator never enqueues them as `resume`. They stay surfaced via
+    // `buckets.awaiting` so the dashboard can render the gated count.
+    let awaiting: LinearIssue[] = [];
+    if (this.deps.classifyAwaitingConfirmation && inProgress.length > 0) {
+      try {
+        const awaitingIds = await this.deps.classifyAwaitingConfirmation(inProgress);
+        if (awaitingIds.size > 0) {
+          awaiting = inProgress.filter((i) => awaitingIds.has(i.id));
+          inProgress = inProgress.filter((i) => !awaitingIds.has(i.id));
+        }
+      } catch (err) {
+        this.deps.onLog(
+          `! awaiting-confirmation classify failed: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
+
+    if (
+      todo.length +
+        inProgress.length +
+        conflicted.length +
+        review.length +
+        mentions.length +
+        awaiting.length >
+      0
+    ) {
       this.deps.onFileLog?.(
-        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention`,
+        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention, ${awaiting.length} awaiting`,
       );
     }
 
@@ -275,9 +315,15 @@ export class AgentCoordinator {
         conflicted: conflicted.length,
         review: review.length,
         mentions: mentions.length,
+        awaiting: awaiting.length,
       };
       const found =
-        buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
+        buckets.todo +
+        buckets.inProgress +
+        buckets.conflicted +
+        buckets.review +
+        buckets.mentions +
+        buckets.awaiting;
       return { found, added: 0, buckets, prStatus: emptyPrStatus() };
     }
 
@@ -368,9 +414,15 @@ export class AgentCoordinator {
       conflicted: conflicted.length,
       review: review.length,
       mentions: mentions.length,
+      awaiting: awaiting.length,
     };
     const found =
-      buckets.todo + buckets.inProgress + buckets.conflicted + buckets.review + buckets.mentions;
+      buckets.todo +
+      buckets.inProgress +
+      buckets.conflicted +
+      buckets.review +
+      buckets.mentions +
+      buckets.awaiting;
     return { found, added, buckets, prStatus };
   }
 
