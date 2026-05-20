@@ -48,6 +48,8 @@ interface DepsResult {
     string,
     { url: string; status: "mergeable" | "conflicted" | "ci_failed" | "unknown" } | null
   >;
+  /** Set of issue IDs whose openspec change is "archived locally" for tests. */
+  archivedIssues: Set<string>;
   /** Update what fetchTodo returns on the next call. */
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
@@ -68,6 +70,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     string,
     { url: string; status: "mergeable" | "conflicted" | "ci_failed" | "unknown" } | null
   >();
+  const archivedIssues = new Set<string>();
 
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
@@ -112,6 +115,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     fetchComments: async () => [],
     checkPrStatus: async (i) => conflictByIssue.get(i.id) ?? null,
+    isChangeArchivedForIssue: async (i) => archivedIssues.has(i.id),
     onLog: (text, color) => {
       logs.push(color !== undefined ? { text, color } : { text });
     },
@@ -130,6 +134,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     removes,
     comments,
     conflictByIssue,
+    archivedIssues,
     setTodo: (xs) => {
       todo = xs;
     },
@@ -772,6 +777,98 @@ describe("AgentCoordinator — conflict scan", () => {
     await coord.init();
     const r = await coord.pollOnce();
     expect(r.prStatus).toEqual({ mergeable: 2, conflicted: 1, ciFailed: 1 });
+  });
+
+  test("finished in-progress ticket with CONFLICTING PR is promoted, not resumed", async () => {
+    const finishedIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setInProgress([finishedIssue]);
+    ctx.archivedIssues.add("a");
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/376",
+      status: "conflicted" as const,
+    });
+    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setConflicted });
+    expect(
+      ctx.comments.filter(
+        (c) =>
+          c.id === "a" &&
+          c.body.includes("PR #376") &&
+          c.body.includes("promoted to conflict-fix flow"),
+      ).length,
+    ).toBe(1);
+    // Must NOT have queued a resume worker for the finished issue.
+    expect(ctx.workers.has("change-eng-1")).toBe(false);
+  });
+
+  test("promotion is idempotent across polls (one label add, one comment)", async () => {
+    const finishedIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setInProgress([finishedIssue]);
+    ctx.archivedIssues.add("a");
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/376",
+      status: "conflicted" as const,
+    });
+    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // Simulate Linear having propagated the label on the next poll.
+    finishedIssue.labels = ["ralph:conflict"];
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.applies.filter((a) => a.id === "a" && a.ind === setConflicted).length).toBe(1);
+    expect(
+      ctx.comments.filter((c) => c.id === "a" && c.body.includes("promoted to conflict-fix"))
+        .length,
+    ).toBe(1);
+  });
+
+  test("MERGEABLE in-progress ticket still resumes (no regression)", async () => {
+    const inProgressIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setInProgress([inProgressIssue]);
+    ctx.archivedIssues.add("a");
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/1",
+      status: "mergeable" as const,
+    });
+    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.applies.find((a) => a.ind === setConflicted)).toBeUndefined();
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+  });
+
+  test("in-progress ticket without archived change resumes normally", async () => {
+    const inProgressIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setInProgress([inProgressIssue]);
+    // Not archived — checkPrStatus should not even matter.
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/1",
+      status: "conflicted" as const,
+    });
+    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.applies.find((a) => a.ind === setConflicted)).toBeUndefined();
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
   });
 
   test("pollOnce returns zero PR status counts when conflict scan disabled", async () => {

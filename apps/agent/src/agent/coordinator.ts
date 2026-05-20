@@ -1,4 +1,5 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
+import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
 import { issueMatchesGetIndicator } from "./linear";
 import { compareQueueEntries, type QueueEntry } from "../queue/queue-order";
@@ -55,6 +56,14 @@ export interface PollResult {
   prStatus: PrStatusCounts;
 }
 const emptyPrStatus = (): PrStatusCounts => ({ mergeable: 0, conflicted: 0, ciFailed: 0 });
+
+/** Pull the PR number out of a GitHub pull URL, e.g.
+ *  `https://github.com/owner/repo/pull/376` → `376`. Returns null when the
+ *  URL doesn't match — callers render the full URL in that case. */
+function extractPrNumber(url: string): string | null {
+  const m = /\/pull\/(\d+)(?:[/?#]|$)/.exec(url);
+  return m ? (m[1] ?? null) : null;
+}
 const emptyPollResult = (): PollResult => ({
   found: 0,
   added: 0,
@@ -105,6 +114,13 @@ export interface CoordinatorDeps {
    *  created). `unknown` is used when GitHub hasn't computed mergeability
    *  yet or `gh` failed; the caller skips acting on it. */
   checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatus } | null>;
+  /** Returns true when the openspec change for this issue has already been
+   *  archived locally (i.e. a directory matching
+   *  `openspec/changes/archive/*-<changeName>/` exists). Used to detect
+   *  finished-but-conflicted in-progress tickets so they can be promoted
+   *  into the conflict-fix flow. Optional — when omitted, the conflict
+   *  promotion check is a no-op. */
+  isChangeArchivedForIssue?: (issue: LinearIssue) => Promise<boolean>;
   onLog: (text: string, color?: string) => void;
   /** Log lines that should be persisted to the on-disk agent log but not
    *  surfaced in the UI panel (e.g. the per-poll summary). Dropped silently
@@ -201,6 +217,12 @@ export class AgentCoordinator {
    *  against re-posting the conflict comment every poll. Cleared once
    *  the worker exits successfully (clearConflicted is applied). */
   private conflictNotified = new Set<string>();
+  /** Issue IDs we've already posted the "promoted to conflict-fix" comment
+   *  for in this process run. Guards against double-posting if the next
+   *  poll still sees the ticket in `getInProgress` (e.g. Linear hasn't
+   *  yet propagated the label, or the label add failed). Cleared when the
+   *  conflict-fix worker exits (clearConflicted applied). */
+  private conflictPromoted = new Set<string>();
   /** Total issues launched this process run — used to enforce maxTickets. */
   private ticketsStarted = 0;
 
@@ -345,11 +367,14 @@ export class AgentCoordinator {
     let added = 0;
 
     // 1. In-progress issues take precedence on restart — re-attach first
-    //    so concurrency budget is honored.
+    //    so concurrency budget is honored. Before queueing as resume,
+    //    detect "finished but conflicting" tickets and route them into
+    //    the conflict-fix flow by applying setConflicted.
     for (const issue of inProgress) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
+      if (await this.maybePromoteFinishedConflicted(issue)) continue;
       this.queue.push({ issue, mode: "resume" });
       queuedIds.add(issue.id);
       added += 1;
@@ -430,6 +455,103 @@ export class AgentCoordinator {
       buckets.mentions +
       buckets.awaiting;
     return { found, added, buckets, prStatus };
+  }
+
+  /**
+   * Detect "finished but conflicting" in-progress tickets — the change is
+   * archived locally (all tasks done, branch pushed), but the PR has merge
+   * conflicts with main, so `setDone` never fires on merge and the ticket
+   * sits in `getInProgress` forever. When detected, apply `setConflicted`
+   * + post a one-line Linear comment so the next poll picks the ticket up
+   * via `getConflicted` instead. Returns true when the ticket was promoted
+   * (or is already promoted) and should be skipped from the in-progress
+   * queue this poll.
+   */
+  private async maybePromoteFinishedConflicted(issue: LinearIssue): Promise<boolean> {
+    const setConflicted = this.opts.setConflicted;
+    if (!setConflicted) return false;
+    if (!this.deps.isChangeArchivedForIssue) return false;
+
+    // Already labeled conflicted on Linear → let getConflicted route it.
+    if (this.issueHasIndicator(issue, setConflicted)) return true;
+
+    let archived = false;
+    try {
+      archived = await this.deps.isChangeArchivedForIssue(issue);
+    } catch (err) {
+      this.deps.onLog(
+        `! archive lookup failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+      return false;
+    }
+    if (!archived) return false;
+
+    let pr: { url: string; status: PrStatus } | null;
+    try {
+      pr = await this.deps.checkPrStatus(issue);
+    } catch (err) {
+      this.deps.onLog(
+        `! PR status check failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+      return false;
+    }
+    if (!pr || pr.status !== "conflicted") return false;
+
+    try {
+      await this.deps.applyIndicator(issue, setConflicted);
+      this.deps.onLog(
+        `  ${issue.identifier}: promoted to conflict-fix (PR ${pr.url} conflicting)`,
+        "yellow",
+      );
+    } catch (err) {
+      this.deps.onLog(
+        `! Linear setConflicted (promotion) failed for ${issue.identifier}: ${(err as Error).message}`,
+        "red",
+      );
+      capture("agent_indicator_failed", {
+        indicator: "setConflicted",
+        issue_identifier: issue.identifier,
+        error: (err as Error).message,
+      });
+      return false;
+    }
+
+    capture("agent_conflict_promoted", {
+      issue_identifier: issue.identifier,
+      pr_url: pr.url,
+    });
+
+    if (!this.conflictPromoted.has(issue.id) && this.opts.postComments !== false) {
+      const prNum = extractPrNumber(pr.url);
+      const ref = prNum !== null ? `PR #${prNum}` : `PR ${pr.url}`;
+      try {
+        await this.deps.postComment(
+          issue,
+          `⚠️ ${ref} is conflicting with main — promoted to conflict-fix flow.`,
+        );
+        this.deps.onLog(`  ${issue.identifier}: posted conflict-promotion comment`, "gray");
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear conflict-promotion comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
+    this.conflictPromoted.add(issue.id);
+    return true;
+  }
+
+  /** True when the issue's labels already include every label-marker the
+   *  SetIndicator would add. Non-label markers (status, project, etc.) are
+   *  ignored — the conflict-promotion check only cares about whether the
+   *  conflict label is already present. */
+  private issueHasIndicator(issue: LinearIssue, ind: SetIndicator): boolean {
+    const labels = new Set(issue.labels.map((l) => l.toLowerCase()));
+    const labelMarkers = markersOf(ind).filter((m) => m.type === "label");
+    if (labelMarkers.length === 0) return false;
+    return labelMarkers.every((m) => labels.has(m.value.toLowerCase()));
   }
 
   /** True when the issue carries the auto-merge indicator. Used to boost
@@ -971,6 +1093,7 @@ export class AgentCoordinator {
           }
         }
         this.conflictNotified.delete(issue.id);
+        this.conflictPromoted.delete(issue.id);
       } else if (this.opts.setDone) {
         try {
           await this.deps.applyIndicator(issue, this.opts.setDone);

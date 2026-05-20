@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
 import {
@@ -1418,6 +1418,30 @@ export function buildAgentCoordinator(
     );
   }
 
+  /**
+   * Detect whether `openspec archive` has already moved the change for an
+   * issue into `openspec/changes/archive/`. The openspec archive layout is
+   * `openspec/changes/archive/<YYYY-MM-DD-HH-MM>-<changeName>/`, so we list
+   * the archive directory and look for an entry suffix-matching
+   * `-<changeName>`. The lookup runs against the worker's worktree (if one
+   * has been registered) or the project root otherwise.
+   */
+  async function isChangeArchivedForIssue(issue: LinearIssue): Promise<boolean> {
+    const changeName = changeNameForIssue(issue);
+    const root = cwdByChange.get(changeName) ?? projectRoot;
+    const archiveDir = join(projectLayout(root).tasksDir, "archive");
+    let entries: string[];
+    try {
+      entries = await readdir(archiveDir);
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "ENOENT") return false;
+      throw err;
+    }
+    const suffix = `-${changeName}`;
+    return entries.some((name) => name === changeName || name.endsWith(suffix));
+  }
+
   // setDone candidates for conflict scan: include = setDone marker(s),
   // exclude = setConflicted marker(s) (don't double-count).
   async function fetchDoneCandidates(): Promise<LinearIssue[]> {
@@ -2131,6 +2155,7 @@ export function buildAgentCoordinator(
         return c.map((x) => ({ body: x.body }));
       },
       checkPrStatus,
+      isChangeArchivedForIssue,
       onLog,
       ...(onFileLog ? { onFileLog } : {}),
       onWorkersChanged,
