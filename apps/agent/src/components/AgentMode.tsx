@@ -10,6 +10,7 @@ import {
 import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
 import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
+import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
 
 /** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
  *  Exported so tests can supply lightweight mocks without bypassing types. */
@@ -472,9 +473,13 @@ export function AgentMode({
     logCoord(text, workerLogFile);
   }
 
+  const fileSinkRef = useRef(createJsonLogFileSink(args.jsonLogFile));
+
   useEffect(() => {
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    const fileSink = fileSinkRef.current;
+    const fileEmit = (event: Record<string, unknown>): void => fileSink.emit(event);
 
     async function init() {
       logSession(`=== session start ${SESSION_START} ===`);
@@ -490,6 +495,7 @@ export function AgentMode({
 
       const pf = await runPreflight();
       if (!pf.ok) {
+        fileEmit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });
         setPreflightError({ tool: pf.tool, message: pf.message });
         process.exitCode = 2;
         setTimeout(() => {
@@ -506,10 +512,16 @@ export function AgentMode({
         statesDir,
         tasksDir,
         apiKey,
-        onLog: appendLog,
+        onLog: (text, color) => {
+          const ev: Record<string, unknown> = { type: "log", text };
+          if (color !== undefined) ev["color"] = color;
+          fileEmit(ev);
+          appendLog(text, color);
+        },
         onFileLog: (text) => logCoord(text),
         onWorkersChanged: () => setTick((t) => t + 1),
         onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+          fileEmit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
           logSession(`worker-started ${changeName} log=${logFile}`, logFile);
           workerMetaRef.current.set(changeName, {
             startedAt: Date.now(),
@@ -530,11 +542,15 @@ export function AgentMode({
           });
         },
         onWorkerExited: (changeName) => {
+          fileEmit({ type: "worker_exited", changeName });
           const m = workerMetaRef.current.get(changeName);
           logSession(`worker-exited ${changeName}`, m?.logFile);
           workerMetaRef.current.delete(changeName);
         },
         onWorkerPhase: (changeName, phase, detail) => {
+          const ev: Record<string, unknown> = { type: "worker_phase", changeName, phase };
+          if (detail !== undefined) ev["detail"] = detail;
+          fileEmit(ev);
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
           if (m.phase !== phase) m.phaseStartedAt = Date.now();
@@ -543,14 +559,26 @@ export function AgentMode({
           logPhase(changeName, m.logFile, phase, detail);
         },
         onWorkerOutput: (changeName, line) => {
+          const clean = cleanOutputLine(line);
+          if (clean) fileEmit({ type: "worker_output", changeName, line: clean });
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
-          const clean = cleanOutputLine(line);
           if (!clean) return;
           m.tail.push(clean);
           if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
         },
-        onWorkerCmd: (changeName, cmd, state) => {
+        onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
+          if (state === "start") {
+            fileEmit({ type: "worker_cmd_start", changeName, cmd });
+          } else {
+            fileEmit({
+              type: "worker_cmd_end",
+              changeName,
+              cmd,
+              durationMs: durationMs ?? 0,
+              ok: ok ?? true,
+            });
+          }
           const m = workerMetaRef.current.get(changeName);
           if (!m) return;
           if (state === "start") {
@@ -560,10 +588,19 @@ export function AgentMode({
           }
         },
         onWorkerPr: (changeName, prUrl) => {
+          fileEmit({ type: "worker_pr", changeName, prUrl });
           const m = workerMetaRef.current.get(changeName);
           if (m) m.prUrl = prUrl;
         },
         onAwaitingTicket: (info) => {
+          fileEmit({
+            type: "awaiting_confirmation",
+            changeName: info.changeName,
+            issueIdentifier: info.issueIdentifier,
+            issueUrl: info.issueUrl,
+            since: info.since,
+            round: info.round,
+          });
           gatedTicketsRef.current.set(info.changeName, {
             issueIdentifier: info.issueIdentifier,
             issueUrl: info.issueUrl,
@@ -575,11 +612,21 @@ export function AgentMode({
       });
       setEffective({ concurrency, pollInterval });
 
+      fileEmit({
+        type: "started",
+        version: VERSION,
+        filterDesc,
+        concurrency,
+        pollInterval,
+        configPath: cfgPath,
+      });
+
       coordRef.current = coord;
       await coord.init();
 
       const tick = async () => {
         if (cancelled) return;
+        fileEmit({ type: "poll_start" });
         setPollStatus((p) => ({ ...p, state: "polling", filterDesc }));
         try {
           await runBaselineGate();
@@ -593,6 +640,7 @@ export function AgentMode({
         gatedTicketsRef.current.clear();
         const { found, added, buckets, prStatus } = await coord.pollOnce();
         if (cancelled) return;
+        fileEmit({ type: "poll_done", found, added, buckets, prStatus });
         if (added > 0) {
           appendLog(`  ${added} new issue${added === 1 ? "" : "s"} queued (found ${found} open)`);
         }
@@ -628,6 +676,7 @@ export function AgentMode({
       }
       shuttingDown = true;
       cancelled = true;
+      fileEmit({ type: "stopped" });
       appendLog("stopping agent — sending SIGTERM to workers", "yellow");
       coordRef.current?.stop();
       if (pollTimer) clearTimeout(pollTimer);
