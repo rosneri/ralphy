@@ -1456,4 +1456,150 @@ describe("agent characterization — Stage-0 regression net", () => {
     expect(linear.comments.length).toBe(commentsBeforeRepoll);
     expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(spawnsBeforeRepoll);
   });
+
+  // Scenario 7: finished + PR conflicting → conflict-fix (green). A ticket that
+  // has been driven all the way to Done by Ralph still has a live PR. If main
+  // moves forward and the PR goes CONFLICTING, the next poll's conflict-scan
+  // promotes the change back into the active set: applies the `ralph:conflicted`
+  // label, posts a merge-conflicts comment, and spawns a conflict-fix worker.
+  // On clean exit, `clearConflicted` fires and `setDone` is NOT re-applied
+  // (the ticket is already Done — the conflict-fix path skips status updates).
+  // This is the anchor for RLF-81's "promote finished-with-conflicts back to
+  // active" behavior; Stage 2 will layer on richer telemetry, but the
+  // observable Linear-side contract pinned here must not regress.
+  test("scenario 7: finished + PR conflicting → conflict-fix (green)", async () => {
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.labelIds.set("ralph:conflicted", "label-conf");
+    linear.labelIds.set("ralph:error", "label-err");
+
+    const issue: FakeIssue = {
+      id: "uuid-eng-7",
+      identifier: "ENG-7",
+      title: "Add footer",
+      description: "Users want a footer",
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    };
+    linear.add(issue);
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (!url.includes("linear.app")) {
+        throw new Error("unexpected fetch in test");
+      }
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      return linear.handle(body);
+    }) as typeof fetch;
+
+    await writeWorkflow(tempDir, baseWorkflow);
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const { runners, workers, spawnCalls, setMergeable } = makeRunners();
+    const logs: string[] = [];
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: (text) => logs.push(text),
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+
+    const changeName = "eng-7-add-footer";
+
+    // Poll 1: fresh-mode spawn, ticket → In Progress.
+    await coord.pollOnce();
+    await tick();
+    expect(workers.has(changeName)).toBe(true);
+
+    // Worker exits cleanly → setDone, ticket is now finished.
+    workers.get(changeName)!.resolve(0);
+    await tick();
+    expect(linear.statusMutations).toContainEqual({
+      issueId: "uuid-eng-7",
+      statusName: "Done",
+    });
+    expect(linear.issues.get("uuid-eng-7")!.state.name).toBe("Done");
+    const doneCountBeforeConflict = linear.statusMutations.filter(
+      (s) => s.statusName === "Done",
+    ).length;
+    expect(doneCountBeforeConflict).toBe(1);
+
+    // Re-poll while clean: nothing to do (ticket is Done, PR mergeable).
+    const poll2 = await coord.pollOnce();
+    expect(poll2.added).toBe(0);
+
+    // Main moves forward → PR for the (already Done) ticket goes CONFLICTING.
+    setMergeable(changeName, "CONFLICTING");
+
+    const spawnsBeforePromotion = spawnCalls.filter((c) => c.includes(changeName)).length;
+
+    // Poll 3: conflict-scan promotes the finished ticket back into active —
+    // setConflicted label applied, merge-conflicts comment posted, conflict-fix
+    // worker spawned. This is the RLF-81 promotion anchor.
+    await coord.pollOnce();
+    await tick();
+
+    // setConflicted label applied (the audit-trail / promotion signal).
+    expect(
+      linear.labelMutations.some(
+        (m) => m.op === "add" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-7",
+      ),
+    ).toBe(true);
+    expect(linear.issues.get("uuid-eng-7")!.labels.has("ralph:conflicted")).toBe(true);
+
+    // Conflict-promotion comment posted on the issue. Today's contract uses
+    // the phrase "merge conflicts" in the body; pinning the substring keeps
+    // the assertion robust to copy tweaks while still catching a regression
+    // that drops the comment entirely.
+    expect(linear.comments.some((c) => c.body.includes("merge conflicts"))).toBe(true);
+
+    // A conflict-fix worker was spawned for this change.
+    const spawnsAfterPromotion = spawnCalls.filter((c) => c.includes(changeName)).length;
+    expect(spawnsAfterPromotion).toBeGreaterThan(spawnsBeforePromotion);
+    const fixWorker = workers.get(changeName);
+    expect(fixWorker).toBeDefined();
+
+    // Today's contract: the conflict-fix promotion re-applies `setInProgress`
+    // when re-engaging a finished ticket — the ticket is back in the active
+    // bucket for the duration of the conflict-fix worker. This pins the
+    // current observable: the lifecycle status flips back to In Progress.
+    expect(linear.issues.get("uuid-eng-7")!.state.name).toBe("In Progress");
+    expect(
+      linear.statusMutations.filter(
+        (s) => s.statusName === "In Progress" && s.issueId === "uuid-eng-7",
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+
+    // Conflict-fix worker exits cleanly → clearConflicted fires, no second
+    // setDone is issued (the ticket is already Done; conflict-fix is a
+    // PR-level fixup, not a fresh lifecycle run).
+    fixWorker!.resolve(0);
+    await tick();
+
+    expect(
+      linear.labelMutations.some(
+        (m) =>
+          m.op === "remove" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-7",
+      ),
+    ).toBe(true);
+    const doneCountAfterFix = linear.statusMutations.filter((s) => s.statusName === "Done").length;
+    expect(doneCountAfterFix).toBe(1);
+  });
 });
