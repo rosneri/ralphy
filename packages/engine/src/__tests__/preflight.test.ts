@@ -31,7 +31,7 @@ function streamFrom(text: string): ReadableStream<Uint8Array> {
 }
 
 const spawnMock = mock((options: SpawnOptions): MockProc => {
-  spawnCalls.push({ cmd: options.cmd, env: options.env });
+  spawnCalls.push(options.env ? { cmd: options.cmd, env: options.env } : { cmd: options.cmd });
   const next = nextResults.shift() ?? { exitCode: 0, stdout: "" };
   return {
     stdout: streamFrom(next.stdout ?? ""),
