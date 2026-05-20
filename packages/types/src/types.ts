@@ -134,6 +134,25 @@ export const StateSchema = z.object({
       proposalPdf: { attachmentId: null, sha256: null },
       designPdf: { attachmentId: null, sha256: null },
     }),
+  /** Per-change confirmation-gate state used by the `awaiting-confirmation`
+   *  phase. `askedAt` is set when Ralphy posts the "plan ready" comment;
+   *  `lastReminderAt` tracks reminder cadence; `confirmedAt` is set when
+   *  the approval indicator matches; `rounds` counts how many revise
+   *  cycles the change has gone through. Missing slot ⇒ old persisted
+   *  state still parses with all-null / zero defaults. */
+  confirmation: z
+    .object({
+      askedAt: z.string().nullable().default(null),
+      lastReminderAt: z.string().nullable().default(null),
+      confirmedAt: z.string().nullable().default(null),
+      rounds: z.number().default(0),
+    })
+    .default({
+      askedAt: null,
+      lastReminderAt: null,
+      confirmedAt: null,
+      rounds: 0,
+    }),
 });
 
 // --- Inferred types ---

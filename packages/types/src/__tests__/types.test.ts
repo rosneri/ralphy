@@ -140,6 +140,40 @@ describe("StateSchema", () => {
     expect(result.specAttachments.proposal.sha256).toBe("hp");
   });
 
+  test("confirmation defaults to null/zero slots when omitted (old state migrates silently)", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+    });
+    expect(result.confirmation.askedAt).toBeNull();
+    expect(result.confirmation.lastReminderAt).toBeNull();
+    expect(result.confirmation.confirmedAt).toBeNull();
+    expect(result.confirmation.rounds).toBe(0);
+  });
+
+  test("confirmation preserves provided values across a parse round-trip", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+      confirmation: {
+        askedAt: "2026-01-02T00:00:00Z",
+        lastReminderAt: "2026-01-03T00:00:00Z",
+        confirmedAt: "2026-01-04T00:00:00Z",
+        rounds: 2,
+      },
+    });
+    expect(result.confirmation.askedAt).toBe("2026-01-02T00:00:00Z");
+    expect(result.confirmation.lastReminderAt).toBe("2026-01-03T00:00:00Z");
+    expect(result.confirmation.confirmedAt).toBe("2026-01-04T00:00:00Z");
+    expect(result.confirmation.rounds).toBe(2);
+  });
+
   test("specAttachments defaults to null slots when omitted", () => {
     const result = StateSchema.parse({
       version: "2" as const,
