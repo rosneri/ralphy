@@ -43,6 +43,8 @@ interface FakeFetchHandlers {
   /** Workflow state for the single candidate issue. Defaults to Done so
    *  the legacy behavior is still exercised. */
   issueState?: { name: string; type: string };
+  /** Override the body of the single candidate comment. */
+  commentBody?: string;
 }
 
 interface TestSetup {
@@ -131,7 +133,7 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
             nodes: [
               {
                 id: "comment-id-42",
-                body: "@ralphy please retry",
+                body: handlers.commentBody ?? "@ralphy please retry",
                 createdAt: "2026-05-15T10:00:00Z",
                 user: { name: "alice", email: null },
               },
@@ -264,6 +266,17 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
   test("a reactionCreate failure does not block the mention enqueue", async () => {
     const { pickupCommentBodies } = await runMentionPoll(tempDir, { failOnReaction: true });
     expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
+  });
+
+  test("@ralphy inside an inline code span is not treated as a mention (RLF-87)", async () => {
+    const planReadyBody =
+      "📋 Ralphy plan ready for `rlf-87` — review proposal.md / design.md / tasks.md " +
+      "and approve to continue, or reply with `@ralphy revise: <reason>` to send it back to design.";
+    const { reactionCalls, pickupCommentBodies } = await runMentionPoll(tempDir, {
+      commentBody: planReadyBody,
+    });
+    expect(reactionCalls).toEqual([]);
+    expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(false);
   });
 
   test("a new @ralphy mention on an In Progress Linear issue is picked up (RLF-55)", async () => {

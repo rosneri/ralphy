@@ -1818,7 +1818,14 @@ export function buildAgentCoordinator(
 
   function containsHandle(body: string, handle: string): boolean {
     const re = new RegExp(`(^|\\s|[^A-Za-z0-9_])${escapeRegex(handle)}\\b`, "i");
-    return re.test(body);
+    return re.test(stripCodeMarkup(body));
+  }
+
+  /** Strip fenced code blocks and inline backtick spans from a markdown body
+   *  so example handles (e.g. the `@ralphy revise: <reason>` shown in our own
+   *  "plan ready" comment) don't get matched as real mentions. */
+  function stripCodeMarkup(body: string): string {
+    return body.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
   }
 
   /** Resolve the PR URL for an issue, reusing the conflict-scan discovery
