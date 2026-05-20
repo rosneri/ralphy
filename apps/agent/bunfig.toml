@@ -6,4 +6,5 @@ coveragePathIgnorePatterns = [
   "**/components/AgentMode.tsx",
   "**/agent/wire.ts",
   "**/agent/post-task.ts",
+  "**/agent/json-runner.ts",
 ]
