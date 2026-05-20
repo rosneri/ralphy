@@ -161,7 +161,7 @@ async function readRawState(statePath: string): Promise<Record<string, unknown>>
   const file = Bun.file(statePath);
   if (!(await file.exists())) return {};
   try {
-    const parsed = (await file.json()) as unknown;
+    const parsed: unknown = await file.json();
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>;
     }

@@ -14,7 +14,7 @@
  * from prior polls never bleed into the next one.
  */
 
-import type { CmdRunner } from "./pr";
+import type { CmdRunner } from "../pr";
 
 export class PollContext {
   private readonly memo = new Map<string, Promise<unknown>>();
@@ -34,11 +34,19 @@ export class PollContext {
     const key = `${url}|${[...fields].sort().join(",")}`;
     const existing = this.memo.get(key);
     if (existing) return existing;
-    const pending = (async () => {
-      const res = await runner.run(["gh", "pr", "view", url, "--json", fields.join(",")], cwd);
-      return JSON.parse(res.stdout.trim() || "{}") as unknown;
-    })();
+    const pending = this.runGhView(url, fields, runner, cwd);
     this.memo.set(key, pending);
     return pending;
+  }
+
+  private async runGhView(
+    url: string,
+    fields: readonly string[],
+    runner: CmdRunner,
+    cwd: string,
+  ): Promise<unknown> {
+    const res = await runner.run(["gh", "pr", "view", url, "--json", fields.join(",")], cwd);
+    const parsed: unknown = JSON.parse(res.stdout.trim() || "{}");
+    return parsed;
   }
 }
