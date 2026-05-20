@@ -14,7 +14,7 @@
 - [x] Scaffold `apps/agent/src/__tests__/agent-characterization.test.ts` with the fake-harness imports reused from `agent-integration.test.ts` and a single placeholder `test(...)` so `bun --cwd apps/agent test agent-characterization` discovers and runs the file
 - [x] Confirm Bun version in repo supports `test.failing`; if not, document the `expect(...).toThrow()` fallback in the test file header comment
 - [x] Implement scenario 1: `new ticket → approval → implement → done` (green) — assert spawn modes, label/state mutations, and tasks.md transitions across the polls
-- [ ] Implement scenario 2: `new ticket → revise → design → approval → implement` (green) — assert the revise loop re-enters design and re-gates before implement
+- [x] Implement scenario 2: `new ticket → revise → design → approval → implement` (green) — assert the revise loop re-enters design and re-gates before implement
 - [ ] Implement scenario 3: `gated ticket + PR conflicted → conflict-fix wins` as `test.failing(...)` — body contains the Stage-2-correct assertion (conflict-fix spawn mode wins)
 - [ ] Implement scenario 4: `gated ticket + CI failing → ci-fix wins` as `test.failing(...)` — body contains the Stage-2-correct assertion (ci-fix spawn mode wins)
 - [ ] Implement scenario 5: `approval persisted + tasks reset for conflict-fix → no re-gate` as `test.failing(...)` — body asserts approval label/state are preserved across the conflict-fix reset

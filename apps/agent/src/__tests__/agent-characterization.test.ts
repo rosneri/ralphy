@@ -77,6 +77,19 @@ interface FakeIssue {
 class FakeLinear {
   issues = new Map<string, FakeIssue>();
   comments: { issueId: string; body: string }[] = [];
+  /** Externally-seeded comments returned to `fetchIssueComments` for a given
+   *  issue. Scenario 2 uses this to inject `@ralphy revise: <reason>` so the
+   *  confirmation flow's comment scan picks it up. */
+  externalComments = new Map<
+    string,
+    {
+      id: string;
+      body: string;
+      createdAt: string;
+      user: { name: string; email: string | null } | null;
+    }[]
+  >();
+  reactions: { commentId: string; emoji: string }[] = [];
   labelMutations: { issueId: string; op: "add" | "remove"; labelName: string }[] = [];
   statusMutations: { issueId: string; statusName: string }[] = [];
   descriptionMutations: { issueId: string; description: string }[] = [];
@@ -85,6 +98,20 @@ class FakeLinear {
 
   add(issue: FakeIssue): void {
     this.issues.set(issue.id, issue);
+  }
+
+  addExternalComment(
+    issueId: string,
+    comment: { id: string; body: string; createdAt: string; userName?: string },
+  ): void {
+    const bucket = this.externalComments.get(issueId) ?? [];
+    bucket.push({
+      id: comment.id,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      user: { name: comment.userName ?? "tester", email: null },
+    });
+    this.externalComments.set(issueId, bucket);
   }
 
   matches(issue: FakeIssue, filter: Record<string, unknown> | undefined): boolean {
@@ -237,8 +264,17 @@ class FakeLinear {
     if (q.includes("IssueAttachments") || q.includes("attachments(first")) {
       return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }));
     }
+    if (q.includes("reactionCreate")) {
+      this.reactions.push({
+        commentId: body.variables.commentId as string,
+        emoji: body.variables.emoji as string,
+      });
+      return new Response(JSON.stringify({ data: { reactionCreate: { success: true } } }));
+    }
     if (q.includes("issue(id")) {
-      return new Response(JSON.stringify({ data: { issue: { comments: { nodes: [] } } } }));
+      const id = body.variables.id as string;
+      const nodes = this.externalComments.get(id) ?? [];
+      return new Response(JSON.stringify({ data: { issue: { comments: { nodes } } } }));
     }
     return new Response(JSON.stringify({ data: {} }), { status: 200 });
   }
@@ -497,5 +533,229 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Single fresh-mode spawn for this issue across the entire flow
     const spawnsForChange = spawnCalls.filter((c) => c.includes(changeName));
     expect(spawnsForChange.length).toBe(1);
+  });
+
+  test("scenario 2: new ticket → revise → design → approval → implement (green)", async () => {
+    // Stage-0 pin: with confirmationMode enabled the existing
+    // `classifyAwaitingConfirmation` path drives the revise loop.
+    // Today's contract:
+    //   • A `@ralphy revise: …` Linear comment causes the agent to
+    //     restub `design.md` (and reduce `tasks.md` to a stub),
+    //     append steering, react 👀 to the comment, bump
+    //     `confirmation.rounds`, reap any in-flight worker, and
+    //     leave the ticket in In Progress.
+    //   • A subsequent approval (the `getApproved` indicator
+    //     matching — here a `ralph:approved` label) clears the
+    //     gate, fires `clearApproved`, and the next poll resumes
+    //     the ticket with a `resume`-mode spawn.
+    // Stage 2 will reshape these into named `design` and `implement`
+    // spawn modes; the assertions below pin the observable effects
+    // that must survive that refactor.
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.labelIds.set("ralph:conflicted", "label-conf");
+    linear.labelIds.set("ralph:error", "label-err");
+    linear.labelIds.set("ralph:approved", "label-approved");
+
+    const issue: FakeIssue = {
+      id: "uuid-eng-2",
+      identifier: "ENG-2",
+      title: "Add light mode",
+      description: "Users want light mode",
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    };
+    linear.add(issue);
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (!url.includes("linear.app")) {
+        throw new Error("unexpected fetch in test");
+      }
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      return linear.handle(body);
+    }) as typeof fetch;
+
+    const confirmationWorkflow = {
+      ...baseWorkflow,
+      linear: {
+        ...baseWorkflow.linear,
+        confirmationMode: {
+          enabled: true,
+          optOutLabel: "ralph:auto-approve",
+          timeoutHours: 48,
+          maxConfirmationRounds: 3,
+        },
+        indicators: {
+          ...baseWorkflow.linear.indicators,
+          getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+          getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+          clearApproved: { type: "label", value: "ralph:approved" },
+        },
+      },
+    };
+    await writeWorkflow(tempDir, confirmationWorkflow);
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const { runners, workers, spawnCalls } = makeRunners();
+    const logs: string[] = [];
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: (text) => logs.push(text),
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+
+    const changeName = "eng-2-add-light-mode";
+    const changeDir = join(tempDir, "openspec", "changes", changeName);
+    const designPath = join(changeDir, "design.md");
+    const tasksPath = join(changeDir, "tasks.md");
+
+    // Poll 1: Todo pickup → fresh-mode spawn, design.md is a stub so
+    // the deriver is in `design`, NOT `awaiting-confirmation` yet.
+    const poll1 = await coord.pollOnce();
+    expect(poll1.added).toBe(1);
+    await tick();
+    expect(workers.has(changeName)).toBe(true);
+    expect(linear.statusMutations).toContainEqual({
+      issueId: "uuid-eng-2",
+      statusName: "In Progress",
+    });
+
+    // Simulate the worker finishing planning: fill in design.md so the
+    // OpenSpec deriver moves the ticket into `awaiting-confirmation`
+    // on the next poll.
+    await Bun.write(
+      designPath,
+      [
+        `# Design for ${changeName}`,
+        "",
+        "## Approach",
+        "",
+        "We will add a light theme toggle to settings.",
+        "",
+      ].join("\n"),
+    );
+
+    // Poll 2: ticket flips to awaiting-confirmation. Worker reaped,
+    // plan-ready Linear comment posted exactly once.
+    await coord.pollOnce();
+    await tick();
+    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+    const planReadyCount = linear.comments.filter((c) =>
+      c.body.includes("Ralphy plan ready"),
+    ).length;
+    expect(planReadyCount).toBe(1);
+    // Worker for the change is gone (reaped).
+    expect(coord.activeWorkers.some((w) => w.changeName === changeName)).toBe(false);
+    // Spawn count after reap is still 1 (no resume issued yet).
+    expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(1);
+
+    // Inject a revise comment. The poll's confirmation scan will see
+    // it (createdAt > askedAt) and trigger the revise branch.
+    linear.addExternalComment("uuid-eng-2", {
+      id: "revise-1",
+      body: "@ralphy revise: please reconsider the toggle placement",
+      createdAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    // Poll 3: revise consumed → design.md restubbed, tasks.md stubbed,
+    // 👀 reaction recorded, rounds bumped, plan-ready NOT reposted.
+    await coord.pollOnce();
+    await tick();
+    const designAfterRevise = readFileSync(designPath, "utf-8");
+    expect(designAfterRevise).toContain(`# Design for ${changeName}`);
+    expect(designAfterRevise).toContain("_Fill in the technical design");
+    const tasksAfterRevise = readFileSync(tasksPath, "utf-8");
+    expect(tasksAfterRevise).toContain("Regenerating after revise request");
+    expect(linear.reactions).toContainEqual({ commentId: "revise-1", emoji: "👀" });
+    // Plan-ready comment still posted exactly once across both polls.
+    expect(linear.comments.filter((c) => c.body.includes("Ralphy plan ready")).length).toBe(1);
+
+    // Confirmation state on disk reflects rounds=1 and a non-null
+    // lastReviseConsumedAt watermark so a duplicate revise comment
+    // wouldn't be re-consumed.
+    const statePath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.json");
+    const stateAfterRevise = JSON.parse(readFileSync(statePath, "utf-8")) as {
+      confirmation?: { rounds?: number; lastReviseConsumedAt?: string | null };
+    };
+    expect(stateAfterRevise.confirmation?.rounds).toBe(1);
+    expect(stateAfterRevise.confirmation?.lastReviseConsumedAt).not.toBeNull();
+
+    // Simulate the worker re-completing planning after revise: refill
+    // design.md so the deriver re-gates.
+    await Bun.write(
+      designPath,
+      [
+        `# Design for ${changeName}`,
+        "",
+        "## Approach (v2)",
+        "",
+        "Refined approach addressing the reviewer's note.",
+        "",
+      ].join("\n"),
+    );
+    // tasks.md was stubbed by restartFromDesign — re-populate with
+    // unchecked items so the deriver can re-enter awaiting-confirmation
+    // (and later, implement).
+    await Bun.write(
+      tasksPath,
+      [`# Tasks for ${changeName}`, "", "## Implementation", "", "- [ ] Implement toggle", ""].join(
+        "\n",
+      ),
+    );
+
+    // Approval arrives — label flips on. The next poll re-gates and
+    // observes approvalMatches=true, fires clearApproved, persists
+    // confirmedAt, drops the ticket from the awaiting set.
+    issue.labels.add("ralph:approved");
+
+    const poll4 = await coord.pollOnce();
+    await tick();
+    // clearApproved fired (label removed).
+    expect(linear.labelMutations).toContainEqual({
+      issueId: "uuid-eng-2",
+      op: "remove",
+      labelName: "ralph:approved",
+    });
+    // Awaiting count is back to zero on this poll.
+    expect(poll4.buckets.awaiting).toBe(0);
+
+    // Implement: the ticket is now in inProgress (still has the
+    // In Progress status) and falls through the resume path → a
+    // resume-mode spawn issues.
+    expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBeGreaterThanOrEqual(2);
+    expect(workers.has(changeName)).toBe(true);
+
+    // Worker exits cleanly → Done.
+    workers.get(changeName)!.resolve(0);
+    await tick();
+    expect(linear.statusMutations).toContainEqual({
+      issueId: "uuid-eng-2",
+      statusName: "Done",
+    });
+    expect(linear.issues.get("uuid-eng-2")!.state.name).toBe("Done");
+
+    // No error label along the revise→approval path.
+    expect(linear.labelMutations.some((m) => m.op === "add" && m.labelName === "ralph:error")).toBe(
+      false,
+    );
   });
 });
