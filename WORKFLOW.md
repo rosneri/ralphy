@@ -124,7 +124,7 @@ linear:
   # Which rendered formats to upload for each spec. "md" mirrors the
   # source file as-is. "pdf" also uploads a pdfkit-rendered PDF mirror
   # as a peer attachment (handy when viewing Linear on mobile).
-  specAttachmentFormats: ["md", "pdf"]
+  specAttachmentFormats: ["pdf"]
 
   # Confirmation mode — human gate between the OpenSpec `tasks` and
   # `implement` phases. Every ticket is gated unless it carries
