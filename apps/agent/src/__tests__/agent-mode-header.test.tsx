@@ -105,6 +105,7 @@ describe("AgentMode header", () => {
         buildCoordinator: makeBuilder(4, 1000),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush(150);
@@ -125,6 +126,7 @@ describe("AgentMode header", () => {
         buildCoordinator: makeBuilder(fakeConfig.concurrency, fakeConfig.pollIntervalSeconds),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
+        runPreflight: async () => ({ ok: true as const }),
       }),
     );
     await flush(150);

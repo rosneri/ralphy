@@ -8,7 +8,8 @@
     "./agents/scripted": "./src/agents/scripted.ts",
     "./formatters/claude-stream": "./src/formatters/claude-stream.ts",
     "./formatters/codex-stream": "./src/formatters/codex-stream.ts",
-    "./feed-events": "./src/feed-events.ts"
+    "./feed-events": "./src/feed-events.ts",
+    "./preflight": "./src/preflight/index.ts"
   },
   "dependencies": {
     "@ralphy/adapter-codex": "workspace:*",
