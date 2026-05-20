@@ -290,6 +290,7 @@ interface MakeRunnersResult {
   workers: Map<string, FakeWorker>;
   setMergeable: (changeName: string, mergeable: "MERGEABLE" | "CONFLICTING") => void;
   setPrState: (changeName: string, state: "OPEN" | "MERGED" | "CLOSED") => void;
+  setCiFailing: (changeName: string, failing: boolean) => void;
   ghCalls: string[][];
   gitCalls: string[][];
   spawnCalls: string[][];
@@ -299,6 +300,7 @@ function makeRunners(): MakeRunnersResult {
   const workers = new Map<string, FakeWorker>();
   const mergeable = new Map<string, string>();
   const prState = new Map<string, string>();
+  const ciFailing = new Set<string>();
   const ghCalls: string[][] = [];
   const gitCalls: string[][] = [];
   const spawnCalls: string[][] = [];
@@ -336,6 +338,31 @@ function makeRunners(): MakeRunnersResult {
           mergeable: (mk && mergeable.get(mk)) || "MERGEABLE",
         };
         return { stdout: JSON.stringify(payload), stderr: "" };
+      }
+      if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "checks") {
+        const url = cmdArr[3] ?? "";
+        const tail = url.split("/").pop() ?? "";
+        const findKey = (s: Set<string>): string | undefined => {
+          if (s.has(tail)) return tail;
+          for (const k of s) if (k.startsWith(tail)) return k;
+          return undefined;
+        };
+        const hit = findKey(ciFailing);
+        if (hit) {
+          return {
+            stdout: JSON.stringify([
+              {
+                name: "lint",
+                bucket: "fail",
+                link: "https://gh/owner/repo/actions/runs/12345/job/9876",
+                workflow: "ci",
+                event: "push",
+              },
+            ]),
+            stderr: "",
+          };
+        }
+        return { stdout: "[]", stderr: "" };
       }
       if (cmdArr[0] === "gh" && cmdArr[1] === "pr" && cmdArr[2] === "list") {
         const searchIdx = cmdArr.indexOf("--search");
@@ -387,6 +414,10 @@ function makeRunners(): MakeRunnersResult {
     },
     setPrState: (cn, s) => {
       prState.set(cn, s);
+    },
+    setCiFailing: (cn, failing) => {
+      if (failing) ciFailing.add(cn);
+      else ciFailing.delete(cn);
     },
     ghCalls,
     gitCalls,
@@ -900,4 +931,143 @@ describe("agent characterization — Stage-0 regression net", () => {
       expect(planReadyCount).toBe(1);
     },
   );
+
+  // Scenario 4 (test.failing): Stage-2-correct behavior is that a CI-failing
+  // PR for a gated ticket (awaiting confirmation) preempts the gate — a
+  // ci-fix spawn runs to address the failing checks BEFORE the user is
+  // asked to re-approve. Today the gate wins: `ci_failed` is only counted
+  // in the scan bucket (`counts.ciFailed`) and no remediation work is
+  // queued — the coordinator only acts on `conflicted` PRs. Flipping
+  // `test.failing` → `test` after Stage 2's coordinator refactor is the
+  // only edit needed.
+  test.failing("scenario 4: gated ticket + CI failing → ci-fix wins (test.failing)", async () => {
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.labelIds.set("ralph:conflicted", "label-conf");
+    linear.labelIds.set("ralph:error", "label-err");
+    linear.labelIds.set("ralph:approved", "label-approved");
+    linear.labelIds.set("ralph:ci-failed", "label-ci-failed");
+
+    const issue: FakeIssue = {
+      id: "uuid-eng-4",
+      identifier: "ENG-4",
+      title: "Add status bar",
+      description: "Users want a status bar",
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    };
+    linear.add(issue);
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (!url.includes("linear.app")) {
+        throw new Error("unexpected fetch in test");
+      }
+      const body = JSON.parse(init?.body as string) as {
+        query: string;
+        variables: Record<string, unknown>;
+      };
+      return linear.handle(body);
+    }) as typeof fetch;
+
+    const confirmationWorkflow = {
+      ...baseWorkflow,
+      linear: {
+        ...baseWorkflow.linear,
+        confirmationMode: {
+          enabled: true,
+          optOutLabel: "ralph:auto-approve",
+          timeoutHours: 48,
+          maxConfirmationRounds: 3,
+        },
+        indicators: {
+          ...baseWorkflow.linear.indicators,
+          getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+          getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+          clearApproved: { type: "label", value: "ralph:approved" },
+          setCiFailed: { type: "label", value: "ralph:ci-failed" },
+        },
+      },
+    };
+    await writeWorkflow(tempDir, confirmationWorkflow);
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const { runners, workers, spawnCalls, setCiFailing } = makeRunners();
+    const logs: string[] = [];
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: (text) => logs.push(text),
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners,
+    });
+
+    await coord.init();
+
+    const changeName = "eng-4-add-status-bar";
+    const changeDir = join(tempDir, "openspec", "changes", changeName);
+    const designPath = join(changeDir, "design.md");
+    const tasksPath = join(changeDir, "tasks.md");
+
+    // Poll 1: fresh spawn.
+    await coord.pollOnce();
+    await tick();
+    expect(workers.has(changeName)).toBe(true);
+
+    // Fill design.md so the next poll moves into awaiting-confirmation.
+    await Bun.write(
+      designPath,
+      [`# Design for ${changeName}`, "", "## Approach", "", "Add a status bar.", ""].join("\n"),
+    );
+
+    // Poll 2: gate fires — plan-ready posted, worker reaped.
+    await coord.pollOnce();
+    await tick();
+    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+
+    // The PR for the change now has FAILING CI while the ticket is
+    // still gated awaiting approval.
+    setCiFailing(changeName, true);
+
+    const spawnsBeforeCi = spawnCalls.filter((c) => c.includes(changeName)).length;
+
+    // Poll 3: Stage-2-correct — ci-fix preempts the gate.
+    await coord.pollOnce();
+    await tick();
+
+    // setCiFailed label was applied (ci-fix path engaged).
+    expect(
+      linear.labelMutations.some(
+        (m) => m.op === "add" && m.labelName === "ralph:ci-failed" && m.issueId === "uuid-eng-4",
+      ),
+    ).toBe(true);
+
+    // A ci-fix worker was spawned (one more spawn than before the CI
+    // failure was introduced).
+    const spawnsAfterCi = spawnCalls.filter((c) => c.includes(changeName)).length;
+    expect(spawnsAfterCi).toBeGreaterThan(spawnsBeforeCi);
+
+    // tasks.md was prepended with the ci-fix instructions — this is how
+    // ci-fix mode communicates the failing-checks context to the worker.
+    const tasksAfterCi = readFileSync(tasksPath, "utf-8");
+    expect(tasksAfterCi).toContain("CI is failing");
+
+    // The gate did NOT post a duplicate plan-ready while CI was being
+    // addressed.
+    const planReadyCount = linear.comments.filter((c) =>
+      c.body.includes("Ralphy plan ready"),
+    ).length;
+    expect(planReadyCount).toBe(1);
+  });
 });
