@@ -107,7 +107,7 @@ linear:
   updateEveryIterations: 10
 
   mentionTrigger: true
-  mentionHandle: "@ralphy"
+  mentionHandle: "@ralphy-read"
 
   codeReviewTrigger: true
   codeReviewStaleHours: 24
