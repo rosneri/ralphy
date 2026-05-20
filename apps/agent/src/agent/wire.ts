@@ -29,6 +29,7 @@ import {
   uploadFileToLinear,
   createAttachmentForUrl,
   deleteAttachment,
+  findIssueAttachmentByTitle,
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
@@ -1835,6 +1836,7 @@ export function buildAgentCoordinator(
     uploadFileToLinear,
     createAttachmentForUrl,
     deleteAttachment,
+    findIssueAttachmentByTitle,
   };
 
   const coord = new AgentCoordinator(
