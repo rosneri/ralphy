@@ -129,6 +129,15 @@ export interface SpecAttachmentMutations {
   /** Linear's AttachmentUpdateInput has no `url` field — the only way to
    *  swing a Ralph attachment to new content is delete + create. */
   deleteAttachment: (apiKey: string, attachmentId: string) => Promise<void>;
+  /** Look up an existing attachment on the issue by exact title match.
+   *  Used to adopt a pre-existing Linear attachment when local state has
+   *  been wiped — without this, the empty-cache path would create a
+   *  duplicate every time the agent re-enters a change. */
+  findIssueAttachmentByTitle: (
+    apiKey: string,
+    issueId: string,
+    title: string,
+  ) => Promise<string | null>;
 }
 
 interface SpecAttachmentsDeps {
@@ -226,7 +235,33 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   // signal. A change to proposal.md invalidates both proposal/proposalPdf.
   const hash = sha256Hex(sourceBytes);
   const state = await readStateJson(deps.statePath);
-  const current = readSpecState(state)[slot] ?? EMPTY_SLOT;
+  let current = readSpecState(state)[slot] ?? EMPTY_SLOT;
+
+  // Empty cache: ask Linear whether an attachment with this slot's title
+  // already exists on the issue. Adopting it prevents a duplicate when
+  // .ralph-state.json is wiped or the worktree is re-scaffolded.
+  if (!current.attachmentId) {
+    try {
+      const adoptedId = await deps.mutations.findIssueAttachmentByTitle(
+        deps.apiKey,
+        deps.issueId,
+        spec.title,
+      );
+      if (adoptedId) {
+        current = { attachmentId: adoptedId, sha256: null };
+        await patchSpecState(deps.statePath, { slot, value: current });
+        deps.log(
+          `  spec-attachments: adopted existing ${spec.uploadFilename} attachment ${adoptedId}`,
+          "gray",
+        );
+      }
+    } catch (err) {
+      deps.log(
+        `! spec-attachments: findIssueAttachmentByTitle ${spec.uploadFilename} failed (treating as no match): ${describeLinearError(err)}`,
+        "yellow",
+      );
+    }
+  }
 
   if (current.attachmentId && current.sha256 === hash) {
     deps.log(`  spec-attachments: ${spec.uploadFilename} unchanged, skipping`, "gray");

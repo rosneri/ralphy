@@ -40,9 +40,14 @@ interface FakeMutations extends SpecAttachmentMutations {
   uploads: UploadCall[];
   creates: CreateCall[];
   deletes: DeleteCall[];
+  /** Pre-seeded attachments on the issue, keyed by exact title. */
+  attachmentsByTitle: Map<string, string>;
+  /** Number of times `findIssueAttachmentByTitle` was invoked. */
+  findCalls: number;
   failUploadWith?: Error;
   failCreateWith?: Error;
   failDeleteWith?: Error;
+  failFindWith?: Error;
   failNextDeleteWithNotFound: boolean;
 }
 
@@ -52,6 +57,8 @@ function makeMutations(initialId = 1): FakeMutations {
     uploads: [],
     creates: [],
     deletes: [],
+    attachmentsByTitle: new Map(),
+    findCalls: 0,
     failNextDeleteWithNotFound: false,
     uploadFileToLinear: async (_apiKey, input) => {
       if (m.failUploadWith) throw m.failUploadWith;
@@ -61,7 +68,9 @@ function makeMutations(initialId = 1): FakeMutations {
     createAttachmentForUrl: async (_apiKey, input) => {
       if (m.failCreateWith) throw m.failCreateWith;
       m.creates.push(input);
-      return `att-${nextId++}`;
+      const id = `att-${nextId++}`;
+      m.attachmentsByTitle.set(input.title, id);
+      return id;
     },
     deleteAttachment: async (_apiKey, attachmentId) => {
       if (m.failNextDeleteWithNotFound) {
@@ -72,6 +81,14 @@ function makeMutations(initialId = 1): FakeMutations {
       }
       if (m.failDeleteWith) throw m.failDeleteWith;
       m.deletes.push({ attachmentId });
+      for (const [title, id] of m.attachmentsByTitle) {
+        if (id === attachmentId) m.attachmentsByTitle.delete(title);
+      }
+    },
+    findIssueAttachmentByTitle: async (_apiKey, _issueId, title) => {
+      m.findCalls += 1;
+      if (m.failFindWith) throw m.failFindWith;
+      return m.attachmentsByTitle.get(title) ?? null;
     },
   };
   return m;
@@ -387,6 +404,103 @@ describe("syncSpecAttachments", () => {
     const baseline = m.uploads.length;
     await syncSpecAttachments({ ...deps, iteration: 2 });
     expect(m.uploads.length).toBe(baseline);
+  });
+
+  test("empty state + pre-seeded Linear attachment is adopted without creating a duplicate", async () => {
+    writeProposal();
+    const m = makeMutations();
+    m.attachmentsByTitle.set("Ralph proposal", "att-existing-1");
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    // Adoption path: delete the stale attachment, then create a fresh one
+    // so the hash skip on the next run works. No second attachment is
+    // accumulated in Linear because the old id is deleted before create.
+    expect(m.deletes.map((d) => d.attachmentId)).toEqual(["att-existing-1"]);
+    expect(m.creates).toHaveLength(1);
+    expect(log.entries.some((e) => e.includes("adopted existing proposal.md"))).toBe(true);
+    const state = await readState();
+    const sa = state.specAttachments as { proposal: { attachmentId: string; sha256: string } };
+    expect(sa.proposal.attachmentId).toMatch(/^att-/);
+    expect(sa.proposal.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("empty state + no seeded match behaves like first-run create", async () => {
+    writeProposal();
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    expect(m.findCalls).toBe(1);
+    expect(m.deletes).toHaveLength(0);
+    expect(m.creates).toHaveLength(1);
+  });
+
+  test("populated state skips the adoption query (fast path)", async () => {
+    writeProposal();
+    writeDesign();
+    const m = makeMutations();
+    const log = makeLog();
+    const deps = {
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    };
+    await syncSpecAttachments(deps);
+    const findCallsAfterFirst = m.findCalls;
+    await syncSpecAttachments({ ...deps, iteration: 2 });
+    expect(m.findCalls).toBe(findCallsAfterFirst);
+  });
+
+  test("idempotent two-run sequence on wiped state yields one attachment per slot", async () => {
+    writeProposal();
+    writeDesign();
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    expect(m.attachmentsByTitle.size).toBe(2);
+    // Simulate `.ralph-state.json` being wiped (fresh worktree).
+    rmSync(statePath, { force: true });
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 2,
+      log: log.fn,
+      mutations: m,
+    });
+    // Linear still has exactly one attachment per title — adoption + the
+    // refresh path (delete-then-create) preserves the one-per-slot invariant.
+    expect(m.attachmentsByTitle.size).toBe(2);
+    expect(m.attachmentsByTitle.has("Ralph proposal")).toBe(true);
+    expect(m.attachmentsByTitle.has("Ralph design")).toBe(true);
   });
 
   test("malformed .ralph-state.json is treated as empty state (first-run path)", async () => {

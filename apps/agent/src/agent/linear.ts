@@ -830,6 +830,31 @@ export async function fetchAttachmentsForIssues(
   return out;
 }
 
+/** Find the first attachment on an issue whose `title` equals `title`
+ *  exactly. Returns the attachment id, or null when no such attachment
+ *  exists. Used by spec-attachments to adopt a pre-existing Linear
+ *  attachment when `.ralph-state.json` has been wiped, instead of
+ *  creating a duplicate. */
+export async function findIssueAttachmentByTitle(
+  apiKey: string,
+  issueId: string,
+  title: string,
+): Promise<string | null> {
+  const query = `query IssueAttachmentByTitle($id: String!) {
+    issue(id: $id) {
+      attachments(first: 50) {
+        nodes { id title }
+      }
+    }
+  }`;
+  const data = await linearRequest<{
+    issue: { attachments?: { nodes?: { id: string; title: string | null }[] } } | null;
+  }>(apiKey, query, { id: issueId });
+  const nodes = data.issue?.attachments?.nodes ?? [];
+  const match = nodes.find((n) => n.title === title);
+  return match?.id ?? null;
+}
+
 /** Fetch all workflow states for a given team key (e.g. "ENG"). */
 export async function fetchWorkflowStates(
   apiKey: string,
