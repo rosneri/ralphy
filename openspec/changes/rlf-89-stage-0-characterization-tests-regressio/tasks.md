@@ -20,7 +20,7 @@
 - [x] Implement scenario 5: `approval persisted + tasks reset for conflict-fix → no re-gate` as `test.failing(...)` — body asserts approval label/state are preserved across the conflict-fix reset
 - [x] Implement scenario 6: `round-cap exhaustion → stuck` (green) — drive N consecutive worker failures and assert the issue is moved to `stuck`, no further spawn issued same poll
 - [x] Implement scenario 7: `finished + PR conflicting → conflict-fix` (green) — anchor for RLF-81 promotion; assert conflict promotion comment + telemetry event
-- [ ] Add the JSON-output recorder for scenario 1 and capture the normalised event stream
+- [x] Add the JSON-output recorder for scenario 1 and capture the normalised event stream
 - [ ] Write the golden file `apps/agent/src/__tests__/__golden__/json-output-new-ticket.jsonl` and add the diff assertion + `UPDATE_GOLDEN=1` re-record path
 - [ ] Add the PostHog capture recorder for scenario 1 via the telemetry client fake seam
 - [ ] Write the golden file `apps/agent/src/__tests__/__golden__/posthog-new-ticket.jsonl` and add the diff assertion + `UPDATE_GOLDEN=1` re-record path

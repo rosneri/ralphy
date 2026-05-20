@@ -427,6 +427,121 @@ function makeRunners(): MakeRunnersResult {
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10));
 
+// ---------------------------------------------------------------------------
+// JSON event recorder
+//
+// Mirrors the event shape emitted by `apps/agent/src/agent/json-runner.ts`
+// without requiring the runner itself: we install the same callbacks on
+// `buildAgentCoordinator` and synthesise the `started` / `poll_start` /
+// `poll_done` envelopes the runner adds. The recorder hands back a `wrap`
+// helper that callers use around each `pollOnce()` so the captured stream
+// matches what `--json-output` would have produced byte-for-byte (modulo
+// the values rewritten by the normaliser in a later task).
+// ---------------------------------------------------------------------------
+interface JsonRecorderHandle {
+  events: Record<string, unknown>[];
+  callbacks: Pick<
+    Parameters<typeof buildAgentCoordinator>[0],
+    | "onLog"
+    | "onWorkersChanged"
+    | "onWorkerStarted"
+    | "onWorkerExited"
+    | "onWorkerPhase"
+    | "onWorkerOutput"
+    | "onWorkerCmd"
+    | "onWorkerPr"
+    | "onAwaitingTicket"
+  >;
+  emit: (event: Record<string, unknown>) => void;
+  poll: <T extends { found: number; added: number; buckets: unknown; prStatus?: unknown }>(
+    runPoll: () => Promise<T>,
+  ) => Promise<T>;
+}
+
+const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
+
+function cleanOutputLine(raw: string): string | null {
+  const clean = raw.replace(ANSI_STRIP_RE, "").trim();
+  if (!clean) return null;
+  return clean;
+}
+
+function createJsonRecorder(): JsonRecorderHandle {
+  const events: Record<string, unknown>[] = [];
+  const lastEmittedRoundByChange = new Map<string, number>();
+  const emit = (event: Record<string, unknown>): void => {
+    events.push({ ts: Date.now(), ...event });
+  };
+
+  const callbacks: JsonRecorderHandle["callbacks"] = {
+    onLog: (text, color) => {
+      const ev: Record<string, unknown> = { type: "log", text };
+      if (color !== undefined) ev["color"] = color;
+      emit(ev);
+    },
+    onWorkersChanged: () => {},
+    onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+      emit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
+    },
+    onWorkerExited: (changeName) => {
+      emit({ type: "worker_exited", changeName });
+    },
+    onWorkerPhase: (changeName, phase, detail) => {
+      const ev: Record<string, unknown> = { type: "worker_phase", changeName, phase };
+      if (detail !== undefined) ev["detail"] = detail;
+      emit(ev);
+    },
+    onWorkerOutput: (changeName, line) => {
+      const clean = cleanOutputLine(line);
+      if (clean) emit({ type: "worker_output", changeName, line: clean });
+    },
+    onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
+      if (state === "start") {
+        emit({ type: "worker_cmd_start", changeName, cmd });
+      } else {
+        emit({
+          type: "worker_cmd_end",
+          changeName,
+          cmd,
+          durationMs: durationMs ?? 0,
+          ok: ok ?? true,
+        });
+      }
+    },
+    onWorkerPr: (changeName, prUrl) => {
+      emit({ type: "worker_pr", changeName, prUrl });
+    },
+    onAwaitingTicket: (info) => {
+      const last = lastEmittedRoundByChange.get(info.changeName);
+      if (last !== undefined && info.round <= last) return;
+      lastEmittedRoundByChange.set(info.changeName, info.round);
+      emit({
+        type: "awaiting_confirmation",
+        changeName: info.changeName,
+        issueIdentifier: info.issueIdentifier,
+        issueUrl: info.issueUrl,
+        since: info.since,
+        round: info.round,
+      });
+    },
+  };
+
+  const poll: JsonRecorderHandle["poll"] = async (runPoll) => {
+    emit({ type: "poll_start" });
+    const res = await runPoll();
+    emit({
+      type: "poll_done",
+      found: res.found,
+      added: res.added,
+      buckets: res.buckets,
+      prStatus: res.prStatus,
+    });
+    return res;
+  };
+
+  return { events, callbacks, emit, poll };
+}
+
 const baseWorkflow = {
   concurrency: 1,
   useWorktree: false,
@@ -493,26 +608,34 @@ describe("agent characterization — Stage-0 regression net", () => {
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls } = makeRunners();
-    const logs: string[] = [];
+    const recorder = createJsonRecorder();
 
-    const { coord } = buildAgentCoordinator({
+    const { coord, filterDesc, concurrency, pollInterval } = buildAgentCoordinator({
       args,
       cfg,
       projectRoot: tempDir,
       statesDir: join(tempDir, ".ralph", "tasks"),
       tasksDir: join(tempDir, "openspec", "changes"),
       apiKey: "fake-key",
-      onLog: (text) => logs.push(text),
-      onWorkersChanged: () => {},
-      onWorkerStarted: () => {},
-      onWorkerExited: () => {},
       runners,
+      ...recorder.callbacks,
+    });
+
+    // Emit the same `started` envelope `json-runner.ts` emits after init
+    // so the captured stream is a faithful copy of `--json-output`.
+    recorder.emit({
+      type: "started",
+      version: "<VERSION>",
+      filterDesc,
+      concurrency,
+      pollInterval,
+      configPath: "<CONFIG>",
     });
 
     await coord.init();
 
     // Poll 1: pickup, setInProgress, scaffold, spawn
-    const poll1 = await coord.pollOnce();
+    const poll1 = await recorder.poll(() => coord.pollOnce());
     expect(poll1.added).toBe(1);
     await tick();
 
@@ -558,12 +681,35 @@ describe("agent characterization — Stage-0 regression net", () => {
     expect(linear.labelMutations.some((m) => m.labelName === "ralph:error")).toBe(false);
 
     // Re-poll: nothing to do (issue is Done, filter excludes it)
-    const poll2 = await coord.pollOnce();
+    const poll2 = await recorder.poll(() => coord.pollOnce());
     expect(poll2.added).toBe(0);
 
     // Single fresh-mode spawn for this issue across the entire flow
     const spawnsForChange = spawnCalls.filter((c) => c.includes(changeName));
     expect(spawnsForChange.length).toBe(1);
+
+    // JSON-output recorder sanity checks: the canonical envelope events
+    // (`started`, two `poll_start`/`poll_done` pairs, a `worker_started`
+    // and a `worker_exited` for the change) all appear, in order. The
+    // full normalised stream is diffed against the golden in a later task.
+    const evTypes = recorder.events.map((e) => e.type);
+    expect(evTypes[0]).toBe("started");
+    expect(evTypes.filter((t) => t === "poll_start").length).toBe(2);
+    expect(evTypes.filter((t) => t === "poll_done").length).toBe(2);
+    expect(
+      recorder.events.some((e) => e.type === "worker_started" && e.changeName === changeName),
+    ).toBe(true);
+    expect(
+      recorder.events.some((e) => e.type === "worker_exited" && e.changeName === changeName),
+    ).toBe(true);
+    // worker_started precedes worker_exited.
+    const startIdx = recorder.events.findIndex(
+      (e) => e.type === "worker_started" && e.changeName === changeName,
+    );
+    const exitIdx = recorder.events.findIndex(
+      (e) => e.type === "worker_exited" && e.changeName === changeName,
+    );
+    expect(startIdx).toBeLessThan(exitIdx);
   });
 
   test("scenario 2: new ticket → revise → design → approval → implement (green)", async () => {
