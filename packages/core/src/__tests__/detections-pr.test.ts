@@ -20,4 +20,7 @@ describe("detectPrState", () => {
   test("mergeStateStatus DIRTY → conflicting", () => {
     expect(detectPrState({ state: "OPEN", mergeStateStatus: "DIRTY" })).toBe("conflicting");
   });
+  test("defined but unrecognized mergeable → clean (fallback)", () => {
+    expect(detectPrState({ state: "OPEN", mergeable: "BLOCKED" })).toBe("clean");
+  });
 });

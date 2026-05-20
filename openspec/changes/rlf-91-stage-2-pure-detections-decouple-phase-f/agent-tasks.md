@@ -1,3 +1,51 @@
+## Fix failing CI checks (2026-05-20T23:25:31.814Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26195765777 ---
+ci Test affected files + coverage ﻿2026-05-20T23:24:28.1173081Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-20T23:24:28.1173298Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-20T23:24:28.1200122Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-20T23:24:28.1200256Z env:
+ci Test affected files + coverage 2026-05-20T23:24:28.1200381Z NX_BASE: 472da4e853609f8424ef4dc667fbd581da90dc96
+ci Test affected files + coverage 2026-05-20T23:24:28.1200560Z NX_HEAD: d7a257ef7b88efe567f8c6215a5231cd8a82a9bc
+ci Test affected files + coverage 2026-05-20T23:24:28.1200718Z ##[endgroup]
+ci Test affected files + coverage 2026-05-20T23:24:28.1267402Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-20T23:24:28.1414909Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-20T23:24:28.1415030Z
+ci Test affected files + coverage 2026-05-20T23:24:29.7179496Z agent: 6 relevant test file(s)
+ci Test affected files + coverage 2026-05-20T23:24:29.7179966Z apps/agent/src/**tests**/agent-characterization.test.ts
+ci Test affected files + coverage 2026-05-20T23:24:29.7180368Z apps/agent/src/**tests**/agent-mode-awaiting.test.tsx
+ci Test affected files + coverage 2026-05-20T23:24:29.7180707Z apps/agent/src/**tests**/agent-mode-chip.test.tsx
+ci Test affected files + coverage 2026-05-20T23:24:29.7181030Z apps/agent/src/**tests**/agent-mode-header.test.tsx
+ci Test affected files + coverage 2026-05-20T23:24:29.7181359Z apps/agent/src/**tests**/agent-mode-show-all.test.tsx
+ci Test affected files + coverage 2026-05-20T23:24:29.7181748Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-20T23:24:29.7181870Z
+ci Test affected files + coverage 2026-05-20T23:24:29.7190584Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-20T23:24:29.7251182Z
+ci Test affected files + coverage 2026-05-20T23:24:29.7251780Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-20T23:24:29.7345054Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.51ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7348332Z (pass) inspectAwaitingTicket — revise path > appends steering, restarts design, bumps rounds, resets confirmedAt [0.36ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7349663Z (pass) inspectAwaitingTicket — revise path > ignores revise mention inside backticks (e.g. our own plan-ready template) [0.13ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7350593Z (pass) inspectAwaitingTicket — revise path > ignores revise comments at or before lastReviseConsumedAt watermark [0.08ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7352625Z (pass) inspectAwaitingTicket — reminder cadence > posts reminder once timeoutHours elapsed, persists lastReminderAt [0.17ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7353856Z (pass) inspectAwaitingTicket — reminder cadence > does not re-post reminder before timeoutHours have elapsed since lastReminderAt [0.09ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7358199Z (pass) readConfirmationState / writeConfirmationState > returns defaults when state file is absent [0.47ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7363560Z (pass) readConfirmationState / writeConfirmationState > round-trips confirmation through write + read [0.53ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7366933Z (pass) readConfirmationState / writeConfirmationState > recovers from malformed json by returning defaults [0.33ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7371701Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign rewrites design.md and stubs tasks.md when present [0.47ms]
+ci Test affected files + coverage 2026-05-20T23:24:29.7374082Z (
+…[truncated 259550 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-20T23:22:41.162Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
