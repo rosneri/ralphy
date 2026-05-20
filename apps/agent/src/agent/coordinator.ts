@@ -5,7 +5,7 @@ import { issueMatchesGetIndicator } from "./linear";
 import { compareQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, SpawnMode } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
-import type { Bus, EmitInput } from "@ralphy/events";
+import type { Bus, EmitInput, RalphEvent } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
 
 /**
@@ -13,9 +13,13 @@ import { createNoopBus } from "@ralphy/events";
  * `capture(event, props)` call sites switch to `capture.call(this, ...)`
  * via a small helper so neither sink is missed.
  */
-function emitCapture(bus: Bus, event: string, properties?: Record<string, unknown>): void {
+function emitCapture<T extends RalphEvent["type"]>(
+  bus: Bus,
+  event: T,
+  properties?: Record<string, unknown>,
+): void {
   telemetryCapture(event, properties);
-  bus.emit({ type: event, ...properties } as unknown as EmitInput);
+  bus.emit({ type: event, ...properties } as Extract<EmitInput, { type: T }>);
 }
 
 export type { SpawnMode, MentionTrigger } from "../queue/queue-order";
