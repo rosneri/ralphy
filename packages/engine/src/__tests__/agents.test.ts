@@ -144,6 +144,27 @@ describe("claudeAgent.run", () => {
     expect(result.rateLimited).toBe(true);
   });
 
+  test("spawns claude with a scrubbed env that omits CLAUDECODE", async () => {
+    setupProc([INIT, RESULT]);
+    const original = process.env["CLAUDECODE"];
+    process.env["CLAUDECODE"] = "1";
+    try {
+      await claudeAgent.run({
+        model: "claude-test",
+        prompt: "go",
+        onFeedEvent: () => {},
+      });
+    } finally {
+      if (original === undefined) delete process.env["CLAUDECODE"];
+      else process.env["CLAUDECODE"] = original;
+    }
+    const call = spawnMock.mock.calls[0]![0] as {
+      env?: Record<string, string | undefined>;
+    };
+    expect(call.env).toBeDefined();
+    expect(call.env!["CLAUDECODE"]).toBeUndefined();
+  });
+
   test("passes --resume when resumeSessionId provided", async () => {
     setupProc([INIT, RESULT]);
 
