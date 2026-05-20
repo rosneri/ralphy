@@ -1,3 +1,83 @@
+## Address Linear @ralphy mention (2026-05-20T10:48:23.601Z)
+
+- [x] Address Linear @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+An @ralphy mention was left on Linear issue (https://linear.app/neriros/issue/RLF-78/confirmation-mode-human-gate-between-tasks-and-implement):
+
+**Neriya Rosner — 2026-05-20T09:22:09.469Z (Linear issue)**
+
+### 📋 Ralph plan — `rlf-78-confirmation-mode-human-gate-between-tas`
+
+**Why**
+
+Ralphy currently flows straight from `tasks` into `implement` once `proposal.md`,
+`design.md` and `tasks.md` exist. On high-stakes repos this lets the agent burn
+iterations (and money) building code that an operator would have steered
+differently if shown the plan. There is no built-in pause that lets a human
+review the plan, approve it, or send it back for another design round before
+any implementation work begins.
+
+We need an opt-in workflow mode that:
+
+1. Inserts an explicit `awaiting-confirmation` phase between `tasks` and
+   `implement`.
+2. Listens for a configurable approval signal (default: a `ralph:approved`
+   Linear label) before advancing.
+3. Allows revising the plan via `@ralphy revise: <reason>` comments (which
+   re-enter the `design` phase with the reason as steering).
+4. Never blocks the rest of the queue: gated tickets must not consume a
+   worker slot, so a pile of plans awaiting human approval cannot starve
+   the project.
+
+**What Changes**
+
+- Add `"awaiting-confirmation"` to the `OpenSpecPhase` union and extend
+  `deriveOpenSpecPhase` with a branch that returns it when the change is
+  gated and not yet approved.
+- Add a `confirmation` slot to `StateSchema` tracking `askedAt`,
+  `lastReminderAt`, `confirmedAt`, and `rounds`.
+- Extend `WorkflowConfigSchema` with `linear.confirmationMode` (`enabled`,
+  `optOutLabel`, `timeoutHours`, `maxConfirmationRounds`) and new
+  `getApproved` / `clearApproved` indicators sharing `Marker` shape with
+  existing get/set/clear indicators.
+- Wire the deriver inputs `confirmationGated` and `approved` from
+  per-ticket label evaluation + indicator matches.
+- Coordinator: add a new `awaiting` bucket alongside `todo`, `inProgress`,
+  `conflicted`, `review`, `mentions`; exclude awaiting tickets from
+  `getInProgress` results; ensure they never count toward `concurrency`
+  slots; reap any in-flight worker the moment the deriver flips to
+  `awaiting-confirmation`.
+- Wire layer (`apps/agent/src/agent/wire.ts`): post a one-shot "plan
+  ready" comment per round on gate entry; consume `@ralphy revise:`
+  mentions; on approval, invoke `clearApproved` and advance; reset
+  `confirmedAt` whenever the deriver loops back to `design`; reminder
+  cadence honoured via `timeoutHours`.
+- Suppress `createPrOnSuccess` while a change is in
+  `awaiting-confirmation`. Keep `syncTasksToComment` and
+  `syncSpecsAsAttachments` running so the reviewer always sees current
+  plan artifacts.
+- Ink TUI: render `[GATE] Awaiting confirmation · round N · asked Xm ago`
+  on gated change-cards; add an `awaiting N` field to the poll-status
+  block.
+- `--json-output`: add a `buckets.awaiting` count to `poll_done`, and emit
+  a one-shot `{"type":"awaiting_confirmation",...}` event per round entry.
+- Round cap behaviour: after `maxConfirmationRounds` without a decision,
+  post a `max rounds reached` comment, apply a `ralph:stuck` label, and
+  skip the ticket on future polls until the label is cleared.
+- Default workflow template (`packages/workflow/src/default.ts`) and
+  `WORKFLOW.md` gain a commented-out `confirmationMode` block plus a
+  README section describing the three signals (approve / revise /
+  opt-out).
+
+**Design**
+
+## Goal
+
+Treat this comment as the next concrete request. If it's ambiguous,
+note your interpretation in proposal.md `## Steering` before acting.
+```
+
 ## Fix failing CI checks (2026-05-20T10:41:39.431Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
