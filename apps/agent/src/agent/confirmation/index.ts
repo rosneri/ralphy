@@ -76,6 +76,13 @@ interface ReviseMatch {
   reason: string;
 }
 
+/** Strip fenced code blocks and inline code spans from a markdown body so
+ *  illustrative examples (e.g. the `@ralphy revise: <reason>` shown in our
+ *  own "plan ready" comment) don't get matched as real commands. */
+function stripCodeMarkup(body: string): string {
+  return body.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
+}
+
 /** Extract the newest revise comment from a list (created-at descending),
  *  ignoring anything created at-or-before `since`. */
 function findNewestRevise(
@@ -86,7 +93,7 @@ function findNewestRevise(
   const sorted = [...comments].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   for (const c of sorted) {
     if (since && c.createdAt <= since) break;
-    const m = re.exec(c.body);
+    const m = re.exec(stripCodeMarkup(c.body));
     if (m && m[1]) {
       return { commentId: c.id, createdAt: c.createdAt, reason: m[1].trim() };
     }
