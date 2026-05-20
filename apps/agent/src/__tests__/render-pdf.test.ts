@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PDFParse } from "pdf-parse";
 import { renderMarkdownToPdf } from "../agent/linear-sync/render-pdf";
 
 const SAMPLE = `# Title
@@ -121,6 +122,18 @@ A line continued after a hard break.
 `;
     const out = await renderMarkdownToPdf(md, "Inline");
     expect(out.byteLength).toBeGreaterThan(400);
+  });
+
+  test("renders each markdown sentinel exactly once in decoded PDF text", async () => {
+    const heading = "UniqueRegressionHeading";
+    const paragraph = "SentinelParagraphForRlf83Regression";
+    const md = `# ${heading}\n\n${paragraph}\n`;
+    const out = await renderMarkdownToPdf(md, "Regression");
+    const parser = new PDFParse({ data: new Uint8Array(out) });
+    const result = await parser.getText();
+    const text = result.text;
+    expect(text.split(heading).length - 1).toBe(1);
+    expect(text.split(paragraph).length - 1).toBe(1);
   });
 
   test("paginates long code blocks across pages", async () => {

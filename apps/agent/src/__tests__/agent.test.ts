@@ -260,6 +260,24 @@ describe("agent/scaffold", () => {
     expect(proposal).toContain("toggle in /settings");
   });
 
+  test("scaffoldChangeForIssue emits the Linear description exactly once", async () => {
+    const tasksDir = join(tempDir, "tasks");
+    const statesDir = join(tempDir, "states");
+    const description = "Users want a dark mode toggle.";
+    const name = await scaffoldChangeForIssue(tasksDir, statesDir, makeIssue({ description }));
+    const proposal = readFileSync(join(tasksDir, name, "proposal.md"), "utf-8");
+    const occurrences = proposal.split(description).length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  test("scaffoldChangeForIssue does not emit a ## Description header", async () => {
+    const tasksDir = join(tempDir, "tasks");
+    const statesDir = join(tempDir, "states");
+    const name = await scaffoldChangeForIssue(tasksDir, statesDir, makeIssue());
+    const proposal = readFileSync(join(tasksDir, name, "proposal.md"), "utf-8");
+    expect(proposal).not.toContain("## Description");
+  });
+
   test("scaffoldChangeForIssue handles missing description and assignee", async () => {
     const tasksDir = join(tempDir, "tasks");
     const statesDir = join(tempDir, "states");
