@@ -701,6 +701,13 @@ describe("normalisePath", () => {
   });
 });
 
+// Resolve the `__golden__` directory back to the src tree even when the test
+// is executed from its compiled twin under `apps/agent/dist/...` (the CI
+// `bun test --coverage` run discovers both copies).
+function goldenDir(): string {
+  return join(import.meta.dir.replace(/\/dist\/src\//, "/src/"), "__golden__");
+}
+
 async function assertOrUpdateGolden(
   goldenPath: string,
   events: Record<string, unknown>[],
@@ -967,11 +974,9 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Diff the full normalised event stream against the checked-in golden.
     // Re-record with `UPDATE_GOLDEN=1 bun test agent-characterization` when
     // the JSON event contract intentionally changes.
-    await assertOrUpdateGolden(
-      join(import.meta.dir, "__golden__", "json-output-new-ticket.jsonl"),
-      recorder.events,
-      { tempDir },
-    );
+    await assertOrUpdateGolden(join(goldenDir(), "json-output-new-ticket.jsonl"), recorder.events, {
+      tempDir,
+    });
 
     // PostHog telemetry contract: scenario 1 should emit at least the
     // `agent_worker_spawned` and `agent_worker_exited` capture()s. The full
@@ -982,7 +987,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     expect(telemetryEventNames).toContain("agent_worker_spawned");
     expect(telemetryEventNames).toContain("agent_worker_exited");
     await assertOrUpdateTelemetryGolden(
-      join(import.meta.dir, "__golden__", "posthog-new-ticket.jsonl"),
+      join(goldenDir(), "posthog-new-ticket.jsonl"),
       telemetryEvents,
       { tempDir, changeNames: new Map([[changeName, "<CHANGE_NAME>"]]) },
     );
