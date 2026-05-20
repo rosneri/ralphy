@@ -25,9 +25,9 @@
 - [x] Add the PostHog capture recorder for scenario 1 via the telemetry client fake seam
 - [x] Write the golden file `apps/agent/src/__tests__/__golden__/posthog-new-ticket.jsonl` and add the diff assertion + `UPDATE_GOLDEN=1` re-record path
 - [x] Add the path normaliser helper (timestamps, tempDir, durations, pids, random ids → stable tokens) and unit-cover it inline in the test file
-- [ ] Verify the diff includes no changes under `apps/agent/src/agent/**` (production code untouched) by running `git diff --stat main -- apps/agent/src/agent` and confirming an empty result
-- [ ] Run `bun --cwd apps/agent test agent-characterization` and confirm all 7 scenarios pass (the 3 `.failing` ones pass by failing as expected)
-- [ ] Run `bun run lint` at the repo root and fix any new lint findings introduced by the test file
-- [ ] Run `bun run test` at the repo root and confirm the full suite is green and coverage does not regress
-- [ ] Run `bunx openspec validate rlf-89-stage-0-characterization-tests-regressio` and confirm it passes
-- [ ] Stage the new/edited files individually (`git add` per file — no `git add -A`), commit, push the branch, and open the PR with title `rlf-89-stage-0-characterization-tests-regressio`
+- [x] Verify the diff includes no changes under `apps/agent/src/agent/**` (production code untouched) by running `git diff --stat main -- apps/agent/src/agent` and confirming an empty result
+- [x] Run `bun --cwd apps/agent test agent-characterization` and confirm all 7 scenarios pass (the 3 `.failing` ones pass by failing as expected)
+- [x] Run `bun run lint` at the repo root and fix any new lint findings introduced by the test file
+- [x] Run `bun run test` at the repo root and confirm the full suite is green and coverage does not regress
+- [x] Run `bunx openspec validate rlf-89-stage-0-characterization-tests-regressio` and confirm it passes
+- [x] Stage the new/edited files individually (`git add` per file — no `git add -A`), commit, push the branch, and open the PR with title `rlf-89-stage-0-characterization-tests-regressio`
