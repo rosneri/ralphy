@@ -20,8 +20,8 @@
 ### Phase B — workflow config + indicators (PR 2)
 
 - [x] Extend `WorkflowConfigSchema` in `packages/workflow/src/schema.ts` with `linear.confirmationMode` (`enabled`, `optOutLabel`, `timeoutHours`, `maxConfirmationRounds`) and the optional `getApproved` / `clearApproved` indicators (reuse the existing `Marker`/`Indicator` shapes).
-- [ ] Wire deriver inputs: in the place where `OpenSpecPhaseInputs` is constructed per ticket, compute `confirmationGated = confirmationMode.enabled && !ticketHasLabel(optOutLabel)` and `approved = matchesIndicator(getApproved)`.
-- [ ] Add schema tests covering defaults, the opt-out path, and the indicator wiring.
+- [x] Wire deriver inputs: in the place where `OpenSpecPhaseInputs` is constructed per ticket, compute `confirmationGated = confirmationMode.enabled && !ticketHasLabel(optOutLabel)` and `approved = matchesIndicator(getApproved)`.
+- [x] Add schema tests covering defaults, the opt-out path, and the indicator wiring.
 
 ### Phase C — coordinator + agent behaviour (PR 3)
 
