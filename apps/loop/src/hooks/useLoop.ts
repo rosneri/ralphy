@@ -12,7 +12,13 @@ import {
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
 import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
-import { capture } from "@ralphy/telemetry";
+import { capture as telemetryCapture } from "@ralphy/telemetry";
+import { getProcessBus } from "@ralphy/events";
+
+function capture(event: string, properties?: Record<string, unknown>): void {
+  telemetryCapture(event, properties);
+  getProcessBus().emit({ type: event, ...properties } as never);
+}
 import {
   buildTaskPrompt,
   checkStopCondition,

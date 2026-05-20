@@ -43,6 +43,7 @@
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
+        "@ralphy/events": "workspace:*",
         "@ralphy/log": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/paths": "workspace:*",
@@ -71,6 +72,7 @@
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
+        "@ralphy/events": "workspace:*",
         "@ralphy/log": "workspace:*",
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
@@ -104,6 +106,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ralphy/agent": "workspace:*",
+        "@ralphy/events": "workspace:*",
         "@ralphy/loop": "workspace:*",
         "@ralphy/telemetry": "workspace:*",
         "@ralphy/version": "workspace:*",
@@ -182,6 +185,13 @@
         "@ralphy/adapter-codex": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/types": "workspace:*",
+      },
+    },
+    "packages/events": {
+      "name": "@ralphy/events",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/telemetry": "workspace:*",
       },
     },
     "packages/log": {
@@ -831,6 +841,8 @@
     "@ralphy/core": ["@ralphy/core@workspace:packages/core"],
 
     "@ralphy/engine": ["@ralphy/engine@workspace:packages/engine"],
+
+    "@ralphy/events": ["@ralphy/events@workspace:packages/events"],
 
     "@ralphy/generators": ["@ralphy/generators@workspace:tools/generators/lib"],
 

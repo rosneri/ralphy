@@ -5,6 +5,7 @@
   "type": "module",
   "dependencies": {
     "@ralphy/agent": "workspace:*",
+    "@ralphy/events": "workspace:*",
     "@ralphy/loop": "workspace:*",
     "@ralphy/telemetry": "workspace:*",
     "@ralphy/version": "workspace:*"

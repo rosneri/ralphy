@@ -11,6 +11,7 @@
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",
+    "@ralphy/events": "workspace:*",
     "@ralphy/log": "workspace:*",
     "@ralphy/output": "workspace:*",
     "@ralphy/paths": "workspace:*",

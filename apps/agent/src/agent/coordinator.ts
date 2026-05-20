@@ -4,7 +4,19 @@ import type { LinearIssue } from "./linear";
 import { issueMatchesGetIndicator } from "./linear";
 import { compareQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, SpawnMode } from "../queue/queue-order";
-import { capture } from "@ralphy/telemetry";
+import { capture as telemetryCapture } from "@ralphy/telemetry";
+import type { Bus, EmitInput } from "@ralphy/events";
+import { createNoopBus } from "@ralphy/events";
+
+/**
+ * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
+ * `capture(event, props)` call sites switch to `capture.call(this, ...)`
+ * via a small helper so neither sink is missed.
+ */
+function emitCapture(bus: Bus, event: string, properties?: Record<string, unknown>): void {
+  telemetryCapture(event, properties);
+  bus.emit({ type: event, ...properties } as unknown as EmitInput);
+}
 
 export type { SpawnMode, MentionTrigger } from "../queue/queue-order";
 
@@ -146,6 +158,10 @@ export interface CoordinatorDeps {
    *  can post a fresh steering comment and refresh the tasks comment on
    *  Linear. Failures are swallowed by the caller. */
   onSteeringAppended?: (changeName: string, message: string) => Promise<void>;
+  /** Optional event bus to mirror telemetry/log events onto. Defaults to a
+   *  no-op bus when omitted — Stage 1 wiring is purely additive, so existing
+   *  callers don't have to thread it through. */
+  bus?: Bus;
 }
 
 interface CoordinatorOptions {
@@ -226,10 +242,14 @@ export class AgentCoordinator {
   /** Total issues launched this process run — used to enforce maxTickets. */
   private ticketsStarted = 0;
 
+  private readonly bus: Bus;
+
   constructor(
     private readonly deps: CoordinatorDeps,
     private readonly opts: CoordinatorOptions,
-  ) {}
+  ) {
+    this.bus = deps.bus ?? createNoopBus();
+  }
 
   get activeCount(): number {
     return this.workers.length;
@@ -290,7 +310,7 @@ export class AgentCoordinator {
       ]);
     } catch (err) {
       this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
-      capture("agent_linear_poll_failed", { error: (err as Error).message });
+      emitCapture(this.bus, "agent_linear_poll_failed", { error: (err as Error).message });
       return emptyPollResult();
     }
 
@@ -510,7 +530,7 @@ export class AgentCoordinator {
         `! Linear setConflicted (promotion) failed for ${issue.identifier}: ${(err as Error).message}`,
         "red",
       );
-      capture("agent_indicator_failed", {
+      emitCapture(this.bus, "agent_indicator_failed", {
         indicator: "setConflicted",
         issue_identifier: issue.identifier,
         error: (err as Error).message,
@@ -518,7 +538,7 @@ export class AgentCoordinator {
       return false;
     }
 
-    capture("agent_conflict_promoted", {
+    emitCapture(this.bus, "agent_conflict_promoted", {
       issue_identifier: issue.identifier,
       pr_url: pr.url,
     });
@@ -694,7 +714,7 @@ export class AgentCoordinator {
       if (pr.status !== "conflicted") continue;
       const alreadyNotified = this.conflictNotified.has(issue.id);
       if (alreadyNotified) continue;
-      capture("agent_conflict_detected", { issue_identifier: issue.identifier });
+      emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
 
       try {
         await this.deps.applyIndicator(issue, this.opts.setConflicted);
@@ -704,7 +724,7 @@ export class AgentCoordinator {
           `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
           "red",
         );
-        capture("agent_indicator_failed", {
+        emitCapture(this.bus, "agent_indicator_failed", {
           indicator: "setConflicted",
           issue_identifier: issue.identifier,
           error: (err as Error).message,
@@ -759,7 +779,7 @@ export class AgentCoordinator {
         `! prepare(${mode}) failed for ${issue.identifier}: ${(err as Error).message}`,
         "red",
       );
-      capture("agent_prepare_failed", {
+      emitCapture(this.bus, "agent_prepare_failed", {
         spawn_mode: mode,
         issue_identifier: issue.identifier,
         error: (err as Error).message,
@@ -786,7 +806,7 @@ export class AgentCoordinator {
           `! Linear setInProgress failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
-        capture("agent_indicator_failed", {
+        emitCapture(this.bus, "agent_indicator_failed", {
           indicator: "setInProgress",
           issue_identifier: issue.identifier,
           error: (err as Error).message,
@@ -805,7 +825,7 @@ export class AgentCoordinator {
           `! Linear clearReview failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
-        capture("agent_indicator_failed", {
+        emitCapture(this.bus, "agent_indicator_failed", {
           indicator: "clearReview",
           issue_identifier: issue.identifier,
           error: (err as Error).message,
@@ -890,7 +910,7 @@ export class AgentCoordinator {
         "yellow",
       );
     }
-    capture("agent_worker_spawned", {
+    emitCapture(this.bus, "agent_worker_spawned", {
       spawn_mode: mode,
       issue_identifier: issue.identifier,
     });
@@ -938,7 +958,7 @@ export class AgentCoordinator {
         `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
         ok ? "green" : "red",
       );
-      capture("agent_worker_exited", {
+      emitCapture(this.bus, "agent_worker_exited", {
         spawn_mode: mode,
         issue_identifier: issue.identifier,
         exit_code: code,
@@ -960,7 +980,7 @@ export class AgentCoordinator {
     if (!worker) return false;
     if (worker.restarting) return true;
     worker.restarting = true;
-    capture("agent_worker_restarted", {
+    emitCapture(this.bus, "agent_worker_restarted", {
       change_name: changeName,
       reason: "steering",
     });
@@ -983,7 +1003,7 @@ export class AgentCoordinator {
     if (!worker) return false;
     if (worker.reapedForAwaiting) return true;
     worker.reapedForAwaiting = true;
-    capture("agent_worker_reaped_for_awaiting", { change_name: changeName });
+    emitCapture(this.bus, "agent_worker_reaped_for_awaiting", { change_name: changeName });
     try {
       worker.kill();
     } catch {
@@ -1085,7 +1105,7 @@ export class AgentCoordinator {
               `! Linear clearConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
               "red",
             );
-            capture("agent_indicator_failed", {
+            emitCapture(this.bus, "agent_indicator_failed", {
               indicator: "clearConflicted",
               issue_identifier: issue.identifier,
               error: (err as Error).message,
@@ -1103,7 +1123,7 @@ export class AgentCoordinator {
             `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
             "red",
           );
-          capture("agent_indicator_failed", {
+          emitCapture(this.bus, "agent_indicator_failed", {
             indicator: "setDone",
             issue_identifier: issue.identifier,
             error: (err as Error).message,
@@ -1128,7 +1148,7 @@ export class AgentCoordinator {
           `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
           "red",
         );
-        capture("agent_indicator_failed", {
+        emitCapture(this.bus, "agent_indicator_failed", {
           indicator: "setError",
           issue_identifier: issue.identifier,
           error: (err as Error).message,
