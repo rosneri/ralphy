@@ -25,3 +25,10 @@
 - [x] Run `bun run lint` and resolve any findings.
 - [x] Run `bun run test` and ensure the suite passes (including new tests) without lowering the coverage threshold.
 - [x] Run `bunx openspec validate rlf-75-preflight-auth-checks-fail-fast-when-gh` and resolve any validator complaints.
+
+## Manual Testing
+
+- [x] JSON mode with broken `gh`: shim a failing `gh` on `PATH`, run `bun apps/agent/src/index.ts --json-output` with a dummy `LINEAR_API_KEY`, and confirm stdout contains exactly one `{"type":"error","code":"auth_failure","tool":"gh", ...}` line, no `started`/`poll_*` events precede it, and the process exits with code 2.
+- [x] JSON mode with broken `claude`: shim a `claude` that prints `Not logged in` and exits 0, repeat the run, and confirm the single emitted error event has `tool: "claude"`, message references `/login`, and exit code is 2.
+- [x] JSON mode with `CLAUDECODE=1` inherited: export `CLAUDECODE=1`, point `claude` at a shim that prints whatever it sees in its env to stderr, and confirm the spawned probe does NOT see `CLAUDECODE` (i.e. preflight runs against a scrubbed env).
+- [x] Worker `claude` env scrub: write a tiny adapter test or shim that captures the child env passed to `claudeAgent.run`, set `CLAUDECODE=1` in the parent, and confirm the child env lacks `CLAUDECODE`/`CLAUDE_CODE_*`/`AI_AGENT`.
