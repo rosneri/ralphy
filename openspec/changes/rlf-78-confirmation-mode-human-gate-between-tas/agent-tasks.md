@@ -1,3 +1,58 @@
+## Fix failing CI checks (2026-05-20T10:33:51.842Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26156867388 ---
+ci Unused dependency check ﻿2026-05-20T10:32:31.6130024Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-20T10:32:31.6130361Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-20T10:32:31.6164949Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-20T10:32:31.6165228Z env:
+ci Unused dependency check 2026-05-20T10:32:31.6165476Z NX_BASE: 3a94ae08add05d95d6396fc18cebbd8ae845e1ef
+ci Unused dependency check 2026-05-20T10:32:31.6165840Z NX_HEAD: 45a20de13bd59613262da856f4a8da7b6e2396ca
+ci Unused dependency check 2026-05-20T10:32:31.6166134Z ##[endgroup]
+ci Unused dependency check 2026-05-20T10:32:31.6249582Z $ knip
+ci Unused dependency check 2026-05-20T10:32:35.1919425Z [93m[4mUnused exports[24m[39m (2)
+ci Unused dependency check 2026-05-20T10:32:35.1929532Z buildReviseRegex function apps/agent/src/agent/confirmation/index.ts:68:17
+ci Unused dependency check 2026-05-20T10:32:35.1930691Z findNewestRevise function apps/agent/src/agent/confirmation/index.ts:81:17
+ci Unused dependency check 2026-05-20T10:32:35.1931759Z [93m[4mUnused exported types[24m[39m (2)
+ci Unused dependency check 2026-05-20T10:32:35.1932297Z ReviseMatch interface apps/agent/src/agent/confirmation/index.ts:73:18
+ci Unused dependency check 2026-05-20T10:32:35.1932931Z InspectionOutcome type apps/agent/src/agent/confirmation/index.ts:128:13
+ci Unused dependency check 2026-05-20T10:32:35.2181640Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-20T10:32:35.2193119Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-20T10:32:35.5287507Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-20T10:32:35.5287950Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-20T10:32:35.5321256Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-20T10:32:35.5321539Z env:
+ci Test affected files + coverage 2026-05-20T10:32:35.5321796Z NX_BASE: 3a94ae08add05d95d6396fc18cebbd8ae845e1ef
+ci Test affected files + coverage 2026-05-20T10:32:35.5322177Z NX_HEAD: 45a20de13bd59613262da856f4a8da7b6e2396ca
+ci Test affected files + coverage 2026-05-20T10:32:35.5322506Z ##[endgroup]
+ci Test affected files + coverage 2026-05-20T10:32:35.5399519Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-20T10:32:35.5633666Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-20T10:32:35.5634011Z
+ci Test affected files + coverage 2026-05-20T10:32:41.8592254Z agent: 6 relevant test file(s)
+ci Test affected files + coverage 2026-05-20T10:32:41.8593271Z apps/agent/src/**tests**/agent-mode-awaiting.test.tsx
+ci Test affected files + coverage 2026-05-20T10:32:41.8594158Z apps/agent/src/**tests**/agent-mode-header.test.tsx
+ci Test affected files + coverage 2026-05-20T10:32:41.8595021Z apps/agent/src/**tests**/agent-mode-show-all.test.tsx
+ci Test affected files + coverage 2026-05-20T10:32:41.8595880Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-20T10:32:41.8596788Z apps/agent/src/**tests**/awaiting-confirmation.test.ts
+ci Test affected files + coverage 2026-05-20T10:32:41.8597586Z apps/agent/src/**tests**/coordinator.test.ts
+ci Test affected files + coverage 2026-05-20T10:32:41.8598026Z
+ci Test affected files + coverage 2026-05-20T10:32:41.8607763Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-20T10:32:41.8703715Z
+ci Test affected files + coverage 2026-05-20T10:32:41.8704632Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-20T10:32:41.8859622Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.82ms]
+ci Test affected files + coverage 2026-05-20T10:32:41.8864727Z (pass) inspectAwaitingTicket — revise path > appends
+…[truncated 170127 chars]
+
+```
+
+```
+
 ## Resolve PR merge conflicts (2026-05-20T10:26:54.020Z)
 
 - [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

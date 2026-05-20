@@ -65,12 +65,12 @@ export async function writeConfirmationState(
 }
 
 /** Build a regex matching `<handle> revise: <reason>`. Case-insensitive. */
-export function buildReviseRegex(handle: string): RegExp {
+function buildReviseRegex(handle: string): RegExp {
   const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`${escaped}\\s+revise\\s*:\\s*([\\s\\S]+?)\\s*$`, "im");
 }
 
-export interface ReviseMatch {
+interface ReviseMatch {
   commentId: string;
   createdAt: string;
   reason: string;
@@ -78,7 +78,7 @@ export interface ReviseMatch {
 
 /** Extract the newest revise comment from a list (created-at descending),
  *  ignoring anything created at-or-before `since`. */
-export function findNewestRevise(
+function findNewestRevise(
   comments: { id: string; body: string; createdAt: string }[],
   re: RegExp,
   since: string | null,
@@ -125,7 +125,7 @@ export async function appendSteeringNote(changeDir: string, message: string): Pr
 }
 
 /** Outcome of inspecting a single awaiting-confirmation ticket. */
-export type InspectionOutcome = "stay-awaiting" | "approved" | "revised" | "stuck";
+type InspectionOutcome = "stay-awaiting" | "approved" | "revised" | "stuck";
 
 export interface AwaitingInspectionDeps {
   /** True when `getApproved` matches the ticket. */
