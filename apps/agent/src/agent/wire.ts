@@ -14,7 +14,7 @@ import {
   computeConfirmationFlags,
   type ConfirmationTicketView,
 } from "@ralphy/workflow";
-import { deriveOpenSpecPhase } from "@ralphy/core/openspec-phase";
+import { gateActive, hasUnchecked } from "@ralphy/core/detections";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { ParsedArgs } from "../cli";
@@ -2003,57 +2003,36 @@ export function buildAgentCoordinator(
       const layout = projectLayout(cwd);
       const changeDir = layout.changeDir(changeName);
       const statePath = layout.stateFile(changeName);
-      const [proposal, design, tasks] = await Promise.all([
-        readTextOrNull(join(changeDir, "proposal.md")),
-        readTextOrNull(join(changeDir, "design.md")),
-        readTextOrNull(join(changeDir, "tasks.md")),
-      ]);
+      const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
       const ticketView: ConfirmationTicketView = {
         labels: issue.labels,
         state: issue.state,
         project: issue.project,
       };
-      const { confirmationGated, approved: approvalMatches } = computeConfirmationFlags(
-        cfg,
-        ticketView,
-      );
+      const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
       const { stateObj, confirmation } = await readConfirmationState(statePath);
-      const effectiveApproved = approvalMatches || confirmation.confirmedAt !== null;
-      const phase = deriveOpenSpecPhase({
-        proposal,
-        design,
-        tasks,
-        confirmationGated,
-        approved: effectiveApproved,
-      });
-      if (phase !== "awaiting-confirmation") {
-        awaitingChangeSet.delete(changeName);
-        // Transitioning out of the gate. If approval landed on this poll
-        // (label still on the ticket) but we haven't yet persisted
-        // confirmedAt, fire `clearApproved` once and record the timestamp
-        // so future polls keep the ticket in `implement` even after the
-        // label is removed.
-        if (approvalMatches && confirmation.confirmedAt === null) {
-          if (indicators.clearApproved) {
-            try {
-              await removeIndicator(issue, indicators.clearApproved);
-            } catch (err) {
-              onLog(
-                `! clearApproved failed for ${issue.identifier}: ${(err as Error).message}`,
-                "yellow",
-              );
-            }
-          }
-          confirmation.confirmedAt = new Date().toISOString();
-          try {
-            await writeConfirmationState(statePath, stateObj, confirmation);
-          } catch (err) {
-            onLog(
-              `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
-              "yellow",
-            );
-          }
+      // Persist the approval watermark on first observation. The label stays
+      // on the issue as the on-issue audit trail — we do NOT eagerly strip
+      // it. Once `confirmedAt` is persisted, `gateActive` returns false
+      // forever for this change regardless of subsequent label state.
+      if (approvalMatches && confirmation.confirmedAt === null) {
+        confirmation.confirmedAt = new Date().toISOString();
+        try {
+          await writeConfirmationState(statePath, stateObj, confirmation);
+        } catch (err) {
+          onLog(
+            `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
+            "yellow",
+          );
         }
+      }
+      const active = gateActive({
+        config: { confirmationMode: cfg.linear.confirmationMode },
+        ticket: { labels: [...issue.labels] },
+        persistedConfirmation: confirmation,
+      });
+      if (!active || !hasUnchecked(tasks ?? "")) {
+        awaitingChangeSet.delete(changeName);
         continue;
       }
       out.add(issue.id);

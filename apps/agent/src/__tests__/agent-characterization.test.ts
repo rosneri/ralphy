@@ -490,7 +490,16 @@ interface JsonRecorderHandle {
     | "onAwaitingTicket"
   >;
   emit: (event: Record<string, unknown>) => void;
-  poll: <T extends { found: number; added: number; buckets: unknown; prStatus?: unknown }>(
+  poll: <
+    T extends {
+      found: number;
+      added: number;
+      buckets: unknown;
+      prStatus?: unknown;
+      phase?: unknown;
+      flow?: unknown;
+    },
+  >(
     runPoll: () => Promise<T>,
   ) => Promise<T>;
 }
@@ -572,6 +581,8 @@ function createJsonRecorder(): JsonRecorderHandle {
       added: res.added,
       buckets: res.buckets,
       prStatus: res.prStatus,
+      phase: res.phase,
+      flow: res.flow,
     });
     return res;
   };
@@ -1181,18 +1192,20 @@ describe("agent characterization — Stage-0 regression net", () => {
     );
 
     // Approval arrives — label flips on. The next poll re-gates and
-    // observes approvalMatches=true, fires clearApproved, persists
-    // confirmedAt, drops the ticket from the awaiting set.
+    // observes approvalMatches=true, persists confirmedAt, and drops the
+    // ticket from the awaiting set. RLF-91: the `ralph:approved` label is
+    // NOT eagerly stripped — it stays on the issue as the on-issue audit
+    // trail.
     issue.labels.add("ralph:approved");
 
     const poll4 = await coord.pollOnce();
     await tick();
-    // clearApproved fired (label removed).
-    expect(linear.labelMutations).toContainEqual({
-      issueId: "uuid-eng-2",
-      op: "remove",
-      labelName: "ralph:approved",
-    });
+    // Approval label is preserved (no eager clearApproved fire).
+    expect(
+      linear.labelMutations.some(
+        (m) => m.issueId === "uuid-eng-2" && m.op === "remove" && m.labelName === "ralph:approved",
+      ),
+    ).toBe(false);
     // Awaiting count is back to zero on this poll.
     expect(poll4.buckets.awaiting).toBe(0);
 

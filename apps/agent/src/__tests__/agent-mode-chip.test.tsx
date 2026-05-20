@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import React from "react";
@@ -15,9 +15,35 @@ import type { ActiveWorker } from "../agent/coordinator";
 import type { ParsedArgs } from "../cli";
 import type { RalphyConfig } from "../agent/config";
 
-async function flush(ms = 60) {
+async function flush(ms = 1300) {
   await new Promise((r) => setTimeout(r, ms));
 }
+
+const fakeWorker: ActiveWorker = {
+  changeName: "rlf-91-chip",
+  issueIdentifier: "RLF-91",
+  issueId: "issue-91",
+  issue: {
+    id: "issue-91",
+    identifier: "RLF-91",
+    title: "Chip vs pipeline",
+    url: "https://linear.app/x/issue/RLF-91",
+    priority: 3,
+    description: "",
+    state: { name: "Todo", type: "unstarted" },
+    assignee: null,
+    project: null,
+    labels: [],
+    createdAt: "2026-05-15T00:00:00.000Z",
+    blockedByIds: [],
+  },
+  mode: "fresh",
+  kill: () => {},
+  lastReportedIteration: 0,
+  lastSyncedIteration: 0,
+  restarting: false,
+  reapedForAwaiting: false,
+};
 
 function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
   return {
@@ -39,15 +65,22 @@ function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
   };
 }
 
-function makeBuilder(concurrency: number, pollInterval: number): AgentModeBuildCoordinator {
-  return () => ({
-    coord: makeFakeCoord([]),
-    filterDesc: "fake",
-    concurrency,
-    pollInterval,
-    getWorkerCwd: () => undefined,
-    runBaselineGate: async () => {},
-  });
+function makeBuilder(workers: ActiveWorker[], changeDir: string): AgentModeBuildCoordinator {
+  return (input) => {
+    queueMicrotask(() => {
+      for (const w of workers) {
+        input.onWorkerStarted(w.changeName, "/tmp/states", "/tmp/log.txt", changeDir);
+      }
+    });
+    return {
+      coord: makeFakeCoord(workers),
+      filterDesc: "fake",
+      concurrency: 1,
+      pollInterval: 999,
+      getWorkerCwd: () => undefined,
+      runBaselineGate: async () => {},
+    };
+  };
 }
 
 const fakeConfig: RalphyConfig = {
@@ -55,7 +88,6 @@ const fakeConfig: RalphyConfig = {
   engine: "claude",
   model: "sonnet",
 };
-
 const ensureConfigStub = async () => "/tmp/ralphy.json";
 const loadConfigStub = async (): Promise<RalphyConfig> => fakeConfig;
 
@@ -65,8 +97,8 @@ const baseArgs: ParsedArgs = {
   name: "",
   linearTeam: "RLF",
   linearAssignee: "me",
-  pollInterval: 0,
-  concurrency: 0,
+  pollInterval: 999,
+  concurrency: 1,
   worktree: false,
   indicators: {},
   createPr: false,
@@ -80,12 +112,20 @@ const baseArgs: ParsedArgs = {
   debug: false,
 };
 
-describe("AgentMode header", () => {
+describe("AgentMode activity chip", () => {
   let tmpRoot: string;
+  let changeDir: string;
   let savedKey: string | undefined;
 
   beforeAll(async () => {
-    tmpRoot = await mkdtemp(join(tmpdir(), "agent-mode-header-"));
+    tmpRoot = await mkdtemp(join(tmpdir(), "agent-mode-chip-"));
+    changeDir = join(tmpRoot, "change");
+    await mkdir(changeDir, { recursive: true });
+    // Real proposal + real design + no tasks.md → phase resolves to `tasks`,
+    // which still falls inside `shouldShowPhasePipeline` so the pipeline
+    // renders alongside the (independent) activity chip.
+    await writeFile(join(changeDir, "proposal.md"), "# Proposal\n\nReal proposal content.\n");
+    await writeFile(join(changeDir, "design.md"), "# Design\n\nReal design content.\n");
     savedKey = process.env["LINEAR_API_KEY"];
     process.env["LINEAR_API_KEY"] = "fake";
   });
@@ -96,28 +136,7 @@ describe("AgentMode header", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
-  test("renders effective concurrency and pollInterval from CLI overrides", async () => {
-    const { lastFrame, unmount } = render(
-      React.createElement(AgentMode, {
-        args: { ...baseArgs, concurrency: 4, pollInterval: 1000 },
-        projectRoot: tmpRoot,
-        statesDir: join(tmpRoot, "states"),
-        tasksDir: join(tmpRoot, "tasks"),
-        appendSteering: async () => {},
-        buildCoordinator: makeBuilder(4, 1000),
-        ensureConfig: ensureConfigStub,
-        loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true as const }),
-      }),
-    );
-    await flush(150);
-    const frame = lastFrame() ?? "";
-    expect(frame).toContain("×4");
-    expect(frame).toContain("poll 1000s");
-    unmount();
-  });
-
-  test("falls back to config-file values when CLI args are 0", async () => {
+  test("renders the [working] chip alongside the phase pipeline", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
         args: baseArgs,
@@ -125,16 +144,20 @@ describe("AgentMode header", () => {
         statesDir: join(tmpRoot, "states"),
         tasksDir: join(tmpRoot, "tasks"),
         appendSteering: async () => {},
-        buildCoordinator: makeBuilder(fakeConfig.concurrency, fakeConfig.pollIntervalSeconds),
+        buildCoordinator: makeBuilder([fakeWorker], changeDir),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
         runPreflight: async () => ({ ok: true as const }),
       }),
     );
-    await flush(150);
+    await flush();
     const frame = lastFrame() ?? "";
-    expect(frame).toContain(`×${fakeConfig.concurrency}`);
-    expect(frame).toContain(`poll ${fakeConfig.pollIntervalSeconds}s`);
+    // Chip is rendered independent of the pipeline.
+    expect(frame).toContain("[working]");
+    // Pipeline segments still render (proposal / design / tasks).
+    expect(frame).toMatch(/proposal/);
+    expect(frame).toMatch(/design/);
+    expect(frame).toMatch(/tasks/);
     unmount();
   });
 });

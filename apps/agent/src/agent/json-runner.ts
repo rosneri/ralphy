@@ -184,9 +184,9 @@ export async function runAgentJson({
       });
     }
     if (cancelled) return;
-    const { found, added, buckets, prStatus } = await coord.pollOnce();
+    const { found, added, buckets, prStatus, phase, flow } = await coord.pollOnce();
     if (cancelled) return;
-    emit({ type: "poll_done", found, added, buckets, prStatus });
+    emit({ type: "poll_done", found, added, buckets, prStatus, phase, flow });
     pollTimer = setTimeout(tick, pollInterval * 1000);
   };
   void tick();
