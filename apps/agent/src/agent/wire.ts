@@ -74,6 +74,13 @@ import {
   type CommentMutations,
 } from "./linear-sync/comment-sync";
 import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
+import {
+  appendSteeringNote,
+  inspectAwaitingTicket,
+  readConfirmationState,
+  restartFromDesign as restartFromDesignFs,
+  writeConfirmationState,
+} from "./awaiting-confirmation";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -1934,11 +1941,13 @@ export function buildAgentCoordinator(
     const out = new Set<string>();
     if (issues.length === 0) return out;
     if (!cfg.linear.confirmationMode.enabled) return out;
+    const cm = cfg.linear.confirmationMode;
     for (const issue of issues) {
       const changeName = changeNameForIssue(issue);
       const cwd = await resolveChangeCwdForIssue(changeName);
       const layout = projectLayout(cwd);
       const changeDir = layout.changeDir(changeName);
+      const statePath = layout.stateFile(changeName);
       const [proposal, design, tasks] = await Promise.all([
         readTextOrNull(join(changeDir, "proposal.md")),
         readTextOrNull(join(changeDir, "design.md")),
@@ -1949,17 +1958,103 @@ export function buildAgentCoordinator(
         state: issue.state,
         project: issue.project,
       };
-      const { confirmationGated, approved } = computeConfirmationFlags(cfg, ticketView);
+      const { confirmationGated, approved: approvalMatches } = computeConfirmationFlags(
+        cfg,
+        ticketView,
+      );
+      const { stateObj, confirmation } = await readConfirmationState(statePath);
+      const effectiveApproved = approvalMatches || confirmation.confirmedAt !== null;
       const phase = deriveOpenSpecPhase({
         proposal,
         design,
         tasks,
         confirmationGated,
-        approved,
+        approved: effectiveApproved,
       });
-      if (phase !== "awaiting-confirmation") continue;
+      if (phase !== "awaiting-confirmation") {
+        // Transitioning out of the gate. If approval landed on this poll
+        // (label still on the ticket) but we haven't yet persisted
+        // confirmedAt, fire `clearApproved` once and record the timestamp
+        // so future polls keep the ticket in `implement` even after the
+        // label is removed.
+        if (approvalMatches && confirmation.confirmedAt === null) {
+          if (indicators.clearApproved) {
+            try {
+              await removeIndicator(issue, indicators.clearApproved);
+            } catch (err) {
+              onLog(
+                `! clearApproved failed for ${issue.identifier}: ${(err as Error).message}`,
+                "yellow",
+              );
+            }
+          }
+          confirmation.confirmedAt = new Date().toISOString();
+          try {
+            await writeConfirmationState(statePath, stateObj, confirmation);
+          } catch (err) {
+            onLog(
+              `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
+              "yellow",
+            );
+          }
+        }
+        continue;
+      }
       out.add(issue.id);
-      await postPlanReadyCommentOnce(issue, layout.stateFile(changeName), changeName);
+      await postPlanReadyCommentOnce(issue, statePath, changeName);
+      // Re-read after the plan-ready comment was (possibly) just written.
+      const { stateObj: state2, confirmation: confirmation2 } =
+        await readConfirmationState(statePath);
+      const { outcome, next } = await inspectAwaitingTicket(
+        confirmation2,
+        {
+          mentionHandle: cfg.linear.mentionHandle,
+          timeoutHours: cm.timeoutHours,
+          maxConfirmationRounds: cm.maxConfirmationRounds,
+          postComments: cfg.linear.postComments !== false && Boolean(apiKey),
+        },
+        {
+          approvalMatches,
+          fetchComments: async () => {
+            if (!apiKey) return [];
+            try {
+              const cs = await fetchIssueComments(apiKey, issue.id);
+              return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
+            } catch {
+              return [];
+            }
+          },
+          ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
+          applyIndicator: (ind) => applyIndicator(issue, ind),
+          postComment: async (body) => {
+            if (!apiKey) return;
+            await addIssueComment(apiKey, issue.id, body);
+          },
+          reactToComment: async (commentId, emoji) => {
+            if (!apiKey) return;
+            await addReactionToComment(apiKey, commentId, emoji);
+          },
+          applyStuckLabel: async () => {
+            await applyMarker(issue, { type: "label", value: "ralph:stuck" });
+          },
+          appendSteering: (msg) => appendSteeringNote(changeDir, msg),
+          restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
+          log: onLog,
+        },
+      );
+      try {
+        await writeConfirmationState(statePath, state2, next);
+      } catch (err) {
+        onLog(
+          `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+      if (outcome === "approved" || outcome === "revised") {
+        // Transitioning out of the gate on this poll — drop from awaiting
+        // so the next poll picks the ticket up via the normal queue.
+        out.delete(issue.id);
+      }
     }
     return out;
   }

@@ -218,6 +218,10 @@ export interface Indicators {
   clearConflicted?: SetIndicator;
   /** Label-only marker(s) removed when the review indicator is picked up. */
   clearReview?: SetIndicator;
+  /** Issues that the human has explicitly approved (confirmation gate). */
+  getApproved?: GetIndicator;
+  /** Label-only marker(s) removed when the approval is consumed. */
+  clearApproved?: SetIndicator;
 }
 
 /** Convenience: extract the marker list applied by a SetIndicator. */
