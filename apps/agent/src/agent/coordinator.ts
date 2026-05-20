@@ -65,11 +65,20 @@ export interface PrStatusCounts {
   ciFailed: number;
 }
 export type PrStatus = "mergeable" | "conflicted" | "ci_failed" | "unknown";
+export type Flow = "awaiting" | "working" | "conflict-fix" | "ci-fix" | "review";
+export type PlanPhaseValue = "proposal" | "design" | "tasks" | "implement" | "done";
 export interface PollResult {
   found: number;
   added: number;
   buckets: PollBuckets;
   prStatus: PrStatusCounts;
+  /** Per-change lifecycle phase derived from on-disk artifacts. Empty when
+   *  the poll did not derive any (e.g. baseline gate paused, or no in-flight
+   *  workers). Additive — additional Stage-5 derivations will land here. */
+  phase: Record<string, PlanPhaseValue>;
+  /** Per-change activity flow — independent of `phase`. Empty when the poll
+   *  did not derive any. */
+  flow: Record<string, Flow>;
 }
 const emptyPrStatus = (): PrStatusCounts => ({ mergeable: 0, conflicted: 0, ciFailed: 0 });
 
@@ -85,6 +94,8 @@ const emptyPollResult = (): PollResult => ({
   added: 0,
   buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0, awaiting: 0 },
   prStatus: emptyPrStatus(),
+  phase: {},
+  flow: {},
 });
 
 export interface CoordinatorDeps {
@@ -376,7 +387,7 @@ export class AgentCoordinator {
         buckets.review +
         buckets.mentions +
         buckets.awaiting;
-      return { found, added: 0, buckets, prStatus: emptyPrStatus() };
+      return { found, added: 0, buckets, prStatus: emptyPrStatus(), phase: {}, flow: {} };
     }
 
     const maxT = this.opts.maxTickets ?? 0;
@@ -478,7 +489,13 @@ export class AgentCoordinator {
       buckets.review +
       buckets.mentions +
       buckets.awaiting;
-    return { found, added, buckets, prStatus };
+    const flow: Record<string, Flow> = {};
+    for (const w of this.workers) {
+      if (w.mode === "conflict-fix") flow[w.changeName] = "conflict-fix";
+      else if (w.mode === "review") flow[w.changeName] = "review";
+      else flow[w.changeName] = "working";
+    }
+    return { found, added, buckets, prStatus, phase: {}, flow };
   }
 
   /**

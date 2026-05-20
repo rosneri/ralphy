@@ -351,13 +351,36 @@ function openspecPhaseColor(phase: OpenSpecPhase): string {
       return "blue";
     case "tasks":
       return "cyan";
-    case "awaiting-confirmation":
-      return "yellow";
     case "implement":
       return "yellow";
     case "done":
       return "green";
   }
+}
+
+type ActivityChip = "awaiting" | "conflict-fix" | "ci-fix" | "working" | "review";
+
+function activityChipColor(chip: ActivityChip): string {
+  switch (chip) {
+    case "awaiting":
+      return "magenta";
+    case "conflict-fix":
+      return "red";
+    case "ci-fix":
+      return "yellow";
+    case "review":
+      return "cyan";
+    case "working":
+      return "blue";
+  }
+}
+
+function deriveActivityChip(workerPhase: string, gated: boolean): ActivityChip {
+  if (gated) return "awaiting";
+  if (workerPhase === "conflict-fix" || workerPhase === "rebasing") return "conflict-fix";
+  if (workerPhase === "ci-fix" || workerPhase === "ci-poll") return "ci-fix";
+  if (workerPhase === "review") return "review";
+  return "working";
 }
 
 function workerBorderColor(phase: string): string {
@@ -1293,6 +1316,17 @@ export function AgentMode({
                   ))}
                 </Box>
               )}
+
+              {/* ── Activity chip (independent of pipeline) ── */}
+              {(() => {
+                const gated = gatedTicketsRef.current.has(w.changeName);
+                const chip = deriveActivityChip(phase, gated);
+                return (
+                  <Box marginTop={0}>
+                    <Text color={activityChipColor(chip)}>{`[${chip}]`}</Text>
+                  </Box>
+                );
+              })()}
 
               {/* ── Phase pipeline (pre-implement phases) ───── */}
               {shouldShowPhasePipeline(openspecPhase) && (

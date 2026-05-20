@@ -79,6 +79,8 @@ function makeBuilderWithAwaiting(
             awaiting: awaitingCount,
           },
           prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0 },
+          phase: {},
+          flow: {},
         };
       },
       stop: () => {},
