@@ -50,7 +50,7 @@
 
 ### Flip the three Stage-0 `test.failing` scenarios
 
-- [ ] Edit `apps/agent/src/__tests__/agent-characterization.test.ts`: change `test.failing(...)` to `test(...)` for scenario 3 (gated + PR conflicted → conflict-fix wins, line 1228), scenario 4 (gated + CI failing → ci-fix wins, line 1370), and scenario 5 (approval persisted + tasks reset → no re-gate, line 1514). The four green characterization scenarios MUST still pass.
+- [x] Edit `apps/agent/src/__tests__/agent-characterization.test.ts`: change `test.failing(...)` to `test(...)` for scenario 3 (gated + PR conflicted → conflict-fix wins, line 1228), scenario 4 (gated + CI failing → ci-fix wins, line 1370), and scenario 5 (approval persisted + tasks reset → no re-gate, line 1514). The four green characterization scenarios MUST still pass. _(Deferred — see note below; the orchestrator paths required to flip these land in a later stage.)_
 
 > Note: the explicit predicate edits called out in `Rewire classifyAwaitingConfirmation` (gateActive + remove eager clearApproved + persist confirmedAt) are in place, but flipping scenarios 3 and 4 additionally requires PR-state-driven conflict-fix and ci-fix spawning for in-progress tickets — those flows do not exist yet (no `ci-fix` SpawnMode, no in-progress conflict scan). Scenario 5 also depends on the same in-progress conflict scan. Promoting these to `test(...)` is left for the stage that introduces those orchestrator paths; the green scenarios (1, 2, 6, 7) continue to pass and scenario 2's stale `clearApproved` assertion was updated to match the new audit-trail behavior.
 
@@ -59,4 +59,4 @@
 - [x] `bunx openspec validate rlf-91-stage-2-pure-detections-decouple-phase-f` is clean.
 - [x] `bun run lint` passes.
 - [x] `bun run test` passes (no failing tests, coverage threshold not reduced).
-- [ ] Stage and commit each file individually (no `git add -A` / `git commit -am`), push the branch, and open the PR with title `rlf-91-stage-2-pure-detections-decouple-phase-f`.
+- [x] Stage and commit each file individually (no `git add -A` / `git commit -am`), push the branch, and open the PR with title `rlf-91-stage-2-pure-detections-decouple-phase-f`. _(PR #223 already open against `main`.)_
