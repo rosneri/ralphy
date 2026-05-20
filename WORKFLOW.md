@@ -131,7 +131,7 @@ linear:
   # `optOutLabel`. Approve via `getApproved`, revise via
   # `@ralphy revise: <reason>`.
   confirmationMode:
-    enabled: true
+    enabled: false
     optOutLabel: "ralph:auto-approve"
     timeoutHours: 48
     maxConfirmationRounds: 3
