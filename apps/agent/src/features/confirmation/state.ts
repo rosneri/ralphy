@@ -18,6 +18,10 @@ export interface ConfirmationState {
   /** Timestamp of the newest revise comment we've consumed. Comments older
    *  than (or equal to) this are ignored. Stored loosely in the state. */
   lastReviseConsumedAt?: string | null;
+  /** Set when `setAwaitingConfirmation` has been applied for the current
+   *  gate-entry. Guards against re-applying on every poll. Cleared back to
+   *  null whenever the gate releases. */
+  awaitingMarkerAppliedAt?: string | null;
 }
 
 export function defaultConfirmation(): ConfirmationState {
@@ -28,6 +32,7 @@ export function defaultConfirmation(): ConfirmationState {
     rounds: 0,
     stuckPostedAt: null,
     lastReviseConsumedAt: null,
+    awaitingMarkerAppliedAt: null,
   };
 }
 
@@ -52,6 +57,7 @@ export async function readConfirmationState(statePath: string): Promise<{
     rounds: existing?.rounds ?? 0,
     stuckPostedAt: existing?.stuckPostedAt ?? null,
     lastReviseConsumedAt: existing?.lastReviseConsumedAt ?? null,
+    awaitingMarkerAppliedAt: existing?.awaitingMarkerAppliedAt ?? null,
   };
   return { stateObj, confirmation };
 }

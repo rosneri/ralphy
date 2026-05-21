@@ -10,6 +10,7 @@ export { renderTemplate } from "./template";
 export { DEFAULT_WORKFLOW_MD } from "./default";
 export {
   computeConfirmationFlags,
+  describeApprovalMarker,
   matchesIndicator,
   type ConfirmationTicketView,
 } from "./confirmation";
