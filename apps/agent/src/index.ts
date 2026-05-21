@@ -47,6 +47,11 @@ export async function main(argv: string[]): Promise<number> {
   await mkdir(tasksDir, { recursive: true });
   await mkdir(join(projectRoot, ".ralph"), { recursive: true });
 
+  if (!args.jsonOutput && process.stdin.isTTY !== true) {
+    process.stderr.write("agent: stdin is not a TTY — falling back to --json-output mode.\n");
+    args = { ...args, jsonOutput: true };
+  }
+
   if (args.jsonOutput) {
     const { runAgentJson } = await import("./agent/json-runner");
     await runAgentJson({ args, projectRoot, statesDir, tasksDir });

@@ -113,6 +113,7 @@ const HELP_TEXT = [
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
+  "                          (auto-enabled when stdin is not a TTY, e.g. pipes / nohup / CI)",
   "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
   "  --pre-existing-error-check  Run baseline commands against the base branch; pause new pickups + open a Linear ticket when red",
   "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
