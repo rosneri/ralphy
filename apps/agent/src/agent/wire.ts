@@ -59,7 +59,7 @@ import {
 } from "./linear";
 import {
   AgentCoordinator,
-  type SpawnMode,
+  type QueueTrigger,
   type PrepareResult,
   type MentionTrigger,
 } from "./coordinator";
@@ -835,28 +835,21 @@ export function buildAgentCoordinator(
     return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
   }
 
-  async function prepare(
-    issue: LinearIssue,
-    mode: SpawnMode,
-    trigger?: MentionTrigger,
-  ): Promise<PrepareResult> {
+  async function prepare(issue: LinearIssue): Promise<PrepareResult> {
     const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch } = await setupWorktree(issue);
 
     let changeName: string;
-    // Mode classification: `fresh` always re-scaffolds. resume / conflict-fix /
-    // review normally reuse the existing change directory, but if `tasks.md`
-    // is missing (e.g. branch was created before openspec scaffolding existed,
-    // or a prior slug-rename orphaned the resume path), fall through to a
-    // re-scaffold so comment-sync and the task loop have something to read.
+    // Scaffold-or-reuse decision is now driven purely by whether `tasks.md`
+    // exists on disk: fresh todo pickups have no tasks.md (branch was just
+    // created), so they scaffold; resume / conflict-fix / review pickups
+    // already have one, so they reuse. If a prior run orphaned the file
+    // (e.g. slug rename), we transparently re-scaffold so the loop has
+    // something to read.
     const wtLayoutPre = projectLayout(workerCwd);
     const derivedName = changeNameForIssue(issue);
     const tasksMdPath = join(wtLayoutPre.changeDir(derivedName), "tasks.md");
     const tasksMdExists = await Bun.file(tasksMdPath).exists();
-    const needsScaffold = !tasksMdExists;
-    if (mode !== "fresh" && needsScaffold) {
-      onLog(`  ${issue.identifier}: tasks.md missing at ${tasksMdPath} — rescaffolding`, "yellow");
-    }
-    const isFresh = mode === "fresh" || needsScaffold;
+    const isFresh = !tasksMdExists;
     if (isFresh) {
       // Fetch comments to embed in proposal — only on fresh runs to avoid
       // the round-trip cost on every resume/fix.
@@ -911,17 +904,39 @@ export function buildAgentCoordinator(
     issueByChange.set(changeName, issue);
     if (branch) branchByChange.set(changeName, branch);
 
-    if (mode === "review") {
-      const wtLayout = projectLayout(workerCwd);
-      const tasksFile = join(wtLayout.changeDir(changeName), AGENT_TASKS_FILENAME);
+    if (cfg.setupScript) {
+      await runScript("setup", cfg.setupScript, workerCwd);
+    }
+
+    return {
+      changeName,
+      ...(prByChange.has(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
+    };
+  }
+
+  /** Second-stage prep — prepend a directive task and reactivate the loop's
+   *  state file. Only invoked for triggers that semantically require it
+   *  (`conflict-fix`, `review`); other triggers are no-ops. */
+  async function prepareTaskForTrigger(
+    issue: LinearIssue,
+    changeName: string,
+    trigger: QueueTrigger,
+    mention?: MentionTrigger,
+  ): Promise<void> {
+    if (trigger !== "review" && trigger !== "conflict-fix") return;
+    const workerCwd = cwdByChange.get(changeName);
+    if (!workerCwd) return;
+    const wtLayout = projectLayout(workerCwd);
+    const tasksFile = join(wtLayout.changeDir(changeName), AGENT_TASKS_FILENAME);
+    if (trigger === "review") {
       let body: string;
       let heading: string;
-      if (trigger) {
+      if (mention) {
         heading =
-          trigger.source === "github"
+          mention.source === "github"
             ? "Address GitHub @ralphy mention"
             : "Address Linear @ralphy mention";
-        body = buildMentionTaskBody(trigger, issue.url);
+        body = buildMentionTaskBody(mention, issue.url);
       } else {
         heading = "Address reviewer comments";
         let comments: Awaited<ReturnType<typeof fetchIssueComments>> = [];
@@ -946,44 +961,31 @@ export function buildAgentCoordinator(
         onLog(`! could not prepend review task: ${(err as Error).message}`, "red");
       }
       await reactivateState(wtLayout.stateFile(changeName), changeName);
-    } else if (mode === "conflict-fix") {
-      // Prepend a fix-conflicts task and reactivate the loop's state file
-      // so the worker picks it up first. The post-task pipeline already
-      // handles push (with hook-fix retry) → PR update.
-      const wtLayout = projectLayout(workerCwd);
-      const tasksFile = join(wtLayout.changeDir(changeName), AGENT_TASKS_FILENAME);
-      const prUrl = prByChange.get(changeName);
-      const body = [
-        `The PR for this change has merge conflicts with \`${cfg.prBaseBranch}\`.`,
-        "",
-        "Steps:",
-        `1. \`git fetch origin ${cfg.prBaseBranch}\` then rebase or merge \`${cfg.prBaseBranch}\` into the current branch.`,
-        "2. Resolve conflicts in the files git lists.",
-        "3. Stage and commit the resolution.",
-        prUrl ? `\nPR: ${prUrl}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      try {
-        await runCapability(fsChange.prependTask, {
-          tasksPath: tasksFile,
-          heading: "Resolve PR merge conflicts",
-          failureOutput: body,
-        });
-      } catch (err) {
-        onLog(`! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
-      }
-      await reactivateState(wtLayout.stateFile(changeName), changeName);
+      return;
     }
-
-    if (cfg.setupScript) {
-      await runScript("setup", cfg.setupScript, workerCwd);
+    // conflict-fix
+    const prUrl = prByChange.get(changeName);
+    const body = [
+      `The PR for this change has merge conflicts with \`${cfg.prBaseBranch}\`.`,
+      "",
+      "Steps:",
+      `1. \`git fetch origin ${cfg.prBaseBranch}\` then rebase or merge \`${cfg.prBaseBranch}\` into the current branch.`,
+      "2. Resolve conflicts in the files git lists.",
+      "3. Stage and commit the resolution.",
+      prUrl ? `\nPR: ${prUrl}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    try {
+      await runCapability(fsChange.prependTask, {
+        tasksPath: tasksFile,
+        heading: "Resolve PR merge conflicts",
+        failureOutput: body,
+      });
+    } catch (err) {
+      onLog(`! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
     }
-
-    return {
-      changeName,
-      ...(prByChange.has(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
-    };
+    await reactivateState(wtLayout.stateFile(changeName), changeName);
   }
 
   async function reactivateState(stateFilePath: string, changeName: string): Promise<void> {
@@ -2209,6 +2211,7 @@ export function buildAgentCoordinator(
       fetchMentions,
       fetchDoneCandidates,
       prepare,
+      prepareTaskForTrigger,
       spawnWorker,
       applyIndicator,
       removeIndicator,

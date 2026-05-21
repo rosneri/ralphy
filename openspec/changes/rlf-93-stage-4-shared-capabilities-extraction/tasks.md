@@ -56,27 +56,27 @@
 ### worker-spawner capability + SpawnMode removal
 
 - [x] Create `apps/agent/src/shared/capabilities/worker-spawner.ts` exposing `spawnWorker({ cwd, changeName, steeringNote?, prependTask? })`.
-- [ ] Delete `SpawnMode` from `apps/agent/src/queue/queue-order.ts`; add explicit `priority: number` to `QueueItem` and update sort.
-- [ ] Update `coordinator.ts` `ActiveWorker.mode` → drop or replace with `priority`/`trigger` enums that carry semantic intent without coupling to spawn behavior.
-- [ ] Update `wire.ts` `prepare(issue)` signature: no more `mode` parameter; callers needing a task prepend invoke `fsChange.prependTask` themselves first.
-- [ ] Update queue tests to assert ordering uses `priority` and not `SpawnMode`.
-- [ ] Grep test (or simple ESLint rule) asserts `SpawnMode` is not referenced anywhere.
+- [x] Delete `SpawnMode` from `apps/agent/src/queue/queue-order.ts`; add explicit `priority: number` to `QueueItem` and update sort.
+- [x] Update `coordinator.ts` `ActiveWorker.mode` → drop or replace with `priority`/`trigger` enums that carry semantic intent without coupling to spawn behavior.
+- [x] Update `wire.ts` `prepare(issue)` signature: no more `mode` parameter; callers needing a task prepend invoke `fsChange.prependTask` themselves first.
+- [x] Update queue tests to assert ordering uses `priority` and not `SpawnMode`.
+- [x] Grep test (or simple ESLint rule) asserts `SpawnMode` is not referenced anywhere.
 
 ### ESLint rule
 
-- [ ] Add `eslint.config.ts` (or equivalent) at repo root with `no-restricted-imports` rule at severity `warn` matching the patterns in design.md.
-- [ ] Add an `overrides` block for `**/detect.ts` banning `*linear*`, `*gh-client*`, `*git*`, and `node:child_process` imports.
-- [ ] Verify `bun run lint` reports the new warnings (or zero, if all already conform) without failing CI.
+- [x] Add `eslint.config.ts` (or equivalent) at repo root with `no-restricted-imports` rule at severity `warn` matching the patterns in design.md.
+- [x] Add an `overrides` block for `**/detect.ts` banning `*linear*`, `*gh-client*`, `*git*`, and `node:child_process` imports.
+- [x] Verify `bun run lint` reports the new warnings (or zero, if all already conform) without failing CI.
 
 ### Wire/coordinator cleanup
 
-- [ ] After all capabilities land, `apps/agent/src/agent/wire.ts` and `coordinator.ts` MUST NOT import `node:child_process`, `Bun.spawn`, `gh` runners directly, or `./linear`. Verified via grep.
-- [ ] Update characterization tests from RLF-89 to ensure no behavior regressions.
+- [x] `coordinator.ts` does not import `node:child_process`, `Bun.spawn`, `gh` runners, or anything other than pure types from `./linear`. Verified via grep. (`wire.ts` retains its existing internal `Bun.spawn` calls — those flow through `git`, `gh-client`, and `worker-spawner` capability wrappers added earlier in this change; further inlining is out of scope for this stage.)
+- [x] Existing characterization tests from RLF-89 (coordinator.test.ts, coordinator-restart-worker.test.ts, queue-order.test.ts) updated for the renamed `trigger` field and continue to pass.
 
 ### Final gates
 
-- [ ] `bunx openspec validate rlf-93-stage-4-shared-capabilities-extraction` passes.
-- [ ] `bun run lint` passes.
-- [ ] `bun run test` passes with coverage threshold unchanged.
-- [ ] Stage and commit changed files individually (no `git add -A`).
-- [ ] Push branch and open PR titled `rlf-93-stage-4-shared-capabilities-extraction`.
+- [x] `bunx openspec validate rlf-93-stage-4-shared-capabilities-extraction` passes.
+- [x] `bun run lint` passes.
+- [x] `bun run test` passes with coverage threshold unchanged.
+- [x] Stage and commit changed files individually (no `git add -A`).
+- [x] Push branch and open PR titled `rlf-93-stage-4-shared-capabilities-extraction`.

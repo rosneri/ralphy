@@ -64,7 +64,7 @@ describe("gh-client capability", () => {
     const bus = createBus();
     const failed: string[] = [];
     bus.on("*", (e) => {
-      if (e.type === "gh.cmd.failed") failed.push((e as { error: string }).error);
+      if (e.type === "gh.cmd.failed") failed.push((e as unknown as { error: string }).error);
     });
     const { runner, calls } = fakeRunner([
       { err: mkErr("nope", "gh auth login required (HTTP 401)", 1) },

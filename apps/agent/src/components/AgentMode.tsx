@@ -1173,7 +1173,7 @@ export function AgentMode({
           const subtasks = meta?.subtasks ?? [];
 
           const pBadge = priorityBadge(w.issue.priority);
-          const mBadge = modeBadge(w.mode);
+          const mBadge = modeBadge(w.trigger);
           const pColor = phaseColor(phase);
           const bColor = isFocused ? workerBorderColor(phase) : "gray";
           const visibleTailLines = isFocused ? focusedTailLines : compactTailLines;

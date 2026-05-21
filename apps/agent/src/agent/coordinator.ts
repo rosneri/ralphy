@@ -2,8 +2,8 @@ import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "./linear";
 import { issueMatchesGetIndicator } from "./linear";
-import { compareQueueEntries, type QueueEntry } from "../queue/queue-order";
-import type { MentionTrigger, SpawnMode } from "../queue/queue-order";
+import { compareQueueEntries, defaultPriorityFor, type QueueEntry } from "../queue/queue-order";
+import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
 import type { Bus, EmitInput, RalphEvent } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
@@ -22,7 +22,7 @@ function emitCapture<T extends RalphEvent["type"]>(
   bus.emit({ type: event, ...properties } as Extract<EmitInput, { type: T }>);
 }
 
-export type { SpawnMode, MentionTrigger } from "../queue/queue-order";
+export type { QueueTrigger, MentionTrigger } from "../queue/queue-order";
 
 /** Spawn shape — same as before. */
 interface WorkerHandle {
@@ -115,17 +115,26 @@ export interface CoordinatorDeps {
    *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
   fetchDoneCandidates: () => Promise<LinearIssue[]>;
   /**
-   * Side-effect: scaffold (fresh), resume worktree (resume), or prepend
-   * conflict-fix / review task + reactivate state. Returns the change
-   * name and (for conflict-fix) the PR URL. When `trigger` is supplied
-   * (review mode + mention scan), wire uses the trigger body verbatim
-   * as the task content instead of fetching all non-Ralph comments.
+   * Side-effect: create or reuse a worktree, scaffold the change directory
+   * when its `tasks.md` is missing, and run the project's setup script.
+   * Returns the change name and (when known) the PR URL. Trigger-specific
+   * task prepending (conflict-fix / review) is handled by
+   * `prepareTaskForTrigger` after this resolves.
    */
-  prepare: (
+  prepare: (issue: LinearIssue) => Promise<PrepareResult>;
+  /**
+   * Optional second-stage prep: prepend a directive task to `tasks.md`
+   * and reactivate the loop's state file. Called after `prepare` succeeds
+   * and only when the queued trigger semantically requires it
+   * (`conflict-fix` or `review`). Coordinator invokes it as a courtesy
+   * dep so the prepend stays observable; absence is treated as a no-op.
+   */
+  prepareTaskForTrigger?: (
     issue: LinearIssue,
-    mode: SpawnMode,
-    trigger?: MentionTrigger,
-  ) => Promise<PrepareResult>;
+    changeName: string,
+    trigger: QueueTrigger,
+    mention?: MentionTrigger,
+  ) => Promise<void>;
   /** Spawn the worker subprocess for `changeName`. */
   spawnWorker: (changeName: string, issue: LinearIssue) => WorkerHandle;
   /** Apply a SetIndicator (label add and/or status set) to the issue. */
@@ -206,7 +215,7 @@ export interface ActiveWorker {
   issueId: string;
   issueIdentifier: string;
   issue: LinearIssue;
-  mode: SpawnMode;
+  trigger: QueueTrigger;
   kill: () => void;
   /** Highest iteration count we've already posted a progress comment for. */
   lastReportedIteration: number;
@@ -416,7 +425,11 @@ export class AgentCoordinator {
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       if (await this.maybePromoteFinishedConflicted(issue)) continue;
-      this.queue.push({ issue, mode: "resume" });
+      this.queue.push({
+        issue,
+        trigger: "resume",
+        priority: defaultPriorityFor("resume"),
+      });
       queuedIds.add(issue.id);
       added += 1;
       this.deps.onLog(`  ↳ ${issue.identifier} queued (resume)`, "gray");
@@ -426,7 +439,11 @@ export class AgentCoordinator {
     for (const issue of conflicted) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
-      this.queue.push({ issue, mode: "conflict-fix" });
+      this.queue.push({
+        issue,
+        trigger: "conflict-fix",
+        priority: defaultPriorityFor("conflict-fix"),
+      });
       queuedIds.add(issue.id);
       added += 1;
       if (this.isAutoMergeUnblock(issue)) {
@@ -440,7 +457,11 @@ export class AgentCoordinator {
     for (const issue of review) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
-      this.queue.push({ issue, mode: "review" });
+      this.queue.push({
+        issue,
+        trigger: "review",
+        priority: defaultPriorityFor("review"),
+      });
       queuedIds.add(issue.id);
       added += 1;
       this.deps.onLog(`  ↳ ${issue.identifier} queued (review)`, "gray");
@@ -448,14 +469,19 @@ export class AgentCoordinator {
 
     // 3b. @ralphy mention triggers — Linear / GitHub comments newer than
     //     Ralph's last review-pickup ack. The trigger body becomes the task.
-    for (const { issue, trigger } of mentions) {
+    for (const { issue, trigger: mention } of mentions) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
-      this.queue.push({ issue, mode: "review", trigger });
+      this.queue.push({
+        issue,
+        trigger: "review",
+        priority: defaultPriorityFor("review"),
+        mention,
+      });
       queuedIds.add(issue.id);
       added += 1;
       this.deps.onLog(
-        `  ↳ ${issue.identifier} queued (review via ${trigger.source} mention)`,
+        `  ↳ ${issue.identifier} queued (review via ${mention.source} mention)`,
         "gray",
       );
     }
@@ -465,7 +491,11 @@ export class AgentCoordinator {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
-      this.queue.push({ issue, mode: "fresh" });
+      this.queue.push({
+        issue,
+        trigger: "fresh",
+        priority: defaultPriorityFor("fresh"),
+      });
       queuedIds.add(issue.id);
       added += 1;
       this.deps.onLog(`  ↳ ${issue.identifier} queued (fresh)`, "gray");
@@ -497,8 +527,8 @@ export class AgentCoordinator {
       buckets.awaiting;
     const flow: Record<string, Flow> = {};
     for (const w of this.workers) {
-      if (w.mode === "conflict-fix") flow[w.changeName] = "conflict-fix";
-      else if (w.mode === "review") flow[w.changeName] = "review";
+      if (w.trigger === "conflict-fix") flow[w.changeName] = "conflict-fix";
+      else if (w.trigger === "review") flow[w.changeName] = "review";
       else flow[w.changeName] = "working";
     }
     return { found, added, buckets, prStatus, phase: {}, flow };
@@ -773,7 +803,11 @@ export class AgentCoordinator {
           );
         }
       }
-      this.queue.push({ issue, mode: "conflict-fix" });
+      this.queue.push({
+        issue,
+        trigger: "conflict-fix",
+        priority: defaultPriorityFor("conflict-fix"),
+      });
     }
 
     this.spawnNext();
@@ -788,26 +822,29 @@ export class AgentCoordinator {
     ) {
       const next = this.queue.shift()!;
       this.pendingIds.add(next.issue.id);
-      void this.launchWorker(next.issue, next.mode, next.trigger);
+      void this.launchWorker(next.issue, next.trigger, next.mention);
     }
   }
 
   private async launchWorker(
     issue: LinearIssue,
-    mode: SpawnMode,
-    trigger?: MentionTrigger,
+    trigger: QueueTrigger,
+    mention?: MentionTrigger,
   ): Promise<void> {
     let prep: PrepareResult;
     try {
-      prep = await this.deps.prepare(issue, mode, trigger);
+      prep = await this.deps.prepare(issue);
+      if ((trigger === "conflict-fix" || trigger === "review") && this.deps.prepareTaskForTrigger) {
+        await this.deps.prepareTaskForTrigger(issue, prep.changeName, trigger, mention);
+      }
     } catch (err) {
       this.pendingIds.delete(issue.id);
       this.deps.onLog(
-        `! prepare(${mode}) failed for ${issue.identifier}: ${(err as Error).message}`,
+        `! prepare(${trigger}) failed for ${issue.identifier}: ${(err as Error).message}`,
         "red",
       );
       emitCapture(this.bus, "agent_prepare_failed", {
-        spawn_mode: mode,
+        spawn_mode: trigger,
         issue_identifier: issue.identifier,
         error: (err as Error).message,
       });
@@ -839,7 +876,7 @@ export class AgentCoordinator {
     // see the issue as still-todo. Skip for resume (already in progress).
     // Conflict-fix and review modes also apply it so the issue moves out
     // of its prior status (done/conflicted) immediately on pickup.
-    if (mode !== "resume" && this.opts.setInProgress) {
+    if (trigger !== "resume" && this.opts.setInProgress) {
       try {
         await this.deps.applyIndicator(issue, this.opts.setInProgress);
         this.deps.onLog(`  ${issue.identifier}: setInProgress applied`, "gray");
@@ -858,7 +895,7 @@ export class AgentCoordinator {
 
     // Review mode: remove the trigger label so the same comments don't
     // re-fire on the next poll. Best-effort.
-    if (mode === "review" && this.opts.clearReview) {
+    if (trigger === "review" && this.opts.clearReview) {
       try {
         await this.deps.removeIndicator(issue, this.opts.clearReview);
         this.deps.onLog(`  ${issue.identifier}: clearReview applied`, "gray");
@@ -875,11 +912,11 @@ export class AgentCoordinator {
       }
     }
 
-    if (mode === "review" && this.opts.postComments !== false) {
-      const sourceTag = trigger
-        ? trigger.source === "github"
+    if (trigger === "review" && this.opts.postComments !== false) {
+      const sourceTag = mention
+        ? mention.source === "github"
           ? " (GitHub @mention)"
-          : trigger.source === "github-review"
+          : mention.source === "github-review"
             ? " (GitHub code review)"
             : " (Linear @mention)"
         : "";
@@ -898,7 +935,7 @@ export class AgentCoordinator {
 
     // Post the "started" comment idempotently — only on fresh, and only if
     // we haven't already posted one (resume-detection via comment scan).
-    if (mode === "fresh" && this.opts.postComments !== false) {
+    if (trigger === "fresh" && this.opts.postComments !== false) {
       let alreadyPosted = false;
       try {
         const comments = await this.deps.fetchComments(issue.id);
@@ -926,8 +963,8 @@ export class AgentCoordinator {
     }
 
     this.deps.onLog(
-      `▶ ${issue.identifier} → ${prep.changeName} (${mode})`,
-      mode === "conflict-fix" ? "yellow" : "cyan",
+      `▶ ${issue.identifier} → ${prep.changeName} (${trigger})`,
+      trigger === "conflict-fix" ? "yellow" : "cyan",
     );
     const handle = this.deps.spawnWorker(prep.changeName, issue);
     const worker: ActiveWorker = {
@@ -935,7 +972,7 @@ export class AgentCoordinator {
       issueId: issue.id,
       issueIdentifier: issue.identifier,
       issue,
-      mode,
+      trigger,
       kill: handle.kill,
       lastReportedIteration: 0,
       lastSyncedIteration: 0,
@@ -953,7 +990,7 @@ export class AgentCoordinator {
       );
     }
     emitCapture(this.bus, "agent_worker_spawned", {
-      spawn_mode: mode,
+      spawn_mode: trigger,
       issue_identifier: issue.identifier,
     });
     this.deps.onWorkersChanged();
@@ -977,7 +1014,11 @@ export class AgentCoordinator {
         // the same issue as a resume so the next iteration picks up the
         // steering note we just appended.
         this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
-        this.queue.unshift({ issue, mode: "resume" });
+        this.queue.unshift({
+          issue,
+          trigger: "resume",
+          priority: defaultPriorityFor("resume"),
+        });
         this.deps.onWorkersChanged();
         this.spawnNext();
         return;
@@ -1001,12 +1042,12 @@ export class AgentCoordinator {
         ok ? "green" : "red",
       );
       emitCapture(this.bus, "agent_worker_exited", {
-        spawn_mode: mode,
+        spawn_mode: trigger,
         issue_identifier: issue.identifier,
         exit_code: code,
         ok,
       });
-      await this.notifyExited(issue, prep.changeName, code, mode);
+      await this.notifyExited(issue, prep.changeName, code, trigger);
       this.deps.onWorkersChanged();
       this.spawnNext();
     });
@@ -1081,7 +1122,7 @@ export class AgentCoordinator {
     issue: LinearIssue,
     changeName: string,
     code: number,
-    mode: SpawnMode,
+    trigger: QueueTrigger,
   ): Promise<void> {
     const ok = code === 0;
     if (this.deps.syncTasks && ok) {
@@ -1090,7 +1131,7 @@ export class AgentCoordinator {
         issueId: issue.id,
         issueIdentifier: issue.identifier,
         issue,
-        mode,
+        trigger,
         kill: () => {},
         lastReportedIteration: 0,
         lastSyncedIteration: 0,
@@ -1116,7 +1157,7 @@ export class AgentCoordinator {
     }
     if (this.opts.postComments !== false) {
       const body = ok
-        ? mode === "conflict-fix"
+        ? trigger === "conflict-fix"
           ? `✅ Ralph resolved merge conflicts on this issue. Change: \`${changeName}\``
           : `✅ Ralph completed work on this issue. Change: \`${changeName}\``
         : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
@@ -1137,7 +1178,7 @@ export class AgentCoordinator {
 
     if (ok) {
       // Conflict-fix success: clear the conflicted marker, leave setDone alone.
-      if (mode === "conflict-fix") {
+      if (trigger === "conflict-fix") {
         if (this.opts.clearConflicted) {
           try {
             await this.deps.removeIndicator(issue, this.opts.clearConflicted);

@@ -2,7 +2,7 @@ import { describe, expect, test, mock } from "bun:test";
 import {
   AgentCoordinator,
   type CoordinatorDeps,
-  type SpawnMode,
+  type QueueTrigger,
   type MentionTrigger,
 } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
@@ -86,9 +86,12 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     fetchReview: mock(async () => review),
     fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
-    prepare: mock(async (i: LinearIssue, _mode: SpawnMode, _trigger?: MentionTrigger) => ({
+    prepare: mock(async (i: LinearIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
+    prepareTaskForTrigger: mock(
+      async (_i: LinearIssue, _name: string, _t: QueueTrigger, _m?: MentionTrigger) => {},
+    ),
     spawnWorker: mock((changeName: string) => {
       let resolve!: (code: number) => void;
       const exited = new Promise<number>((r) => {
@@ -564,10 +567,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     const conflictedIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setConflicted([conflictedIssue]);
-    const observed: SpawnMode[] = [];
-    ctx.deps.prepare = async (i, mode) => {
-      observed.push(mode);
-      return { changeName: `change-${i.identifier.toLowerCase()}` };
+    const observed: QueueTrigger[] = [];
+    ctx.deps.prepare = async (i) => ({ changeName: `change-${i.identifier.toLowerCase()}` });
+    ctx.deps.prepareTaskForTrigger = async (_i, _name, trigger) => {
+      observed.push(trigger);
     };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
@@ -580,10 +583,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     const reviewIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setReview([reviewIssue]);
-    const observed: SpawnMode[] = [];
-    ctx.deps.prepare = async (i, mode) => {
-      observed.push(mode);
-      return { changeName: `change-${i.identifier.toLowerCase()}` };
+    const observed: QueueTrigger[] = [];
+    ctx.deps.prepare = async (i) => ({ changeName: `change-${i.identifier.toLowerCase()}` });
+    ctx.deps.prepareTaskForTrigger = async (_i, _name, trigger) => {
+      observed.push(trigger);
     };
     const clearReview: SetIndicator = { type: "label", value: "ralph:review" };
     const setInProgress: SetIndicator = { type: "status", value: "In Progress" };
@@ -615,16 +618,16 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
       url: "https://github.com/o/r/pull/1#issuecomment-123",
     };
     ctx.setMentions([{ issue: issueA, trigger }]);
-    const seen: { mode: SpawnMode; trigger?: MentionTrigger }[] = [];
-    ctx.deps.prepare = async (i, mode, t) => {
-      seen.push({ mode, ...(t ? { trigger: t } : {}) });
-      return { changeName: `change-${i.identifier.toLowerCase()}` };
+    const seen: { trigger: QueueTrigger; mention?: MentionTrigger }[] = [];
+    ctx.deps.prepare = async (i) => ({ changeName: `change-${i.identifier.toLowerCase()}` });
+    ctx.deps.prepareTaskForTrigger = async (_i, _name, t, m) => {
+      seen.push({ trigger: t, ...(m ? { mention: m } : {}) });
     };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
     await coord.pollOnce();
     await tick();
-    expect(seen).toContainEqual({ mode: "review", trigger });
+    expect(seen).toContainEqual({ trigger: "review", mention: trigger });
     expect(
       ctx.comments.some((c) => c.body.includes("GitHub @mention") && c.body.includes("picked up")),
     ).toBe(true);
