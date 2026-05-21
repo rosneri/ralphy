@@ -3,16 +3,16 @@ import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
 import { AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
 import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
-import { fsChange } from "../shared/capabilities/fs-change";
-import { git } from "../shared/capabilities/git";
-import { runCapability } from "../shared/capabilities/run-capability";
-import type { ParsedArgs } from "../cli";
-import type { RalphyConfig } from "./config";
-import { baseBranchFromLabels, fetchIssueComments, type LinearIssue } from "./linear";
-import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
-import type { GitRunner } from "./worktree";
-import type { PrepareResult, QueueTrigger, MentionTrigger } from "./coordinator";
-import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./wire-task-bodies";
+import { fsChange } from "../../shared/capabilities/fs-change";
+import { git } from "../../shared/capabilities/git";
+import { runCapability } from "../../shared/capabilities/run-capability";
+import type { ParsedArgs } from "../../cli";
+import type { RalphyConfig } from "../config";
+import { baseBranchFromLabels, fetchIssueComments, type LinearIssue } from "../linear";
+import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
+import type { GitRunner } from "../worktree";
+import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
+import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./task-bodies";
 
 export interface WireMaps {
   cwdByChange: Map<string, string>;

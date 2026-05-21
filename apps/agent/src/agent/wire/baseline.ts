@@ -1,16 +1,16 @@
-import type { ParsedArgs } from "../cli";
-import type { RalphyConfig } from "./config";
-import type { AgentCoordinator } from "./coordinator";
-import type { CmdRunner } from "./pr";
-import type { GitRunner } from "./worktree";
+import type { ParsedArgs } from "../../cli";
+import type { RalphyConfig } from "../config";
+import type { AgentCoordinator } from "../coordinator";
+import type { CmdRunner } from "../pr";
+import type { GitRunner } from "../worktree";
 import { resolveBaselineCommands } from "@ralphy/workflow";
-import { runBaselineGate } from "./baseline/gate";
+import { runBaselineGate } from "../baseline/gate";
 import {
   fetchTeamIdByKey,
   findOpenIssueByLabel,
   createIssue,
   updateIssueDescription,
-} from "./linear";
+} from "../linear";
 
 export interface BaselineInput {
   args: ParsedArgs;

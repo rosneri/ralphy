@@ -4,16 +4,16 @@ import {
   MISSION_TASKS_FILENAME,
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
-import type { ParsedArgs } from "../cli";
-import type { RalphyConfig } from "./config";
-import type { AgentCoordinator, PostTaskPhase } from "./coordinator";
-import type { CmdRunner } from "./pr";
-import type { GitRunner } from "./worktree";
-import { issueMatchesGetIndicator, type LinearIssue } from "./linear";
-import { runPostTask } from "./post-task";
-import { defaultSpawn } from "./wire-spawn";
-import { traceCmdRunner, type AgentRunners } from "./wire-runners";
-import { resolveDependencyBaseBranchImpl } from "./wire-pr-helpers";
+import type { ParsedArgs } from "../../../cli";
+import type { RalphyConfig } from "../../config";
+import type { AgentCoordinator } from "../../coordinator";
+import type { CmdRunner } from "../../pr";
+import type { GitRunner } from "../../worktree";
+import { issueMatchesGetIndicator, type LinearIssue } from "../../linear";
+import { runPostTask, type PostTaskPhase } from "../../post-task";
+import { defaultSpawn } from "./default";
+import { traceCmdRunner, type AgentRunners } from "../runners";
+import { resolveDependencyBaseBranchImpl } from "../pr-helpers";
 import type { Indicators } from "@ralphy/types";
 
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";

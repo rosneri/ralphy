@@ -1,4 +1,4 @@
-import type { MentionTrigger } from "./coordinator";
+import type { MentionTrigger } from "../coordinator";
 
 /** True when a Linear comment body was authored by Ralph itself. Match by
  *  the distinctive emoji-prefixed lead used in every comment ralph posts;

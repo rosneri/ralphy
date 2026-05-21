@@ -1,6 +1,6 @@
 import type { CmdRunner } from "../../agent/pr";
 import { formatLinearError } from "../../agent/linear";
-import { githubReactionSlug } from "../../agent/wire-task-bodies";
+import { githubReactionSlug } from "../../agent/wire/task-bodies";
 
 /** Post a reaction to a GitHub comment via `gh api`. */
 export async function addGithubReactionToComment(

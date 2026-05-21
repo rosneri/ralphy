@@ -1,21 +1,21 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
-import type { ParsedArgs } from "../cli";
-import type { RalphyConfig } from "./config";
-import type { CmdRunner } from "./pr";
-import type { MentionTrigger } from "./coordinator";
+import type { ParsedArgs } from "../../cli";
+import type { RalphyConfig } from "../config";
+import type { CmdRunner } from "../pr";
+import type { MentionTrigger } from "../coordinator";
 import {
   fetchMentionScanIssues,
   addReactionToComment,
   formatLinearError,
   isRateLimitedError,
   type LinearIssue,
-} from "./linear";
-import { changeNameForIssue } from "./scaffold";
-import { scanCodeReview } from "../features/review-followup/scan";
-import { addGithubReactionToComment, fetchPrIssueComments } from "../features/mention/github";
-import { isRalphComment, containsHandle, findLastRalphPickupISO } from "./wire-task-bodies";
+} from "../linear";
+import { changeNameForIssue } from "../scaffold";
+import { scanCodeReview } from "../../features/review-followup/scan";
+import { addGithubReactionToComment, fetchPrIssueComments } from "../../features/mention/github";
+import { isRalphComment, containsHandle, findLastRalphPickupISO } from "./task-bodies";
 import type { Indicators } from "@ralphy/types";
 
 export interface MentionScanInput {

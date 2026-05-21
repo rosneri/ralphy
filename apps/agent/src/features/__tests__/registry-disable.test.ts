@@ -37,7 +37,7 @@ describe("selectRegistry", () => {
     bus.on("*", (e) => events.push(e));
     const capsNoGh: Capabilities = {
       ...FULL_CAPS,
-      gh: null as unknown,
+      gh: null,
     };
     const active = selectRegistry(registry, capsNoGh, bus);
     const activeIds = active.map((f) => f.id);
@@ -70,7 +70,7 @@ describe("selectRegistry", () => {
     bus.on("*", (e) => events.push(e));
     const capsNoLinear: Capabilities = {
       ...FULL_CAPS,
-      linear: null as unknown,
+      linear: null,
     };
     const active = selectRegistry(registry, capsNoLinear, bus);
     const activeIds = active.map((f) => f.id);

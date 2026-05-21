@@ -1,5 +1,5 @@
-import { fetchAttachmentsForIssues, type LinearIssue } from "./linear";
-import type { CmdRunner } from "./pr";
+import { fetchAttachmentsForIssues, type LinearIssue } from "../linear";
+import type { CmdRunner } from "../pr";
 
 const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 

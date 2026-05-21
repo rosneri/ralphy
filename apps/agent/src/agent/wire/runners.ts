@@ -1,5 +1,5 @@
-import type { CmdRunner } from "./pr";
-import type { GitRunner } from "./worktree";
+import type { CmdRunner } from "../pr";
+import type { GitRunner } from "../worktree";
 
 export const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {

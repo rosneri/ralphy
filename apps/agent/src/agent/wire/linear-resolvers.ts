@@ -14,7 +14,7 @@ import {
   removeLabelFromIssue,
   type LinearIssue,
   type LinearFilterSpec,
-} from "./linear";
+} from "../linear";
 
 export interface LinearResolversInput {
   apiKey: string;

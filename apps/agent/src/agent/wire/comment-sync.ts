@@ -1,12 +1,12 @@
 import { projectLayout } from "@ralphy/core/layout";
-import type { RalphyConfig } from "./config";
+import type { RalphyConfig } from "../config";
 import {
   postOrUpdateTasksComment,
   postPlanCommentOnce,
   postSteeringAndRefreshTasks,
   type CommentMutations,
-} from "./linear-sync/comment-sync";
-import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
+} from "../linear-sync/comment-sync";
+import { syncSpecAttachments, type SpecAttachmentMutations } from "../linear-sync/spec-attachments";
 import {
   createIssueComment,
   updateIssueComment,
@@ -16,7 +16,7 @@ import {
   deleteAttachment,
   findIssueAttachmentByTitle,
   type LinearIssue,
-} from "./linear";
+} from "../linear";
 
 export interface CommentSyncInput {
   apiKey: string;
