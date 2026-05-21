@@ -77,6 +77,16 @@ describe("router precedence table", () => {
     expect(last.flowId).toBe("idle");
     expect(last.when(sig({}))).toBe(true);
   });
+  it("awaiting-confirmation: mention=revise wins over prStatus=conflicting in same poll", () => {
+    const result = route(sig({ awaiting: "awaiting", mention: "revise", prStatus: "conflicting" }));
+    expect(result.flowId).toBe("confirmation");
+    expect(result.flowId).not.toBe("conflict-fix");
+  });
+  it("awaiting-confirmation: conflict signal is serviced after the gate clears", () => {
+    expect(route(sig({ awaiting: "none", mention: "none", prStatus: "conflicting" })).flowId).toBe(
+      "conflict-fix",
+    );
+  });
   it("propagates boost band onto the assignment", () => {
     expect(route(sig({ boost: "p0", awaiting: "awaiting" })).boost).toBe("p0");
     expect(route(sig({ boost: "p3" })).boost).toBe("p3");
