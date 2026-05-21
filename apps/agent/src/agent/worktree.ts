@@ -62,6 +62,7 @@ export async function createWorktree(
   // If the worktree directory already exists in git's worktree list, reuse it.
   const list = await runner.run(["worktree", "list", "--porcelain"], projectRoot);
   if (list.stdout.includes(`worktree ${cwd}\n`)) {
+    await installPrePushHook(cwd, runner);
     return { cwd, branch };
   }
 
@@ -75,12 +76,59 @@ export async function createWorktree(
 
   if (branchExists) {
     await runner.run(["worktree", "add", cwd, branch], projectRoot);
+    await installPrePushHook(cwd, runner);
     return { cwd, branch };
   }
 
   await runner.run(["fetch", "origin", baseBranch], projectRoot);
   await runner.run(["worktree", "add", "-b", branch, cwd, `origin/${baseBranch}`], projectRoot);
+  await installPrePushHook(cwd, runner);
   return { cwd, branch };
+}
+
+/**
+ * Hook script body installed into each worktree's `.ralph-hooks/pre-push`.
+ *
+ * Reads git's per-push stdin (`<local ref> <local sha> <remote ref> <remote sha>`)
+ * and rejects pushes that target anything other than `refs/heads/ralph/*`,
+ * and rejects force pushes unless `RALPH_ALLOW_FORCE_PUSH=1` is set.
+ */
+export const PRE_PUSH_HOOK_SCRIPT = `#!/usr/bin/env bash
+# Installed by ralphy createWorktree (RLF-107).
+# Rejects any push whose remote ref is not refs/heads/ralph/*,
+# and rejects force pushes unless RALPH_ALLOW_FORCE_PUSH=1.
+set -euo pipefail
+ZERO="0000000000000000000000000000000000000000"
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/ralph/*) ;;
+    *) echo "ralph: refusing push to $remote_ref (only refs/heads/ralph/* allowed)" >&2; exit 1 ;;
+  esac
+  if [ "$remote_sha" != "$ZERO" ] && [ "\${RALPH_ALLOW_FORCE_PUSH:-0}" != "1" ]; then
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      echo "ralph: refusing force-push to $remote_ref (set RALPH_ALLOW_FORCE_PUSH=1 to override)" >&2
+      exit 1
+    fi
+  fi
+done
+exit 0
+`;
+
+/**
+ * Install the per-worktree pre-push hook that constrains worker subprocesses
+ * to pushing only `refs/heads/ralph/*` and (by default) non-force pushes.
+ *
+ * Idempotent: overwrites any existing file with the canonical script, marks
+ * it executable, and points the worktree's `core.hooksPath` at the directory.
+ * Called from every return path of `createWorktree` so that resumed worktrees
+ * pick up the hook on the next iteration.
+ */
+export async function installPrePushHook(cwd: string, runner: GitRunner): Promise<void> {
+  const hookPath = join(cwd, ".ralph-hooks", "pre-push");
+  await Bun.write(hookPath, PRE_PUSH_HOOK_SCRIPT);
+  const chmod = Bun.spawn(["chmod", "+x", hookPath]);
+  await chmod.exited;
+  await runner.run(["config", "core.hooksPath", ".ralph-hooks"], cwd);
 }
 
 /**
