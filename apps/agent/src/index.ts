@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot } from "@ralphy/paths";
-import { parseArgs, printHelp } from "./cli";
+import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { AgentMode } from "./components/AgentMode";
 
 export async function main(argv: string[]): Promise<number> {
@@ -14,7 +14,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  let args;
+  let args: ParsedArgs;
   try {
     args = await parseArgs(argv);
   } catch (err) {
