@@ -18,3 +18,12 @@
 - [x] Run `bun run lint` and fix any new lint findings introduced by the diagnostic logs or the try/catch wrapper.
 - [x] Run `bun run test` and fix any regressions. Confirm both new test cases pass and the existing `awaiting-confirmation.test.ts` and `poll-confirmation-claimed.test.ts` suites stay green.
 - [x] Commit each implementation step in its own commit (staged with explicit paths — no `git add -A`). Push the branch, open the PR using the exact change-name as title.
+
+## Manual Testing
+
+- [x] `bunx openspec validate rlf-118-confirmation-gate-respawn-loop-still-rep` passes (proposal/design/spec delta well-formed).
+- [x] In `apps/agent/src/features/confirmation/awaiting.ts`, every `return false` site is preceded by a matching `confirmation detect released — <branch>` log line (`disabled`, `gate-cleared`, `tasks-empty`, `outcome=approved`, `outcome=revised`).
+- [x] In `apps/agent/src/features/confirmation/awaiting.ts`, the body of `processAwaitingForIssue` is wrapped in a top-level `try { ... } catch { log; return true }` so thrown errors keep the claim.
+- [x] `bun run --filter @ralphy/agent test apps/agent/src/features/confirmation/__tests__/awaiting.test.ts` runs green (both new cases: resume-preserves-claim and throw-preserves-claim).
+- [x] `bash scripts/check-no-unsafe-casts.sh` passes — no new `as any` / `as unknown` introduced by the test additions.
+- [x] `bun run lint` is clean on the changed files.
