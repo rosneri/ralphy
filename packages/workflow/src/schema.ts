@@ -37,12 +37,19 @@ const IndicatorsSchema = z.preprocess(
       setDone: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setConflicted: SetIndicatorSchema.optional(),
+      setAwaitingConfirmation: SetIndicatorSchema.optional(),
       clearConflicted: SetIndicatorSchema.optional(),
       clearReview: SetIndicatorSchema.optional(),
       clearApproved: SetIndicatorSchema.optional(),
+      clearAwaitingConfirmation: SetIndicatorSchema.optional(),
     })
     .superRefine((value, ctx) => {
-      for (const key of ["clearConflicted", "clearReview", "clearApproved"] as const) {
+      for (const key of [
+        "clearConflicted",
+        "clearReview",
+        "clearApproved",
+        "clearAwaitingConfirmation",
+      ] as const) {
         const clear = value[key];
         if (!clear) continue;
         const markers = Array.isArray(clear) ? clear : [clear];

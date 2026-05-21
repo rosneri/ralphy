@@ -10,12 +10,23 @@ mock.module("node:os", () => ({
   ...nodeOs,
   homedir: () => FAKE_HOME,
 }));
+const commentBodies: string[] = [];
+const reactedComments: Array<{ id: string; emoji: string }> = [];
+mock.module("../../../agent/linear", () => ({
+  addIssueComment: async (_apiKey: string, _id: string, body: string) => {
+    commentBodies.push(body);
+  },
+  addReactionToComment: async (_apiKey: string, id: string, emoji: string) => {
+    reactedComments.push({ id, emoji });
+  },
+  fetchIssueComments: async () => [],
+}));
 import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
 import type { LinearIssue } from "../../../agent/linear";
 import type { RalphyConfig } from "../../../agent/config";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
-import type { Indicators } from "@ralphy/types";
+import type { Indicators, SetIndicator } from "@ralphy/types";
 
 function makeIssue(): LinearIssue {
   return {
@@ -170,6 +181,290 @@ describe("processAwaitingForIssue", () => {
       expect(result).toBe(true);
       expect(captured.awaitingChangeSet.has(changeName)).toBe(true);
       expect(captured.reaped).toContain(changeName);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("setAwaitingConfirmation fires once across multiple polls", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-setmarker-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+      expect(applied.length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clearAwaitingConfirmation fires on gate-cleared release", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-clear-gate-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        clearAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      // Poll 1 — gate active, marker applied.
+      await processAwaitingForIssue(issue, deps);
+      // Disable confirmation mode → gate clears next poll.
+      deps.cfg.linear.confirmationMode.optOutLabel = "ralph:auto-approve";
+      issue.labels = ["ralph:auto-approve"];
+      await processAwaitingForIssue(issue, deps);
+      expect(applied.length).toBe(2);
+      expect(applied[1]).toEqual({ type: "label", value: "ralph:awaiting-confirmation" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clearAwaitingConfirmation fires on tasks-empty release", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-clear-tasks-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        clearAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      await processAwaitingForIssue(issue, deps);
+      // Tasks file emptied.
+      await Bun.write(
+        join(dir, "openspec", "changes", changeName, "tasks.md"),
+        "# Tasks\n\n_done_\n",
+      );
+      await processAwaitingForIssue(issue, deps);
+      expect(applied.length).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clearAwaitingConfirmation fires on stub-artifact release", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-clear-stub-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        clearAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      await processAwaitingForIssue(issue, deps);
+      // Restub design.md so isStubArtifact returns true.
+      await Bun.write(
+        join(dir, "openspec", "changes", changeName, "design.md"),
+        `# Design for ${changeName}\n\n_Fill in the technical design as you work through the issue._\n`,
+      );
+      await processAwaitingForIssue(issue, deps);
+      expect(applied.length).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clearAwaitingConfirmation fires on approve outcome", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-clear-approve-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        clearAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: {
+          ...deps.cfg.linear,
+          indicators: deps.indicators,
+        },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      // First poll: gate active, marker applied.
+      await processAwaitingForIssue(issue, deps);
+      // Second poll: ticket now has approval label → approved outcome.
+      issue.labels = ["ralph:approved"];
+      await processAwaitingForIssue(issue, deps);
+      // Expect at least one clearAwaitingConfirmation indicator applied.
+      const clears = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "label" && a.value === "ralph:awaiting-confirmation",
+      );
+      expect(clears.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("plan-ready comment body includes configured marker AND revise syntax", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      // Seed without askedAt so postPlanReadyCommentOnce actually posts.
+      const changeDir = join(dir, "openspec", "changes", changeName);
+      const stateDir = join(dir, ".ralph", "tasks", changeName);
+      await mkdir(changeDir, { recursive: true });
+      await mkdir(stateDir, { recursive: true });
+      await Bun.write(
+        join(changeDir, "tasks.md"),
+        "# Tasks\n\n## Implementation\n\n- [ ] do the thing\n",
+      );
+      await Bun.write(
+        join(changeDir, "proposal.md"),
+        "# Proposal\n\n## Why\n\nyes.\n\n## What Changes\n\n- do\n",
+      );
+      await Bun.write(
+        join(changeDir, "design.md"),
+        "# Design\n\nWe will do the thing in a sufficiently-long sentence.\n",
+      );
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg = {
+        ...deps.cfg,
+        linear: {
+          ...deps.cfg.linear,
+          postComments: true,
+          indicators: {
+            getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+          },
+        },
+      };
+
+      commentBodies.length = 0;
+      await processAwaitingForIssue(issue, deps);
+      const planBody = commentBodies.find((b) => b.includes("📋 Ralphy plan ready"));
+      expect(planBody).toBeDefined();
+      expect(planBody!).toContain("ralph:approved");
+      expect(planBody!).toContain("@ralphy revise:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("plan-ready comment falls back to generic sentence when getApproved is unset", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-fallback-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      const changeDir = join(dir, "openspec", "changes", changeName);
+      const stateDir = join(dir, ".ralph", "tasks", changeName);
+      await mkdir(changeDir, { recursive: true });
+      await mkdir(stateDir, { recursive: true });
+      await Bun.write(
+        join(changeDir, "tasks.md"),
+        "# Tasks\n\n## Implementation\n\n- [ ] do the thing\n",
+      );
+      await Bun.write(
+        join(changeDir, "proposal.md"),
+        "# Proposal\n\n## Why\n\nyes.\n\n## What Changes\n\n- do\n",
+      );
+      await Bun.write(
+        join(changeDir, "design.md"),
+        "# Design\n\nWe will do the thing in a sufficiently-long sentence.\n",
+      );
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg = {
+        ...deps.cfg,
+        linear: { ...deps.cfg.linear, postComments: true, indicators: {} },
+      };
+
+      commentBodies.length = 0;
+      await processAwaitingForIssue(issue, deps);
+      const planBody = commentBodies.find((b) => b.includes("📋 Ralphy plan ready"));
+      expect(planBody).toBeDefined();
+      expect(planBody!).toContain("ask your operator to approve");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

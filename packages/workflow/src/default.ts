@@ -209,6 +209,14 @@ linear:
     # clearApproved:
     #   type: label
     #   value: "ralph:approved"
+    # # Optional: surface the parked state on the ticket itself. Applied
+    # # once on gate-entry; removed on every release path.
+    # setAwaitingConfirmation:
+    #   type: label
+    #   value: "ralph:awaiting-confirmation"
+    # clearAwaitingConfirmation:
+    #   type: label
+    #   value: "ralph:awaiting-confirmation"
     #
     # ── Auto-merge (opt-in) ──────────────
     # getAutoMerge:
