@@ -1,3 +1,49 @@
+## Fix failing CI checks (2026-05-21T12:21:36.173Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26225484145 ---
+ci Test affected files + coverage ﻿2026-05-21T12:20:30.1079548Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-21T12:20:30.1079976Z ^[[36;1mbun run test:affected-files:coverage:ci^[[0m
+ci Test affected files + coverage 2026-05-21T12:20:30.1113598Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-21T12:20:30.1113865Z env:
+ci Test affected files + coverage 2026-05-21T12:20:30.1114104Z NX_BASE: de955a8c761676679a833cc94c829a432cb2ff54
+ci Test affected files + coverage 2026-05-21T12:20:30.1114456Z NX_HEAD: 630dd90747514aaa1662481f88f5b182d16597b5
+ci Test affected files + coverage 2026-05-21T12:20:30.1114748Z ##[endgroup]
+ci Test affected files + coverage 2026-05-21T12:20:30.1190753Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-21T12:20:30.1432070Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-21T12:20:30.1432561Z
+ci Test affected files + coverage 2026-05-21T12:20:31.3207687Z agent: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-21T12:20:31.3208292Z apps/agent/src/**tests**/non-tty-fallback.test.ts
+ci Test affected files + coverage 2026-05-21T12:20:31.3208564Z
+ci Test affected files + coverage 2026-05-21T12:20:31.3222740Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-21T12:20:31.3434809Z
+ci Test affected files + coverage 2026-05-21T12:20:31.3435827Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-21T12:20:31.3612979Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.98ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3618481Z (pass) inspectAwaitingTicket — revise path > appends steering, restarts design, bumps rounds, resets confirmedAt [0.62ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3622152Z (pass) inspectAwaitingTicket — revise path > ignores revise mention inside backticks (e.g. our own plan-ready template) [0.28ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3624350Z (pass) inspectAwaitingTicket — revise path > ignores revise comments at or before lastReviseConsumedAt watermark [0.19ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3627323Z (pass) inspectAwaitingTicket — reminder cadence > posts reminder once timeoutHours elapsed, persists lastReminderAt [0.33ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3629675Z (pass) inspectAwaitingTicket — reminder cadence > does not re-post reminder before timeoutHours have elapsed since lastReminderAt [0.22ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3636818Z (pass) readConfirmationState / writeConfirmationState > returns defaults when state file is absent [0.70ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3645296Z (pass) readConfirmationState / writeConfirmationState > round-trips confirmation through write + read [0.86ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3650829Z (pass) readConfirmationState / writeConfirmationState > recovers from malformed json by returning defaults [0.54ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3658102Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign rewrites design.md and stubs tasks.md when present [0.72ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3662087Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign leaves tasks.md absent if it never existed [0.36ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3674027Z (pass) restartFromDesign / appendSteeringNote > appendSteeringNote prepends to existing file and creates it otherwise [1.17ms]
+ci Test affected files + coverage 2026-05-21T12:20:31.3687832Z (pass) inspectAwaitingTicket — error handlers are non-fatal > clearApproved + appendSteering + restartFromDesign + reactToComment + postComment failures do not throw [1.26ms]
+ci Test affected files + coverage 2026-05-21T12:
+…[truncated 270453 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-21T12:03:59.281Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

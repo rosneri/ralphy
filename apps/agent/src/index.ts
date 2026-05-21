@@ -7,13 +7,7 @@ import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot } from "@ralphy/paths";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { AgentMode } from "./components/AgentMode";
-
-export function shouldFallbackToJsonOutput(
-  args: Pick<ParsedArgs, "jsonOutput">,
-  stdinIsTty: boolean | undefined,
-): boolean {
-  return !args.jsonOutput && stdinIsTty !== true;
-}
+import { shouldFallbackToJsonOutput } from "./non-tty-fallback";
 
 export async function main(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {

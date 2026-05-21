@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldFallbackToJsonOutput } from "../index";
+import { shouldFallbackToJsonOutput } from "../non-tty-fallback";
 
 describe("shouldFallbackToJsonOutput", () => {
   test("returns true when stdin is not a TTY and --json-output not set", () => {
