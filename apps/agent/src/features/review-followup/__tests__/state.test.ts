@@ -1,16 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { Bus, EmitInput } from "@ralphy/events";
+import type { EmitInput } from "@ralphy/events";
 import type { StateStore } from "../../types";
 import { advanceWatermarkIfNewer, writeWatermark } from "../state";
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
-}
+import { recordingBus } from "../../../__test-utils__/recording-bus";
 
 function recordingState(): {
   state: StateStore;
@@ -55,7 +47,7 @@ describe("review-followup/state", () => {
         outcome: "watermark-advanced",
         from: "2026-05-15T10:00:00Z",
         to: "2026-05-15T12:00:00Z",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -77,7 +69,7 @@ describe("review-followup/state", () => {
         type: "feature.review-followup.completed",
         outcome: "watermark-advanced",
         to: "2026-05-15T12:00:00Z",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -97,7 +89,7 @@ describe("review-followup/state", () => {
         type: "feature.review-followup.skipped",
         reason: "watermark-unchanged",
         at: "2026-05-15T10:00:00Z",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -117,7 +109,7 @@ describe("review-followup/state", () => {
         type: "feature.review-followup.skipped",
         reason: "watermark-unchanged",
         at: "2026-05-15T10:00:00Z",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 });

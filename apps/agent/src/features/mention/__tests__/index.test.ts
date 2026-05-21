@@ -1,18 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
 import { resolve } from "node:path";
-import type { Bus, EmitInput } from "@ralphy/events";
+import type { EmitInput } from "@ralphy/events";
 import { mentionFeature, emitMentionReviseComment, emitMentionSkipped } from "../index";
-import type { FeatureCtx } from "../../types";
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
-}
+import { recordingBus, makeBareCtx } from "../../../__test-utils__/recording-bus";
 
 describe("mention feature", () => {
   test("descriptor: id, ownedSlot null (slice never owns a state slot)", () => {
@@ -21,12 +12,12 @@ describe("mention feature", () => {
   });
 
   test("detect returns null — slice never claims the per-poll walk", async () => {
-    const ctx = {} as unknown as FeatureCtx;
+    const ctx = makeBareCtx();
     expect(await mentionFeature.detect(ctx)).toBeNull();
   });
 
   test("run is a no-op (resolves without touching ctx)", async () => {
-    const ctx = {} as unknown as FeatureCtx;
+    const ctx = makeBareCtx();
     await expect(mentionFeature.run(ctx, { reason: "n/a" })).resolves.toBeUndefined();
   });
 
@@ -45,7 +36,7 @@ describe("mention feature", () => {
         source: "linear",
         at: "2026-05-15T10:00:00Z",
         body: "@ralphy please revise",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 

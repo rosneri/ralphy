@@ -3,6 +3,7 @@ import type { Bus, EmitInput } from "@ralphy/events";
 import type { LinearIssue } from "../../../agent/linear";
 import type { FeatureCtx, TaskResult } from "../../types";
 import { ciFixPostTask } from "../postTask";
+import { recordingBus } from "../../../__test-utils__/recording-bus";
 
 const FAKE_ISSUE: LinearIssue = {
   id: "issue-1",
@@ -18,15 +19,6 @@ const FAKE_ISSUE: LinearIssue = {
   project: null,
   labels: [],
 };
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
-}
 
 interface CtxOverrides {
   ciFix?: { getCiStatus: () => Promise<"pass" | "fail" | "pending" | "unknown"> };
@@ -110,7 +102,7 @@ describe("ci-fix/postTask — CI verification only", () => {
       {
         type: "feature.ci-fix.completed",
         outcome: "pass",
-      } as unknown as EmitInput,
+      },
     ]);
     expect(writes).toEqual([
       { path: "ci.lastCheckedAt", value: "2026-05-21T00:00:00.000Z" },
@@ -128,7 +120,7 @@ describe("ci-fix/postTask — CI verification only", () => {
       {
         type: "feature.ci-fix.failed",
         error: "ci-failing",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -142,7 +134,7 @@ describe("ci-fix/postTask — CI verification only", () => {
       {
         type: "feature.ci-fix.completed",
         outcome: "pending",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -156,7 +148,7 @@ describe("ci-fix/postTask — CI verification only", () => {
       {
         type: "feature.ci-fix.completed",
         outcome: "unknown",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -177,7 +169,7 @@ describe("ci-fix/postTask — CI verification only", () => {
       {
         type: "feature.ci-fix.completed",
         outcome: "pass",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 });

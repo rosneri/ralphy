@@ -1,25 +1,21 @@
-import type { Bus, EmitInput } from "@ralphy/events";
+import type { Bus } from "@ralphy/events";
 
 /** Thin typed helpers around `bus.emit` for `feature.confirmation.*`
  *  events. Keeps the slice's emit surface consolidated so adding a new
  *  phase (or renaming an existing one) is a one-line change. */
 
-function emit(bus: Bus, type: string, payload: Record<string, unknown> = {}): void {
-  bus.emit({ type, ...payload } as unknown as EmitInput);
-}
-
 export function emitDetected(bus: Bus, reason: string): void {
-  emit(bus, "feature.confirmation.detected", { reason });
+  bus.emit({ type: "feature.confirmation.detected", reason });
 }
 
 export function emitSkipped(bus: Bus, reason: string): void {
-  emit(bus, "feature.confirmation.skipped", { reason });
+  bus.emit({ type: "feature.confirmation.skipped", reason });
 }
 
 export function emitCompleted(bus: Bus, outcome: string): void {
-  emit(bus, "feature.confirmation.completed", { outcome });
+  bus.emit({ type: "feature.confirmation.completed", outcome });
 }
 
 export function emitFailed(bus: Bus, error: string): void {
-  emit(bus, "feature.confirmation.failed", { error });
+  bus.emit({ type: "feature.confirmation.failed", error });
 }

@@ -3,6 +3,7 @@ import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import type { Bus, EmitInput } from "@ralphy/events";
 import type { FeatureCtx } from "../features/types";
+import { recordingBus } from "../__test-utils__/recording-bus";
 
 function issue(id: string, identifier: string): LinearIssue {
   return {
@@ -19,15 +20,6 @@ function issue(id: string, identifier: string): LinearIssue {
     createdAt: "2026-01-01T00:00:00.000Z",
     blockedByIds: [],
   };
-}
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
 }
 
 function baseDeps(inProgress: LinearIssue[], bus: Bus): CoordinatorDeps {

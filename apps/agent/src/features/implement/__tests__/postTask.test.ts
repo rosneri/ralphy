@@ -3,6 +3,7 @@ import type { Bus, EmitInput } from "@ralphy/events";
 import type { LinearIssue } from "../../../agent/linear";
 import type { FeatureCtx, TaskResult } from "../../types";
 import { implementPostTask } from "../postTask";
+import { recordingBus } from "../../../__test-utils__/recording-bus";
 
 const FAKE_ISSUE: LinearIssue = {
   id: "issue-1",
@@ -18,15 +19,6 @@ const FAKE_ISSUE: LinearIssue = {
   project: null,
   labels: [],
 };
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
-}
 
 interface CtxOverrides {
   implement?: { getPrUrl: () => Promise<string | null> };
@@ -112,7 +104,7 @@ describe("implement/postTask — PR URL verification only", () => {
         type: "feature.implement.completed",
         outcome: "opened",
         prUrl: url,
-      } as unknown as EmitInput,
+      },
     ]);
     expect(writes).toEqual([
       { path: "pr.url", value: url },
@@ -132,7 +124,7 @@ describe("implement/postTask — PR URL verification only", () => {
       {
         type: "feature.implement.failed",
         error: "no-pr",
-      } as unknown as EmitInput,
+      },
     ]);
     expect(writes).toEqual([]);
   });
@@ -155,7 +147,7 @@ describe("implement/postTask — PR URL verification only", () => {
         type: "feature.implement.completed",
         outcome: "opened",
         prUrl: "https://github.com/o/r/pull/3",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 });

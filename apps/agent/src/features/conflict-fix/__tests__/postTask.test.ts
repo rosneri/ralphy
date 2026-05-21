@@ -3,6 +3,7 @@ import type { Bus, EmitInput } from "@ralphy/events";
 import type { LinearIssue } from "../../../agent/linear";
 import type { FeatureCtx, TaskResult } from "../../types";
 import { conflictFixPostTask } from "../postTask";
+import { recordingBus } from "../../../__test-utils__/recording-bus";
 
 const FAKE_ISSUE: LinearIssue = {
   id: "issue-1",
@@ -18,15 +19,6 @@ const FAKE_ISSUE: LinearIssue = {
   project: null,
   labels: [],
 };
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
-}
 
 function makeCtx(
   bus: Bus,
@@ -98,7 +90,7 @@ describe("conflict-fix/postTask — mergeability verification only", () => {
       {
         type: "feature.conflict-fix.completed",
         outcome: "mergeable",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -112,7 +104,7 @@ describe("conflict-fix/postTask — mergeability verification only", () => {
       {
         type: "feature.conflict-fix.failed",
         error: "pr-conflicting",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 
@@ -126,7 +118,7 @@ describe("conflict-fix/postTask — mergeability verification only", () => {
       {
         type: "feature.conflict-fix.completed",
         outcome: "unknown",
-      } as unknown as EmitInput,
+      },
     ]);
   });
 });

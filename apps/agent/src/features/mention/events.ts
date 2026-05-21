@@ -1,4 +1,4 @@
-import type { Bus, EmitInput } from "@ralphy/events";
+import type { Bus } from "@ralphy/events";
 
 /** Thin typed helpers around `bus.emit` for `feature.mention.*` events.
  *
@@ -9,10 +9,6 @@ import type { Bus, EmitInput } from "@ralphy/events";
  *  confirmation slice consumes to drive its own state writes. Centralizing
  *  the emit here keeps the cross-feature seam grep-able and the boundary
  *  test enforceable. */
-
-function emit(bus: Bus, type: string, payload: Record<string, unknown> = {}): void {
-  bus.emit({ type, ...payload } as unknown as EmitInput);
-}
 
 export interface MentionReviseCommentPayload {
   /** Linear issue identifier (e.g. "RLF-99") the mention was found on. */
@@ -29,9 +25,9 @@ export interface MentionReviseCommentPayload {
  *  revise. Carries enough payload for the consumer to act without
  *  reaching back into the mention slice's source. */
 export function emitMentionReviseComment(bus: Bus, payload: MentionReviseCommentPayload): void {
-  emit(bus, "feature.mention.reviseComment", payload);
+  bus.emit({ type: "feature.mention.reviseComment", ...payload });
 }
 
 export function emitMentionSkipped(bus: Bus, reason: string): void {
-  emit(bus, "feature.mention.skipped", { reason });
+  bus.emit({ type: "feature.mention.skipped", reason });
 }

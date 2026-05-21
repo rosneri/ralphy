@@ -9,6 +9,7 @@ import type { LinearIssue } from "../agent/linear";
 import type { Bus, EmitInput } from "@ralphy/events";
 import type { FeatureCtx } from "../features/types";
 import { registry } from "../features/registry";
+import { recordingBus } from "../__test-utils__/recording-bus";
 
 const FAKE_ISSUE: LinearIssue = {
   id: "issue-1",
@@ -24,15 +25,6 @@ const FAKE_ISSUE: LinearIssue = {
   project: null,
   labels: [],
 };
-
-function recordingBus(events: EmitInput[]): Bus {
-  return {
-    emit: (e: EmitInput) => {
-      events.push(e);
-    },
-    subscribe: () => () => {},
-  } as unknown as Bus;
-}
 
 function makeCmd(): CmdRunner {
   return {
