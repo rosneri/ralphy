@@ -109,6 +109,8 @@ export function describeApprovalMarker(indicator: GetIndicatorLike | undefined):
         return `move the issue into project \`${m.value}\``;
       case "attachment":
         return `attach a \`${m.value}\``;
+      case "comment":
+        return `post a comment containing \`${m.value}\``;
     }
   });
   if (phrases.length === 1) return phrases[0]!;
