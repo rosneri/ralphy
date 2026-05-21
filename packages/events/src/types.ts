@@ -274,6 +274,22 @@ export type RalphEvent =
       ts: number;
       [k: string]: unknown;
     }
+  // --- runtime split (RLF-95 Stage 6) ---
+  //
+  // Emitted by `apps/agent/src/runtime/{flow-runner,shutdown}.ts`. The
+  // payloads are intentionally open (`[k: string]: unknown`) so the
+  // runtime modules can attach per-flow context without growing the
+  // union for every flowId.
+  | {
+      type:
+        | "runtime.preempt.started"
+        | "runtime.preempt.completed"
+        | "runtime.shutdown.started"
+        | "runtime.shutdown.completed"
+        | `runtime.shutdown.teardown.${string}`;
+      ts: number;
+      [k: string]: unknown;
+    }
   // --- internal ---
   | {
       type: "__bus_error__";
