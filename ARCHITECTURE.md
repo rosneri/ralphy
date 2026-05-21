@@ -25,6 +25,12 @@ This document is generated from the static feature registry
 - **ownedSlot**: `ci`
 - **summary**: Detects PRs whose CI checks have failed and dispatches a worker to fix the failures.
 
+### awaiting-ci
+
+- **id**: `awaiting-ci`
+- **ownedSlot**: `(none)`
+- **summary**: (no summary)
+
 ### implement
 
 - **id**: `implement`
@@ -66,13 +72,15 @@ The final row is the `idle` catch-all so the router is total.
 | 2   | awaiting → confirm    | `confirmation`    |
 | 3   | pr conflicting        | `conflict-fix`    |
 | 4   | pr ci failing         | `ci-fix`          |
-| 5   | review bucket         | `review-followup` |
-| 6   | stuck                 | `stuck`           |
-| 7   | new ticket            | `new-ticket`      |
-| 8   | mention catch-all     | `mention`         |
-| 9   | in-progress implement | `implement`       |
-| 10  | todo implement        | `implement`       |
-| 11  | idle catch-all        | `idle`            |
+| 5   | awaiting-ci pass      | `awaiting-ci`     |
+| 6   | awaiting-ci watch     | `awaiting-ci`     |
+| 7   | review bucket         | `review-followup` |
+| 8   | stuck                 | `stuck`           |
+| 9   | new ticket            | `new-ticket`      |
+| 10  | mention catch-all     | `mention`         |
+| 11  | in-progress implement | `implement`       |
+| 12  | todo implement        | `implement`       |
+| 13  | idle catch-all        | `idle`            |
 
 ---
 
