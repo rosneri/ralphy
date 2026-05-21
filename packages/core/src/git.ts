@@ -1,10 +1,17 @@
 import { join } from "node:path";
 
+const GIT_LOCAL_TIMEOUT_MS = 30_000;
+const GIT_NETWORK_TIMEOUT_MS = 60_000;
+
+const NETWORK_CMDS = new Set(["push", "fetch", "pull", "clone", "ls-remote"]);
+
 function runGit(args: string[]): { exitCode: number | null; stdout: string; stderr: string } {
+  const isNetwork = args.some((a) => NETWORK_CMDS.has(a));
   const proc = Bun.spawnSync({
     cmd: ["git", ...args],
     stdout: "pipe",
     stderr: "pipe",
+    timeout: isNetwork ? GIT_NETWORK_TIMEOUT_MS : GIT_LOCAL_TIMEOUT_MS,
   });
   const decoder = new TextDecoder();
   return {
