@@ -7,6 +7,35 @@ import {
 } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import type { SetIndicator } from "@ralphy/types";
+import type { FeatureCtx } from "../features/types";
+import { createNoopBus } from "@ralphy/events";
+
+/** Build a `buildFeatureCtx` factory that makes the confirmation feature
+ *  claim issues whose ids appear in `gatedIds`. Used to exercise the
+ *  registry walk in tests that previously poked the now-removed
+ *  `classifyAwaitingConfirmation` dep. */
+function gatedCtxFactory(gatedIds: ReadonlySet<string>): (issue: LinearIssue) => FeatureCtx {
+  return (issue) =>
+    ({
+      issue,
+      worktree: "/tmp",
+      state: { writeField: async () => {} },
+      bus: createNoopBus(),
+      caps: {
+        gh: null,
+        linear: null,
+        git: null,
+        fsChange: null,
+        worker: null,
+        confirmation: {
+          detect: async (i: LinearIssue) => gatedIds.has(i.id),
+          run: async () => {},
+        },
+      },
+      poll: {} as FeatureCtx["poll"],
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    }) as FeatureCtx;
+}
 
 function issue(
   id: string,
@@ -340,8 +369,7 @@ describe("AgentCoordinator — todo polling", () => {
     const fresh = issue("e", "ENG-5");
     const ctx = makeDeps({ todo: [fresh] });
     ctx.setInProgress([gated, resumable]);
-    ctx.deps.classifyAwaitingConfirmation = async (issues) =>
-      new Set(issues.filter((i) => i.id === "c").map((i) => i.id));
+    ctx.deps.buildFeatureCtx = gatedCtxFactory(new Set(["c"]));
 
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
@@ -372,8 +400,7 @@ describe("AgentCoordinator — todo polling", () => {
     const fresh = issue("f", "ENG-2");
     const ctx = makeDeps({ todo: [fresh] });
     ctx.setInProgress([gated]);
-    ctx.deps.classifyAwaitingConfirmation = async (issues) =>
-      new Set(issues.filter((i) => i.id === "g").map((i) => i.id));
+    ctx.deps.buildFeatureCtx = gatedCtxFactory(new Set(["g"]));
 
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();

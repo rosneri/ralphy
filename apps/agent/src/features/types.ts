@@ -71,6 +71,18 @@ export interface StateStore {
  * directly. Keeping the surface loose at this seam avoids a circular
  * dependency between `features/types.ts` and the capability modules.
  */
+/**
+ * Per-feature capability bundle for the confirmation slice. Structural
+ * shape — defined inline here (not imported from `features/confirmation`)
+ * so `features/types.ts` stays free of slice-specific imports and avoids
+ * circular references. The slice's own `ConfirmationCaps` interface is
+ * assignment-compatible with this shape.
+ */
+export interface ConfirmationCapsShape {
+  detect(issue: LinearIssue): Promise<boolean>;
+  run(issue: LinearIssue): Promise<void>;
+}
+
 export interface Capabilities {
   /** GitHub REST/CLI capability (PR data, mergeability, reviews). */
   gh: unknown;
@@ -82,6 +94,10 @@ export interface Capabilities {
   fsChange: unknown;
   /** Worker spawner capability (subprocess + JSON event stream). */
   worker: unknown;
+  /** Confirmation slice closure bundle, wired by the agent's `wire.ts`.
+   *  Optional so test contexts that don't exercise the confirmation
+   *  feature can omit it without satisfying every closure. */
+  confirmation?: ConfirmationCapsShape;
 }
 
 /** Shared context passed to every `Feature.detect` and `Feature.run`. */

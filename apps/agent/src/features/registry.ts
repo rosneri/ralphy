@@ -18,6 +18,7 @@
  */
 
 import type { Feature, FeatureId, StateSlotName } from "./types";
+import { confirmationFeature } from "./confirmation";
 
 function stubFeature(id: FeatureId, ownedSlot: StateSlotName | null): Feature {
   return {
@@ -34,7 +35,7 @@ function stubFeature(id: FeatureId, ownedSlot: StateSlotName | null): Feature {
 }
 
 export const registry: readonly Feature[] = [
-  stubFeature("confirmation", "confirmation"),
+  confirmationFeature,
   stubFeature("conflict-fix", null),
   stubFeature("ci-fix", "ci"),
   stubFeature("implement", "pr"),
