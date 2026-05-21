@@ -10,7 +10,9 @@ export const OWNERSHIP: Record<string, ReadonlyArray<string>> = {
   "linear-attachments": ["specAttachments"],
   "linear-comments": ["linearComments"],
   confirmation: ["confirmation"],
-  review: ["review"],
+  "review-followup": ["review"],
+  "ci-fix": ["ci"],
+  implement: ["pr"],
 };
 
 export const ALL_OWNED_SLOTS: Set<string> = new Set<string>(

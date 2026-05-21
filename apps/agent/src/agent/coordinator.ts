@@ -7,6 +7,9 @@ import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
 import type { Bus, EmitInput, RalphEvent } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
+import { registry as featureRegistry } from "../features/registry";
+import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
+import type { FeatureCtx, FeatureId } from "../features/types";
 
 /**
  * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
@@ -163,13 +166,6 @@ export interface CoordinatorDeps {
    *  when not provided. */
   onFileLog?: (text: string) => void;
   onWorkersChanged: () => void;
-  /** Optional hook: classify which of the supplied in-progress issues are
-   *  currently in the `awaiting-confirmation` OpenSpec phase. The coordinator
-   *  uses the returned set to (a) split them out of the resumable bucket so
-   *  they never consume a concurrency slot and (b) report the bucket count
-   *  for the dashboard. Returning an empty set (or omitting the hook) keeps
-   *  the legacy behaviour — every in-progress issue resumes. */
-  classifyAwaitingConfirmation?: (issues: LinearIssue[]) => Promise<ReadonlySet<string>>;
   /** Returns the current iteration count for an active worker (for
    *  periodic progress comments). */
   getIterationCount?: (changeName: string) => Promise<number>;
@@ -191,6 +187,16 @@ export interface CoordinatorDeps {
    *  duplicate `gh pr view` calls within the same poll share a single
    *  invocation. Synchronous to avoid sequencing concerns. */
   beforePoll?: () => void;
+  /** Optional hook: build the per-issue `FeatureCtx` consumed by the
+   *  feature registry walk. When provided, the coordinator iterates the
+   *  registry for each in-progress issue and lets the first matching
+   *  `Feature` claim the poll (skipping the legacy `resume` queue). When
+   *  omitted (today's wire layer, until per-slice plumbing lands), the
+   *  registry walk is skipped entirely and the legacy branches own the
+   *  in-progress path. Stub features in `features/registry.ts` all return
+   *  `null` from `detect`, so wiring this dep is observable only as bus
+   *  events — behavior is unchanged until a slice replaces its stub. */
+  buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
 }
 
 interface CoordinatorOptions {
@@ -344,36 +350,31 @@ export class AgentCoordinator {
       return emptyPollResult();
     }
 
-    // Pull awaiting-confirmation tickets out of the resumable bucket so the
-    // coordinator never enqueues them as `resume`. They stay surfaced via
-    // `buckets.awaiting` so the dashboard can render the gated count.
-    let awaiting: LinearIssue[] = [];
-    if (this.deps.classifyAwaitingConfirmation && inProgress.length > 0) {
-      try {
-        const awaitingIds = await this.deps.classifyAwaitingConfirmation(inProgress);
-        if (awaitingIds.size > 0) {
-          awaiting = inProgress.filter((i) => awaitingIds.has(i.id));
-          inProgress = inProgress.filter((i) => !awaitingIds.has(i.id));
-        }
-      } catch (err) {
-        this.deps.onLog(
-          `! awaiting-confirmation classify failed: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
+    // Registry walk: let per-feature slices claim in-progress issues
+    // before the legacy `resume` path queues them. The confirmation
+    // slice (the only non-stub feature today) claims awaiting-
+    // confirmation tickets so they never enqueue as `resume` and
+    // surface separately under `buckets.awaiting`.
+    const claimedByFeature = await this.walkRegistryForInProgress(inProgress);
+    const awaitingClaimed = claimedByFeature.get("confirmation") ?? new Set<string>();
+    const claimedIds = new Set<string>();
+    for (const set of claimedByFeature.values()) for (const id of set) claimedIds.add(id);
+    // Split awaiting tickets out of the resumable bucket so the counts
+    // surfaced to the dashboard mirror the legacy classification.
+    const awaitingCount = awaitingClaimed.size;
+    const resumableCount = inProgress.length - awaitingCount;
 
     if (
       todo.length +
-        inProgress.length +
+        resumableCount +
         conflicted.length +
         review.length +
         mentions.length +
-        awaiting.length >
+        awaitingCount >
       0
     ) {
       this.deps.onFileLog?.(
-        `  poll: ${todo.length} todo, ${inProgress.length} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention, ${awaiting.length} awaiting`,
+        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention, ${awaitingCount} awaiting`,
       );
     }
 
@@ -389,11 +390,11 @@ export class AgentCoordinator {
       );
       const buckets: PollBuckets = {
         todo: todo.length,
-        inProgress: inProgress.length,
+        inProgress: resumableCount,
         conflicted: conflicted.length,
         review: review.length,
         mentions: mentions.length,
-        awaiting: awaiting.length,
+        awaiting: awaitingCount,
       };
       const found =
         buckets.todo +
@@ -422,6 +423,7 @@ export class AgentCoordinator {
     //    the conflict-fix flow by applying setConflicted.
     for (const issue of inProgress) {
       if (atTicketLimit()) break;
+      if (claimedIds.has(issue.id)) continue;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       if (await this.maybePromoteFinishedConflicted(issue)) continue;
@@ -512,11 +514,11 @@ export class AgentCoordinator {
 
     const buckets: PollBuckets = {
       todo: todo.length,
-      inProgress: inProgress.length,
+      inProgress: resumableCount,
       conflicted: conflicted.length,
       review: review.length,
       mentions: mentions.length,
-      awaiting: awaiting.length,
+      awaiting: awaitingCount,
     };
     const found =
       buckets.todo +
@@ -532,6 +534,47 @@ export class AgentCoordinator {
       else flow[w.changeName] = "working";
     }
     return { found, added, buckets, prStatus, phase: {}, flow };
+  }
+
+  /**
+   * Iterate the feature registry over each in-progress issue. The first
+   * feature whose `detect` returns a non-null match claims the issue and
+   * its `run` is invoked under `runFeature` (which translates throws into
+   * `feature.<id>.failed` bus events). Lower-priority detectors get a
+   * `feature.<id>.skipped` event so telemetry stays symmetric. Issues
+   * that no feature claims fall through to the legacy `resume` path.
+   *
+   * Skipped entirely when `buildFeatureCtx` is not wired — the legacy
+   * branches still own the in-progress path in that case.
+   */
+  private async walkRegistryForInProgress(
+    inProgress: readonly LinearIssue[],
+  ): Promise<Map<FeatureId, Set<string>>> {
+    const claimed = new Map<FeatureId, Set<string>>();
+    if (!this.deps.buildFeatureCtx) return claimed;
+    for (const issue of inProgress) {
+      const ctx = this.deps.buildFeatureCtx(issue);
+      if (!ctx) continue;
+      let matchedId: FeatureId | null = null;
+      for (const feature of featureRegistry) {
+        if (matchedId !== null) {
+          emitFeatureSkipped(ctx.bus, feature.id, `preempted-by:${matchedId}`);
+          continue;
+        }
+        const match = await detectFeature(feature, ctx);
+        if (match) {
+          matchedId = feature.id;
+          await runFeature(feature, ctx, match);
+          let bucket = claimed.get(feature.id);
+          if (!bucket) {
+            bucket = new Set<string>();
+            claimed.set(feature.id, bucket);
+          }
+          bucket.add(issue.id);
+        }
+      }
+    }
+    return claimed;
   }
 
   /**

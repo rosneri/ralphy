@@ -81,11 +81,14 @@ import {
 import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
 import {
   appendSteeringNote,
-  inspectAwaitingTicket,
   readConfirmationState,
   restartFromDesign as restartFromDesignFs,
   writeConfirmationState,
-} from "./confirmation";
+} from "../features/confirmation/state";
+import { inspectAwaitingTicket } from "../features/confirmation/inspect";
+import type { ConfirmationCaps } from "../features/confirmation";
+import type { FeatureCtx } from "../features/types";
+import { createNoopBus } from "@ralphy/events";
 
 /** Phases the dashboard surfaces per worker. Superset of PostTaskPhase
  *  plus the worker-subprocess "working" phase. */
@@ -1709,7 +1712,7 @@ export function buildAgentCoordinator(
         try {
           await writeField(
             stateDir,
-            "review",
+            "review-followup",
             "review.lastConsumedCommentAt",
             newestReviewerActivity,
           );
@@ -2069,128 +2072,160 @@ export function buildAgentCoordinator(
 
   /**
    * Per in-progress issue, derive the OpenSpec phase against the change
-   * directory on disk and the workflow's confirmation-mode config. Returns
-   * the set of issue ids currently parked in `awaiting-confirmation`. As a
+   * directory on disk and the workflow's confirmation-mode config.
+   * Returns true when the issue is currently parked in the
+   * `awaiting-confirmation` gate after this poll's inspection. As a
    * side effect, on the transition into that phase the agent posts a
    * one-shot `📋 Ralphy plan ready` Linear comment (idempotent via
-   * `state.confirmation.askedAt`).
+   * `state.confirmation.askedAt`), reaps any in-flight worker, inspects
+   * the ticket for approve/revise signals, and persists state.
+   *
+   * Wraps the logic the confirmation feature slice consumes via
+   * `caps.confirmation.detect`. Returning `false` lets the legacy
+   * resume path own the issue this poll (transitions out of the gate
+   * surface immediately in the same tick).
    */
-  async function classifyAwaitingConfirmation(issues: LinearIssue[]): Promise<ReadonlySet<string>> {
-    const out = new Set<string>();
-    if (issues.length === 0) return out;
-    if (!cfg.linear.confirmationMode.enabled) return out;
+  async function processAwaitingForIssue(issue: LinearIssue): Promise<boolean> {
+    if (!cfg.linear.confirmationMode.enabled) return false;
     const cm = cfg.linear.confirmationMode;
-    for (const issue of issues) {
-      const changeName = changeNameForIssue(issue);
-      const cwd = await resolveChangeCwdForIssue(changeName);
-      const layout = projectLayout(cwd);
-      const changeDir = layout.changeDir(changeName);
-      const statePath = layout.stateFile(changeName);
-      const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
-      const ticketView: ConfirmationTicketView = {
-        labels: issue.labels,
-        state: issue.state,
-        project: issue.project,
-      };
-      const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
-      const { stateObj, confirmation } = await readConfirmationState(statePath);
-      // Persist the approval watermark on first observation. The label stays
-      // on the issue as the on-issue audit trail — we do NOT eagerly strip
-      // it. Once `confirmedAt` is persisted, `gateActive` returns false
-      // forever for this change regardless of subsequent label state.
-      if (approvalMatches && confirmation.confirmedAt === null) {
-        confirmation.confirmedAt = new Date().toISOString();
-        try {
-          await writeConfirmationState(statePath, stateObj, confirmation);
-        } catch (err) {
-          onLog(
-            `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
-      }
-      const active = gateActive({
-        config: { confirmationMode: cfg.linear.confirmationMode },
-        ticket: { labels: [...issue.labels] },
-        persistedConfirmation: confirmation,
-      });
-      if (!active || !hasUnchecked(tasks ?? "")) {
-        awaitingChangeSet.delete(changeName);
-        continue;
-      }
-      out.add(issue.id);
-      awaitingChangeSet.add(changeName);
-      // Reap any in-flight worker that was still iterating when the
-      // ticket flipped into the gate. The worker's exit handler skips
-      // finalization and PR creation; future polls re-resume after
-      // approval or a revise comment.
-      coordRef.current?.reapForAwaiting(changeName);
-      await postPlanReadyCommentOnce(issue, statePath, changeName);
-      // Re-read after the plan-ready comment was (possibly) just written.
-      const { stateObj: state2, confirmation: confirmation2 } =
-        await readConfirmationState(statePath);
-      const { outcome, next } = await inspectAwaitingTicket(
-        confirmation2,
-        {
-          mentionHandle: cfg.linear.mentionHandle,
-          timeoutHours: cm.timeoutHours,
-          maxConfirmationRounds: cm.maxConfirmationRounds,
-          postComments: cfg.linear.postComments !== false && Boolean(apiKey),
-        },
-        {
-          approvalMatches,
-          fetchComments: async () => {
-            if (!apiKey) return [];
-            try {
-              const cs = await fetchIssueComments(apiKey, issue.id);
-              return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
-            } catch {
-              return [];
-            }
-          },
-          ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
-          applyIndicator: (ind) => applyIndicator(issue, ind),
-          postComment: async (body) => {
-            if (!apiKey) return;
-            await addIssueComment(apiKey, issue.id, body);
-          },
-          reactToComment: async (commentId, emoji) => {
-            if (!apiKey) return;
-            await addReactionToComment(apiKey, commentId, emoji);
-          },
-          applyStuckLabel: async () => {
-            await applyMarker(issue, { type: "label", value: "ralph:stuck" });
-          },
-          appendSteering: (msg) => appendSteeringNote(changeDir, msg),
-          restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
-          log: onLog,
-        },
-      );
+    const changeName = changeNameForIssue(issue);
+    const cwd = await resolveChangeCwdForIssue(changeName);
+    const layout = projectLayout(cwd);
+    const changeDir = layout.changeDir(changeName);
+    const statePath = layout.stateFile(changeName);
+    const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
+    const ticketView: ConfirmationTicketView = {
+      labels: issue.labels,
+      state: issue.state,
+      project: issue.project,
+    };
+    const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
+    const { stateObj, confirmation } = await readConfirmationState(statePath);
+    // Persist the approval watermark on first observation. The label stays
+    // on the issue as the on-issue audit trail — we do NOT eagerly strip
+    // it. Once `confirmedAt` is persisted, `gateActive` returns false
+    // forever for this change regardless of subsequent label state.
+    if (approvalMatches && confirmation.confirmedAt === null) {
+      confirmation.confirmedAt = new Date().toISOString();
       try {
-        await writeConfirmationState(statePath, state2, next);
+        await writeConfirmationState(statePath, stateObj, confirmation);
       } catch (err) {
         onLog(
-          `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
+          `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
       }
-      if (outcome === "approved" || outcome === "revised") {
-        // Transitioning out of the gate on this poll — drop from awaiting
-        // so the next poll picks the ticket up via the normal queue.
-        out.delete(issue.id);
-        awaitingChangeSet.delete(changeName);
-      } else {
-        onAwaitingTicket?.({
-          changeName,
-          issueIdentifier: issue.identifier,
-          issueUrl: issue.url,
-          issueTitle: issue.title,
-          since: next.askedAt,
-          round: next.rounds,
-        });
-      }
     }
-    return out;
+    const active = gateActive({
+      config: { confirmationMode: cfg.linear.confirmationMode },
+      ticket: { labels: [...issue.labels] },
+      persistedConfirmation: confirmation,
+    });
+    if (!active || !hasUnchecked(tasks ?? "")) {
+      awaitingChangeSet.delete(changeName);
+      return false;
+    }
+    awaitingChangeSet.add(changeName);
+    // Reap any in-flight worker that was still iterating when the
+    // ticket flipped into the gate. The worker's exit handler skips
+    // finalization and PR creation; future polls re-resume after
+    // approval or a revise comment.
+    coordRef.current?.reapForAwaiting(changeName);
+    await postPlanReadyCommentOnce(issue, statePath, changeName);
+    // Re-read after the plan-ready comment was (possibly) just written.
+    const { stateObj: state2, confirmation: confirmation2 } =
+      await readConfirmationState(statePath);
+    const { outcome, next } = await inspectAwaitingTicket(
+      confirmation2,
+      {
+        mentionHandle: cfg.linear.mentionHandle,
+        timeoutHours: cm.timeoutHours,
+        maxConfirmationRounds: cm.maxConfirmationRounds,
+        postComments: cfg.linear.postComments !== false && Boolean(apiKey),
+      },
+      {
+        approvalMatches,
+        fetchComments: async () => {
+          if (!apiKey) return [];
+          try {
+            const cs = await fetchIssueComments(apiKey, issue.id);
+            return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
+          } catch {
+            return [];
+          }
+        },
+        ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
+        applyIndicator: (ind) => applyIndicator(issue, ind),
+        postComment: async (body) => {
+          if (!apiKey) return;
+          await addIssueComment(apiKey, issue.id, body);
+        },
+        reactToComment: async (commentId, emoji) => {
+          if (!apiKey) return;
+          await addReactionToComment(apiKey, commentId, emoji);
+        },
+        applyStuckLabel: async () => {
+          await applyMarker(issue, { type: "label", value: "ralph:stuck" });
+        },
+        appendSteering: (msg) => appendSteeringNote(changeDir, msg),
+        restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
+        log: onLog,
+      },
+    );
+    try {
+      await writeConfirmationState(statePath, state2, next);
+    } catch (err) {
+      onLog(
+        `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+    if (outcome === "approved" || outcome === "revised") {
+      // Transitioning out of the gate on this poll — drop from awaiting
+      // so the next poll picks the ticket up via the normal queue.
+      awaitingChangeSet.delete(changeName);
+      return false;
+    }
+    onAwaitingTicket?.({
+      changeName,
+      issueIdentifier: issue.identifier,
+      issueUrl: issue.url,
+      issueTitle: issue.title,
+      since: next.askedAt,
+      round: next.rounds,
+    });
+    return true;
+  }
+
+  const confirmationCaps: ConfirmationCaps = {
+    detect: processAwaitingForIssue,
+    // Side effects already happened in `detect` to preserve the legacy
+    // single-pass classify+inspect semantics. Keeping `run` as a no-op
+    // means the registry walk still emits the `feature.confirmation.*`
+    // dispatch sequence (detected → started → completed) for telemetry.
+    run: async () => {},
+  };
+
+  /** Per-issue FeatureCtx for the registry walk. Only the confirmation
+   *  caps bundle is wired today; other slots are loose `null` and will
+   *  be filled as each slice ships its own capability bundle. */
+  function buildFeatureCtx(issue: LinearIssue): FeatureCtx {
+    return {
+      issue,
+      worktree: cwdByChange.get(changeNameForIssue(issue)) ?? projectRoot,
+      state: { writeField: async () => {} },
+      bus: createNoopBus(),
+      caps: {
+        gh: null,
+        linear: null,
+        git: null,
+        fsChange: null,
+        worker: null,
+        confirmation: confirmationCaps,
+      },
+      poll: pollContext,
+      now: () => new Date(),
+    };
   }
   const specAttachmentMutations: SpecAttachmentMutations = {
     uploadFileToLinear,
@@ -2225,7 +2260,7 @@ export function buildAgentCoordinator(
       onLog,
       ...(onFileLog ? { onFileLog } : {}),
       onWorkersChanged,
-      classifyAwaitingConfirmation,
+      buildFeatureCtx,
       getIterationCount: async (changeName) => {
         const root = cwdByChange.get(changeName) ?? projectRoot;
         const file = Bun.file(projectLayout(root).stateFile(changeName));

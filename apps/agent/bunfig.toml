@@ -6,6 +6,7 @@ coverageThreshold = { lines = 0.9, functions = 0.75 }
 coveragePathIgnorePatterns = [
   "../**",
   "**/dist/**",
+  "**/__test-utils__/**",
   "**/components/AgentMode.tsx",
   "**/agent/wire.ts",
   "**/agent/post-task.ts",

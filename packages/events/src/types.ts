@@ -24,6 +24,8 @@ export interface PrStatusCounts {
   ciFailed: number;
 }
 
+export type FeaturePhase = "detected" | "started" | "completed" | "failed" | "skipped";
+
 export type RalphEvent =
   // --- shell / lifecycle (capture) ---
   | { type: "command_run"; ts: number; subcommand: string }
@@ -242,6 +244,33 @@ export type RalphEvent =
         | `worker.${string}.started`
         | `worker.${string}.fetched`
         | `worker.${string}.failed`;
+      ts: number;
+      [k: string]: unknown;
+    }
+  // --- features (per-feature vertical slices, RLF-94 Stage 5) ---
+  //
+  // Each of the 8 features defined in
+  // `apps/agent/src/features/types.ts` emits the same 5-phase lifecycle
+  // via `runFeature` / `detectFeature` / `emitFeatureSkipped`. The union
+  // enumerates every (feature, phase) pair so unknown ids fail at the
+  // bus call site instead of silently flowing through the index
+  // signature.
+  | {
+      type:
+        | `feature.confirmation.${FeaturePhase}`
+        | `feature.conflict-fix.${FeaturePhase}`
+        | `feature.ci-fix.${FeaturePhase}`
+        | `feature.implement.${FeaturePhase}`
+        | `feature.review-followup.${FeaturePhase}`
+        | `feature.new-ticket.${FeaturePhase}`
+        | `feature.mention.${FeaturePhase}`
+        | `feature.stuck.${FeaturePhase}`
+        // Cross-slice signal: the mention slice MUST NOT write the
+        // `state.confirmation` slot directly; it emits this event so the
+        // confirmation slice can react. See the boundary scenario in
+        // `openspec/changes/rlf-94-stage-5-migrate-features-vertically/
+        // specs/agent-features-vertical/spec.md`.
+        | "feature.mention.reviseComment";
       ts: number;
       [k: string]: unknown;
     }

@@ -5,14 +5,16 @@ import { join } from "node:path";
 import {
   appendSteeringNote,
   defaultConfirmation,
-  inspectAwaitingTicket,
   readConfirmationState,
   restartFromDesign,
   writeConfirmationState,
+  type ConfirmationState,
+} from "../features/confirmation/state";
+import {
+  inspectAwaitingTicket,
   type AwaitingInspectionConfig,
   type AwaitingInspectionDeps,
-  type ConfirmationState,
-} from "../agent/confirmation";
+} from "../features/confirmation/inspect";
 import type { SetIndicator } from "@ralphy/types";
 
 function baseConfig(overrides: Partial<AwaitingInspectionConfig> = {}): AwaitingInspectionConfig {
