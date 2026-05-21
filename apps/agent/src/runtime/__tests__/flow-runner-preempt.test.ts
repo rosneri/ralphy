@@ -95,4 +95,72 @@ describe("flow-runner preempt", () => {
     );
     expect(persisted).toHaveLength(1);
   }, 10_000);
+
+  it("fake worker that never exits forces the SIGKILL escalation branch", async () => {
+    const kills: ("SIGTERM" | "SIGKILL")[] = [];
+    let resolveExited: (code: number) => void = () => {};
+    const worker: FlowWorker = {
+      exited: new Promise<number>((r) => {
+        resolveExited = r;
+      }),
+      kill: (sig) => {
+        kills.push((sig ?? "SIGTERM") as "SIGTERM" | "SIGKILL");
+        if (sig === "SIGKILL") resolveExited(137);
+      },
+    };
+
+    const persisted: unknown[] = [];
+    await preempt(
+      {
+        issueId: "ISS-3",
+        from: "implement",
+        worker,
+        teardown: async () => {},
+        newAssignment: { flowId: "ci-fix", reason: "pr ci failing", boost: "p2" },
+      },
+      {
+        graceMs: 20,
+        persist: (_id, a) => {
+          persisted.push(a);
+        },
+      },
+    );
+    expect(kills).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(persisted).toHaveLength(1);
+  });
+
+  it("swallows kill() throwing during SIGKILL escalation", async () => {
+    let resolveExited: (code: number) => void = () => {};
+    let killCalls = 0;
+    const worker: FlowWorker = {
+      exited: new Promise<number>((r) => {
+        resolveExited = r;
+      }),
+      kill: () => {
+        killCalls++;
+        if (killCalls === 1) return;
+        // SIGKILL: throw, then asynchronously resolve to release `await worker.exited`.
+        setTimeout(() => resolveExited(137), 0);
+        throw new Error("kill failed");
+      },
+    };
+
+    const persisted: unknown[] = [];
+    await preempt(
+      {
+        issueId: "ISS-4",
+        from: "implement",
+        worker,
+        newAssignment: { flowId: "ci-fix", reason: "pr ci failing", boost: "p2" },
+      },
+      {
+        graceMs: 20,
+        persist: (_id, a) => {
+          persisted.push(a);
+        },
+      },
+    );
+    expect(killCalls).toBe(2);
+    expect(persisted).toHaveLength(1);
+  });
 });
