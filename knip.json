@@ -12,7 +12,11 @@
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
     },
     "apps/agent": {
-      "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
+      "entry": [
+        "src/**/__tests__/**/*.{ts,tsx}",
+        "test/**/__tests__/**/*.{ts,tsx}",
+        "test/harness/index.ts"
+      ]
     },
     "apps/shell": {
       "entry": ["src/index.ts", "build.ts"]
