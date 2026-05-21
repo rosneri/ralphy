@@ -9,12 +9,23 @@ export interface RouterSignals {
   mention: "none" | "revise" | "new-ticket" | "stuck";
   stuck: boolean;
   boost: BoostBand;
+  /**
+   * Whether the issue is currently being watched for CI to settle.
+   *
+   *   - `"none"`      — no PR open, or CI is not being watched yet.
+   *   - `"watching"`  — PR is open, CI has not concluded; the router
+   *                     keeps the issue in the `awaiting-ci` flow so the
+   *                     coordinator can poll `getCiStatus()` without
+   *                     spawning a worker.
+   */
+  awaitingCi: "none" | "watching";
 }
 
 export type FlowId =
   | "confirmation"
   | "conflict-fix"
   | "ci-fix"
+  | "awaiting-ci"
   | "review-followup"
   | "implement"
   | "new-ticket"

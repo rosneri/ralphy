@@ -1,6 +1,19 @@
 import type { Bus } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
-import type { FlowAssignment } from "./types";
+import type { FlowAssignment, FlowId } from "./types";
+
+/** Flow ids that run as "no-worker" — the slice's `run()` executes
+ *  inline (no `Bun.spawn`, no concurrency-slot acquisition). The
+ *  coordinator must early-return for these assignments before reaching
+ *  the worker spawn path. */
+const NO_WORKER_FLOWS: ReadonlySet<FlowId> = new Set<FlowId>(["awaiting-ci"]);
+
+/** Whether the coordinator should spawn a worker subprocess for the
+ *  given flow id. False for `awaiting-ci`: the slice only calls
+ *  `gh pr checks` via `caps.ciFix.getCiStatus()` and emits one event. */
+export function requiresWorker(flowId: FlowId): boolean {
+  return !NO_WORKER_FLOWS.has(flowId);
+}
 
 /**
  * Minimal worker handle expected by `flow-runner`. Compatible with the

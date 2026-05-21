@@ -28,11 +28,13 @@ const awaitings: RouterSignals["awaiting"][] = ["none", "awaiting", "approved", 
 const mentions: RouterSignals["mention"][] = ["none", "revise", "new-ticket", "stuck"];
 const stucks: boolean[] = [false, true];
 const boosts: BoostBand[] = ["p0", "p1", "p2", "p3"];
+const awaitingCis: RouterSignals["awaitingCi"][] = ["none", "watching"];
 
 const knownFlowIds: ReadonlySet<FlowId> = new Set<FlowId>([
   "confirmation",
   "conflict-fix",
   "ci-fix",
+  "awaiting-ci",
   "review-followup",
   "implement",
   "new-ticket",
@@ -50,26 +52,29 @@ describe("router totality (property)", () => {
           for (const mention of mentions) {
             for (const stuck of stucks) {
               for (const boost of boosts) {
-                const signals: RouterSignals = {
-                  bucket,
-                  prStatus,
-                  awaiting,
-                  mention,
-                  stuck,
-                  boost,
-                };
-                const assignment = route(signals);
-                expect(assignment).toBeDefined();
-                expect(knownFlowIds.has(assignment.flowId)).toBe(true);
-                expect(assignment.boost).toBe(boost);
-                count += 1;
+                for (const awaitingCi of awaitingCis) {
+                  const signals: RouterSignals = {
+                    bucket,
+                    prStatus,
+                    awaiting,
+                    mention,
+                    stuck,
+                    boost,
+                    awaitingCi,
+                  };
+                  const assignment = route(signals);
+                  expect(assignment).toBeDefined();
+                  expect(knownFlowIds.has(assignment.flowId)).toBe(true);
+                  expect(assignment.boost).toBe(boost);
+                  count += 1;
+                }
               }
             }
           }
         }
       }
     }
-    // Sanity: we enumerated the full product (6*6*4*4*2*4 = 4608).
-    expect(count).toBe(4608);
+    // Sanity: we enumerated the full product (6*6*4*4*2*4*2 = 9216).
+    expect(count).toBe(9216);
   });
 });
