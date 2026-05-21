@@ -1,3 +1,52 @@
+## Fix failing CI checks (2026-05-21T08:26:10.357Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26214491064 ---
+ci Static error messages (no template literals in Error/Exception constructors) ﻿2026-05-21T08:24:14.3058690Z ##[group]Run bun scripts/check-static-error-messages.ts
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3059159Z [36;1mbun scripts/check-static-error-messages.ts[0m
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3094880Z shell: /usr/bin/bash -e {0}
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3095157Z env:
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3095423Z NX_BASE: e7219a1d543c14416aa8c951eecfed3df541a144
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3095782Z NX_HEAD: 9035b37ce818f9f0d0c1688bc9c0f85117c78e6c
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3096080Z ##[endgroup]
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3804790Z ✘ Found 1 error constructor(s) with dynamic message(s):
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3805292Z
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3805660Z apps/agent/src/agent/**tests**/telemetry-surface.test.ts:11
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3806473Z throw new Error(`repo root (bun.lock) not found from ${start}`);
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3806917Z
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3807473Z Error messages must be static strings so they are searchable in logs and monitoring.
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3808610Z Move dynamic values into a separate field (e.g. context object) rather than the message.
+ci Static error messages (no template literals in Error/Exception constructors) 2026-05-21T08:24:14.3850171Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-21T08:24:56.6857921Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-21T08:24:56.6858375Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-21T08:24:56.6894230Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-21T08:24:56.6894511Z env:
+ci Test affected files + coverage 2026-05-21T08:24:56.6894769Z NX_BASE: e7219a1d543c14416aa8c951eecfed3df541a144
+ci Test affected files + coverage 2026-05-21T08:24:56.6895123Z NX_HEAD: 9035b37ce818f9f0d0c1688bc9c0f85117c78e6c
+ci Test affected files + coverage 2026-05-21T08:24:56.6895441Z ##[endgroup]
+ci Test affected files + coverage 2026-05-21T08:24:56.6978726Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-21T08:24:56.7226268Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-21T08:24:56.7226569Z
+ci Test affected files + coverage 2026-05-21T08:24:59.0350291Z agent: 3 relevant test file(s)
+ci Test affected files + coverage 2026-05-21T08:24:59.0351032Z apps/agent/src/agent/**tests**/telemetry-surface.test.ts
+ci Test affected files + coverage 2026-05-21T08:24:59.0351606Z apps/agent/src/agent/**tests**/wire.size.test.ts
+ci Test affected files + coverage 2026-05-21T08:24:59.0352058Z apps/agent/src/features/**tests**/registry-disable.test.ts
+ci Test affected files + coverage 2026-05-21T08:24:59.0352459Z
+ci Test affected files + coverage 2026-05-21T08:24:59.0366663Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-21T08:24:59.0597753Z
+ci Test affected files + coverage 2026-05-21T08:24:59.
+…[truncated 331146 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-21T08:19:53.054Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

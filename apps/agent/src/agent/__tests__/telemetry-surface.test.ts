@@ -8,7 +8,7 @@ function findRepoRoot(start: string): string {
     if (existsSync(join(dir, "bun.lock"))) return dir;
     dir = dirname(dir);
   }
-  throw new Error(`repo root (bun.lock) not found from ${start}`);
+  throw new Error("repo root (bun.lock) not found");
 }
 
 // Stage 7 telemetry surface invariant.
