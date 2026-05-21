@@ -44,7 +44,7 @@ autoMergeStrategy: squash
 pollIntervalSeconds: 60
 
 # Maximum iterations per task. 0 = unlimited.
-maxIterationsPerTask: 100
+maxIterationsPerTask: 300
 
 # Maximum cost in USD per task. 0 = unlimited.
 maxCostUsdPerTask: 0
