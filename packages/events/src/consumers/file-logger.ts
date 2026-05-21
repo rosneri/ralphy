@@ -44,15 +44,22 @@ export function subscribeFileLogger(bus: Bus, options: FileLoggerOptions = {}): 
   const maxAgeDays = options.maxAgeDays ?? 14;
   let cached: CachedWriter | null = null;
   let reentering = false;
+  let ready = false;
+  const pending: RalphEvent[] = [];
 
-  void (async () => {
+  const setupPromise = (async () => {
     try {
       await mkdir(logsDir, { recursive: true });
       await runHousekeeping(logsDir, maxAgeDays);
     } catch (err) {
       reportBusError(bus, "file-logger", err);
+    } finally {
+      ready = true;
+      const queued = pending.splice(0, pending.length);
+      for (const ev of queued) writeEvent(ev);
     }
   })();
+  void setupPromise;
 
   function writerFor(path: string): CachedWriter {
     if (cached && cached.path === path) return cached;
@@ -71,7 +78,7 @@ export function subscribeFileLogger(bus: Bus, options: FileLoggerOptions = {}): 
     return next;
   }
 
-  const unsub = bus.on("*", (event: RalphEvent) => {
+  function writeEvent(event: RalphEvent): void {
     if (event.type === "__bus_error__" && reentering) return;
     const date = localDateKey(event.ts);
     const path = join(logsDir, `${date}.jsonl`);
@@ -87,18 +94,28 @@ export function subscribeFileLogger(bus: Bus, options: FileLoggerOptions = {}): 
         reentering = false;
       }
     }
+  }
+
+  const unsub = bus.on("*", (event: RalphEvent) => {
+    if (!ready) {
+      pending.push(event);
+      return;
+    }
+    writeEvent(event);
   });
 
   return () => {
     unsub();
-    if (cached) {
-      try {
-        cached.writer.end();
-      } catch {
-        // ignore
+    void setupPromise.then(() => {
+      if (cached) {
+        try {
+          cached.writer.end();
+        } catch {
+          // ignore
+        }
+        cached = null;
       }
-      cached = null;
-    }
+    });
   };
 }
 
