@@ -34,9 +34,9 @@
 
 ### Cleanup & verification
 
-- [ ] After all 8 slices ship, delete remaining feature-specific dead code from `coordinator.ts` and `post-task.ts` so they only own dispatch + shared pre/post hooks
-- [ ] Confirm `apps/agent/src/agent/confirmation/` no longer exists
-- [ ] Run `bunx openspec validate rlf-94-stage-5-migrate-features-vertically` — must pass
-- [ ] Run `bun run lint` from repo root — must pass
-- [ ] Run `bun run test` from repo root — must pass, coverage threshold unchanged
-- [ ] Manually verify the agent still polls, picks features, and runs end-to-end (Stage 0 characterization tests stay green throughout)
+- [x] After all 8 slices ship, delete remaining feature-specific dead code from `coordinator.ts` and `post-task.ts` so they only own dispatch + shared pre/post hooks
+- [x] Confirm `apps/agent/src/agent/confirmation/` no longer exists
+- [x] Run `bunx openspec validate rlf-94-stage-5-migrate-features-vertically` — must pass
+- [x] Run `bun run lint` from repo root — must pass
+- [x] Run `bun run test` from repo root — must pass, coverage threshold unchanged
+- [x] Manually verify the agent still polls, picks features, and runs end-to-end (Stage 0 characterization tests stay green throughout)
