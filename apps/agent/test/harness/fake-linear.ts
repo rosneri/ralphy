@@ -105,7 +105,13 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
 
   const filterBy = (ind: GetIndicator | undefined): LinearIssue[] => {
     if (!ind) return [];
-    return [...issues.values()].filter((i) => issueMatchesGetIndicator(i, ind));
+    return [...issues.values()].filter((i) => {
+      const issueComments = (comments.get(i.id) ?? []).map((c) => ({
+        body: c.body,
+        user: { name: c.author },
+      }));
+      return issueMatchesGetIndicator({ ...i, comments: issueComments }, ind);
+    });
   };
 
   const client: LinearClientLike = {
@@ -163,6 +169,13 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     seed: (s) => {
       const issue = defaultIssue(s);
       issues.set(issue.id, issue);
+      if (s.comments && s.comments.length > 0) {
+        const list = comments.get(issue.id) ?? [];
+        for (const c of s.comments) {
+          list.push({ body: c.body, author: c.author ?? "human", at: new Date() });
+        }
+        comments.set(issue.id, list);
+      }
       return issue;
     },
     setLabels: (id, labels) => {

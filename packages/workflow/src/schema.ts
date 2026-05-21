@@ -1,9 +1,19 @@
 import { z } from "zod";
 
 const MarkerSchema = z.object({
-  type: z.enum(["label", "status", "attachment", "project"]),
+  type: z.enum(["label", "status", "attachment", "project", "comment"]),
   value: z.string().min(1),
 });
+
+const SET_INDICATOR_KEYS = [
+  "setInProgress",
+  "setDone",
+  "setError",
+  "setConflicted",
+  "clearConflicted",
+  "clearReview",
+  "clearApproved",
+] as const;
 
 const GetIndicatorSchema = z.object({
   filter: z.array(MarkerSchema).default([]),
@@ -37,11 +47,27 @@ const IndicatorsSchema = z.preprocess(
         if (!clear) continue;
         const markers = Array.isArray(clear) ? clear : [clear];
         for (const m of markers) {
+          if (m.type === "comment") continue;
           if (m.type !== "label") {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               path: [key],
               message: `${key} markers must be label-typed (status removal is not supported)`,
+            });
+            break;
+          }
+        }
+      }
+      for (const key of SET_INDICATOR_KEYS) {
+        const set = value[key];
+        if (!set) continue;
+        const markers = Array.isArray(set) ? set : [set];
+        for (const m of markers) {
+          if (m.type === "comment") {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: [key],
+              message: `${key} cannot use a 'comment' marker — comment markers are read-only and only valid in getX filters`,
             });
             break;
           }

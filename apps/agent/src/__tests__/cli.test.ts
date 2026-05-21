@@ -83,6 +83,13 @@ describe("agent parseArgs", () => {
     expect(result.indicators.setDone).toEqual({ type: "attachment", value: "Done" });
   });
 
+  test("--indicator accepts comment type for getX slots and supports text values", async () => {
+    const result = await parseArgs(["--indicator", "getTodo:comment:ralph go"]);
+    expect(result.indicators.getTodo).toEqual({
+      filter: [{ type: "comment", value: "ralph go" }],
+    });
+  });
+
   test("--indicator merges attachment with other types into an array", async () => {
     const result = await parseArgs([
       "--indicator",

@@ -11,16 +11,16 @@
 
 ## Implementation
 
-- [ ] Add `{ type: "comment"; value: string }` to the `Marker` union in `packages/types/src/types.ts` and update every exhaustive marker switch the compiler flags (start with `markersToFilters` in `apps/agent/src/shared/capabilities/linear-client.ts`, which MUST treat `comment` as a no-op for the GraphQL pre-filter).
-- [ ] Extend the issue type accepted by `issueMatchesGetIndicator` to include an optional `comments` slice (`{ body: string; user?: { name: string } | null }[]`) and add a `comment` branch that returns `true` only when a non-Ralph comment (per `isRalphComment` from `apps/agent/src/agent/wire/task-bodies.ts`) contains `value` as a case-insensitive substring. Missing/empty `comments` MUST return `false` without throwing.
-- [ ] Update the Linear GraphQL fetcher(s) used by `getX` evaluation in `apps/agent/src/shared/capabilities/linear-client.ts` to include the `comments { nodes { id body createdAt user { name } } }` selection set whenever any active indicator carries a `comment` marker; keep the slim query for callers that don't need it.
-- [ ] Reject `comment` markers in every `SetIndicator` slot (`setInProgress`, `setDone`, `setError`, `setConflicted`, `clearConflicted`, `clearReview`, `clearApproved`) at config-load time with an error that names the offending slot. Also reject empty `value` strings for any `comment` marker (get or set).
-- [ ] Update CLI marker parsing (`apps/agent/src/cli.ts`) so users can configure `comment:<text>` from flags, and verify `describeIndicators` prints `comment:<value>` for configured markers (add a regression test if missing).
-- [ ] Extend `apps/agent/test/harness/fake-linear.ts` so test issues can carry comments and the harness honours `comment` markers end-to-end.
-- [ ] Add unit tests in `apps/agent/src/shared/capabilities/__tests__/linear-client.test.ts` (or a sibling file) covering: match on non-Ralph comment, skip Ralph-authored comments, case-insensitive substring, and `undefined` comments → `false`.
-- [ ] Add a config-loader test asserting that `setDone: { type: "comment", value: "x" }` and `{ type: "comment", value: "" }` both throw with the expected error messages.
-- [ ] Add a harness integration test asserting an issue with a matching non-Ralph comment is picked up by a `getTodo` `comment` indicator, and one whose only match is Ralph-authored is not.
-- [ ] Run `bunx openspec validate rlf-80-comment-indicator` and address any validator findings.
-- [ ] Run `bun run lint` and address any findings.
-- [ ] Run `bun run test` and ensure the full suite (including the new tests) passes.
-- [ ] Commit all changed files, push the branch, and open the PR with title `rlf-80-comment-indicator` and a short summary body.
+- [x] Add `{ type: "comment"; value: string }` to the `Marker` union in `packages/types/src/types.ts` and update every exhaustive marker switch the compiler flags (start with `markersToFilters` in `apps/agent/src/shared/capabilities/linear-client.ts`, which MUST treat `comment` as a no-op for the GraphQL pre-filter).
+- [x] Extend the issue type accepted by `issueMatchesGetIndicator` to include an optional `comments` slice (`{ body: string; user?: { name: string } | null }[]`) and add a `comment` branch that returns `true` only when a non-Ralph comment (per `isRalphComment` from `apps/agent/src/agent/wire/task-bodies.ts`) contains `value` as a case-insensitive substring. Missing/empty `comments` MUST return `false` without throwing.
+- [x] Update the Linear GraphQL fetcher(s) used by `getX` evaluation in `apps/agent/src/shared/capabilities/linear-client.ts` to include the `comments { nodes { id body createdAt user { name } } }` selection set whenever any active indicator carries a `comment` marker; keep the slim query for callers that don't need it.
+- [x] Reject `comment` markers in every `SetIndicator` slot (`setInProgress`, `setDone`, `setError`, `setConflicted`, `clearConflicted`, `clearReview`, `clearApproved`) at config-load time with an error that names the offending slot. Also reject empty `value` strings for any `comment` marker (get or set).
+- [x] Update CLI marker parsing (`apps/agent/src/cli.ts`) so users can configure `comment:<text>` from flags, and verify `describeIndicators` prints `comment:<value>` for configured markers (add a regression test if missing).
+- [x] Extend `apps/agent/test/harness/fake-linear.ts` so test issues can carry comments and the harness honours `comment` markers end-to-end.
+- [x] Add unit tests in `apps/agent/src/shared/capabilities/__tests__/linear-client.test.ts` (or a sibling file) covering: match on non-Ralph comment, skip Ralph-authored comments, case-insensitive substring, and `undefined` comments → `false`.
+- [x] Add a config-loader test asserting that `setDone: { type: "comment", value: "x" }` and `{ type: "comment", value: "" }` both throw with the expected error messages.
+- [x] Add a harness integration test asserting an issue with a matching non-Ralph comment is picked up by a `getTodo` `comment` indicator, and one whose only match is Ralph-authored is not.
+- [x] Run `bunx openspec validate rlf-80-comment-indicator` and address any validator findings.
+- [x] Run `bun run lint` and address any findings.
+- [x] Run `bun run test` and ensure the full suite (including the new tests) passes.
+- [x] Commit all changed files, push the branch, and open the PR with title `rlf-80-comment-indicator` and a short summary body.

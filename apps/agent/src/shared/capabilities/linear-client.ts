@@ -12,6 +12,7 @@
 
 import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
+import { isRalphComment } from "../../agent/wire/task-bodies";
 
 export interface LinearIssue {
   id: string;
@@ -90,6 +91,9 @@ function partition(markers: Marker[]): Partitioned {
     else if (m.type === "label") labels.push(m.value);
     else if (m.type === "attachment") attachmentSubtitles.push(m.value);
     else if (m.type === "project") projects.push(m.value);
+    // `comment` markers are filter-only and contribute no GraphQL pre-filter
+    // clause; matching happens client-side in issueMatchesGetIndicator after
+    // the comments slice is fetched.
   }
   return { statuses, labels, attachmentSubtitles, projects };
 }
@@ -280,8 +284,16 @@ export async function fetchMentionScanIssues(
 export async function fetchOpenIssues(
   apiKey: string,
   spec: LinearFilterSpec,
+  options?: { includeComments?: boolean },
 ): Promise<LinearIssue[]> {
   const where = buildIssueFilter(spec);
+  const includeComments = options?.includeComments === true;
+
+  const commentsSlice = includeComments
+    ? `comments(first: 50) {
+          nodes { id body createdAt user { name email } }
+        }`
+    : "";
 
   const query = `query Issues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {
@@ -297,6 +309,7 @@ export async function fetchOpenIssues(
             relatedIssue { id state { type } }
           }
         }
+        ${commentsSlice}
       }
     }
   }`;
@@ -321,6 +334,7 @@ export async function fetchOpenIssues(
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),
+    ...(includeComments ? { comments: n.comments?.nodes ?? [] } : {}),
   }));
 }
 
@@ -912,7 +926,9 @@ export function baseBranchFromLabels(labels: string[]): string | undefined {
 }
 
 export function issueMatchesGetIndicator(
-  issue: Pick<LinearIssue, "labels" | "state" | "project">,
+  issue: Pick<LinearIssue, "labels" | "state" | "project"> & {
+    comments?: { body: string; user?: { name: string } | null }[];
+  },
   indicator: GetIndicator | undefined,
 ): boolean {
   if (!indicator || indicator.filter.length === 0) return false;
@@ -925,6 +941,13 @@ export function issueMatchesGetIndicator(
     if (m.type === "project") {
       if (projectName === null) return false;
       return projectName === m.value.toLowerCase();
+    }
+    if (m.type === "comment") {
+      if (!m.value) return false;
+      const comments = issue.comments;
+      if (!comments || comments.length === 0) return false;
+      const needle = m.value.toLowerCase();
+      return comments.some((c) => !isRalphComment(c.body) && c.body.toLowerCase().includes(needle));
     }
     return false;
   });

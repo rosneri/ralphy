@@ -190,7 +190,11 @@ export type Marker =
   /** Linear project name. On `getX` the issue's project name is matched
    *  case-insensitively; on `setX` the issue is reassigned to the
    *  project whose name matches `value`. */
-  | { type: "project"; value: string };
+  | { type: "project"; value: string }
+  /** Case-insensitive substring match against the body of any non-Ralph
+   *  comment on the issue. Read-only: rejected in `setX` slots at
+   *  config-load time. */
+  | { type: "comment"; value: string };
 
 /** Any-of filter: an issue matches if ANY listed marker matches. */
 export interface GetIndicator {
