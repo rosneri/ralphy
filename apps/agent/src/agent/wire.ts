@@ -62,6 +62,7 @@ import {
   type QueueTrigger,
   type PrepareResult,
   type MentionTrigger,
+  type PrStatus,
 } from "./coordinator";
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
 import { worktreesDir, type GitRunner } from "./worktree";
@@ -1281,7 +1282,7 @@ export function buildAgentCoordinator(
    */
   async function checkPrStatus(
     issue: LinearIssue,
-  ): Promise<{ url: string; status: import("./coordinator").PrStatus } | null> {
+  ): Promise<{ url: string; status: PrStatus } | null> {
     const changeName = changeNameForIssue(issue);
     if (isPrUnavailable(changeName)) return null;
 

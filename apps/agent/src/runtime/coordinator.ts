@@ -1311,7 +1311,7 @@ const BOOST_RANK: Record<BoostBand, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 /** Entry shape consumed by `compareByBoost` — issue's boost band plus
  *  the epoch-ms it was added to the queue. Lower boost rank wins; ties
  *  break FIFO (earlier `addedAt` first). */
-export interface BoostQueueEntry {
+interface BoostQueueEntry {
   boost: BoostBand;
   addedAt: number;
 }

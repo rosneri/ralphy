@@ -16,10 +16,10 @@ export interface FlowWorker {
 }
 
 /** Best-effort teardown contract. Stage 7 formalises this in `Flow`. */
-export type TeardownReason = "cancelled" | "done" | "failed";
-export type Teardown = (reason: TeardownReason) => Promise<void> | void;
+type TeardownReason = "cancelled" | "done" | "failed";
+type Teardown = (reason: TeardownReason) => Promise<void> | void;
 
-export interface PreemptDeps {
+interface PreemptDeps {
   /** Persist the new assignment for the issue (e.g. into `.ralph-state.json`). */
   persist: (issueId: string, assignment: FlowAssignment) => Promise<void> | void;
   /** Event bus for `runtime.preempt.*` notifications. */
@@ -31,7 +31,7 @@ export interface PreemptDeps {
   graceMs?: number;
 }
 
-export interface PreemptInput {
+interface PreemptInput {
   issueId: string;
   /** Currently-running flow's id (for the event payload). */
   from: FlowAssignment["flowId"];
@@ -77,7 +77,7 @@ export async function preempt(input: PreemptInput, deps: PreemptDeps): Promise<v
     new Promise<"timeout">((resolve) => {
       const t = setTimeout(() => resolve("timeout"), graceMs);
       // unref so the timer doesn't pin the process
-      (t as unknown as { unref?: () => void }).unref?.();
+      t.unref();
     }),
   ]);
 
@@ -105,19 +105,4 @@ export async function preempt(input: PreemptInput, deps: PreemptDeps): Promise<v
     issueId,
     to: newAssignment.flowId,
   });
-}
-
-export interface RunInput {
-  assignment: FlowAssignment;
-  /**
-   * Body of the flow — invoked once. Implementations spawn a worker and
-   * resolve when it exits. Kept abstract so Stage 7's `Flow` contract can
-   * be slotted in without changing the runner's shape.
-   */
-  body: () => Promise<void>;
-}
-
-/** Minimal `run` entry point — invokes the flow body. */
-export async function run(input: RunInput): Promise<void> {
-  await input.body();
 }

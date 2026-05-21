@@ -6,7 +6,7 @@ import type { FlowAssignment, RouterSignals } from "./types";
  * wire in either the existing capabilities (Linear fetch, pure
  * detections) or unit-test fakes.
  */
-export interface PollDeps<Issue = unknown, Context = unknown> {
+interface PollDeps<Issue = unknown, Context = unknown> {
   gather: () => Promise<Issue[]>;
   classify: (issues: readonly Issue[]) => Promise<RouterSignals[]> | RouterSignals[];
   route?: (signals: RouterSignals) => FlowAssignment;

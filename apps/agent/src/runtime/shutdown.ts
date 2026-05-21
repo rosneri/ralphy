@@ -1,23 +1,29 @@
 import type { Bus } from "@ralphy/events";
 
 /** Minimal contract for the "log file" the runtime owns. */
-export interface ShutdownLog {
+interface ShutdownLog {
   close: () => Promise<void> | void;
 }
 
 /** Minimal runtime contract — `stopped` flag + active-flow iteration. */
-export interface ShutdownRuntime {
+interface ShutdownRuntime {
   stop: () => void;
   /** Active flows for `teardown('cancelled')`. Empty array is fine. */
   activeFlows: () => readonly ShutdownFlow[];
 }
 
-export interface ShutdownFlow {
+interface ShutdownFlow {
   flowId: string;
   teardown?: (reason: "cancelled") => Promise<void> | void;
 }
 
-export interface InstallShutdownDeps {
+interface ProcessLike {
+  on: (sig: string, h: () => void) => void;
+  off?: (sig: string, h: () => void) => void;
+  exit: (code: number) => void;
+}
+
+interface InstallShutdownDeps {
   runtime: ShutdownRuntime;
   bus?: Bus;
   log?: ShutdownLog;
@@ -27,11 +33,7 @@ export interface InstallShutdownDeps {
    * Process-like surface for tests. Defaults to the real `process`.
    * Tests pass a fake to avoid touching the actual signal handlers.
    */
-  proc?: {
-    on: (sig: string, h: () => void) => void;
-    off?: (sig: string, h: () => void) => void;
-    exit: (code: number) => void;
-  };
+  proc?: ProcessLike;
 }
 
 /**
@@ -40,9 +42,22 @@ export interface InstallShutdownDeps {
  * Second signal: immediate exit 130.
  *
  * Returns a disposer that removes the handlers (useful for tests).
+ *
+ * @public Imported by `shutdown.test.ts` via a string-fixture subprocess;
+ * knip can't trace dynamic-fixture imports, so this tag keeps it exported.
  */
 export function installShutdown(deps: InstallShutdownDeps): () => void {
-  const proc = deps.proc ?? (process as unknown as NonNullable<InstallShutdownDeps["proc"]>);
+  const proc: ProcessLike = deps.proc ?? {
+    on: (sig, h) => {
+      process.on(sig as NodeJS.Signals, h);
+    },
+    off: (sig, h) => {
+      process.off(sig as NodeJS.Signals, h);
+    },
+    exit: (code) => {
+      process.exit(code);
+    },
+  };
   const budgetMs = deps.budgetMs ?? 10_000;
   let shuttingDown = false;
 
@@ -86,15 +101,16 @@ export function installShutdown(deps: InstallShutdownDeps): () => void {
       Promise.all(tasks),
       new Promise<void>((resolve) => {
         const t = setTimeout(resolve, budgetMs);
-        (t as unknown as { unref?: () => void }).unref?.();
+        t.unref();
       }),
     ]);
 
     // bus.flush isn't part of the Bus contract — best-effort
-    const maybeFlush = (deps.bus as unknown as { flush?: () => Promise<void> } | undefined)?.flush;
+    const busWithFlush = deps.bus as (Bus & { flush?: () => Promise<void> }) | undefined;
+    const maybeFlush = busWithFlush?.flush;
     if (typeof maybeFlush === "function") {
       try {
-        await maybeFlush.call(deps.bus);
+        await maybeFlush.call(busWithFlush);
       } catch {
         /* swallow — shutdown must not throw */
       }
@@ -133,7 +149,7 @@ export function installShutdown(deps: InstallShutdownDeps): () => void {
  *   - At 5000 ms emits a one-shot warn via `onWarn`.
  *   - At `budgetMs` (default 10_000) calls `onTimeout` and resolves.
  */
-export interface WaitForActiveWorkersDeps {
+interface WaitForActiveWorkersDeps {
   stop: () => void;
   getActiveCount: () => number;
   budgetMs?: number;
