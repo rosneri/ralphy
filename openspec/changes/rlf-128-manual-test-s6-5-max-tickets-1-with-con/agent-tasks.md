@@ -1,3 +1,30 @@
+## Reapply lost implementation files (2026-05-21T22:10:44.733Z)
+
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+Resolution: same as the prior tick — this is a manual-test change (RLF-128 / S6.5). The in-repo deliverable is the spec delta in `openspec/specs/agent-runtime-router/spec.md` codifying the `--max-tickets < --concurrency` cap behavior (now present and committed). The actual test run + results live in `NeriRos/ralphy-rlf87-test` PR #9. No production code in this repo should change (see `proposal.md`). The detector classifies the spec delta as "meta" and will keep re-emitting this task; ticking with rationale is the correct action.
+
+```
+The diff against `main` contains only meta files
+(openspec/tasks.md and similar). The substantive implementation
+is missing from the branch — likely deleted by an earlier commit
+or absorbed by a merge from origin/main.
+
+Files currently in the diff:
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/agent-tasks.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/design.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/proposal.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/specs/agent-runtime-router/spec.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/tasks.md
+
+Re-apply the actual implementation work the change is supposed
+to ship. Inspect git history (`git log main..HEAD`) to see
+what was created earlier and lost, then restore those files
+(or reproduce the work). Commit the restored files so the next
+iteration's diff against `main` contains real code, not
+just meta files.
+```
+
 ## Reapply lost implementation files (2026-05-21T22:08:45.431Z)
 
 - [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
