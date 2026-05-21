@@ -1,3 +1,50 @@
+## Fix failing CI checks (2026-05-21T08:19:53.054Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26214185411 ---
+ci Test affected files + coverage ﻿2026-05-21T08:18:26.2639915Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-21T08:18:26.2640618Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-21T08:18:26.2691971Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-21T08:18:26.2692422Z env:
+ci Test affected files + coverage 2026-05-21T08:18:26.2693169Z NX_BASE: e7219a1d543c14416aa8c951eecfed3df541a144
+ci Test affected files + coverage 2026-05-21T08:18:26.2693800Z NX_HEAD: 3958baab24a9a4d73f67c56345f860293c764e68
+ci Test affected files + coverage 2026-05-21T08:18:26.2694289Z ##[endgroup]
+ci Test affected files + coverage 2026-05-21T08:18:26.2780233Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-21T08:18:26.3023796Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-21T08:18:26.3024228Z
+ci Test affected files + coverage 2026-05-21T08:18:28.5618845Z agent: 3 relevant test file(s)
+ci Test affected files + coverage 2026-05-21T08:18:28.5619630Z apps/agent/src/agent/**tests**/telemetry-surface.test.ts
+ci Test affected files + coverage 2026-05-21T08:18:28.5620359Z apps/agent/src/agent/**tests**/wire.size.test.ts
+ci Test affected files + coverage 2026-05-21T08:18:28.5621058Z apps/agent/src/features/**tests**/registry-disable.test.ts
+ci Test affected files + coverage 2026-05-21T08:18:28.5621479Z
+ci Test affected files + coverage 2026-05-21T08:18:28.5635320Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-21T08:18:28.5820002Z
+ci Test affected files + coverage 2026-05-21T08:18:28.5821088Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-21T08:18:28.5990288Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.84ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.5995466Z (pass) inspectAwaitingTicket — revise path > appends steering, restarts design, bumps rounds, resets confirmedAt [0.60ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.5997620Z (pass) inspectAwaitingTicket — revise path > ignores revise mention inside backticks (e.g. our own plan-ready template) [0.23ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.5999135Z (pass) inspectAwaitingTicket — revise path > ignores revise comments at or before lastReviseConsumedAt watermark [0.15ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6003837Z (pass) inspectAwaitingTicket — reminder cadence > posts reminder once timeoutHours elapsed, persists lastReminderAt [0.35ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6005788Z (pass) inspectAwaitingTicket — reminder cadence > does not re-post reminder before timeoutHours have elapsed since lastReminderAt [0.20ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6011735Z (pass) readConfirmationState / writeConfirmationState > returns defaults when state file is absent [0.65ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6019782Z (pass) readConfirmationState / writeConfirmationState > round-trips confirmation through write + read [0.80ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6025439Z (pass) readConfirmationState / writeConfirmationState > recovers from malformed json by returning defaults [0.52ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6032208Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign rewrites design.md and stubs tasks.md when present [0.70ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6035241Z (pass) restartFromDesign / appendSteeringNote > restartFromDesign leaves tasks.md absent if it never existed [0.34ms]
+ci Test affected files + coverage 2026-05-21T08:18:28.6045802Z (pass) restartFromDesign / appendSteeringNote > appendSteeringNote prepends to existing file and creates it otherwise [1.05ms]
+ci Test affected files + coverage 2026-05-2
+…[truncated 331145 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-21T08:15:05.212Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

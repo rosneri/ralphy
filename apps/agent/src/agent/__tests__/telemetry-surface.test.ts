@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+function findRepoRoot(start: string): string {
+  let dir = start;
+  while (dir !== dirname(dir)) {
+    if (existsSync(join(dir, "bun.lock"))) return dir;
+    dir = dirname(dir);
+  }
+  throw new Error(`repo root (bun.lock) not found from ${start}`);
+}
 
 // Stage 7 telemetry surface invariant.
 //
@@ -11,7 +21,7 @@ import { join } from "node:path";
 // regression we care about right now.
 describe("telemetry surface invariant", () => {
   test("migrated files have no direct capture()/onLog() calls", async () => {
-    const repoRoot = join(import.meta.dir, "..", "..", "..", "..", "..");
+    const repoRoot = findRepoRoot(import.meta.dir);
     const targets = ["apps/agent/src/agent/wire.ts", "apps/loop/src/hooks/useLoop.ts"];
     const offenders: string[] = [];
     for (const rel of targets) {
