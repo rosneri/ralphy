@@ -232,6 +232,13 @@ export interface Indicators {
   getApproved?: GetIndicator;
   /** Label-only marker(s) removed when the approval is consumed. */
   clearApproved?: SetIndicator;
+  /** Marker(s) applied when a ticket enters the confirmation gate. Applied
+   *  once per gate-entry, just before the "📋 Ralphy plan ready" comment. */
+  setAwaitingConfirmation?: SetIndicator;
+  /** Label-only marker(s) removed when the confirmation gate releases the
+   *  ticket (approval consumed, revise consumed, tasks empty, stub
+   *  artifact, or gate manually cleared). */
+  clearAwaitingConfirmation?: SetIndicator;
 }
 
 /** Convenience: extract the marker list applied by a SetIndicator. */

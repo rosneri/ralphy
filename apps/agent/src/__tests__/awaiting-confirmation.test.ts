@@ -216,6 +216,7 @@ describe("readConfirmationState / writeConfirmationState", () => {
         rounds: 2,
         stuckPostedAt: null,
         lastReviseConsumedAt: "2026-05-20T02:00:00.000Z",
+        awaitingMarkerAppliedAt: null,
       };
       await writeConfirmationState(path, { other: "field" }, next);
       const { stateObj, confirmation } = await readConfirmationState(path);
