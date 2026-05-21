@@ -5,7 +5,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "react"
   },
-  "include": ["src"],
+  "include": ["src", "test"],
   "references": [
     {
       "path": "../../packages/types"

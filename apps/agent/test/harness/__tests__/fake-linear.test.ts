@@ -1,0 +1,60 @@
+import { describe, expect, test } from "bun:test";
+import { createFakeLinear } from "../fake-linear";
+
+describe("createFakeLinear", () => {
+  test("filters fetchTodo/inProgress/conflicted/review by marker", async () => {
+    const linear = createFakeLinear({
+      getTodo: { filter: [{ type: "label", value: "ralphy:todo" }] },
+      getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+      getConflicted: { filter: [{ type: "label", value: "ralphy:conflicted" }] },
+      getReview: { filter: [{ type: "label", value: "ralphy:review" }] },
+    });
+    linear.seed({ id: "1", identifier: "RLF-1", title: "todo", labels: ["ralphy:todo"] });
+    linear.seed({
+      id: "2",
+      identifier: "RLF-2",
+      title: "in-progress",
+      state: { name: "In Progress", type: "started" },
+    });
+    linear.seed({
+      id: "3",
+      identifier: "RLF-3",
+      title: "conflicted",
+      labels: ["ralphy:conflicted"],
+    });
+    linear.seed({ id: "4", identifier: "RLF-4", title: "review", labels: ["ralphy:review"] });
+
+    expect((await linear.client.fetchTodo()).map((i) => i.identifier)).toEqual(["RLF-1"]);
+    expect((await linear.client.fetchInProgress()).map((i) => i.identifier)).toEqual(["RLF-2"]);
+    expect((await linear.client.fetchConflicted()).map((i) => i.identifier)).toEqual(["RLF-3"]);
+    expect((await linear.client.fetchReview()).map((i) => i.identifier)).toEqual(["RLF-4"]);
+  });
+
+  test("postComment + fetchComments round-trip", async () => {
+    const linear = createFakeLinear();
+    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    await linear.client.postComment(issue, "hello");
+    expect((await linear.client.fetchComments("1"))[0]?.body).toBe("hello");
+  });
+
+  test("pushMention is surfaced via fetchMentions", async () => {
+    const linear = createFakeLinear();
+    linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    linear.pushMention("1", "linear", "@ralphy ping", new Date("2025-01-02T00:00:00Z"));
+    const m = await linear.client.fetchMentions();
+    expect(m).toHaveLength(1);
+    expect(m[0]?.trigger.body).toBe("@ralphy ping");
+    expect(m[0]?.trigger.source).toBe("linear");
+  });
+
+  test("applyIndicator / removeIndicator round-trips and logs to applied", async () => {
+    const linear = createFakeLinear();
+    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    await linear.client.applyIndicator(issue, { type: "label", value: "ralphy:in-progress" });
+    await linear.client.applyIndicator(issue, { type: "status", value: "Done" });
+    await linear.client.removeIndicator(issue, { type: "label", value: "ralphy:conflicted" });
+    expect(linear.applied.setInProgress).toContain("RLF-1");
+    expect(linear.applied.setDone).toContain("RLF-1");
+    expect(linear.applied.clearConflicted).toContain("RLF-1");
+  });
+});
