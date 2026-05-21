@@ -7,6 +7,7 @@ import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 import { getProcessBus } from "@ralphy/events";
+import { waitForActiveWorkers } from "../runtime/shutdown";
 
 // Reuse the same line-cleaning regexes as the Ink dashboard.
 const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
@@ -200,38 +201,26 @@ export async function runAgentJson({
       shuttingDown = true;
       cancelled = true;
       emit({ type: "stopped" });
-      coord.stop();
       if (pollTimer) clearTimeout(pollTimer);
-
-      const start = Date.now();
-      let warned = false;
-      const wait = setInterval(() => {
-        const active = coord.activeCount;
-        const elapsed = Date.now() - start;
-        if (active === 0) {
-          clearInterval(wait);
-          resolve();
-          return;
-        }
-        if (!warned && elapsed >= 5000) {
-          warned = true;
+      void waitForActiveWorkers({
+        stop: () => coord.stop(),
+        getActiveCount: () => coord.activeCount,
+        onWarn: (active) => {
           emit({
             type: "log",
             text: `! ${active} worker(s) still running after 5s — forcing exit at 10s`,
             level: "warn",
           });
-        }
-        if (elapsed >= 10_000) {
-          clearInterval(wait);
+        },
+        onTimeout: (active) => {
           emit({
             type: "log",
             text: `! ${active} worker(s) did not exit within 10s — forcing process exit`,
             level: "warn",
           });
-          resolve();
           setTimeout(() => process.exit(1), 50);
-        }
-      }, 100);
+        },
+      }).then(() => resolve());
     };
     process.once("SIGINT", onSig);
     process.once("SIGTERM", onSig);

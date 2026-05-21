@@ -11,6 +11,7 @@ import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator"
 import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
+import { waitForActiveWorkers } from "../runtime/shutdown";
 
 /** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
  *  Exported so tests can supply lightweight mocks without bypassing types. */
@@ -701,39 +702,33 @@ export function AgentMode({
       cancelled = true;
       fileEmit({ type: "stopped" });
       appendLog("stopping agent — sending SIGTERM to workers", "yellow");
-      coordRef.current?.stop();
       if (pollTimer) clearTimeout(pollTimer);
-
-      const start = Date.now();
-      let warned = false;
-      const waitForWorkers = setInterval(() => {
-        const active = coordRef.current?.activeCount ?? 0;
-        const elapsed = Date.now() - start;
-        if (active === 0) {
-          clearInterval(waitForWorkers);
-          exit();
-          // Ink unmount + Linear API client may keep pending handles
-          // open; force the process down so the operator actually sees
-          // the shell prompt return.
-          setTimeout(() => process.exit(0), 200);
-          return;
-        }
-        if (!warned && elapsed >= 5000) {
-          warned = true;
+      let timedOut = false;
+      void waitForActiveWorkers({
+        stop: () => coordRef.current?.stop(),
+        getActiveCount: () => coordRef.current?.activeCount ?? 0,
+        onWarn: (active) => {
           appendLog(
             `! ${active} worker${active === 1 ? "" : "s"} still running after 5s — forcing exit at 10s (press Ctrl-C again to exit now)`,
             "red",
           );
-        }
-        if (elapsed >= 10_000) {
-          clearInterval(waitForWorkers);
+        },
+        onTimeout: (active) => {
+          timedOut = true;
           appendLog(
             `! ${active} worker${active === 1 ? "" : "s"} did not exit within 10s — forcing process exit`,
             "red",
           );
           setTimeout(() => process.exit(1), 50);
-        }
-      }, 100);
+        },
+      }).then(() => {
+        if (timedOut) return;
+        exit();
+        // Ink unmount + Linear API client may keep pending handles
+        // open; force the process down so the operator actually sees
+        // the shell prompt return.
+        setTimeout(() => process.exit(0), 200);
+      });
     };
     process.on("SIGINT", onSig);
     process.on("SIGTERM", onSig);
