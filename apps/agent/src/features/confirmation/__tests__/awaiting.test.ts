@@ -1,8 +1,15 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import * as nodeOs from "node:os";
 import { join } from "node:path";
+const { tmpdir } = nodeOs;
+
+const FAKE_HOME = mkdtempSync(join(tmpdir(), "awaiting-home-"));
+mock.module("node:os", () => ({
+  ...nodeOs,
+  homedir: () => FAKE_HOME,
+}));
 import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
 import type { LinearIssue } from "../../../agent/linear";
@@ -120,6 +127,38 @@ describe("processAwaitingForIssue", () => {
 
       const result = await processAwaitingForIssue(issue, deps);
 
+      expect(result).toBe(true);
+      expect(captured.awaitingChangeSet.has(changeName)).toBe(true);
+      expect(captured.reaped).toContain(changeName);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("worktree dir uses short identifier even when change-name is the full slug", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-wtmismatch-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      expect(changeName).not.toBe(issue.identifier.toLowerCase());
+      const projectRoot = join(dir, "proj");
+      await mkdir(projectRoot, { recursive: true });
+      const wtDir = join(FAKE_HOME, ".ralph", "proj", "worktrees", issue.identifier.toLowerCase());
+      await seedBugSnapshot(wtDir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(projectRoot, captured, { cwdOf: () => undefined });
+      deps.useWorktree = true;
+      deps.projectRoot = projectRoot;
+
+      const result = await processAwaitingForIssue(issue, deps);
+
+      expect(captured.logs.some((l) => /tasks-empty/.test(l))).toBe(false);
       expect(result).toBe(true);
       expect(captured.awaitingChangeSet.has(changeName)).toBe(true);
       expect(captured.reaped).toContain(changeName);

@@ -2,7 +2,7 @@ import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { projectLayout } from "@ralphy/core/layout";
 import { gateActive, hasUnchecked } from "@ralphy/core/detections";
-import { worktreesDir } from "../../agent/worktree";
+import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
 import type { LinearIssue } from "../../agent/linear";
@@ -40,16 +40,23 @@ interface AwaitingDeps {
 }
 
 async function resolveChangeCwdForIssue(
+  issue: { identifier: string },
   changeName: string,
   deps: { projectRoot: string; useWorktree: boolean; cwdOf: (cn: string) => string | undefined },
 ): Promise<string> {
   const tracked = deps.cwdOf(changeName);
   if (tracked) return tracked;
   if (!deps.useWorktree) return deps.projectRoot;
-  const wtPath = join(worktreesDir(deps.projectRoot), changeName);
-  return (await Bun.file(join(wtPath, "openspec", "changes", changeName, "tasks.md")).exists())
-    ? wtPath
-    : deps.projectRoot;
+  const root = worktreesDir(deps.projectRoot);
+  const canonical = join(root, worktreeDirNameForIssue(issue));
+  if (await Bun.file(join(canonical, "openspec", "changes", changeName, "tasks.md")).exists()) {
+    return canonical;
+  }
+  const legacy = join(root, changeName);
+  if (await Bun.file(join(legacy, "openspec", "changes", changeName, "tasks.md")).exists()) {
+    return legacy;
+  }
+  return deps.projectRoot;
 }
 
 async function readTextOrNull(path: string): Promise<string | null> {
@@ -138,7 +145,7 @@ export async function processAwaitingForIssue(
     }
     const cm = cfg.linear.confirmationMode;
     const changeName = changeNameForIssue(issue);
-    const cwd = await resolveChangeCwdForIssue(changeName, {
+    const cwd = await resolveChangeCwdForIssue(issue, changeName, {
       projectRoot: deps.projectRoot,
       useWorktree: deps.useWorktree,
       cwdOf: deps.cwdOf,
