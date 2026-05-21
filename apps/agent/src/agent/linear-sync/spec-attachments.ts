@@ -241,7 +241,7 @@ async function adopt(deps: SpecAttachmentsDeps, slot: Slot): Promise<{ adoptedId
  *  `Status:` / `Assignee:` / `Labels:` metadata block emitted by
  *  `scaffoldChangeForIssue`. Used to keep first-iteration template
  *  stubs out of Linear. */
-export function hasMeaningfulContent(bytes: Uint8Array): boolean {
+function hasMeaningfulContent(bytes: Uint8Array): boolean {
   const text = new TextDecoder().decode(bytes);
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
