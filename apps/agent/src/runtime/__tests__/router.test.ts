@@ -77,6 +77,18 @@ describe("router precedence table", () => {
     expect(last.flowId).toBe("idle");
     expect(last.when(sig({}))).toBe(true);
   });
+  it("4-way collision: gate wins over conflict + ci-failing + external PR", () => {
+    const result = route(
+      sig({ awaiting: "awaiting", bucket: "conflicted", prStatus: "ci-failing" }),
+    );
+    expect(result.flowId).toBe("confirmation");
+    expect(result.reason).toBe("awaiting → confirm");
+  });
+  it("after gate clears, conflict-fix beats ci-fix", () => {
+    expect(
+      route(sig({ awaiting: "none", bucket: "conflicted", prStatus: "ci-failing" })).flowId,
+    ).toBe("conflict-fix");
+  });
   it("propagates boost band onto the assignment", () => {
     expect(route(sig({ boost: "p0", awaiting: "awaiting" })).boost).toBe("p0");
     expect(route(sig({ boost: "p3" })).boost).toBe("p3");

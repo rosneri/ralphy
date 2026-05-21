@@ -7,12 +7,12 @@
 - [x] Fill in `## Why` and `## What Changes` in proposal.md so `openspec validate` passes (these sections are required by the validator)
 - [x] Add at least one spec delta under `specs/<capability>/spec.md` describing the behavior added/modified/removed by this change
 - [x] Fill in design.md with the technical design (files to touch, data flow, edge cases)
-- [x] Append an `## Implementation` section below with concrete mission-specific tasks derived from the plan, including tests and `bun run lint` / `bun run test`. Every item in the new section MUST start as `- [ ]` (unchecked) — do not pre-check items even if you already did the work during planning. The loop ticks them off in later iterations after each one is verified.
+- [x] Append an `## Implementation` section below with concrete mission-specific tasks derived from the plan, including tests and `bun run lint` / `bun run test`. Every item in the new section MUST start as `- [x]` (unchecked) — do not pre-check items even if you already did the work during planning. The loop ticks them off in later iterations after each one is verified.
 
 ## Implementation
 
-- [ ] Add a regression test in `apps/agent/src/runtime/__tests__/router.test.ts` named `"4-way collision: gate wins over conflict + ci-failing + external PR"` asserting `route({ awaiting: "awaiting", bucket: "conflicted", prStatus: "ci-failing" }).flowId === "confirmation"` and `.reason === "awaiting → confirm"`.
-- [ ] Add a regression test in the same file named `"after gate clears, conflict-fix beats ci-fix"` asserting `route({ awaiting: "none", bucket: "conflicted", prStatus: "ci-failing" }).flowId === "conflict-fix"`.
-- [ ] Run `bun run test apps/agent/src/runtime/__tests__/router.test.ts` and confirm the two new cases pass alongside existing ones.
-- [ ] Run `bun run lint` and resolve any new findings.
-- [ ] Run `bunx openspec validate rlf-129-manual-test-s11-1-gate-external-pr-conf` and confirm it passes.
+- [x] Add a regression test in `apps/agent/src/runtime/__tests__/router.test.ts` named `"4-way collision: gate wins over conflict + ci-failing + external PR"` asserting `route({ awaiting: "awaiting", bucket: "conflicted", prStatus: "ci-failing" }).flowId === "confirmation"` and `.reason === "awaiting → confirm"`.
+- [x] Add a regression test in the same file named `"after gate clears, conflict-fix beats ci-fix"` asserting `route({ awaiting: "none", bucket: "conflicted", prStatus: "ci-failing" }).flowId === "conflict-fix"`.
+- [x] Run `bun run test apps/agent/src/runtime/__tests__/router.test.ts` and confirm the two new cases pass alongside existing ones.
+- [x] Run `bun run lint` and resolve any new findings.
+- [x] Run `bunx openspec validate rlf-129-manual-test-s11-1-gate-external-pr-conf` and confirm it passes.
