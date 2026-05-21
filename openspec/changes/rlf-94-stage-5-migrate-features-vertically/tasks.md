@@ -30,7 +30,7 @@
 - [x] `features/review-followup/`: owns the `review.lastConsumedCommentAt` watermark introduced in Stage 3; remove the review-followup arm from `coordinator.ts`; tests cover watermark advance + skip-when-unchanged
 - [x] `features/new-ticket/`: detect + run + tests; remove the new-ticket arm from `coordinator.ts`
 - [x] `features/mention/`: produces `feature.mention.reviseComment` and other mention signals; MUST NOT write the `confirmation` slot directly; remove the mention arm from `coordinator.ts`; tests assert no `state.confirmation` writes via the boundary test plus a unit test
-- [ ] `features/stuck/`: detect + run + tests; remove the stuck arm from `coordinator.ts`
+- [x] `features/stuck/`: detect + run + tests; remove the stuck arm from `coordinator.ts`
 
 ### Cleanup & verification
 

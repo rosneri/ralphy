@@ -17,7 +17,7 @@
  * once they exist, never by reaching into sibling slices.
  */
 
-import type { Feature, FeatureId, StateSlotName } from "./types";
+import type { Feature } from "./types";
 import { confirmationFeature } from "./confirmation";
 import { conflictFixFeature } from "./conflict-fix";
 import { ciFixFeature } from "./ci-fix";
@@ -25,20 +25,7 @@ import { implementFeature } from "./implement";
 import { reviewFollowupFeature } from "./review-followup";
 import { newTicketFeature } from "./new-ticket";
 import { mentionFeature } from "./mention";
-
-function stubFeature(id: FeatureId, ownedSlot: StateSlotName | null): Feature {
-  return {
-    id,
-    ownedSlot,
-    async detect() {
-      return null;
-    },
-    async run() {
-      // No-op: legacy branches in coordinator.ts still own behavior
-      // until this slice's real descriptor replaces the stub.
-    },
-  };
-}
+import { stuckFeature } from "./stuck";
 
 export const registry: readonly Feature[] = [
   confirmationFeature,
@@ -48,5 +35,5 @@ export const registry: readonly Feature[] = [
   reviewFollowupFeature,
   newTicketFeature,
   mentionFeature,
-  stubFeature("stuck", null),
+  stuckFeature,
 ];
