@@ -3,7 +3,9 @@ import { getScenario, registry } from "../scenarios";
 
 describe("scenarios registry", () => {
   test("returns the s1.1-fresh-todo scenario", () => {
-    expect(getScenario("s1.1-fresh-todo")).toBe(registry["s1.1-fresh-todo"]);
+    const entry = registry["s1.1-fresh-todo"];
+    if (!entry) throw new Error("registry missing s1.1-fresh-todo");
+    expect(getScenario("s1.1-fresh-todo")).toBe(entry);
   });
 
   test("throws on unknown scenario with cause carrying name + registered list", () => {
