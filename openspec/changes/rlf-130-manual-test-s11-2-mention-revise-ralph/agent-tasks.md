@@ -1,3 +1,9 @@
+## Reapply lost implementation files (2026-05-21T22:47:06.469Z)
+
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+**Resolution (repeat 11):** Same persistent meta-only false positive. Manual-test change with no in-repo code deliverable by design — deliverable is recipe + external result PR `NeriRos/ralphy-rlf87-test#10` (FAIL, child RLF-152) + this repo's PR #254. Invoking `ralph_stop` again.
+
 ## Reapply lost implementation files (2026-05-21T22:37:06.632Z)
 
 - [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
