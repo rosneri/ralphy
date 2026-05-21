@@ -12,6 +12,7 @@ import {
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
+  issueMatchesGetIndicator,
   type LinearIssue,
   type LinearFilterSpec,
 } from "../linear";
@@ -165,8 +166,18 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     if (!inc) return [];
     const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     if (include.length === 0) return [];
+    const hasCommentMarker = include.some((m) => m.type === "comment");
     const spec: LinearFilterSpec = { team, assignee, include, exclude: excl };
-    return fetchOpenIssues(apiKey, spec);
+    const fetched = await fetchOpenIssues(
+      apiKey,
+      spec,
+      hasCommentMarker ? { includeComments: true } : undefined,
+    );
+    if (!hasCommentMarker) return fetched;
+    // When a comment marker is present, the GraphQL pre-filter can't enforce
+    // it (text search on comments is client-side), so post-filter using the
+    // shared matcher to drop issues that only matched the open-state default.
+    return fetched.filter((i) => issueMatchesGetIndicator(i, { filter: include }));
   }
 
   async function resolveLabelIdForTeam(teamKey: string, labelName: string): Promise<string | null> {
