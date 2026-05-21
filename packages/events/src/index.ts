@@ -5,6 +5,7 @@ export { subscribeFileLogger, type FileLoggerOptions } from "./consumers/file-lo
 export { POSTHOG_EVENT_ALLOWLIST, subscribePostHog, type CaptureFn } from "./consumers/posthog";
 export { subscribeTuiStream, BufferSink, type TuiSink } from "./consumers/tui-stream";
 export { subscribeJsonOutput, JsonBufferSink, type JsonSink } from "./consumers/json-output";
+export { subscribeAgentDiag } from "./consumers/agent-diag";
 
 import type { Bus } from "./bus";
 import { subscribeFileLogger } from "./consumers/file-logger";

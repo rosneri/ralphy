@@ -50,6 +50,7 @@ stage_static() {
   NODE_OPTIONS=--max-old-space-size=8192 \
   run_step "Typecheck (affected)"         bun run typecheck:ci
   # run_step "Spell check"                  bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
+  run_step "Architecture doc drift check" bash -c 'bun run build:architecture && git diff --exit-code ARCHITECTURE.md'
   run_step "Circular dependency check"    bun run check:circular:ci
   run_step "Unused dependency check"      bun run check:unused:ci
   run_step "Outdated dependency check"    bun scripts/check-outdated.ts

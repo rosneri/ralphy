@@ -73,6 +73,12 @@ jobs:
       #   if: "!cancelled()"
       #   run: bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
 
+      - name: Architecture doc drift check
+        if: "!cancelled()"
+        run: |
+          bun run build:architecture
+          git diff --exit-code ARCHITECTURE.md
+
       - name: Circular dependency check
         if: "!cancelled()"
         run: bun run check:circular:ci

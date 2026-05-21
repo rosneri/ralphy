@@ -69,6 +69,51 @@ export type RalphEvent =
       iteration?: number;
       error?: string;
     }
+  // --- loop lifecycle (bus-native; posthog consumer forwards as prior names) ---
+  | {
+      type: "loop.task_started";
+      ts: number;
+      task_name?: string;
+      engine?: string;
+      [k: string]: unknown;
+    }
+  | {
+      type: "loop.task_stopped";
+      ts: number;
+      [k: string]: unknown;
+    }
+  | {
+      type: "loop.iteration_failed";
+      ts: number;
+      iteration?: number;
+      [k: string]: unknown;
+    }
+  | {
+      type: "loop.engine_rate_limited";
+      ts: number;
+      exit_code?: number;
+      iteration?: number;
+    }
+  | {
+      type: "loop.engine_error";
+      ts: number;
+      iteration?: number;
+      error?: string;
+    }
+  // --- feature lifecycle (disabled at registry-selection time) ---
+  | {
+      type:
+        | "feature.confirmation.disabled"
+        | "feature.conflict-fix.disabled"
+        | "feature.ci-fix.disabled"
+        | "feature.implement.disabled"
+        | "feature.review-followup.disabled"
+        | "feature.new-ticket.disabled"
+        | "feature.mention.disabled"
+        | "feature.stuck.disabled";
+      ts: number;
+      reason: string;
+    }
   // --- agent coordinator (capture) ---
   | {
       type: "agent_linear_poll_failed";
@@ -289,6 +334,20 @@ export type RalphEvent =
         | `runtime.shutdown.teardown.${string}`;
       ts: number;
       [k: string]: unknown;
+    }
+  // --- agent diagnostics (wire.ts forwards human-readable status lines) ---
+  //
+  // Replaces the prior direct `onLog(...)` calls inside
+  // `apps/agent/src/agent/wire.ts`. Subscribers (TUI / json-runner /
+  // file-logger) format the message back into the prior string. `area`
+  // identifies the sub-domain (e.g. "linear", "pr", "ci", "worktree")
+  // so consumers can filter or colour without parsing the message.
+  | {
+      type: "agent.diag";
+      ts: number;
+      area: string;
+      message: string;
+      color?: string;
     }
   // --- internal ---
   | {

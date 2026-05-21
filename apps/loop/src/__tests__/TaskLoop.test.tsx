@@ -1076,6 +1076,57 @@ describe("TaskLoop", () => {
     });
   });
 
+  test("skips archive when openspec status reports change incomplete", async () => {
+    let archived = false;
+    const incompleteStore = {
+      archiveChange: (_name: string) => {
+        archived = true;
+        return Promise.resolve();
+      },
+      getStatus: (_name: string) =>
+        Promise.resolve({
+          changeName: "incomplete-task",
+          isComplete: false,
+          applyRequires: [] as string[],
+          artifacts: [{ id: "spec.md", status: "blocked" as const }],
+        }),
+    };
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "incomplete-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "incomplete-task" });
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] only\n", "utf-8");
+
+      const opts = {
+        name: "incomplete-task",
+        prompt: "Incomplete",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: incompleteStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("Archive skipped");
+      expect(allText).toContain("spec.md=blocked");
+      expect(archived).toBe(false);
+    });
+  });
+
   test("surfaces archive errors as info message", async () => {
     const failingStore = {
       archiveChange: (_name: string) => Promise.reject(new Error("archive boom")),

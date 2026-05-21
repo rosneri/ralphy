@@ -51,6 +51,7 @@
     "check:circular:ci": "depcruise packages/*/src apps/*/src --config .dependency-cruiser.cjs",
     "check:unused:ci": "knip",
     "check:outdated:ci": "bun scripts/check-outdated.ts",
+    "build:architecture": "bun run apps/agent/src/scripts/generate-architecture.ts",
     "prepare": "bunx husky",
     "build:publish": "bunx nx run-many --target=build --projects=shell,mcp --output-style stream && bun run copy-assets",
     "copy-assets": "bun scripts/copy-assets.ts",
