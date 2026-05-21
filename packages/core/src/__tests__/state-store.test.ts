@@ -54,7 +54,12 @@ describe("writeField", () => {
   test("writing into a slot the file doesn't yet contain creates the parent object", async () => {
     // No file on disk yet.
     expect(await Bun.file(statePath).exists()).toBe(false);
-    await writeField(changeDir, "review", "review.lastConsumedCommentAt", "2026-05-15T10:00:00Z");
+    await writeField(
+      changeDir,
+      "review-followup",
+      "review.lastConsumedCommentAt",
+      "2026-05-15T10:00:00Z",
+    );
     const after = JSON.parse(await Bun.file(statePath).text()) as Record<string, unknown>;
     expect(after.review).toEqual({ lastConsumedCommentAt: "2026-05-15T10:00:00Z" });
   });
@@ -77,7 +82,7 @@ describe("writeField", () => {
     const nested = join(changeDir, "nested", "deep");
     mkdirSync(join(changeDir, "nested"), { recursive: true });
     // nested/deep does not exist yet; writeField should `mkdir -p` it.
-    await writeField(nested, "review", "review.lastConsumedCommentAt", "x");
+    await writeField(nested, "review-followup", "review.lastConsumedCommentAt", "x");
     const after = JSON.parse(await Bun.file(join(nested, ".ralph-state.json")).text()) as Record<
       string,
       unknown

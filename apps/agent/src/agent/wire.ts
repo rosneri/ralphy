@@ -1712,7 +1712,7 @@ export function buildAgentCoordinator(
         try {
           await writeField(
             stateDir,
-            "review",
+            "review-followup",
             "review.lastConsumedCommentAt",
             newestReviewerActivity,
           );

@@ -27,7 +27,7 @@
 - [x] `features/conflict-fix/`: `postTask` only verifies mergeability via the `getMergeability` capability (push lives inside the AI iteration per RLF-82); remove the conflict-fix arm from `coordinator.ts` / `post-task.ts`; tests cover the mergeability-only postTask
 - [x] `features/ci-fix/`: owns `state.ci` writes; detect + run + postTask + tests; remove ci-fix arm from `coordinator.ts` / `post-task.ts`
 - [x] `features/implement/`: keeps the push + hook-fix retry in its `postTask`; owns `state.pr.url` and `state.pr.openedAt`; remove implement arm from `coordinator.ts` / `post-task.ts`; tests cover push retry behavior
-- [ ] `features/review-followup/`: owns the `review.lastConsumedCommentAt` watermark introduced in Stage 3; remove the review-followup arm from `coordinator.ts`; tests cover watermark advance + skip-when-unchanged
+- [x] `features/review-followup/`: owns the `review.lastConsumedCommentAt` watermark introduced in Stage 3; remove the review-followup arm from `coordinator.ts`; tests cover watermark advance + skip-when-unchanged
 - [ ] `features/new-ticket/`: detect + run + tests; remove the new-ticket arm from `coordinator.ts`
 - [ ] `features/mention/`: produces `feature.mention.reviseComment` and other mention signals; MUST NOT write the `confirmation` slot directly; remove the mention arm from `coordinator.ts`; tests assert no `state.confirmation` writes via the boundary test plus a unit test
 - [ ] `features/stuck/`: detect + run + tests; remove the stuck arm from `coordinator.ts`
