@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-const SRC = join(import.meta.dir, "..", "useLoop.ts");
+// Resolve to src/ even when this test runs from the compiled dist/ copy.
+const SRC_DIR = import.meta.dir.replace("/dist/src/", "/src/");
+const SRC = join(SRC_DIR, "..", "useLoop.ts");
 
 describe("useLoop — telemetry surface (RLF-96 Stage 7)", () => {
   test("does not import @ralphy/telemetry directly anymore", async () => {
