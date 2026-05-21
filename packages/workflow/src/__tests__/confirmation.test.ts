@@ -115,6 +115,22 @@ describe("computeConfirmationFlags", () => {
     ).toBe(false);
   });
 
+  test("optInLabel set but ticket lacks it → ungated", () => {
+    const c = cfg(
+      `linear:\n  confirmationMode:\n    enabled: true\n    optInLabel: ralph:needs-review\n`,
+    );
+    expect(computeConfirmationFlags(c, ticket()).confirmationGated).toBe(false);
+  });
+
+  test("optInLabel set and ticket has it → gated", () => {
+    const c = cfg(
+      `linear:\n  confirmationMode:\n    enabled: true\n    optInLabel: ralph:needs-review\n`,
+    );
+    expect(
+      computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review"] })).confirmationGated,
+    ).toBe(true);
+  });
+
   test("custom optOutLabel honoured", () => {
     const c = cfg(`linear:\n  confirmationMode:\n    enabled: true\n    optOutLabel: skip-gate\n`);
     expect(computeConfirmationFlags(c, ticket({ labels: ["skip-gate"] })).confirmationGated).toBe(

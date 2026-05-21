@@ -127,11 +127,13 @@ linear:
   specAttachmentFormats: ["pdf"]
 
   # Confirmation mode — human gate between the OpenSpec `tasks` and
-  # `implement` phases. Every ticket is gated unless it carries
-  # `optOutLabel`. Approve via `getApproved`, revise via
+  # `implement` phases. Approve via `getApproved`, revise via
   # `@ralphy revise: <reason>`.
+  # optInLabel: only gate tickets that carry this label (opt-in mode).
+  # optOutLabel: skip the gate for tickets that carry this label.
   confirmationMode:
-    enabled: false
+    enabled: true
+    optInLabel: "ralph:confirm"
     optOutLabel: "ralph:auto-approve"
     timeoutHours: 48
     maxConfirmationRounds: 3

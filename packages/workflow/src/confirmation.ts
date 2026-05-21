@@ -71,7 +71,8 @@ export function computeConfirmationFlags(
   ticket: ConfirmationTicketView,
 ): { confirmationGated: boolean; approved: boolean } {
   const cm = config.linear.confirmationMode;
-  const confirmationGated = cm.enabled && !ticket.labels.includes(cm.optOutLabel);
+  const optInSatisfied = !cm.optInLabel || ticket.labels.includes(cm.optInLabel);
+  const confirmationGated = cm.enabled && optInSatisfied && !ticket.labels.includes(cm.optOutLabel);
   const approved = matchesIndicator(config.linear.indicators.getApproved, ticket);
   return { confirmationGated, approved };
 }

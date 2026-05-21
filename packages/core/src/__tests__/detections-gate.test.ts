@@ -41,4 +41,24 @@ describe("gateActive", () => {
       }),
     ).toBe(true);
   });
+
+  test("optInLabel set but ticket lacks it → false", () => {
+    expect(
+      gateActive({
+        config: { confirmationMode: { enabled: true, optInLabel: "ralph:needs-review" } },
+        ticket: { labels: [] },
+        persistedConfirmation: { confirmedAt: null },
+      }),
+    ).toBe(false);
+  });
+
+  test("optInLabel set and ticket has it → true", () => {
+    expect(
+      gateActive({
+        config: { confirmationMode: { enabled: true, optInLabel: "ralph:needs-review" } },
+        ticket: { labels: ["ralph:needs-review"] },
+        persistedConfirmation: { confirmedAt: null },
+      }),
+    ).toBe(true);
+  });
 });

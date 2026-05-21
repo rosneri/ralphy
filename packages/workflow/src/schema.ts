@@ -146,6 +146,7 @@ export const WorkflowConfigSchema = z.object({
         .object({
           enabled: z.boolean().default(false),
           optOutLabel: z.string().default("ralph:auto-approve"),
+          optInLabel: z.string().optional(),
           timeoutHours: z.number().positive().default(48),
           maxConfirmationRounds: z.number().int().positive().default(3),
         })
