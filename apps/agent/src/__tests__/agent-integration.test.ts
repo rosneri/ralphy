@@ -525,6 +525,11 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     expect(fixWorker).toBeDefined();
 
     // ---- 7. Conflict-fix worker exits cleanly → clearConflicted ----
+    // Per RLF-82 the post-task verifies via `fetchPrStatus` before
+    // clearing the conflict label; the AI is presumed to have resolved
+    // and pushed the conflicts, so the fake PR view must now report
+    // MERGEABLE.
+    setMergeable(changeName, "MERGEABLE");
     fixWorker!.resolve(0);
     await tick();
 

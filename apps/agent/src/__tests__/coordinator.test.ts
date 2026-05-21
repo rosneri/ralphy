@@ -716,7 +716,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeDefined();
   });
 
-  test("conflict-fix success applies clearConflicted and skips setDone", async () => {
+  test("conflict-fix success skips setDone and defers clearConflicted to post-task", async () => {
+    // RLF-82: clearConflicted on conflict-fix success is owned by the
+    // post-task verify path (which calls fetchPrStatus before clearing).
+    // The coordinator no longer auto-clears on exit-code 0.
     const conflictedIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setConflicted([conflictedIssue]);
@@ -734,7 +737,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     await tick();
 
     expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeUndefined();
-    expect(ctx.removes).toContainEqual({ id: "a", ind: clearConflicted });
+    expect(ctx.removes.find((r) => r.id === "a" && r.ind === clearConflicted)).toBeUndefined();
   });
 });
 

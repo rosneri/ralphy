@@ -233,6 +233,7 @@ export function buildAgentCoordinator(
     statesDirByChange,
     branchByChange,
     issueByChange,
+    prByChange,
     onPrRegistered: (cn, url) => {
       prByChange.set(cn, url);
       prDiscovery.clearPrUnavailable(cn);
@@ -246,6 +247,12 @@ export function buildAgentCoordinator(
     ...(onWorkerPhase ? { onWorkerPhase } : {}),
     ...(onWorkerOutput ? { onWorkerOutput } : {}),
     ...(onWorkerCmd ? { onWorkerCmd } : {}),
+    ...(indicators.clearConflicted
+      ? {
+          clearConflicted: (issue: LinearIssue) =>
+            resolvers.removeIndicator(issue, indicators.clearConflicted!),
+        }
+      : {}),
   });
 
   const confirmationCaps: ConfirmationCaps = {
