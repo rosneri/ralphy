@@ -115,6 +115,21 @@ export interface CiFixCapsShape {
   getCiStatus(): Promise<"pass" | "fail" | "pending" | "unknown">;
 }
 
+/**
+ * Per-feature capability bundle for the implement slice. Wire builds the
+ * closure once per (issue, poll) so the slice itself stays free of `gh`
+ * imports. `getPrUrl` returns the open PR URL associated with the issue's
+ * branch (or `null` when no PR is known yet). The slice's `postTask`
+ * records the URL under `state.pr` and emits an event — the push +
+ * hook-fix retry loop lives in `post-task.ts` until the stage-final
+ * cleanup moves it here.
+ */
+export interface ImplementCapsShape {
+  /** Returns the PR URL associated with the issue's branch, or `null`
+   *  when no PR exists yet (branch never pushed, gh call failed, etc.). */
+  getPrUrl(): Promise<string | null>;
+}
+
 export interface Capabilities {
   /** GitHub REST/CLI capability (PR data, mergeability, reviews). */
   gh: unknown;
@@ -138,6 +153,10 @@ export interface Capabilities {
    *  Optional so test contexts that don't exercise the ci-fix feature
    *  can omit it without satisfying the gh-checks closure. */
   ciFix?: CiFixCapsShape;
+  /** Implement slice closure bundle, wired by the agent's `wire.ts`.
+   *  Optional so test contexts that don't exercise the implement feature
+   *  can omit it without satisfying the gh-pr-lookup closure. */
+  implement?: ImplementCapsShape;
 }
 
 /** Shared context passed to every `Feature.detect` and `Feature.run`. */

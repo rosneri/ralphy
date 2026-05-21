@@ -21,6 +21,7 @@ import type { Feature, FeatureId, StateSlotName } from "./types";
 import { confirmationFeature } from "./confirmation";
 import { conflictFixFeature } from "./conflict-fix";
 import { ciFixFeature } from "./ci-fix";
+import { implementFeature } from "./implement";
 
 function stubFeature(id: FeatureId, ownedSlot: StateSlotName | null): Feature {
   return {
@@ -40,7 +41,7 @@ export const registry: readonly Feature[] = [
   confirmationFeature,
   conflictFixFeature,
   ciFixFeature,
-  stubFeature("implement", "pr"),
+  implementFeature,
   stubFeature("review-followup", "review"),
   stubFeature("new-ticket", null),
   stubFeature("mention", null),

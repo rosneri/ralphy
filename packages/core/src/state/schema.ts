@@ -12,6 +12,7 @@ export const OWNERSHIP: Record<string, ReadonlyArray<string>> = {
   confirmation: ["confirmation"],
   review: ["review"],
   "ci-fix": ["ci"],
+  implement: ["pr"],
 };
 
 export const ALL_OWNED_SLOTS: Set<string> = new Set<string>(
