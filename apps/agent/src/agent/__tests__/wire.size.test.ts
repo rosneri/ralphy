@@ -3,7 +3,9 @@ import { join } from "node:path";
 
 describe("wire.ts size invariant", () => {
   test("non-blank, non-comment line count is ≤ 500", async () => {
-    const path = join(import.meta.dir, "..", "wire.ts");
+    // Resolve to src/ even when this test runs from the compiled dist/ copy.
+    const srcDir = import.meta.dir.replace("/dist/src/", "/src/");
+    const path = join(srcDir, "..", "wire.ts");
     const text = await Bun.file(path).text();
     const lines = text.split("\n");
     let inBlock = false;
