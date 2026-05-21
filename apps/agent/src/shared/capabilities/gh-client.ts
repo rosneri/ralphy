@@ -19,14 +19,14 @@
 import type { Capability, RetryPolicy } from "./types";
 import type { CmdRunner } from "../../agent/pr";
 
-export interface GhRunArgs {
+interface GhRunArgs {
   runner: CmdRunner;
   cwd: string;
   /** Full argv to pass to `gh`, e.g. `["pr", "view", url, "--json", "state"]`. */
   args: string[];
 }
 
-export interface GhResult {
+interface GhResult {
   stdout: string;
   stderr: string;
 }
@@ -87,7 +87,7 @@ export function isTransientGhError(err: unknown): boolean {
   return TRANSIENT_PATTERNS.some((p) => p.test(blob));
 }
 
-export const GH_RETRY: RetryPolicy = {
+const GH_RETRY: RetryPolicy = {
   maxAttempts: 3,
   isRetryable: isTransientGhError,
   delayMs: (attempt) => Math.min(2000, 200 * 2 ** (attempt - 1)),

@@ -21,7 +21,7 @@ import { mkdir } from "node:fs/promises";
 import { prependFixTask } from "@ralphy/core/tasks-md";
 import { NO_RETRY, type Capability } from "./types";
 
-export interface ScaffoldArgs {
+interface ScaffoldArgs {
   /** Absolute path to `openspec/changes/<name>/`. */
   changeDir: string;
   /** Absolute path to `<statesDir>/<name>/`. */
@@ -34,14 +34,14 @@ export interface ScaffoldArgs {
   design: string;
 }
 
-export interface PrependTaskArgs {
+interface PrependTaskArgs {
   /** Absolute path to the target `tasks.md` (or `agent-tasks.md`). */
   tasksPath: string;
   heading: string;
   failureOutput: string;
 }
 
-export interface AppendSteeringArgs {
+interface AppendSteeringArgs {
   /** Absolute path to `openspec/changes/<name>/`. */
   changeDir: string;
   message: string;
@@ -51,7 +51,7 @@ function defaultFormatter(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export const scaffold: Capability<ScaffoldArgs, void> = {
+const scaffold: Capability<ScaffoldArgs, void> = {
   name: "fs.change.scaffold",
   required: false,
   retryPolicy: NO_RETRY,
@@ -66,7 +66,7 @@ export const scaffold: Capability<ScaffoldArgs, void> = {
   },
 };
 
-export const prependTask: Capability<PrependTaskArgs, void> = {
+const prependTask: Capability<PrependTaskArgs, void> = {
   name: "fs.change.task.prepend",
   required: false,
   retryPolicy: NO_RETRY,
@@ -76,7 +76,7 @@ export const prependTask: Capability<PrependTaskArgs, void> = {
   },
 };
 
-export const appendSteering: Capability<AppendSteeringArgs, void> = {
+const appendSteering: Capability<AppendSteeringArgs, void> = {
   name: "fs.change.steering.append",
   required: false,
   retryPolicy: NO_RETRY,

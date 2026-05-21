@@ -42,7 +42,6 @@ export {
   updateIssueDescription,
   findOpenIssueByLabel,
   removeLabelFromIssue,
-  linearRequest,
   linearRequestInternals,
   isRateLimitedError,
   formatLinearError,

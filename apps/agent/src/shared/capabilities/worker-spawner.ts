@@ -29,7 +29,7 @@ export interface WorkerSpawnHandle {
 
 export type WorkerSpawner = (cmd: string[], cwd: string) => WorkerSpawnHandle;
 
-export interface SpawnWorkerArgs {
+interface SpawnWorkerArgs {
   /** The subprocess command line (e.g. `["bun", "ralph", "loop", "task", "--name", "...", ...]`). */
   cmd: string[];
   cwd: string;
@@ -77,5 +77,3 @@ export const spawnWorker: Capability<SpawnWorkerArgs, WorkerSpawnHandle> = {
     return spawn(args.cmd, args.cwd);
   },
 };
-
-export const workerSpawner = { spawnWorker };

@@ -18,7 +18,7 @@
 import type { Bus, EmitInput } from "@ralphy/events";
 import type { Capability } from "./types";
 
-export interface RunCapabilityCtx {
+interface RunCapabilityCtx {
   bus?: Bus;
 }
 
@@ -67,10 +67,6 @@ export async function runCapability<A, R, Raw = R>(
   // the caller.
   throw lastError;
 }
-
-export const runCapabilityInternals = {
-  sleep: (ms: number) => sleep(ms),
-};
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

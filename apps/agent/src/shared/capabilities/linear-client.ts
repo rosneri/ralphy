@@ -453,8 +453,6 @@ async function linearRequest<T>(
   throw lastHttpError ?? new Error("Linear API request failed");
 }
 
-export { linearRequest };
-
 interface LinearFileUpload {
   fileUpload: {
     uploadFile: {

@@ -20,25 +20,25 @@ import {
   type GitRunner,
 } from "../../agent/worktree";
 
-export interface CreateWorktreeArgs {
+interface CreateWorktreeArgs {
   projectRoot: string;
   changeName: string;
   baseBranch: string;
   runner: GitRunner;
 }
 
-export interface RemoveWorktreeArgs {
+interface RemoveWorktreeArgs {
   projectRoot: string;
   cwd: string;
   runner: GitRunner;
 }
 
-export interface SeedMcpConfigArgs {
+interface SeedMcpConfigArgs {
   projectRoot: string;
   worktreeCwd: string;
 }
 
-export interface WorktreeHandle {
+interface WorktreeHandle {
   cwd: string;
   branch: string;
 }
@@ -47,7 +47,7 @@ function defaultFormatter(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export const createWorktree: Capability<CreateWorktreeArgs, WorktreeHandle> = {
+const createWorktree: Capability<CreateWorktreeArgs, WorktreeHandle> = {
   name: "git.worktree.create",
   required: true,
   retryPolicy: NO_RETRY,
@@ -56,7 +56,7 @@ export const createWorktree: Capability<CreateWorktreeArgs, WorktreeHandle> = {
     createWorktreeImpl(args.projectRoot, args.changeName, args.baseBranch, args.runner),
 };
 
-export const removeWorktree: Capability<RemoveWorktreeArgs, void> = {
+const removeWorktree: Capability<RemoveWorktreeArgs, void> = {
   name: "git.worktree.remove",
   required: false,
   retryPolicy: NO_RETRY,
@@ -64,7 +64,7 @@ export const removeWorktree: Capability<RemoveWorktreeArgs, void> = {
   run: (args) => removeWorktreeImpl(args.projectRoot, args.cwd, args.runner),
 };
 
-export const seedWorktreeMcpConfig: Capability<SeedMcpConfigArgs, void> = {
+const seedWorktreeMcpConfig: Capability<SeedMcpConfigArgs, void> = {
   name: "git.worktree.seedMcpConfig",
   required: false,
   retryPolicy: NO_RETRY,

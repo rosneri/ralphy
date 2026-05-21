@@ -1,3 +1,51 @@
+## Fix failing CI checks (2026-05-21T01:11:12.472Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26199334122 ---
+ci Unused dependency check ﻿2026-05-21T01:09:53.1310353Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-21T01:09:53.1310710Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-21T01:09:53.1344057Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-21T01:09:53.1344327Z env:
+ci Unused dependency check 2026-05-21T01:09:53.1344569Z NX_BASE: 562ff5a3e62ccd8b7251a31363f1fd0f75a28ab7
+ci Unused dependency check 2026-05-21T01:09:53.1344922Z NX_HEAD: 58b2c4f98545db4118afe665226a85a600bb52e4
+ci Unused dependency check 2026-05-21T01:09:53.1345215Z ##[endgroup]
+ci Unused dependency check 2026-05-21T01:09:53.1417738Z $ knip
+ci Unused dependency check 2026-05-21T01:09:56.7990612Z [93m[4mUnused exports[24m[39m (11)
+ci Unused dependency check 2026-05-21T01:09:56.8076456Z linearRequest apps/agent/src/agent/linear.ts:45:3  
+ci Unused dependency check 2026-05-21T01:09:56.8077717Z scaffold apps/agent/src/shared/capabilities/fs-change.ts:54:14  
+ci Unused dependency check 2026-05-21T01:09:56.8078919Z prependTask apps/agent/src/shared/capabilities/fs-change.ts:69:14  
+ci Unused dependency check 2026-05-21T01:09:56.8080151Z appendSteering apps/agent/src/shared/capabilities/fs-change.ts:79:14  
+ci Unused dependency check 2026-05-21T01:09:56.8081337Z GH_RETRY apps/agent/src/shared/capabilities/gh-client.ts:90:14  
+ci Unused dependency check 2026-05-21T01:09:56.8083440Z createWorktree apps/agent/src/shared/capabilities/git.ts:50:14  
+ci Unused dependency check 2026-05-21T01:09:56.8084633Z removeWorktree apps/agent/src/shared/capabilities/git.ts:59:14  
+ci Unused dependency check 2026-05-21T01:09:56.8085865Z seedWorktreeMcpConfig apps/agent/src/shared/capabilities/git.ts:67:14  
+ci Unused dependency check 2026-05-21T01:09:56.8087287Z linearRequest apps/agent/src/shared/capabilities/linear-client.ts:456:10
+ci Unused dependency check 2026-05-21T01:09:56.8088458Z runCapabilityInternals apps/agent/src/shared/capabilities/run-capability.ts:71:14
+ci Unused dependency check 2026-05-21T01:09:56.8089862Z workerSpawner apps/agent/src/shared/capabilities/worker-spawner.ts:81:14
+ci Unused dependency check 2026-05-21T01:09:56.8090820Z [93m[4mUnused exported types[24m[39m (11)
+ci Unused dependency check 2026-05-21T01:09:56.8091990Z ScaffoldArgs interface apps/agent/src/shared/capabilities/fs-change.ts:24:18  
+ci Unused dependency check 2026-05-21T01:09:56.8093206Z PrependTaskArgs interface apps/agent/src/shared/capabilities/fs-change.ts:37:18  
+ci Unused dependency check 2026-05-21T01:09:56.8094433Z AppendSteeringArgs interface apps/agent/src/shared/capabilities/fs-change.ts:44:18  
+ci Unused dependency check 2026-05-21T01:09:56.8095629Z GhRunArgs interface apps/agent/src/shared/capabilities/gh-client.ts:22:18  
+ci Unused dependency check 2026-05-21T01:09:56.8096755Z GhResult interface apps/agent/src/shared/capabilities/gh-client.ts:29:18  
+ci Unused dependency check 2026-05-21T01:09:56.8097923Z CreateWorktreeArgs interface apps/agent/src/shared/capabilities/git.ts:23:18  
+ci Unused dependency check 2026-05-21T01:09:56.8099148Z RemoveWorktreeArgs interface apps/agent/src/shared/capabilities/git.ts:30:18  
+ci Unused dependency check 2026-05-21T01:09:56.8100299Z SeedMcpConfigArgs interface apps/agent/src/shared/capabilities/git.ts:36:18  
+ci Unused dependency check 2026-05-21T01:09:56.8101479Z WorktreeHandle interface apps/agent/src/shared/capabilities/git.ts:41:18  
+ci Unused dependency check 2026-05-21T01:09:56.8102910Z RunCapabilityCtx interface apps/agent/src/shared/capabilities/run-capability.ts:21:18
+ci Unused dependency check 2026-05-21T01:09:56.8104097Z SpawnWorkerArgs interface apps/agent/src/shared/capabilities/worker-spawner
+…[truncated 224062 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-21T01:00:45.927Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
