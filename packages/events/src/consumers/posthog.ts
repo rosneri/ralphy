@@ -22,11 +22,23 @@ export const POSTHOG_EVENT_ALLOWLIST: ReadonlySet<RalphEventType> = new Set<Ralp
   "agent_worker_reaped_for_awaiting",
 ]);
 
+/** Bus-native loop events forwarded to PostHog under their prior (unprefixed) names
+ *  to preserve telemetry parity. */
+export const LOOP_EVENT_ALIAS: Readonly<Record<string, string>> = Object.freeze({
+  "loop.task_started": "task_started",
+  "loop.task_stopped": "task_stopped",
+  "loop.iteration_failed": "iteration_failed",
+  "loop.engine_rate_limited": "engine_rate_limited",
+  "loop.engine_error": "engine_error",
+});
+
 export type CaptureFn = (event: string, properties?: Record<string, unknown>) => void;
 
 export function subscribePostHog(bus: Bus, capture: CaptureFn): () => void {
   return bus.on("*", (event: RalphEvent) => {
-    if (!POSTHOG_EVENT_ALLOWLIST.has(event.type)) return;
+    const aliased = LOOP_EVENT_ALIAS[event.type];
+    const forwardName = aliased ?? (POSTHOG_EVENT_ALLOWLIST.has(event.type) ? event.type : null);
+    if (forwardName === null) return;
     const {
       type: _type,
       ts: _ts,
@@ -37,6 +49,6 @@ export function subscribePostHog(bus: Bus, capture: CaptureFn): () => void {
     };
     void _type;
     void _ts;
-    capture(event.type, props);
+    capture(forwardName, props);
   });
 }

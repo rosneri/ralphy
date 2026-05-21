@@ -4,24 +4,41 @@
   "rules": {
     "no-explicit-any": "error",
     "import/no-cycle": "error",
-    "no-console": "warn",
-    "no-restricted-imports": [
-      "warn",
-      {
-        "patterns": [
+    "no-console": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["**/features/**", "**/capabilities/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
           {
-            "group": ["**/runtime/**", "**/consumers/**"],
-            "message": "features must not import runtime/consumers"
-          },
-          {
-            "group": ["**/features/**", "**/capabilities/**"],
-            "message": "consumers must not import features/capabilities"
+            "patterns": [
+              {
+                "group": ["**/runtime/**", "**/consumers/**"],
+                "message": "features must not import runtime/consumers"
+              }
+            ]
           }
         ]
       }
-    ]
-  },
-  "overrides": [
+    },
+    {
+      "files": ["**/consumers/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/features/**", "**/capabilities/**"],
+                "message": "consumers must not import features/capabilities"
+              }
+            ]
+          }
+        ]
+      }
+    },
     {
       "files": ["**/*.test.ts", "**/*.spec.ts"],
       "rules": {
@@ -33,7 +50,7 @@
       "files": ["**/detect.ts"],
       "rules": {
         "no-restricted-imports": [
-          "warn",
+          "error",
           {
             "patterns": [
               { "group": ["**/*linear*"], "message": "detect.ts must be I/O-free" },

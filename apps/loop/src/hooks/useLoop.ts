@@ -12,13 +12,7 @@ import {
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
 import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
-import { capture as telemetryCapture } from "@ralphy/telemetry";
 import { getProcessBus } from "@ralphy/events";
-
-function capture(event: string, properties?: Record<string, unknown>): void {
-  telemetryCapture(event, properties);
-  getProcessBus().emit({ type: event, ...properties } as never);
-}
 import {
   buildTaskPrompt,
   checkStopCondition,
@@ -149,7 +143,8 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       setIsResume(isResume);
       setState(currentState);
 
-      capture("task_started", {
+      getProcessBus().emit({
+        type: "loop.task_started",
         engine: opts.engine,
         model: opts.model,
         is_resume: isResume,
@@ -342,12 +337,17 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
 
             // Stop immediately on rate limits or fatal engine errors
             if (failure.shouldStop || engineResult.rateLimited) {
-              capture("engine_rate_limited", { exit_code: engineResult.exitCode, iteration: iter });
+              getProcessBus().emit({
+                type: "loop.engine_rate_limited",
+                exit_code: engineResult.exitCode,
+                iteration: iter,
+              });
               finalStopReason = "rateLimited";
               break;
             }
 
-            capture("iteration_failed", {
+            getProcessBus().emit({
+              type: "loop.iteration_failed",
               exit_code: engineResult.exitCode,
               iteration: iter,
               consecutive_failures: consFailures + 1,
@@ -403,7 +403,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           addInfo(`Engine error: ${err}`);
-          capture("engine_error", { iteration: iter, error: message });
+          getProcessBus().emit({ type: "loop.engine_error", iteration: iter, error: message });
           break;
         }
       }
@@ -411,7 +411,8 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       currentState = ensureState(stateDir);
       setState(currentState);
 
-      capture("task_stopped", {
+      getProcessBus().emit({
+        type: "loop.task_stopped",
         stop_reason: finalStopReason,
         iterations: iter,
         total_cost_usd: currentState.usage.total_cost_usd,
