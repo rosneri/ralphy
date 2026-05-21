@@ -5,7 +5,7 @@ export interface EngineLike {
   remaining: () => number;
 }
 
-export interface ScriptedEngineConfig {
+interface ScriptedEngineConfig {
   scenario: ScenarioStep[];
 }
 

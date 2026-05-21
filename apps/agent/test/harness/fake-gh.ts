@@ -68,7 +68,10 @@ export function createFakeGh(): FakeGh {
         const pr = byUrl.get(target ?? "");
         if (!pr) throw new Error(`scripted shim: no rule for \`gh pr edit ${target ?? ""}\``);
         const baseIdx = argv.indexOf("--base");
-        if (baseIdx >= 0) pr.baseRefName = argv[baseIdx + 1] ?? pr.baseRefName;
+        if (baseIdx >= 0) {
+          const v = argv[baseIdx + 1];
+          if (v !== undefined) pr.baseRefName = v;
+        }
         return { stdout: "", stderr: "" };
       }
       if (sub === "pr" && sub2 === "close") {

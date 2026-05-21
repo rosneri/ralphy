@@ -1,8 +1,8 @@
-import type { LinearIssue, LinearComment } from "../../src/shared/capabilities/linear-client";
-import type { SetIndicator, GetIndicator, Marker } from "@ralphy/types";
-import type { CoordinatorDeps } from "../../src/runtime/coordinator";
+import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
+import type { SetIndicator } from "@ralphy/types";
+import type { CoordinatorDeps, MentionTrigger } from "../../src/runtime/coordinator";
 
-export type { LinearIssue, LinearComment, SetIndicator, GetIndicator, Marker };
+export type { LinearIssue, SetIndicator };
 
 /** One scripted engine turn played back by `scripted-engine.ts`. */
 export interface ScenarioStep {
@@ -47,7 +47,7 @@ export interface LinearClientLike {
   fetchInProgress(): Promise<LinearIssue[]>;
   fetchConflicted(): Promise<LinearIssue[]>;
   fetchReview(): Promise<LinearIssue[]>;
-  fetchMentions(): Promise<{ issue: LinearIssue; trigger: { kind: string } }[]>;
+  fetchMentions(): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
   fetchDoneCandidates(): Promise<LinearIssue[]>;
   fetchComments(issueId: string): Promise<{ body: string }[]>;
   applyIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void>;

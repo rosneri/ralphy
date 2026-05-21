@@ -1,5 +1,11 @@
 export interface GateInputs {
-  config: { confirmationMode: { enabled: boolean; optOutLabel?: string; optInLabel?: string } };
+  config: {
+    confirmationMode: {
+      enabled: boolean;
+      optOutLabel?: string | undefined;
+      optInLabel?: string | undefined;
+    };
+  };
   ticket: { labels: ReadonlyArray<string> };
   persistedConfirmation: { confirmedAt: string | null };
 }
