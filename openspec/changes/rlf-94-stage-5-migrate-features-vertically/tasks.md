@@ -16,7 +16,7 @@
 - [x] Create `apps/agent/src/features/types.ts` with the `Feature`, `FeatureCtx`, `FeatureMatch`, and `FeatureId` types described in design.md
 - [x] Create `apps/agent/src/features/run-feature.ts` that wraps `detect`/`run` in try/catch, emits `feature.<id>.{detected,started,completed,failed,skipped}` on the bus, and never lets one feature throw block the registry walk
 - [x] Create `apps/agent/src/features/registry.ts` exporting the ordered list `[confirmation, conflict-fix, ci-fix, implement, review-followup, new-ticket, mention, stuck]`; until each slice ships, the registry MAY hold adapters that delegate to the existing `coordinator.ts` branches so the dispatch path is exercised end-to-end from day one
-- [ ] Extend `packages/events/src/types.ts` `RalphEvent` union with `feature.<id>.{detected,started,completed,failed,skipped}` literals for each of the 8 features and add tests asserting the bus accepts them
+- [x] Extend `packages/events/src/types.ts` `RalphEvent` union with `feature.<id>.{detected,started,completed,failed,skipped}` literals for each of the 8 features and add tests asserting the bus accepts them
 - [ ] Add a boundary test under `apps/agent/src/__tests__/feature-boundaries.test.ts` that fails if any `features/<a>/**` file imports from `features/<b>/**` (a !== b), except via `features/types.ts` / `features/run-feature.ts`
 - [ ] Rewire `apps/agent/src/agent/coordinator.ts` to iterate the registry for in-progress issues (still falling through to legacy branches for unmigrated features via the registry adapters)
 - [ ] Rewire `apps/agent/src/agent/post-task.ts` to iterate the registry and call `feature.postTask?.(...)` (legacy branches stay only for not-yet-migrated features and route through the registry adapter)
