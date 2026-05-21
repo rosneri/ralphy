@@ -8,6 +8,13 @@ import { findProjectRoot } from "@ralphy/paths";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { AgentMode } from "./components/AgentMode";
 
+export function shouldFallbackToJsonOutput(
+  args: Pick<ParsedArgs, "jsonOutput">,
+  stdinIsTty: boolean | undefined,
+): boolean {
+  return !args.jsonOutput && stdinIsTty !== true;
+}
+
 export async function main(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     printHelp();
@@ -47,7 +54,7 @@ export async function main(argv: string[]): Promise<number> {
   await mkdir(tasksDir, { recursive: true });
   await mkdir(join(projectRoot, ".ralph"), { recursive: true });
 
-  if (!args.jsonOutput && process.stdin.isTTY !== true) {
+  if (shouldFallbackToJsonOutput(args, process.stdin.isTTY)) {
     process.stderr.write("agent: stdin is not a TTY — falling back to --json-output mode.\n");
     args = { ...args, jsonOutput: true };
   }
