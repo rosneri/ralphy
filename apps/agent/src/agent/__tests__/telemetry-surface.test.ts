@@ -13,18 +13,11 @@ describe("telemetry surface invariant", () => {
   test("migrated files have no direct capture()/onLog() calls", async () => {
     const repoRoot = join(import.meta.dir, "..", "..", "..", "..", "..");
     const targets = ["apps/agent/src/agent/wire.ts", "apps/loop/src/hooks/useLoop.ts"];
-    const proc = Bun.spawn({
-      cmd: ["rg", "-l", "capture\\(|onLog\\(", ...targets],
-      cwd: repoRoot,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const stdout = await new Response(proc.stdout).text();
-    await proc.exited;
-    const files = stdout
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    expect(files).toEqual([]);
+    const offenders: string[] = [];
+    for (const rel of targets) {
+      const text = await Bun.file(join(repoRoot, rel)).text();
+      if (/\bcapture\(|\bonLog\(/.test(text)) offenders.push(rel);
+    }
+    expect(offenders).toEqual([]);
   });
 });
