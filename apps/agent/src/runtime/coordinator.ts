@@ -381,7 +381,7 @@ export class AgentCoordinator {
     const queuedIds = new Set(this.queue.map((q) => q.issue.id));
     const activeIds = new Set(this.workers.map((w) => w.issueId));
     const eligible = (id: string): boolean =>
-      !queuedIds.has(id) && !activeIds.has(id) && !this.pendingIds.has(id);
+      !queuedIds.has(id) && !activeIds.has(id) && !this.pendingIds.has(id) && !claimedIds.has(id);
 
     if (this.paused) {
       this.deps.onLog(
@@ -423,7 +423,6 @@ export class AgentCoordinator {
     //    the conflict-fix flow by applying setConflicted.
     for (const issue of inProgress) {
       if (atTicketLimit()) break;
-      if (claimedIds.has(issue.id)) continue;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       if (await this.maybePromoteFinishedConflicted(issue)) continue;
