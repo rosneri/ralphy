@@ -24,8 +24,8 @@ describe("subscribePostHog — loop.* alias forwarding", () => {
       max_cost_usd: 5,
     });
     expect(captured).toHaveLength(1);
-    expect(captured[0].name).toBe("task_started");
-    expect(captured[0].props).toMatchObject({
+    expect(captured[0]!.name).toBe("task_started");
+    expect(captured[0]!.props).toMatchObject({
       engine: "claude",
       model: "opus",
       is_resume: false,
@@ -39,8 +39,8 @@ describe("subscribePostHog — loop.* alias forwarding", () => {
     const { bus, captured } = setup();
     bus.emit({ type: "loop.engine_rate_limited", exit_code: 429, iteration: 3 });
     expect(captured).toHaveLength(1);
-    expect(captured[0].name).toBe("engine_rate_limited");
-    expect(captured[0].props).toMatchObject({ exit_code: 429, iteration: 3 });
+    expect(captured[0]!.name).toBe("engine_rate_limited");
+    expect(captured[0]!.props).toMatchObject({ exit_code: 429, iteration: 3 });
   });
 
   test("loop.iteration_failed forwards as iteration_failed", () => {
@@ -52,8 +52,8 @@ describe("subscribePostHog — loop.* alias forwarding", () => {
       consecutive_failures: 1,
     });
     expect(captured).toHaveLength(1);
-    expect(captured[0].name).toBe("iteration_failed");
-    expect(captured[0].props).toMatchObject({
+    expect(captured[0]!.name).toBe("iteration_failed");
+    expect(captured[0]!.props).toMatchObject({
       exit_code: 1,
       iteration: 2,
       consecutive_failures: 1,
@@ -64,8 +64,8 @@ describe("subscribePostHog — loop.* alias forwarding", () => {
     const { bus, captured } = setup();
     bus.emit({ type: "loop.engine_error", iteration: 5, error: "boom" });
     expect(captured).toHaveLength(1);
-    expect(captured[0].name).toBe("engine_error");
-    expect(captured[0].props).toMatchObject({ iteration: 5, error: "boom" });
+    expect(captured[0]!.name).toBe("engine_error");
+    expect(captured[0]!.props).toMatchObject({ iteration: 5, error: "boom" });
   });
 
   test("loop.task_stopped forwards as task_stopped", () => {
@@ -80,8 +80,8 @@ describe("subscribePostHog — loop.* alias forwarding", () => {
       model: "opus",
     });
     expect(captured).toHaveLength(1);
-    expect(captured[0].name).toBe("task_stopped");
-    expect(captured[0].props).toMatchObject({
+    expect(captured[0]!.name).toBe("task_stopped");
+    expect(captured[0]!.props).toMatchObject({
       stop_reason: "completed",
       iterations: 7,
       engine: "claude",

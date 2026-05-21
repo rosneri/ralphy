@@ -14,7 +14,7 @@ import type { GitRunner } from "../worktree";
 import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
 import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./task-bodies";
 
-export interface WireMaps {
+interface WireMaps {
   cwdByChange: Map<string, string>;
   statesDirByChange: Map<string, string>;
   issueByChange: Map<string, LinearIssue>;
@@ -22,7 +22,7 @@ export interface WireMaps {
   prByChange: Map<string, string>;
 }
 
-export interface PrepareInput {
+interface PrepareInput {
   args: ParsedArgs;
   cfg: RalphyConfig;
   projectRoot: string;
@@ -36,7 +36,7 @@ export interface PrepareInput {
   scriptRunner: (cmd: string, cwd: string) => Promise<number>;
 }
 
-export interface PrepareHelpers {
+interface PrepareHelpers {
   prepare: (issue: LinearIssue) => Promise<PrepareResult>;
   prepareTaskForTrigger: (
     issue: LinearIssue,

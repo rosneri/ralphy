@@ -5,7 +5,6 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { ParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import type { PostTaskPhase } from "./post-task";
 import { addIssueComment, fetchIssueComments, type LinearIssue } from "./linear";
 import { projectLayout } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
@@ -385,6 +384,3 @@ export function buildAgentCoordinator(
     runBaselineGate: runBaselineGateOnce,
   };
 }
-
-// Re-export for tests.
-export type { PostTaskPhase, WorkerPhase };

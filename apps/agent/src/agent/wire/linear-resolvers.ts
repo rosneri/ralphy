@@ -16,14 +16,14 @@ import {
   type LinearFilterSpec,
 } from "../linear";
 
-export interface LinearResolversInput {
+interface LinearResolversInput {
   apiKey: string;
   team: string | undefined;
   assignee: string | undefined;
   diag: (area: string, message: string, color?: string) => void;
 }
 
-export interface LinearResolvers {
+interface LinearResolvers {
   applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   removeIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;

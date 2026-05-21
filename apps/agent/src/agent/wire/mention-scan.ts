@@ -18,7 +18,7 @@ import { addGithubReactionToComment, fetchPrIssueComments } from "../../features
 import { isRalphComment, containsHandle, findLastRalphPickupISO } from "./task-bodies";
 import type { Indicators } from "@ralphy/types";
 
-export interface MentionScanInput {
+interface MentionScanInput {
   apiKey: string;
   args: ParsedArgs;
   cfg: RalphyConfig;

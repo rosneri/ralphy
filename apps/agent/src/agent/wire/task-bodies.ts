@@ -37,7 +37,7 @@ export function buildReviewTaskBody(
   ].join("\n");
 }
 
-export function escapeRegex(s: string): string {
+function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

@@ -18,7 +18,7 @@ import {
   type LinearIssue,
 } from "../linear";
 
-export interface CommentSyncInput {
+interface CommentSyncInput {
   apiKey: string;
   cfg: RalphyConfig;
   projectRoot: string;
@@ -28,7 +28,7 @@ export interface CommentSyncInput {
   issueByChange: Map<string, LinearIssue>;
 }
 
-export interface CommentSyncHooks {
+interface CommentSyncHooks {
   enabled: boolean;
   syncTasks?: (worker: { changeName: string; issueId: string }, iteration: number) => Promise<void>;
   onSteeringAppended?: (changeName: string, message: string) => Promise<void>;

@@ -18,7 +18,7 @@ import type { Indicators } from "@ralphy/types";
 
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
-export interface SpawnWorkerInput {
+interface SpawnWorkerInput {
   args: ParsedArgs;
   cfg: RalphyConfig;
   apiKey: string;

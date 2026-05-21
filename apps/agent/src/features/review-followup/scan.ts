@@ -7,19 +7,19 @@ import type { LinearIssue } from "../../agent/linear";
 import type { CmdRunner } from "../../agent/pr";
 import type { MentionTrigger } from "../../agent/coordinator";
 
-export interface PrReviewThreadComment {
+interface PrReviewThreadComment {
   author?: string;
   body: string;
   createdAt: string;
   url?: string;
 }
-export interface PrReviewThread {
+interface PrReviewThread {
   isResolved: boolean;
   path?: string;
   line?: number;
   comments: PrReviewThreadComment[];
 }
-export interface PrReviewState {
+interface PrReviewState {
   isOpen: boolean;
   merged: boolean;
   approved: boolean;
@@ -28,7 +28,7 @@ export interface PrReviewState {
   lastReviewer?: string;
 }
 
-export interface ReviewScanDeps {
+interface ReviewScanDeps {
   cmdRunner: CmdRunner;
   projectRoot: string;
   useWorktree: boolean;
@@ -41,7 +41,7 @@ export interface ReviewScanDeps {
 
 /** Resolve the directory holding `.ralph-state.json` for the change tied
  *  to `changeName`, or null when the change has not been scaffolded yet. */
-export async function resolveReviewStateDir(
+async function resolveReviewStateDir(
   changeName: string,
   deps: { projectRoot: string; useWorktree: boolean; cwdOf: (cn: string) => string | undefined },
 ): Promise<string | null> {
@@ -56,7 +56,7 @@ export async function resolveReviewStateDir(
 
 /** Read `review.lastConsumedCommentAt` from `.ralph-state.json` in the
  *  given dir. */
-export async function readReviewWatermark(stateDir: string): Promise<string | null> {
+async function readReviewWatermark(stateDir: string): Promise<string | null> {
   const file = Bun.file(join(stateDir, ".ralph-state.json"));
   if (!(await file.exists())) return null;
   try {
@@ -68,7 +68,7 @@ export async function readReviewWatermark(stateDir: string): Promise<string | nu
 }
 
 /** Query the PR's review state + threads via the GraphQL endpoint. */
-export async function fetchPrReviewState(
+async function fetchPrReviewState(
   prUrl: string,
   cmdRunner: CmdRunner,
   projectRoot: string,
@@ -174,7 +174,7 @@ export async function fetchPrReviewState(
 
 /** Post a single GitHub PR ping comment when Ralph has been waiting on
  *  a reviewer for >codeReviewStaleHours. Idempotent via prByPinged. */
-export async function maybePingStaleReviewer(
+async function maybePingStaleReviewer(
   issue: LinearIssue,
   prUrl: string,
   state: PrReviewState,

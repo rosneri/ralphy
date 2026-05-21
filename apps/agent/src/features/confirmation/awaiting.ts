@@ -17,7 +17,7 @@ import {
 } from "./state";
 import { inspectAwaitingTicket } from "./inspect";
 
-export interface AwaitingDeps {
+interface AwaitingDeps {
   cfg: RalphyConfig;
   apiKey: string;
   projectRoot: string;

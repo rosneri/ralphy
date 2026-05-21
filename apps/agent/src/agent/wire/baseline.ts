@@ -12,7 +12,7 @@ import {
   updateIssueDescription,
 } from "../linear";
 
-export interface BaselineInput {
+interface BaselineInput {
   args: ParsedArgs;
   cfg: RalphyConfig;
   apiKey: string;

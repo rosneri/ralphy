@@ -9,7 +9,7 @@ import { pickOpenPrUrlFromAttachments } from "./pr-helpers";
 
 const PR_UNAVAILABLE_TTL_MS = 10 * 60 * 1000;
 
-export interface PrDiscoveryInput {
+interface PrDiscoveryInput {
   apiKey: string;
   projectRoot: string;
   cmdRunner: CmdRunner;
@@ -20,7 +20,7 @@ export interface PrDiscoveryInput {
   getPollContext: () => PollContext;
 }
 
-export interface PrDiscovery {
+interface PrDiscovery {
   checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatus } | null>;
   resolvePrUrlForIssue: (issue: LinearIssue) => Promise<string | null>;
   isPrUnavailable: (changeName: string) => boolean;

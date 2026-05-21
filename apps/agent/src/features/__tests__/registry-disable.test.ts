@@ -14,8 +14,8 @@ const FULL_CAPS: Capabilities = {
     detect: async () => false,
     run: async () => undefined,
   },
-  conflictFix: {} as Capabilities["conflictFix"],
-  ciFix: {} as Capabilities["ciFix"],
+  conflictFix: {} as NonNullable<Capabilities["conflictFix"]>,
+  ciFix: {} as NonNullable<Capabilities["ciFix"]>,
   implement: {
     getPrUrl: async () => null,
   },
