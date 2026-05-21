@@ -48,10 +48,10 @@
 
 ### linear-client capability
 
-- [ ] Move `linearRequest` and every Linear op from `apps/agent/src/agent/linear.ts` into `apps/agent/src/shared/capabilities/linear-client.ts`.
-- [ ] Add 429 retry honoring `Retry-After` (parse seconds or HTTP-date), clamped to `MAX_RETRY_AFTER_MS = 2000`.
-- [ ] Update `errorFormatter` to return `status + truncated(body, 512) + graphql messages joined by '; '`.
-- [ ] Tests: 429 + `Retry-After: 1` → second attempt succeeds; 5xx exhaustion → formatted error; GraphQL errors surfaced; existing `linearRequestInternals.sleep` seam still works.
+- [x] Move `linearRequest` and every Linear op from `apps/agent/src/agent/linear.ts` into `apps/agent/src/shared/capabilities/linear-client.ts`.
+- [x] Add 429 retry honoring `Retry-After` (parse seconds or HTTP-date), clamped to `MAX_RETRY_AFTER_MS = 2000`.
+- [x] Update `errorFormatter` to return `status + truncated(body, 512) + graphql messages joined by '; '`.
+- [x] Tests: 429 + `Retry-After: 1` → second attempt succeeds; 5xx exhaustion → formatted error; GraphQL errors surfaced; existing `linearRequestInternals.sleep` seam still works.
 
 ### worker-spawner capability + SpawnMode removal
 

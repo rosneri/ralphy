@@ -201,6 +201,17 @@ describe("rate-limit detection (RLF-65)", () => {
     linearRequestInternals.sleep = originalSleep;
   });
 
+  function stubRepeat(response: Response): { count: () => number } {
+    let i = 0;
+    const fakeFetch: FetchLike = async () => {
+      i++;
+      return response.clone();
+    };
+    globalThis.fetch = fakeFetch as typeof fetch;
+    linearRequestInternals.sleep = async () => {};
+    return { count: () => i };
+  }
+
   function stubOnce(response: Response): { count: () => number } {
     let i = 0;
     const fakeFetch: FetchLike = async () => {
@@ -212,18 +223,18 @@ describe("rate-limit detection (RLF-65)", () => {
     return { count: () => i };
   }
 
-  test("a 429 marks the error as rateLimited and is not retried", async () => {
-    const { count } = stubOnce(new Response("", { status: 429 }));
+  test("a 429 retries with rateLimited flag and exhausts after the retry budget", async () => {
+    const { count } = stubRepeat(new Response("", { status: 429 }));
     const err = await fetchMentionScanIssues("k", {
       indicators: { setDone: { type: "status", value: "Done" } },
     }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(true);
     expect((err as { status?: number }).status).toBe(429);
-    expect(count()).toBe(1);
+    expect(count()).toBeGreaterThan(1);
   });
 
-  test("a 400 with 'Rate limit exceeded' body marks rateLimited", async () => {
-    const { count } = stubOnce(
+  test("a 400 with 'Rate limit exceeded' body retries and marks rateLimited", async () => {
+    const { count } = stubRepeat(
       new Response('{"errors":[{"message":"Rate limit exceeded for query"}]}', { status: 400 }),
     );
     const err = await fetchMentionScanIssues("k", {
@@ -231,7 +242,7 @@ describe("rate-limit detection (RLF-65)", () => {
     }).catch((e: unknown) => e);
     expect(isRateLimitedError(err)).toBe(true);
     expect((err as { status?: number }).status).toBe(400);
-    expect(count()).toBe(1);
+    expect(count()).toBeGreaterThan(1);
   });
 
   test("a plain 400 is NOT marked rateLimited", async () => {
@@ -267,14 +278,22 @@ describe("formatLinearError (RLF-60)", () => {
     expect(msg).toContain("boom");
   });
 
-  test("truncates body to 200 chars", () => {
+  test("truncates body to 512 chars", () => {
     const err = Object.assign(new Error("x"), {
       status: 500,
-      body: "a".repeat(500),
+      body: "a".repeat(2000),
     });
     const msg = formatLinearError(err);
     expect(msg).toContain("…");
-    expect(msg.length).toBeLessThan(400);
+    expect(msg.length).toBeLessThan(800);
+  });
+
+  test("joins graphql messages with '; '", () => {
+    const err = Object.assign(new Error("x"), {
+      messages: ["one", "two", "three"],
+    });
+    const msg = formatLinearError(err);
+    expect(msg).toContain("one; two; three");
   });
 
   test("formats GraphQL errors with messages", () => {
