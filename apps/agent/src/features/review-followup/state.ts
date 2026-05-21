@@ -10,13 +10,6 @@ import { emitWatermarkAdvanced, emitWatermarkUnchanged } from "./events";
  * at runtime — calls from any other feature throw `OwnershipError` before
  * touching disk.
  */
-export interface ReviewSlot {
-  /** ISO timestamp of the most recent reviewer activity Ralph has acted
-   *  on. Used by `scanCodeReview` (`wire.ts`) to suppress re-firing the
-   *  review trigger when the reviewer's comment list hasn't advanced. */
-  lastConsumedCommentAt?: string;
-}
-
 /** Write the watermark unconditionally. Most callers should prefer
  *  `advanceWatermarkIfNewer` so a stale candidate cannot rewind the
  *  watermark. */

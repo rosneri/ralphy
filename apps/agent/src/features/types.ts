@@ -42,8 +42,6 @@ export type StateSlotName =
   | "ci"
   | "pr";
 
-export type StateSlotMap = Record<StateSlotName, true>;
-
 /**
  * Narrow write surface a feature receives. Backed by `writeField` from
  * `@ralphy/core/state` so the ownership invariant from Stage 3 is enforced
@@ -78,7 +76,7 @@ export interface StateStore {
  * circular references. The slice's own `ConfirmationCaps` interface is
  * assignment-compatible with this shape.
  */
-export interface ConfirmationCapsShape {
+interface ConfirmationCapsShape {
   detect(issue: LinearIssue): Promise<boolean>;
   run(issue: LinearIssue): Promise<void>;
 }
@@ -92,7 +90,7 @@ export interface ConfirmationCapsShape {
  * lives inside the worker's AI iteration; this slice is verification
  * only.
  */
-export interface ConflictFixCapsShape {
+interface ConflictFixCapsShape {
   /** Returns "conflicting" when the PR has merge conflicts with its base,
    *  "mergeable" when GitHub considers it clean, "unknown" when GitHub
    *  hasn't computed mergeability yet (or there's no PR to check). */
@@ -108,7 +106,7 @@ export interface ConflictFixCapsShape {
  * CI lives in `post-task.ts`'s `fixConflictsAndCiLoop` until the
  * stage-final cleanup moves it here.
  */
-export interface CiFixCapsShape {
+interface CiFixCapsShape {
   /** Returns "pass" when all PR checks are green, "fail" when any
    *  non-pending check failed, "pending" when checks are still running,
    *  "unknown" when no PR is known or the gh call failed. */
@@ -124,7 +122,7 @@ export interface CiFixCapsShape {
  * hook-fix retry loop lives in `post-task.ts` until the stage-final
  * cleanup moves it here.
  */
-export interface ImplementCapsShape {
+interface ImplementCapsShape {
   /** Returns the PR URL associated with the issue's branch, or `null`
    *  when no PR exists yet (branch never pushed, gh call failed, etc.). */
   getPrUrl(): Promise<string | null>;

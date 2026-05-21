@@ -24,9 +24,4 @@ export const mentionFeature: Feature = {
   run: runMention,
 };
 
-export { detectMention, runMention };
-export {
-  emitMentionReviseComment,
-  emitMentionSkipped,
-  type MentionReviseCommentPayload,
-} from "./events";
+export { emitMentionReviseComment, emitMentionSkipped } from "./events";

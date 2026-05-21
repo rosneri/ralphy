@@ -39,7 +39,7 @@ function findNewestRevise(
 }
 
 /** Outcome of inspecting a single awaiting-confirmation ticket. */
-export type InspectionOutcome = "stay-awaiting" | "approved" | "revised" | "stuck";
+type InspectionOutcome = "stay-awaiting" | "approved" | "revised" | "stuck";
 
 export interface AwaitingInspectionDeps {
   /** True when `getApproved` matches the ticket. */

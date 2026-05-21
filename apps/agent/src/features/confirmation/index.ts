@@ -27,5 +27,3 @@ export const confirmationFeature: Feature = {
   detect: detectConfirmation,
   run: runConfirmation,
 };
-
-export { detectConfirmation, runConfirmation };

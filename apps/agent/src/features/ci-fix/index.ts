@@ -23,5 +23,3 @@ export const ciFixFeature: Feature = {
   run: runCiFix,
   postTask: ciFixPostTask,
 };
-
-export { detectCiFix, runCiFix, ciFixPostTask };

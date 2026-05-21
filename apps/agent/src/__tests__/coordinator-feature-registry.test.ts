@@ -63,7 +63,7 @@ describe("AgentCoordinator — feature registry walk", () => {
 
     // Legacy resume path still owns the issue.
     expect(result.added).toBe(1);
-    expect(events.some((e) => e.type.startsWith("feature."))).toBe(false);
+    expect(events.some((e) => String(e.type).startsWith("feature."))).toBe(false);
   });
 
   test("walks the registry for each in-progress issue, emits skipped for losers", async () => {
@@ -96,7 +96,7 @@ describe("AgentCoordinator — feature registry walk", () => {
     // No stub feature matched, so nothing was claimed → legacy resume queued.
     expect(result.added).toBe(1);
     // No matched feature, so no detected/started/completed/skipped events.
-    expect(events.filter((e) => e.type.startsWith("feature."))).toEqual([]);
+    expect(events.filter((e) => String(e.type).startsWith("feature."))).toEqual([]);
   });
 
   test("a feature claim skips the legacy resume queue", async () => {
@@ -132,7 +132,7 @@ describe("AgentCoordinator — feature registry walk", () => {
       // Feature claimed it → legacy resume queue must not enqueue.
       expect(result.added).toBe(0);
 
-      const types = events.map((e) => e.type);
+      const types = events.map((e) => String(e.type));
       expect(types).toContain(`feature.${registry[0]!.id}.detected`);
       expect(types).toContain(`feature.${registry[0]!.id}.started`);
       expect(types).toContain(`feature.${registry[0]!.id}.completed`);

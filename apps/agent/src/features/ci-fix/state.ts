@@ -9,7 +9,7 @@ import type { StateStore } from "../types";
  * disk. This accessor exists so the slice's call sites are centralized
  * and the persisted shape stays stable.
  */
-export interface CiSlot {
+interface CiSlot {
   /** ISO timestamp of the most recent settled CI check the slice observed. */
   lastCheckedAt?: string;
   /** Last observed bucket: "pass" | "fail" | "pending" | "unknown". */

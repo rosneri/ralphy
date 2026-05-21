@@ -19,5 +19,4 @@ export const stuckFeature: Feature = {
   run: runStuck,
 };
 
-export { detectStuck, runStuck };
 export { emitStuckSkipped } from "./events";

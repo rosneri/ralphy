@@ -18,5 +18,4 @@ export const newTicketFeature: Feature = {
   run: runNewTicket,
 };
 
-export { detectNewTicket, runNewTicket };
 export { emitNewTicketSkipped } from "./events";

@@ -94,7 +94,6 @@ describe("runPostTask — feature registry walk", () => {
 
   test("walk is skipped entirely when buildFeatureCtx is not wired", async () => {
     const events: EmitInput[] = [];
-    const bus = recordingBus(events);
     const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
 
     await runPostTask(baseInput(), {
@@ -105,7 +104,7 @@ describe("runPostTask — feature registry walk", () => {
       onPhase: (phase) => events.push({ type: `phase.${phase}` } as EmitInput),
     });
 
-    expect(events.some((e) => e.type.startsWith("feature."))).toBe(false);
+    expect(events.some((e) => String(e.type).startsWith("feature."))).toBe(false);
   });
 
   test("features without postTask emit no events; postTask features fire when caps gate is open", async () => {
@@ -132,8 +131,8 @@ describe("runPostTask — feature registry walk", () => {
     // postTask function exists. All other features here have no
     // postTask and emit nothing.
     const featureEvents = events
-      .filter((e) => e.type.startsWith("feature."))
-      .map((e) => e.type)
+      .filter((e) => String(e.type).startsWith("feature."))
+      .map((e) => String(e.type))
       .sort();
     expect(featureEvents).toEqual([
       "feature.ci-fix.completed",
@@ -166,7 +165,7 @@ describe("runPostTask — feature registry walk", () => {
       });
 
       expect(seen).toEqual([{ exitCode: 7, branch: "ralph/my-change" }]);
-      const types = events.map((e) => e.type);
+      const types = events.map((e) => String(e.type));
       expect(types).toContain(`feature.${target.id}.started`);
       expect(types).toContain(`feature.${target.id}.completed`);
       expect(types.some((t) => t === `feature.${target.id}.failed`)).toBe(false);
@@ -205,7 +204,7 @@ describe("runPostTask — feature registry walk", () => {
       });
 
       expect(secondRan).toBe(true);
-      const types = events.map((e) => e.type);
+      const types = events.map((e) => String(e.type));
       expect(types).toContain(`feature.${first.id}.failed`);
       expect(types).toContain(`feature.${second.id}.completed`);
     } finally {

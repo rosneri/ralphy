@@ -26,5 +26,3 @@ export const conflictFixFeature: Feature = {
   run: runConflictFix,
   postTask: conflictFixPostTask,
 };
-
-export { detectConflictFix, runConflictFix, conflictFixPostTask };

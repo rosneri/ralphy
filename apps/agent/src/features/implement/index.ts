@@ -25,5 +25,3 @@ export const implementFeature: Feature = {
   run: runImplement,
   postTask: implementPostTask,
 };
-
-export { detectImplement, runImplement, implementPostTask };

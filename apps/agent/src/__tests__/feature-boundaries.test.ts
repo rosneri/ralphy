@@ -44,7 +44,7 @@ function extractRelativeImports(source: string): string[] {
     let m: RegExpExecArray | null;
     while ((m = re.exec(source)) !== null) {
       const spec = m[1];
-      if (spec.startsWith(".")) specifiers.push(spec);
+      if (spec && spec.startsWith(".")) specifiers.push(spec);
     }
   }
   return specifiers;
@@ -57,7 +57,7 @@ function featureFor(absPath: string): string | null {
   const segments = rel.split(/[\\/]+/);
   // Files directly under features/ (types.ts, run-feature.ts, registry.ts) have one segment.
   if (segments.length < 2) return null;
-  return segments[0];
+  return segments[0] ?? null;
 }
 
 describe("feature directory boundaries", () => {

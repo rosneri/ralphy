@@ -22,7 +22,3 @@ export const reviewFollowupFeature: Feature = {
   detect: detectReviewFollowup,
   run: runReviewFollowup,
 };
-
-export { detectReviewFollowup, runReviewFollowup };
-export { advanceWatermarkIfNewer, writeWatermark } from "./state";
-export type { ReviewSlot } from "./state";

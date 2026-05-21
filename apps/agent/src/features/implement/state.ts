@@ -9,13 +9,6 @@ import type { StateStore } from "../types";
  * disk. This accessor exists so the slice's call sites are centralized
  * and the persisted shape stays stable.
  */
-export interface PrSlot {
-  /** Last observed PR URL associated with the issue's branch. */
-  url?: string;
-  /** ISO timestamp of when the slice first recorded the URL. */
-  openedAt?: string;
-}
-
 export async function writePrUrl(state: StateStore, url: string, openedAt: string): Promise<void> {
   await state.writeField("pr.url", url);
   await state.writeField("pr.openedAt", openedAt);

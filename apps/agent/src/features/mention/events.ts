@@ -10,7 +10,7 @@ import type { Bus } from "@ralphy/events";
  *  the emit here keeps the cross-feature seam grep-able and the boundary
  *  test enforceable. */
 
-export interface MentionReviseCommentPayload {
+interface MentionReviseCommentPayload {
   /** Linear issue identifier (e.g. "RLF-99") the mention was found on. */
   issueIdentifier: string;
   /** Origin of the mention — Linear comment, GitHub PR comment, etc. */
