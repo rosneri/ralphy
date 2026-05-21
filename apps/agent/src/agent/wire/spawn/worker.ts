@@ -10,7 +10,8 @@ import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
 import type { GitRunner } from "../../worktree";
 import { issueMatchesGetIndicator, type LinearIssue } from "../../linear";
-import { runPostTask, type PostTaskPhase } from "../../post-task";
+import { runPostTask, type PostTaskPhase, type PostTaskMode } from "../../post-task";
+import type { QueueTrigger } from "../../coordinator";
 import { defaultSpawn } from "./default";
 import { traceCmdRunner, type AgentRunners } from "../runners";
 import { resolveDependencyBaseBranchImpl } from "../pr-helpers";
@@ -38,6 +39,10 @@ interface SpawnWorkerInput {
   statesDirByChange: Map<string, string>;
   branchByChange: Map<string, string>;
   issueByChange: Map<string, LinearIssue>;
+  /** Optional read-only view of the wire's per-change PR cache. Lets the
+   *  conflict-fix verify path resolve the PR URL even when no worktree
+   *  branch is tracked. */
+  prByChange?: Map<string, string>;
   onPrRegistered: (changeName: string, prUrl: string) => void;
   runScript: (label: string, cmd: string, cwd: string) => Promise<void>;
   onWorkerStarted: (
@@ -56,11 +61,19 @@ interface SpawnWorkerInput {
     durationMs?: number,
     ok?: boolean,
   ) => void;
+  /** Apply the `clearConflicted` indicator for the issue tied to
+   *  `changeName`. Invoked by `runPostTask` on the conflict-fix verify
+   *  path when `fetchPrStatus` reports MERGEABLE. */
+  clearConflicted?: (issue: LinearIssue) => Promise<void>;
 }
 
 export function createSpawnWorker(
   input: SpawnWorkerInput,
-): (changeName: string) => { exited: Promise<number>; kill: () => void } {
+): (
+  changeName: string,
+  issue?: LinearIssue,
+  trigger?: QueueTrigger,
+) => { exited: Promise<number>; kill: () => void } {
   const {
     args,
     cfg,
@@ -81,6 +94,7 @@ export function createSpawnWorker(
     statesDirByChange,
     branchByChange,
     issueByChange,
+    prByChange,
     onPrRegistered,
     runScript,
     onWorkerStarted,
@@ -88,6 +102,7 @@ export function createSpawnWorker(
     onWorkerPhase,
     onWorkerOutput,
     onWorkerCmd,
+    clearConflicted,
   } = input;
 
   function buildTaskCmdFor(changeName: string): string[] {
@@ -121,10 +136,11 @@ export function createSpawnWorker(
     return c;
   }
 
-  return function spawnWorker(changeName: string): {
-    exited: Promise<number>;
-    kill: () => void;
-  } {
+  return function spawnWorker(
+    changeName: string,
+    _issue?: LinearIssue,
+    trigger?: QueueTrigger,
+  ): { exited: Promise<number>; kill: () => void } {
     const cwd = cwdByChange.get(changeName) ?? projectRoot;
     const injected = runners?.spawnWorker;
 
@@ -236,6 +252,8 @@ export function createSpawnWorker(
         !(coordRef.current?.isAwaitingConfirmation(changeName) ?? false);
       const effectiveCode = await runPostTask(
         {
+          ...(trigger ? { mode: trigger as PostTaskMode } : {}),
+          ...(prByChange?.get(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
           changeName,
           cwd,
           projectRoot,
@@ -291,6 +309,15 @@ export function createSpawnWorker(
           },
           resolveDependencyBaseBranch: (issue) =>
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
+          ...(clearConflicted
+            ? {
+                clearConflicted: async () => {
+                  const issueForChange2 = issueByChange.get(changeName);
+                  if (!issueForChange2) return;
+                  await clearConflicted(issueForChange2);
+                },
+              }
+            : {}),
         },
       );
       cwdByChange.delete(changeName);

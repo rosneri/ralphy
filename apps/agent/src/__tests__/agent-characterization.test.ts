@@ -2027,9 +2027,11 @@ describe("agent characterization — Stage-0 regression net", () => {
       ).length,
     ).toBeGreaterThanOrEqual(2);
 
-    // Conflict-fix worker exits cleanly → clearConflicted fires, no second
-    // setDone is issued (the ticket is already Done; conflict-fix is a
-    // PR-level fixup, not a fresh lifecycle run).
+    // Conflict-fix worker exits cleanly → post-task verifies PR is now
+    // MERGEABLE and fires clearConflicted (RLF-82 verify-only path). No
+    // second setDone is issued (the ticket is already Done; conflict-fix
+    // is a PR-level fixup, not a fresh lifecycle run).
+    setMergeable(changeName, "MERGEABLE");
     fixWorker!.resolve(0);
     await tick();
 

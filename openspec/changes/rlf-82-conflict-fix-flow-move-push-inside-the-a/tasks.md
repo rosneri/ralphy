@@ -11,13 +11,13 @@
 
 ## Implementation
 
-- [ ] Extend the `conflict-fix` branch of `prepareTaskForTrigger` in `apps/agent/src/agent/wire/prepare.ts` to append a step 4 instructing the worker to `git push` the resolved branch and to react to rejection output (force-with-lease broken, pre-push hook failure, ref-update policy) inline before retrying or stopping.
-- [ ] Thread a `mode` (or `isConflictFix`) field through `PostTaskInput` in `apps/agent/src/agent/post-task.ts` and update the coordinator call site so post-task knows when it is running a conflict-fix iteration.
-- [ ] In `runPostTask` / `runPrPhase`, add a short-circuit for `mode === "conflict-fix"` that resolves the PR URL (using the existing PR-URL cache or `findExistingOpenPrUrl`), calls `fetchPrStatus` exactly once, and dispatches on `MERGEABLE` / `CONFLICTING` / `UNKNOWN` (or fetch error) as specified in the spec delta. Ensure no `git push`, `createPrWithRetry`, `pushWithLeases`, or `fixConflictsAndCiLoop` call happens in this branch.
-- [ ] Wire `clearConflicted` invocation on the `MERGEABLE` path through the existing indicator side-effect surface (no new label-mutation helper).
-- [ ] Verify `fresh` / `resume` / `review` paths remain on the legacy push + hook-fix retry harness; if needed, gate the legacy branch with an explicit `mode !== "conflict-fix"` check rather than removing code.
-- [ ] Add unit tests under `apps/agent/src/__tests__/` (or `apps/agent/src/features/conflict-fix/__tests__/`) covering the MERGEABLE, CONFLICTING, and UNKNOWN/error exit paths with stubbed `fetchPrStatus`.
-- [ ] Add a regression test asserting that for `mode !== "conflict-fix"` the legacy `createPrWithRetry` / `pushWithLeases` path is still invoked (or that existing post-task tests continue to pass against the new mode-gated code).
-- [ ] Run `bun run lint` and fix any reported issues.
-- [ ] Run `bun run test` and ensure the full suite passes.
-- [ ] Run `bunx openspec validate rlf-82-conflict-fix-flow-move-push-inside-the-a` and resolve any validator errors.
+- [x] Extend the `conflict-fix` branch of `prepareTaskForTrigger` in `apps/agent/src/agent/wire/prepare.ts` to append a step 4 instructing the worker to `git push` the resolved branch and to react to rejection output (force-with-lease broken, pre-push hook failure, ref-update policy) inline before retrying or stopping.
+- [x] Thread a `mode` (or `isConflictFix`) field through `PostTaskInput` in `apps/agent/src/agent/post-task.ts` and update the coordinator call site so post-task knows when it is running a conflict-fix iteration.
+- [x] In `runPostTask` / `runPrPhase`, add a short-circuit for `mode === "conflict-fix"` that resolves the PR URL (using the existing PR-URL cache or `findExistingOpenPrUrl`), calls `fetchPrStatus` exactly once, and dispatches on `MERGEABLE` / `CONFLICTING` / `UNKNOWN` (or fetch error) as specified in the spec delta. Ensure no `git push`, `createPrWithRetry`, `pushWithLeases`, or `fixConflictsAndCiLoop` call happens in this branch.
+- [x] Wire `clearConflicted` invocation on the `MERGEABLE` path through the existing indicator side-effect surface (no new label-mutation helper).
+- [x] Verify `fresh` / `resume` / `review` paths remain on the legacy push + hook-fix retry harness; if needed, gate the legacy branch with an explicit `mode !== "conflict-fix"` check rather than removing code.
+- [x] Add unit tests under `apps/agent/src/__tests__/` (or `apps/agent/src/features/conflict-fix/__tests__/`) covering the MERGEABLE, CONFLICTING, and UNKNOWN/error exit paths with stubbed `fetchPrStatus`.
+- [x] Add a regression test asserting that for `mode !== "conflict-fix"` the legacy `createPrWithRetry` / `pushWithLeases` path is still invoked (or that existing post-task tests continue to pass against the new mode-gated code).
+- [x] Run `bun run lint` and fix any reported issues.
+- [x] Run `bun run test` and ensure the full suite passes.
+- [x] Run `bunx openspec validate rlf-82-conflict-fix-flow-move-push-inside-the-a` and resolve any validator errors.

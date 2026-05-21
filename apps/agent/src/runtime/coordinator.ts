@@ -138,8 +138,10 @@ export interface CoordinatorDeps {
     trigger: QueueTrigger,
     mention?: MentionTrigger,
   ) => Promise<void>;
-  /** Spawn the worker subprocess for `changeName`. */
-  spawnWorker: (changeName: string, issue: LinearIssue) => WorkerHandle;
+  /** Spawn the worker subprocess for `changeName`. The `trigger` is forwarded
+   *  so the post-task harness can branch on it (e.g. RLF-82 conflict-fix
+   *  verify-only path). */
+  spawnWorker: (changeName: string, issue: LinearIssue, trigger: QueueTrigger) => WorkerHandle;
   /** Apply a SetIndicator (label add and/or status set) to the issue. */
   applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   /** Remove a SetIndicator's labels from the issue. Status removal is a no-op. */
@@ -1008,7 +1010,7 @@ export class AgentCoordinator {
       `▶ ${issue.identifier} → ${prep.changeName} (${trigger})`,
       trigger === "conflict-fix" ? "yellow" : "cyan",
     );
-    const handle = this.deps.spawnWorker(prep.changeName, issue);
+    const handle = this.deps.spawnWorker(prep.changeName, issue, trigger);
     const worker: ActiveWorker = {
       changeName: prep.changeName,
       issueId: issue.id,
@@ -1219,24 +1221,11 @@ export class AgentCoordinator {
     }
 
     if (ok) {
-      // Conflict-fix success: clear the conflicted marker, leave setDone alone.
+      // Conflict-fix success: post-task verifies mergeability and owns the
+      // clearConflicted side-effect (RLF-82). The coordinator only resets
+      // its in-process notification bookkeeping here so the conflict-scan
+      // re-arms on the next poll.
       if (trigger === "conflict-fix") {
-        if (this.opts.clearConflicted) {
-          try {
-            await this.deps.removeIndicator(issue, this.opts.clearConflicted);
-            this.deps.onLog(`  ${issue.identifier}: clearConflicted applied`, "gray");
-          } catch (err) {
-            this.deps.onLog(
-              `! Linear clearConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
-              "red",
-            );
-            emitCapture(this.bus, "agent_indicator_failed", {
-              indicator: "clearConflicted",
-              issue_identifier: issue.identifier,
-              error: (err as Error).message,
-            });
-          }
-        }
         this.conflictNotified.delete(issue.id);
         this.conflictPromoted.delete(issue.id);
       } else if (this.opts.setDone) {
