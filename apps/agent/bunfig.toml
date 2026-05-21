@@ -9,7 +9,11 @@ coveragePathIgnorePatterns = [
   "**/__test-utils__/**",
   "**/components/AgentMode.tsx",
   "**/agent/wire.ts",
+  "**/agent/wire/**",
   "**/agent/post-task.ts",
   "**/agent/json-runner.ts",
   "**/shared/capabilities/types.ts",
+  "**/features/mention/github.ts",
+  "**/features/confirmation/awaiting.ts",
+  "**/features/review-followup/scan.ts",
 ]
