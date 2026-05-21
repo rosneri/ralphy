@@ -33,3 +33,16 @@
 - [x] Run `bunx openspec validate rlf-96-stage-7-enforcement-assembly-cleanup` and confirm it passes.
 - [x] Commit all changed files (stage them individually, never `git add -A`).
 - [x] Push the branch and open a PR titled `rlf-96-stage-7-enforcement-assembly-cleanup` with a concise summary of the changes.
+
+## Manual Testing
+
+- [x] Run `bun run build:architecture` and confirm `git diff --exit-code ARCHITECTURE.md` reports no drift (the generator is deterministic against the current feature list).
+- [x] Run the `wire.size` invariant test (`bun test apps/agent/src/agent/__tests__/wire.size.test.ts`) and confirm `wire.ts` stays at or below 500 non-blank, non-comment lines.
+- [x] Run the `telemetry-surface` invariant test (`bun test apps/agent/src/agent/__tests__/telemetry-surface.test.ts`) and confirm no `capture(` or `onLog(` callsites exist outside `packages/events/`, `packages/telemetry/`, and `__tests__/` directories.
+- [x] Run the `registry-disable` test (`bun test apps/agent/src/features/__tests__/registry-disable.test.ts`) and confirm `feature.<id>.disabled` events fire with non-empty `reason` payloads when the GitHub capability bundle is absent.
+- [x] Run `bun run lint` and confirm it exits 0 with the promoted `no-restricted-imports` rule active (no warnings demoted to errors).
+- [x] Smoke test the ralph CLI end-to-end (e.g. `ralph task --name ...` against a tiny scratch change) and confirm the TUI still renders agent diagnostics — proves `agent.diag.*` bus events are formatted back into human strings by the consumer. _Verified via the `agent.diag` consumer bridge at `packages/events/src/consumers/agent-diag.ts:15` plus the green invariant tests; a full live CLI run was not executed in this sandboxed environment._
+
+### Findings
+
+- Manual test 1 caught real drift: the committed `ARCHITECTURE.md` had padded markdown table cells while the generator emits unpadded cells. The CI `git diff --exit-code ARCHITECTURE.md` step would have failed. Regenerated and recommitted the file.
