@@ -55,7 +55,7 @@
 
 ### worker-spawner capability + SpawnMode removal
 
-- [ ] Create `apps/agent/src/shared/capabilities/worker-spawner.ts` exposing `spawnWorker({ cwd, changeName, steeringNote?, prependTask? })`.
+- [x] Create `apps/agent/src/shared/capabilities/worker-spawner.ts` exposing `spawnWorker({ cwd, changeName, steeringNote?, prependTask? })`.
 - [ ] Delete `SpawnMode` from `apps/agent/src/queue/queue-order.ts`; add explicit `priority: number` to `QueueItem` and update sort.
 - [ ] Update `coordinator.ts` `ActiveWorker.mode` → drop or replace with `priority`/`trigger` enums that carry semantic intent without coupling to spawn behavior.
 - [ ] Update `wire.ts` `prepare(issue)` signature: no more `mode` parameter; callers needing a task prepend invoke `fsChange.prependTask` themselves first.
