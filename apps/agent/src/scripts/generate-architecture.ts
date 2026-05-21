@@ -42,9 +42,15 @@ function buildFeatureSections(): FeatureSummary[] {
 }
 
 function buildRouterTable(): string {
-  const header = "| # | Match name | Flow id |\n| --- | --- | --- |";
-  const rows = ROUTER_TABLE.map((row, i) => `| ${i + 1} | ${row.name} | \`${row.flowId}\` |`);
-  return [header, ...rows].join("\n");
+  const rows = ROUTER_TABLE.map((row, i) => [String(i + 1), row.name, `\`${row.flowId}\``]);
+  const widths = [
+    Math.max(3, ...rows.map((r) => r[0]!.length)),
+    Math.max(3, "Match name".length, ...rows.map((r) => r[1]!.length)),
+    Math.max(3, "Flow id".length, ...rows.map((r) => r[2]!.length)),
+  ];
+  const fmt = (cells: string[]) => `| ${cells.map((c, i) => c.padEnd(widths[i]!)).join(" | ")} |`;
+  const sep = `| ${widths.map((w) => "-".repeat(w)).join(" | ")} |`;
+  return [fmt(["#", "Match name", "Flow id"]), sep, ...rows.map(fmt)].join("\n");
 }
 
 function render(): string {
