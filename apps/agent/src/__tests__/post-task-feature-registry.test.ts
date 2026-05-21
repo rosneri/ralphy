@@ -116,7 +116,7 @@ describe("runPostTask — feature registry walk", () => {
     expect(events.some((e) => e.type.startsWith("feature."))).toBe(false);
   });
 
-  test("stub features without postTask emit no events", async () => {
+  test("features without postTask emit no events; postTask features fire when caps gate is open", async () => {
     const events: EmitInput[] = [];
     const bus = recordingBus(events);
     const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
@@ -134,7 +134,18 @@ describe("runPostTask — feature registry walk", () => {
     });
 
     expect(ctxCalls).toBe(1);
-    expect(events.filter((e) => e.type.startsWith("feature."))).toEqual([]);
+    // conflict-fix has a real postTask but early-returns when
+    // `caps.conflictFix` isn't wired — `runFeaturePostTask` still emits
+    // started+completed because the postTask function exists. All other
+    // features here have no postTask and emit nothing.
+    const featureEvents = events
+      .filter((e) => e.type.startsWith("feature."))
+      .map((e) => e.type)
+      .sort();
+    expect(featureEvents).toEqual([
+      "feature.conflict-fix.completed",
+      "feature.conflict-fix.started",
+    ]);
   });
 
   test("a feature with postTask receives the result and emits started/completed", async () => {

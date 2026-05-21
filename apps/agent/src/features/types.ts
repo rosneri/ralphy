@@ -83,6 +83,22 @@ export interface ConfirmationCapsShape {
   run(issue: LinearIssue): Promise<void>;
 }
 
+/**
+ * Per-feature capability bundle for the conflict-fix slice. Wire builds
+ * the closure once per (issue, poll) so the slice itself stays free of
+ * `gh`/git imports. `getMergeability` returns the PR's mergeability
+ * state — the slice's `postTask` reports a `failed` event when the PR
+ * is conflicting, but does NOT spawn a re-fix loop. Conflict resolution
+ * lives inside the worker's AI iteration; this slice is verification
+ * only.
+ */
+export interface ConflictFixCapsShape {
+  /** Returns "conflicting" when the PR has merge conflicts with its base,
+   *  "mergeable" when GitHub considers it clean, "unknown" when GitHub
+   *  hasn't computed mergeability yet (or there's no PR to check). */
+  getMergeability(): Promise<"mergeable" | "conflicting" | "unknown">;
+}
+
 export interface Capabilities {
   /** GitHub REST/CLI capability (PR data, mergeability, reviews). */
   gh: unknown;
@@ -98,6 +114,10 @@ export interface Capabilities {
    *  Optional so test contexts that don't exercise the confirmation
    *  feature can omit it without satisfying every closure. */
   confirmation?: ConfirmationCapsShape;
+  /** Conflict-fix slice closure bundle, wired by the agent's `wire.ts`.
+   *  Optional so test contexts that don't exercise the conflict-fix
+   *  feature can omit it without satisfying the mergeability check. */
+  conflictFix?: ConflictFixCapsShape;
 }
 
 /** Shared context passed to every `Feature.detect` and `Feature.run`. */

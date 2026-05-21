@@ -24,7 +24,7 @@
 ### Per-feature vertical slices (in merge order)
 
 - [x] `features/confirmation/`: detect (gate, revise, roundsExhausted), run (plan-ready, reminder, react), state (`confirmation` slot), events, `__tests__/`; delete `apps/agent/src/agent/confirmation/`; drop `classifyAwaitingConfirmation` dep from `coordinator.ts`
-- [ ] `features/conflict-fix/`: `postTask` only verifies mergeability via the `getMergeability` capability (push lives inside the AI iteration per RLF-82); remove the conflict-fix arm from `coordinator.ts` / `post-task.ts`; tests cover the mergeability-only postTask
+- [x] `features/conflict-fix/`: `postTask` only verifies mergeability via the `getMergeability` capability (push lives inside the AI iteration per RLF-82); remove the conflict-fix arm from `coordinator.ts` / `post-task.ts`; tests cover the mergeability-only postTask
 - [ ] `features/ci-fix/`: owns `state.ci` writes; detect + run + postTask + tests; remove ci-fix arm from `coordinator.ts` / `post-task.ts`
 - [ ] `features/implement/`: keeps the push + hook-fix retry in its `postTask`; owns `state.pr.url` and `state.pr.openedAt`; remove implement arm from `coordinator.ts` / `post-task.ts`; tests cover push retry behavior
 - [ ] `features/review-followup/`: owns the `review.lastConsumedCommentAt` watermark introduced in Stage 3; remove the review-followup arm from `coordinator.ts`; tests cover watermark advance + skip-when-unchanged
