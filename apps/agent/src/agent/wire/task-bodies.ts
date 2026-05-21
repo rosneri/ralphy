@@ -5,7 +5,7 @@ import type { MentionTrigger } from "../coordinator";
  *  this avoids needing to know the Linear user identity at filter time. */
 export function isRalphComment(body: string): boolean {
   const trimmed = body.trimStart();
-  return /^(🤖|🔄|✅|✗|⚠|🔁)\s*Ralph\b/.test(trimmed);
+  return /^(🤖|🔄|✅|✗|⚠|🔁|📋)\s*Ralphy?\b/.test(trimmed);
 }
 
 /** Format reviewer comments as a fix-task body. Each comment becomes a
@@ -93,9 +93,13 @@ export function findLastRalphPickupISO(
   return latest;
 }
 
+function stripCodeMarkup(s: string): string {
+  return s.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
+}
+
 export function containsHandle(body: string, handle: string): boolean {
   const re = new RegExp(`(^|\\s|[^A-Za-z0-9_])${escapeRegex(handle)}\\b`, "i");
-  return re.test(body);
+  return re.test(stripCodeMarkup(body));
 }
 
 /** Map a unicode emoji to GitHub's reactions API `content` slug. */
