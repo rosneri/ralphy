@@ -135,3 +135,54 @@ worker, MUST:
 - **Then** `attachmentCreate` is called for the design slot
 - **And** `specAttachments.design.id` is replaced with the new
   attachment id in `.ralph-state.json`
+
+### Requirement: Sync MUST skip uploads when the source file has no meaningful content
+
+`syncSpecAttachments` MUST skip the upload, create, delete, and update
+calls for any slot whose source markdown contains no meaningful
+content, and MUST leave `.ralph-state.json` untouched for that slot.
+
+Before computing a hash or invoking any Linear network call,
+`syncSpecAttachments` MUST check whether the source markdown contains
+any _meaningful_ content. A line counts as scaffold noise when it is
+blank after trim, starts with `#`, matches the italic-only pattern
+`^_.+_$`, or starts with one of `Source:`, `Status:`, `Assignee:`,
+`Labels:`. A file is meaningful iff at least one line is not scaffold
+noise.
+
+When the source file is not meaningful, the sync MUST:
+
+- log a gray `spec-attachments: <filename> has no content yet, skipping`
+  line, and
+- return without uploading, creating, deleting, or updating any Linear
+  attachment for that slot, and
+- leave `.ralph-state.json` untouched for that slot so a later iteration
+  retries automatically once real content lands.
+
+This gate MUST apply equally to markdown slots and to their PDF mirror
+slots, since the PDF render is driven by the same source-md bytes.
+
+#### Scenario: scaffolded design.md is not uploaded
+
+- **Given** `design.md` exists and contains only a `# Design for FOO`
+  heading and a single `_Fill in the technical design as you work
+through the issue._` placeholder line
+- **And** `.ralph-state.json` has no `specAttachments.design` block
+- **When** `syncSpecAttachments` runs
+- **Then** `uploadFileToLinear` and `createAttachmentForUrl` are NOT
+  called for the design slot
+- **And** a gray `spec-attachments: design.md has no content yet,
+skipping` line is logged
+- **And** `.ralph-state.json` still has no `specAttachments.design`
+  block
+
+#### Scenario: empty placeholder later becomes meaningful
+
+- **Given** the previous run skipped `proposal.md` because it contained
+  only scaffold noise
+- **When** the agent appends a real `## Why` body paragraph and
+  `syncSpecAttachments` runs again
+- **Then** the proposal slot uploads as normal via `uploadFileToLinear`
+  and `createAttachmentForUrl`
+- **And** `specAttachments.proposal.sha256` is now persisted in
+  `.ralph-state.json`

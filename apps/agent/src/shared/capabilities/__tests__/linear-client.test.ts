@@ -3,6 +3,7 @@ import {
   fetchMentionScanIssues,
   formatLinearError,
   isRateLimitedError,
+  issueMatchesGetIndicator,
   linearRequestInternals,
 } from "../linear-client";
 
@@ -113,6 +114,69 @@ describe("linear-client transport", () => {
     });
     expect(Date.now() - start).toBeLessThan(100);
     expect(sleeps().length).toBe(1);
+  });
+});
+
+describe("issueMatchesGetIndicator with comment markers", () => {
+  const baseIssue = {
+    labels: [] as string[],
+    state: { name: "Todo", type: "unstarted" },
+    project: null as { id: string; name: string } | null,
+  };
+
+  test("matches when a non-Ralph comment body contains the substring (case-insensitive)", () => {
+    expect(
+      issueMatchesGetIndicator(
+        {
+          ...baseIssue,
+          comments: [{ body: "Please RALPH GO now", user: { name: "Alice" } }],
+        },
+        { filter: [{ type: "comment", value: "ralph go" }] },
+      ),
+    ).toBe(true);
+  });
+
+  test("skips Ralph-authored comments (identified by body emoji prefix)", () => {
+    expect(
+      issueMatchesGetIndicator(
+        {
+          ...baseIssue,
+          comments: [{ body: "🤖 Ralph started a run — ralph go", user: { name: "ralphy" } }],
+        },
+        { filter: [{ type: "comment", value: "ralph go" }] },
+      ),
+    ).toBe(false);
+  });
+
+  test("returns false when comments slice is missing", () => {
+    expect(
+      issueMatchesGetIndicator(baseIssue, {
+        filter: [{ type: "comment", value: "ralph go" }],
+      }),
+    ).toBe(false);
+  });
+
+  test("returns false when comments is an empty array", () => {
+    expect(
+      issueMatchesGetIndicator(
+        { ...baseIssue, comments: [] },
+        { filter: [{ type: "comment", value: "ralph go" }] },
+      ),
+    ).toBe(false);
+  });
+
+  test("any-of semantics: a non-comment marker still wins when present", () => {
+    expect(
+      issueMatchesGetIndicator(
+        { ...baseIssue, labels: ["ralph:auto"] },
+        {
+          filter: [
+            { type: "label", value: "ralph:auto" },
+            { type: "comment", value: "never matches" },
+          ],
+        },
+      ),
+    ).toBe(true);
   });
 });
 

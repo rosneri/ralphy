@@ -235,6 +235,25 @@ async function adopt(deps: SpecAttachmentsDeps, slot: Slot): Promise<{ adoptedId
   }
 }
 
+/** True iff `bytes` (UTF-8 markdown) contain at least one line that
+ *  isn't scaffold noise. Scaffold noise = blank lines, markdown headings,
+ *  italic-only placeholder lines (`_..._`), and the `Source:` /
+ *  `Status:` / `Assignee:` / `Labels:` metadata block emitted by
+ *  `scaffoldChangeForIssue`. Used to keep first-iteration template
+ *  stubs out of Linear. */
+function hasMeaningfulContent(bytes: Uint8Array): boolean {
+  const text = new TextDecoder().decode(bytes);
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) continue;
+    if (/^_.+_$/.test(line)) continue;
+    if (/^(Source|Status|Assignee|Labels):/.test(line)) continue;
+    return true;
+  }
+  return false;
+}
+
 function sha256Hex(bytes: Uint8Array): string {
   const hasher = new Bun.CryptoHasher("sha256");
   hasher.update(bytes);
@@ -258,6 +277,11 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
       `! spec-attachments: read ${spec.sourceFile} failed: ${(err as Error).message}`,
       "yellow",
     );
+    return;
+  }
+
+  if (!hasMeaningfulContent(sourceBytes)) {
+    deps.log(`  spec-attachments: ${spec.sourceFile} has no content yet, skipping`, "gray");
     return;
   }
 

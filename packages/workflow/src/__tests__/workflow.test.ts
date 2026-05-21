@@ -56,6 +56,31 @@ describe("parseWorkflow", () => {
     ]);
   });
 
+  test("comment marker in getTodo.filter round-trips", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: comment\n          value: "ralph go"\n---\n`,
+    );
+    expect(config.linear.indicators.getTodo?.filter).toEqual([
+      { type: "comment", value: "ralph go" },
+    ]);
+  });
+
+  test("comment marker in setDone is rejected naming the slot", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    setDone:\n      type: comment\n      value: "ralph go"\n---\n`,
+      ),
+    ).toThrow(/setDone.*comment/);
+  });
+
+  test("comment marker with empty value is rejected", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: comment\n          value: ""\n---\n`,
+      ),
+    ).toThrow("invalid settings");
+  });
+
   test("project marker in clearConflicted is rejected with label-only message", () => {
     expect(() =>
       parseWorkflow(

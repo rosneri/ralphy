@@ -41,6 +41,31 @@ describe("schema defaults — confirmationMode", () => {
     expect(c.linear.indicators.clearApproved).toEqual([{ type: "label", value: "ralph:approved" }]);
   });
 
+  test("setAwaitingConfirmation accepts marker and marker[]", () => {
+    const single = cfg(
+      `linear:\n  indicators:\n    setAwaitingConfirmation:\n      type: label\n      value: ralph:awaiting-confirmation\n`,
+    );
+    expect(single.linear.indicators.setAwaitingConfirmation).toEqual({
+      type: "label",
+      value: "ralph:awaiting-confirmation",
+    });
+    const many = cfg(
+      `linear:\n  indicators:\n    setAwaitingConfirmation:\n      - type: label\n        value: ralph:awaiting-confirmation\n      - type: status\n        value: Awaiting Confirmation\n`,
+    );
+    expect(many.linear.indicators.setAwaitingConfirmation).toEqual([
+      { type: "label", value: "ralph:awaiting-confirmation" },
+      { type: "status", value: "Awaiting Confirmation" },
+    ]);
+  });
+
+  test("clearAwaitingConfirmation rejects status-typed markers (label-only)", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    clearAwaitingConfirmation:\n      type: status\n      value: Done\n---\n`,
+      ),
+    ).toThrow("invalid settings");
+  });
+
   test("clearApproved rejects status-typed markers", () => {
     expect(() =>
       parseWorkflow(

@@ -11,9 +11,14 @@ export interface ConfirmationTicketView {
   project?: { id: string; name: string } | null;
   /** Source-types of attachments on the issue. Empty/undefined when unknown. */
   attachmentSourceTypes?: readonly string[];
+  /** Bodies of non-Ralph comments on the issue. Empty/undefined when unknown. */
+  commentBodies?: readonly string[];
 }
 
-type Marker = { type: "label" | "status" | "attachment" | "project"; value: string };
+type Marker = {
+  type: "label" | "status" | "attachment" | "project" | "comment";
+  value: string;
+};
 
 interface GetIndicatorLike {
   filter: readonly Marker[];
@@ -55,6 +60,14 @@ function matchesAnyValue(
       return ticket.project != null && values.includes(ticket.project.name);
     case "attachment":
       return (ticket.attachmentSourceTypes ?? []).some((s) => values.includes(s));
+    case "comment": {
+      const bodies = ticket.commentBodies ?? [];
+      if (bodies.length === 0) return false;
+      return values.some((v) => {
+        const needle = v.toLowerCase();
+        return bodies.some((b) => b.toLowerCase().includes(needle));
+      });
+    }
   }
 }
 
@@ -75,4 +88,32 @@ export function computeConfirmationFlags(
   const confirmationGated = cm.enabled && optInSatisfied && !ticket.labels.includes(cm.optOutLabel);
   const approved = matchesIndicator(config.linear.indicators.getApproved, ticket);
   return { confirmationGated, approved };
+}
+
+/**
+ * Format the `getApproved` indicator into a human-readable sentence used in
+ * the "📋 Ralphy plan ready" comment body. Returns a generic fallback when
+ * the indicator is missing or has no filter entries.
+ */
+export function describeApprovalMarker(indicator: GetIndicatorLike | undefined): string {
+  if (!indicator || indicator.filter.length === 0) {
+    return "ask your operator to approve this plan";
+  }
+  const phrases = indicator.filter.map((m) => {
+    switch (m.type) {
+      case "label":
+        return `apply the \`${m.value}\` label`;
+      case "status":
+        return `move the issue to status \`${m.value}\``;
+      case "project":
+        return `move the issue into project \`${m.value}\``;
+      case "attachment":
+        return `attach a \`${m.value}\``;
+      case "comment":
+        return `post a comment containing \`${m.value}\``;
+    }
+  });
+  if (phrases.length === 1) return phrases[0]!;
+  if (phrases.length === 2) return `${phrases[0]} or ${phrases[1]}`;
+  return `${phrases.slice(0, -1).join(", ")}, or ${phrases[phrases.length - 1]}`;
 }

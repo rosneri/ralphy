@@ -2,18 +2,24 @@ import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { projectLayout } from "@ralphy/core/layout";
 import { gateActive, hasUnchecked } from "@ralphy/core/detections";
+import { isStubArtifact } from "@ralphy/core/openspec-phase";
 import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
 import type { LinearIssue } from "../../agent/linear";
 import type { RalphyConfig } from "../../agent/config";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
-import { computeConfirmationFlags, type ConfirmationTicketView } from "@ralphy/workflow";
+import {
+  computeConfirmationFlags,
+  describeApprovalMarker,
+  type ConfirmationTicketView,
+} from "@ralphy/workflow";
 import {
   appendSteeringNote,
   readConfirmationState,
   restartFromDesign as restartFromDesignFs,
   writeConfirmationState,
+  type ConfirmationState,
 } from "./state";
 import { inspectAwaitingTicket } from "./inspect";
 
@@ -96,9 +102,12 @@ async function postPlanReadyCommentOnce(
       rounds?: number;
     } | null) ?? null;
   if (confirmation?.askedAt) return;
+  const approvalSentence = describeApprovalMarker(deps.cfg.linear.indicators.getApproved);
+  const handle = deps.cfg.linear.mentionHandle;
   const body =
     `📋 Ralphy plan ready for \`${changeName}\` — review proposal.md / design.md / tasks.md ` +
-    `and approve to continue, or reply with \`@ralphy revise: <reason>\` to send it back to design.`;
+    `and ${approvalSentence} to continue, ` +
+    `or reply with \`${handle} revise: <reason>\` to send it back to design.`;
   try {
     await addIssueComment(deps.apiKey, issue.id, body);
   } catch (err) {
@@ -129,6 +138,73 @@ async function postPlanReadyCommentOnce(
   deps.onLog(`  ${issue.identifier}: posted "📋 Ralphy plan ready" comment`, "gray");
 }
 
+/** Apply `setAwaitingConfirmation` once per gate-entry; stamp the state. */
+async function applyAwaitingMarkerOnce(
+  issue: LinearIssue,
+  statePath: string,
+  state: { stateObj: Record<string, unknown>; confirmation: ConfirmationState },
+  deps: {
+    indicators: Indicators;
+    applyIndicator: AwaitingDeps["applyIndicator"];
+    onLog: AwaitingDeps["onLog"];
+  },
+): Promise<void> {
+  if (!deps.indicators.setAwaitingConfirmation) return;
+  if (state.confirmation.awaitingMarkerAppliedAt) return;
+  try {
+    await deps.applyIndicator(issue, deps.indicators.setAwaitingConfirmation);
+  } catch (err) {
+    deps.onLog(
+      `! setAwaitingConfirmation failed for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+    return;
+  }
+  state.confirmation.awaitingMarkerAppliedAt = new Date().toISOString();
+  try {
+    await writeConfirmationState(statePath, state.stateObj, state.confirmation);
+  } catch (err) {
+    deps.onLog(
+      `! persist awaitingMarkerAppliedAt for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+  }
+}
+
+/** Apply `clearAwaitingConfirmation` if configured and the stamp is set;
+ *  always null the stamp afterward (defence in depth — mirrors clearApproved). */
+async function releaseAwaitingMarker(
+  issue: LinearIssue,
+  statePath: string,
+  deps: {
+    indicators: Indicators;
+    applyIndicator: AwaitingDeps["applyIndicator"];
+    onLog: AwaitingDeps["onLog"];
+  },
+): Promise<void> {
+  const { stateObj, confirmation } = await readConfirmationState(statePath);
+  if (!confirmation.awaitingMarkerAppliedAt) return;
+  if (deps.indicators.clearAwaitingConfirmation) {
+    try {
+      await deps.applyIndicator(issue, deps.indicators.clearAwaitingConfirmation);
+    } catch (err) {
+      deps.onLog(
+        `! clearAwaitingConfirmation failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+  }
+  confirmation.awaitingMarkerAppliedAt = null;
+  try {
+    await writeConfirmationState(statePath, stateObj, confirmation);
+  } catch (err) {
+    deps.onLog(
+      `! persist cleared awaitingMarkerAppliedAt for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+  }
+}
+
 /**
  * Per in-progress issue, derive the OpenSpec phase against the change
  * directory on disk and the workflow's confirmation-mode config.
@@ -154,6 +230,8 @@ export async function processAwaitingForIssue(
     const changeDir = layout.changeDir(changeName);
     const statePath = layout.stateFile(changeName);
     const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
+    const proposal = await readTextOrNull(join(changeDir, "proposal.md"));
+    const design = await readTextOrNull(join(changeDir, "design.md"));
     const ticketView: ConfirmationTicketView = {
       labels: issue.labels,
       state: issue.state,
@@ -179,16 +257,44 @@ export async function processAwaitingForIssue(
     });
     if (!active) {
       deps.awaitingChangeSet.delete(changeName);
+      await releaseAwaitingMarker(issue, statePath, {
+        indicators,
+        applyIndicator: deps.applyIndicator,
+        onLog: deps.onLog,
+      });
       deps.onLog(`  ${issue.identifier}: confirmation detect released — gate-cleared`);
       return false;
     }
     if (!hasUnchecked(tasks ?? "")) {
       deps.awaitingChangeSet.delete(changeName);
+      await releaseAwaitingMarker(issue, statePath, {
+        indicators,
+        applyIndicator: deps.applyIndicator,
+        onLog: deps.onLog,
+      });
       deps.onLog(`  ${issue.identifier}: confirmation detect released — tasks-empty`);
+      return false;
+    }
+    if (isStubArtifact(proposal) || isStubArtifact(design)) {
+      deps.awaitingChangeSet.delete(changeName);
+      await releaseAwaitingMarker(issue, statePath, {
+        indicators,
+        applyIndicator: deps.applyIndicator,
+        onLog: deps.onLog,
+      });
+      deps.onLog(
+        `  ${issue.identifier}: confirmation detect released — proposal/design not yet filled in`,
+      );
       return false;
     }
     deps.awaitingChangeSet.add(changeName);
     deps.reapForAwaiting(changeName);
+    await applyAwaitingMarkerOnce(
+      issue,
+      statePath,
+      { stateObj, confirmation },
+      { indicators, applyIndicator: deps.applyIndicator, onLog: deps.onLog },
+    );
     await postPlanReadyCommentOnce(issue, statePath, changeName, {
       apiKey,
       cfg,
@@ -243,11 +349,21 @@ export async function processAwaitingForIssue(
     }
     if (outcome === "approved") {
       deps.awaitingChangeSet.delete(changeName);
+      await releaseAwaitingMarker(issue, statePath, {
+        indicators,
+        applyIndicator: deps.applyIndicator,
+        onLog: deps.onLog,
+      });
       deps.onLog(`  ${issue.identifier}: confirmation detect released — outcome=approved`);
       return false;
     }
     if (outcome === "revised") {
       deps.awaitingChangeSet.delete(changeName);
+      await releaseAwaitingMarker(issue, statePath, {
+        indicators,
+        applyIndicator: deps.applyIndicator,
+        onLog: deps.onLog,
+      });
       deps.onLog(`  ${issue.identifier}: confirmation detect released — outcome=revised`);
       return false;
     }

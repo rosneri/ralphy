@@ -190,7 +190,11 @@ export type Marker =
   /** Linear project name. On `getX` the issue's project name is matched
    *  case-insensitively; on `setX` the issue is reassigned to the
    *  project whose name matches `value`. */
-  | { type: "project"; value: string };
+  | { type: "project"; value: string }
+  /** Case-insensitive substring match against the body of any non-Ralph
+   *  comment on the issue. Read-only: rejected in `setX` slots at
+   *  config-load time. */
+  | { type: "comment"; value: string };
 
 /** Any-of filter: an issue matches if ANY listed marker matches. */
 export interface GetIndicator {
@@ -232,6 +236,13 @@ export interface Indicators {
   getApproved?: GetIndicator;
   /** Label-only marker(s) removed when the approval is consumed. */
   clearApproved?: SetIndicator;
+  /** Marker(s) applied when a ticket enters the confirmation gate. Applied
+   *  once per gate-entry, just before the "📋 Ralphy plan ready" comment. */
+  setAwaitingConfirmation?: SetIndicator;
+  /** Label-only marker(s) removed when the confirmation gate releases the
+   *  ticket (approval consumed, revise consumed, tasks empty, stub
+   *  artifact, or gate manually cleared). */
+  clearAwaitingConfirmation?: SetIndicator;
 }
 
 /** Convenience: extract the marker list applied by a SetIndicator. */

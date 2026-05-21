@@ -24,6 +24,8 @@ export interface SeedIssue {
   blockedByIds?: string[];
   project?: { id: string; name: string } | null;
   assignee?: { id: string; email: string | null; name: string } | null;
+  /** Initial comments seeded onto the issue. Honored by `comment` markers. */
+  comments?: { body: string; author?: string }[];
 }
 
 export interface FakeLinearComment {

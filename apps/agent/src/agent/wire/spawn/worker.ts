@@ -201,6 +201,30 @@ export function createSpawnWorker(
               `! normalized ${report.count} pre-checked item(s) in newly added section(s) ${sections}`,
               "yellow",
             );
+            // The loop may have exited thinking all tasks were done because the
+            // agent pre-checked items in the newly-appended section. Reset state
+            // to active so the next pass actually works through those items.
+            try {
+              const stateFile = Bun.file(workerLayout.stateFile(changeName));
+              if (await stateFile.exists()) {
+                const state = JSON.parse(await stateFile.text()) as { status?: string };
+                if (state.status === "completed") {
+                  state.status = "active";
+                  await Bun.write(
+                    workerLayout.stateFile(changeName),
+                    JSON.stringify(state, null, 2),
+                  );
+                  diag(
+                    "tasks",
+                    `! loop exited with pre-checked items — reactivated state, respawning`,
+                    "yellow",
+                  );
+                  return respawn();
+                }
+              }
+            } catch (err) {
+              diag("tasks", `! state reactivation failed: ${(err as Error).message}`, "yellow");
+            }
           }
         }
       } catch (err) {

@@ -82,6 +82,28 @@ describe("createFakeLinear", () => {
     expect(linear.applied.clearReview).toContain("RLF-1");
   });
 
+  test("fetchTodo with a comment marker picks up issues whose non-Ralph comment matches", async () => {
+    const linear = createFakeLinear({
+      getTodo: { filter: [{ type: "comment", value: "ralph go" }] },
+    });
+    linear.seed({
+      id: "1",
+      identifier: "RLF-1",
+      title: "human asked",
+      comments: [{ body: "please RALPH GO", author: "Alice" }],
+    });
+    linear.seed({
+      id: "2",
+      identifier: "RLF-2",
+      title: "ralph asked itself",
+      comments: [{ body: "🤖 Ralph started — ralph go", author: "ralphy" }],
+    });
+    linear.seed({ id: "3", identifier: "RLF-3", title: "no comments" });
+
+    const picked = (await linear.client.fetchTodo()).map((i) => i.identifier);
+    expect(picked).toEqual(["RLF-1"]);
+  });
+
   test("setLabels / setStatus / pushComment mutate seeded issues and throw on unknown id", () => {
     const linear = createFakeLinear();
     linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
