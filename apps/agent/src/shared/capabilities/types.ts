@@ -17,7 +17,7 @@ export interface RetryPolicy {
 
 export type ErrorFormatter = (err: unknown) => string;
 
-export interface Capability<TArgs, TResult> {
+export interface Capability<TArgs, TResult, TRaw = TResult> {
   /** Stable identifier used as the bus event prefix, e.g.
    *  "linear.tickets.fetch". */
   name: string;
@@ -28,8 +28,8 @@ export interface Capability<TArgs, TResult> {
   retryPolicy: RetryPolicy;
   errorFormatter: ErrorFormatter;
   /** Optional shape-narrowing adapter applied to a successful result. */
-  adopt?: (raw: unknown) => TResult;
-  run: (args: TArgs) => Promise<TResult>;
+  adopt?: (raw: TRaw) => TResult;
+  run: (args: TArgs) => Promise<TRaw>;
 }
 
 export const NO_RETRY: RetryPolicy = {

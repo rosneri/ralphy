@@ -18,7 +18,7 @@ function stubResponses(responses: Response[]): {
   const sleeps: number[] = [];
   const fakeFetch: FetchLike = async () => {
     const r = responses[i++];
-    if (!r) throw new Error(`unexpected extra fetch call (#${i})`);
+    if (!r) throw new Error("unexpected extra fetch call");
     return r;
   };
   globalThis.fetch = fakeFetch as typeof fetch;

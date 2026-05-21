@@ -31,8 +31,8 @@ function emit(bus: Bus | undefined, ev: EmitInput): void {
   bus.emit(ev);
 }
 
-export async function runCapability<A, R>(
-  cap: Capability<A, R>,
+export async function runCapability<A, R, Raw = R>(
+  cap: Capability<A, R, Raw>,
   args: A,
   ctx: RunCapabilityCtx = {},
 ): Promise<R> {
@@ -43,7 +43,7 @@ export async function runCapability<A, R>(
   for (let attempt = 1; attempt <= cap.retryPolicy.maxAttempts; attempt++) {
     try {
       const raw = await cap.run(args);
-      const result = cap.adopt ? cap.adopt(raw) : raw;
+      const result: R = cap.adopt ? cap.adopt(raw) : (raw as R);
       emit(bus, { type: `${cap.name}.fetched` } as FetchedEvent);
       return result;
     } catch (err) {

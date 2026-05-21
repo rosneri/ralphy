@@ -36,7 +36,7 @@ describe("runCapability", () => {
       retryPolicy: { maxAttempts: 3, isRetryable: () => true, delayMs: () => 0 },
       run: async () => {
         attempts += 1;
-        if (attempts < 3) throw new Error(`transient ${attempts}`);
+        if (attempts < 3) throw new Error("transient");
         return "ok";
       },
     });
@@ -103,13 +103,13 @@ describe("runCapability", () => {
 
   test("adopt narrows the raw payload before emitting fetched", async () => {
     const bus = createBus();
-    const cap: Capability<void, { count: number }> = {
+    const cap: Capability<void, { count: number }, { items: number[] }> = {
       name: "adopt.op",
       required: false,
       retryPolicy: { maxAttempts: 1, isRetryable: () => false, delayMs: () => 0 },
       errorFormatter: (e) => String(e),
-      adopt: (raw) => ({ count: (raw as { items: unknown[] }).items.length }),
-      run: (async () => ({ items: [1, 2, 3] })) as unknown as () => Promise<{ count: number }>,
+      adopt: (raw) => ({ count: raw.items.length }),
+      run: async () => ({ items: [1, 2, 3] }),
     };
     const out = await runCapability(cap, undefined, { bus });
     expect(out).toEqual({ count: 3 });

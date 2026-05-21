@@ -1,6 +1,10 @@
-# Spec delta — shared/capabilities
+# shared-capabilities Specification
 
-## ADDED Requirements
+## Purpose
+
+TBD - created by archiving change rlf-93-stage-4-shared-capabilities-extraction. Update Purpose after archive.
+
+## Requirements
 
 ### Requirement: Capability descriptor and shell
 
