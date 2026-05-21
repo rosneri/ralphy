@@ -29,5 +29,5 @@
 - [x] Run `bun run lint` and fix any reported issues.
 - [x] Run `bun run test` and ensure the suite is green; coverage threshold MUST NOT be lowered.
 - [x] Run `bunx openspec validate rlf-97-stage-8-split-implement-into-implement-a --strict` and resolve any reported issues.
-- [ ] Stage and commit each touched file individually (no `git add -A`, no `git commit -am`).
-- [ ] Push the branch and open the PR per the change instructions.
+- [x] Stage and commit each touched file individually (no `git add -A`, no `git commit -am`).
+- [x] Push the branch and open the PR per the change instructions.
