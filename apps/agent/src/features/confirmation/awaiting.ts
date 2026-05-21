@@ -1,0 +1,235 @@
+import { join, dirname } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { projectLayout } from "@ralphy/core/layout";
+import { gateActive, hasUnchecked } from "@ralphy/core/detections";
+import { worktreesDir } from "../../agent/worktree";
+import { changeNameForIssue } from "../../agent/scaffold";
+import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
+import type { LinearIssue } from "../../agent/linear";
+import type { RalphyConfig } from "../../agent/config";
+import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
+import { computeConfirmationFlags, type ConfirmationTicketView } from "@ralphy/workflow";
+import {
+  appendSteeringNote,
+  readConfirmationState,
+  restartFromDesign as restartFromDesignFs,
+  writeConfirmationState,
+} from "./state";
+import { inspectAwaitingTicket } from "./inspect";
+
+export interface AwaitingDeps {
+  cfg: RalphyConfig;
+  apiKey: string;
+  projectRoot: string;
+  useWorktree: boolean;
+  indicators: Indicators;
+  cwdOf: (changeName: string) => string | undefined;
+  awaitingChangeSet: Set<string>;
+  reapForAwaiting: (changeName: string) => void;
+  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;
+  onAwaitingTicket?: (info: {
+    changeName: string;
+    issueIdentifier: string;
+    issueUrl: string;
+    issueTitle: string;
+    since: string | null;
+    round: number;
+  }) => void;
+  onLog: (msg: string, color?: string) => void;
+}
+
+async function resolveChangeCwdForIssue(
+  changeName: string,
+  deps: { projectRoot: string; useWorktree: boolean; cwdOf: (cn: string) => string | undefined },
+): Promise<string> {
+  const tracked = deps.cwdOf(changeName);
+  if (tracked) return tracked;
+  if (!deps.useWorktree) return deps.projectRoot;
+  const wtPath = join(worktreesDir(deps.projectRoot), changeName);
+  return (await Bun.file(join(wtPath, "openspec", "changes", changeName, "tasks.md")).exists())
+    ? wtPath
+    : deps.projectRoot;
+}
+
+async function readTextOrNull(path: string): Promise<string | null> {
+  const f = Bun.file(path);
+  if (!(await f.exists())) return null;
+  try {
+    return await f.text();
+  } catch {
+    return null;
+  }
+}
+
+/** Post the one-shot "📋 Ralphy plan ready" Linear comment on the first
+ *  poll that observes the ticket in the `awaiting-confirmation` phase. */
+async function postPlanReadyCommentOnce(
+  issue: LinearIssue,
+  statePath: string,
+  changeName: string,
+  deps: { apiKey: string; cfg: RalphyConfig; onLog: AwaitingDeps["onLog"] },
+): Promise<void> {
+  if (!deps.apiKey) return;
+  if (deps.cfg.linear.postComments === false) return;
+  let stateObj: Record<string, unknown> = {};
+  const f = Bun.file(statePath);
+  if (await f.exists()) {
+    try {
+      stateObj = (await f.json()) as Record<string, unknown>;
+    } catch {
+      stateObj = {};
+    }
+  }
+  const confirmation =
+    (stateObj.confirmation as {
+      askedAt?: string | null;
+      lastReminderAt?: string | null;
+      confirmedAt?: string | null;
+      rounds?: number;
+    } | null) ?? null;
+  if (confirmation?.askedAt) return;
+  const body =
+    `📋 Ralphy plan ready for \`${changeName}\` — review proposal.md / design.md / tasks.md ` +
+    `and approve to continue, or reply with \`@ralphy revise: <reason>\` to send it back to design.`;
+  try {
+    await addIssueComment(deps.apiKey, issue.id, body);
+  } catch (err) {
+    deps.onLog(
+      `! Linear plan-ready comment failed for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+    return;
+  }
+  const nextConfirmation = {
+    askedAt: new Date().toISOString(),
+    lastReminderAt: confirmation?.lastReminderAt ?? null,
+    confirmedAt: confirmation?.confirmedAt ?? null,
+    rounds: confirmation?.rounds ?? 0,
+  };
+  try {
+    await mkdir(dirname(statePath), { recursive: true });
+    await Bun.write(
+      statePath,
+      JSON.stringify({ ...stateObj, confirmation: nextConfirmation }, null, 2) + "\n",
+    );
+  } catch (err) {
+    deps.onLog(
+      `! could not persist confirmation.askedAt for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+  }
+  deps.onLog(`  ${issue.identifier}: posted "📋 Ralphy plan ready" comment`, "gray");
+}
+
+/**
+ * Per in-progress issue, derive the OpenSpec phase against the change
+ * directory on disk and the workflow's confirmation-mode config.
+ */
+export async function processAwaitingForIssue(
+  issue: LinearIssue,
+  deps: AwaitingDeps,
+): Promise<boolean> {
+  const { cfg, apiKey, indicators } = deps;
+  if (!cfg.linear.confirmationMode.enabled) return false;
+  const cm = cfg.linear.confirmationMode;
+  const changeName = changeNameForIssue(issue);
+  const cwd = await resolveChangeCwdForIssue(changeName, {
+    projectRoot: deps.projectRoot,
+    useWorktree: deps.useWorktree,
+    cwdOf: deps.cwdOf,
+  });
+  const layout = projectLayout(cwd);
+  const changeDir = layout.changeDir(changeName);
+  const statePath = layout.stateFile(changeName);
+  const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
+  const ticketView: ConfirmationTicketView = {
+    labels: issue.labels,
+    state: issue.state,
+    project: issue.project,
+  };
+  const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
+  const { stateObj, confirmation } = await readConfirmationState(statePath);
+  if (approvalMatches && confirmation.confirmedAt === null) {
+    confirmation.confirmedAt = new Date().toISOString();
+    try {
+      await writeConfirmationState(statePath, stateObj, confirmation);
+    } catch (err) {
+      deps.onLog(
+        `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+  }
+  const active = gateActive({
+    config: { confirmationMode: cfg.linear.confirmationMode },
+    ticket: { labels: [...issue.labels] },
+    persistedConfirmation: confirmation,
+  });
+  if (!active || !hasUnchecked(tasks ?? "")) {
+    deps.awaitingChangeSet.delete(changeName);
+    return false;
+  }
+  deps.awaitingChangeSet.add(changeName);
+  deps.reapForAwaiting(changeName);
+  await postPlanReadyCommentOnce(issue, statePath, changeName, { apiKey, cfg, onLog: deps.onLog });
+  const { stateObj: state2, confirmation: confirmation2 } = await readConfirmationState(statePath);
+  const { outcome, next } = await inspectAwaitingTicket(
+    confirmation2,
+    {
+      mentionHandle: cfg.linear.mentionHandle,
+      timeoutHours: cm.timeoutHours,
+      maxConfirmationRounds: cm.maxConfirmationRounds,
+      postComments: cfg.linear.postComments !== false && Boolean(apiKey),
+    },
+    {
+      approvalMatches,
+      fetchComments: async () => {
+        if (!apiKey) return [];
+        try {
+          const cs = await fetchIssueComments(apiKey, issue.id);
+          return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
+        } catch {
+          return [];
+        }
+      },
+      ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
+      applyIndicator: (ind) => deps.applyIndicator(issue, ind),
+      postComment: async (body) => {
+        if (!apiKey) return;
+        await addIssueComment(apiKey, issue.id, body);
+      },
+      reactToComment: async (commentId, emoji) => {
+        if (!apiKey) return;
+        await addReactionToComment(apiKey, commentId, emoji);
+      },
+      applyStuckLabel: async () => {
+        await deps.applyMarker(issue, { type: "label", value: "ralph:stuck" });
+      },
+      appendSteering: (msg) => appendSteeringNote(changeDir, msg),
+      restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
+      log: deps.onLog,
+    },
+  );
+  try {
+    await writeConfirmationState(statePath, state2, next);
+  } catch (err) {
+    deps.onLog(
+      `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+  }
+  if (outcome === "approved" || outcome === "revised") {
+    deps.awaitingChangeSet.delete(changeName);
+    return false;
+  }
+  deps.onAwaitingTicket?.({
+    changeName,
+    issueIdentifier: issue.identifier,
+    issueUrl: issue.url,
+    issueTitle: issue.title,
+    since: next.askedAt,
+    round: next.rounds,
+  });
+  return true;
+}
