@@ -106,6 +106,7 @@ export type RalphEvent =
         | "feature.confirmation.disabled"
         | "feature.conflict-fix.disabled"
         | "feature.ci-fix.disabled"
+        | "feature.awaiting-ci.disabled"
         | "feature.implement.disabled"
         | "feature.review-followup.disabled"
         | "feature.new-ticket.disabled"
@@ -305,7 +306,9 @@ export type RalphEvent =
         | `feature.confirmation.${FeaturePhase}`
         | `feature.conflict-fix.${FeaturePhase}`
         | `feature.ci-fix.${FeaturePhase}`
+        | `feature.awaiting-ci.${FeaturePhase}`
         | `feature.implement.${FeaturePhase}`
+        | `feature.implement.transitioned`
         | `feature.review-followup.${FeaturePhase}`
         | `feature.new-ticket.${FeaturePhase}`
         | `feature.mention.${FeaturePhase}`

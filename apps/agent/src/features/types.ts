@@ -19,6 +19,7 @@ export type FeatureId =
   | "confirmation"
   | "conflict-fix"
   | "ci-fix"
+  | "awaiting-ci"
   | "implement"
   | "review-followup"
   | "new-ticket"

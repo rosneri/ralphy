@@ -90,7 +90,7 @@ describe("implement/postTask — PR URL verification only", () => {
     expect(events).toEqual([]);
   });
 
-  test("PR found → emits completed { outcome: 'opened', prUrl } and writes state.pr", async () => {
+  test("PR found → emits completed + transitioned and writes state.pr + state.pr.flow", async () => {
     const events: EmitInput[] = [];
     const writes: { path: string; value: unknown }[] = [];
     const url = "https://github.com/o/r/pull/42";
@@ -105,10 +105,15 @@ describe("implement/postTask — PR URL verification only", () => {
         outcome: "opened",
         prUrl: url,
       },
+      {
+        type: "feature.implement.transitioned",
+        to: "awaiting-ci",
+      },
     ]);
     expect(writes).toEqual([
       { path: "pr.url", value: url },
       { path: "pr.openedAt", value: "2026-05-21T00:00:00.000Z" },
+      { path: "pr.flow", value: "awaiting-ci" },
     ]);
   });
 
@@ -147,6 +152,10 @@ describe("implement/postTask — PR URL verification only", () => {
         type: "feature.implement.completed",
         outcome: "opened",
         prUrl: "https://github.com/o/r/pull/3",
+      },
+      {
+        type: "feature.implement.transitioned",
+        to: "awaiting-ci",
       },
     ]);
   });

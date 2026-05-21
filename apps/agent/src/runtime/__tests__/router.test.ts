@@ -9,6 +9,7 @@ const baseline: RouterSignals = {
   mention: "none",
   stuck: false,
   boost: "p2",
+  awaitingCi: "none",
 };
 
 const sig = (over: Partial<RouterSignals>): RouterSignals => ({ ...baseline, ...over });
@@ -31,6 +32,24 @@ describe("router precedence table", () => {
   });
   it("row: pr ci failing", () => {
     expect(route(sig({ prStatus: "ci-failing" })).flowId).toBe("ci-fix");
+  });
+  it("row: awaiting-ci pass (mergeable + watching)", () => {
+    expect(
+      route(sig({ awaitingCi: "watching", prStatus: "mergeable", bucket: "in-progress" })).flowId,
+    ).toBe("awaiting-ci");
+  });
+  it("row: awaiting-ci watch (watching + pending)", () => {
+    expect(
+      route(sig({ awaitingCi: "watching", prStatus: "ci-pending", bucket: "in-progress" })).flowId,
+    ).toBe("awaiting-ci");
+  });
+  it("ci-failing takes precedence over awaiting-ci", () => {
+    expect(
+      route(sig({ awaitingCi: "watching", prStatus: "ci-failing", bucket: "in-progress" })).flowId,
+    ).toBe("ci-fix");
+  });
+  it("in-progress implement runs when awaitingCi is none", () => {
+    expect(route(sig({ bucket: "in-progress", awaitingCi: "none" })).flowId).toBe("implement");
   });
   it("row: review bucket", () => {
     expect(route(sig({ bucket: "review" })).flowId).toBe("review-followup");

@@ -12,6 +12,7 @@ describe("runtime/poll", () => {
       mention: "none",
       stuck: false,
       boost: "p2",
+      awaitingCi: "none",
     };
     const assignment: FlowAssignment = {
       flowId: "implement",

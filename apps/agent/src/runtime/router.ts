@@ -27,6 +27,23 @@ export const ROUTER_TABLE: readonly RouterRow[] = [
     flowId: "ci-fix",
   },
   {
+    // Idle catch-up: a previous poll opened a PR and asked the router to
+    // keep watching, but CI has since gone green. The slice emits a
+    // `completed` event and the router falls through to the bucket-based
+    // rows on subsequent polls (handled because `prStatus !== "ci-pending"`
+    // would otherwise drop back to implement). This row sits ABOVE
+    // `awaiting-ci watch` so a settled pass is recognised before the
+    // pending-watch row keeps the issue parked.
+    name: "awaiting-ci pass",
+    when: (s) => s.awaitingCi === "watching" && s.prStatus === "mergeable",
+    flowId: "awaiting-ci",
+  },
+  {
+    name: "awaiting-ci watch",
+    when: (s) => s.awaitingCi === "watching",
+    flowId: "awaiting-ci",
+  },
+  {
     name: "review bucket",
     when: (s) => s.bucket === "review",
     flowId: "review-followup",

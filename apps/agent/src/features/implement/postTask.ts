@@ -1,6 +1,6 @@
 import type { FeatureCtx, TaskResult } from "../types";
-import { emitCompleted, emitFailed } from "./events";
-import { writePrUrl } from "./state";
+import { emitCompleted, emitFailed, emitTransitioned } from "./events";
+import { writePrUrl, writeFlow } from "./state";
 
 /**
  * After each worker task, verify a PR has been opened for the branch and
@@ -32,10 +32,12 @@ export async function implementPostTask(ctx: FeatureCtx, result: TaskResult): Pr
   }
   try {
     await writePrUrl(ctx.state, url, ctx.now().toISOString());
+    await writeFlow(ctx.state, "awaiting-ci");
   } catch {
     // state writes are best-effort — a wire layer that hasn't registered
     // the implement slot in OWNERSHIP would throw `OwnershipError`. Events
     // are the observable contract; persistence is opportunistic.
   }
   emitCompleted(ctx.bus, "opened", url);
+  emitTransitioned(ctx.bus, "awaiting-ci");
 }

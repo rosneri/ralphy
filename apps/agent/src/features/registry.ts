@@ -22,6 +22,7 @@ import type { Capabilities, Feature, FeatureId } from "./types";
 import { confirmationFeature } from "./confirmation";
 import { conflictFixFeature } from "./conflict-fix";
 import { ciFixFeature } from "./ci-fix";
+import { awaitingCiFeature } from "./awaiting-ci";
 import { implementFeature } from "./implement";
 import { reviewFollowupFeature } from "./review-followup";
 import { newTicketFeature } from "./new-ticket";
@@ -32,6 +33,7 @@ export const registry: readonly Feature[] = [
   confirmationFeature,
   conflictFixFeature,
   ciFixFeature,
+  awaitingCiFeature,
   implementFeature,
   reviewFollowupFeature,
   newTicketFeature,
@@ -58,6 +60,11 @@ const REQUIREMENTS: Readonly<Record<FeatureId, FeatureRequirement>> = {
   "ci-fix": (caps) => {
     if (caps.gh == null) return "missing gh capability (required for ci-fix)";
     if (caps.ciFix == null) return "missing ciFix capability bundle";
+    return null;
+  },
+  "awaiting-ci": (caps) => {
+    if (caps.gh == null) return "missing gh capability (required for awaiting-ci)";
+    if (caps.ciFix == null) return "missing ciFix capability bundle (required for awaiting-ci)";
     return null;
   },
   implement: (caps) => {

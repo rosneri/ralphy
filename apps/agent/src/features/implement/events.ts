@@ -11,3 +11,9 @@ export function emitCompleted(bus: Bus, outcome: string, prUrl: string | null): 
 export function emitFailed(bus: Bus, error: string): void {
   bus.emit({ type: "feature.implement.failed", error });
 }
+
+/** Emitted after a successful PR-URL write. The router uses the next
+ *  `state.pr.flow` read to route the issue to the new flow id. */
+export function emitTransitioned(bus: Bus, to: "awaiting-ci"): void {
+  bus.emit({ type: "feature.implement.transitioned", to });
+}
