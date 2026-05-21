@@ -67,6 +67,14 @@ async function seedBugSnapshot(root: string, changeName: string): Promise<void> 
     "# Tasks\n\n## Implementation\n\n- [ ] do the thing\n",
   );
   await Bun.write(
+    join(changeDir, "proposal.md"),
+    "# Proposal\n\n## Why\n\nThis is why we need this change.\n\n## What Changes\n\n- Do the thing\n",
+  );
+  await Bun.write(
+    join(changeDir, "design.md"),
+    "# Design\n\nWe will implement the thing by modifying the relevant module.\n",
+  );
+  await Bun.write(
     join(stateDir, ".ralph-state.json"),
     JSON.stringify(
       {

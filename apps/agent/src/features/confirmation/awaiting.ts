@@ -2,6 +2,7 @@ import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { projectLayout } from "@ralphy/core/layout";
 import { gateActive, hasUnchecked } from "@ralphy/core/detections";
+import { isStubArtifact } from "@ralphy/core/openspec-phase";
 import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
@@ -154,6 +155,8 @@ export async function processAwaitingForIssue(
     const changeDir = layout.changeDir(changeName);
     const statePath = layout.stateFile(changeName);
     const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
+    const proposal = await readTextOrNull(join(changeDir, "proposal.md"));
+    const design = await readTextOrNull(join(changeDir, "design.md"));
     const ticketView: ConfirmationTicketView = {
       labels: issue.labels,
       state: issue.state,
@@ -185,6 +188,13 @@ export async function processAwaitingForIssue(
     if (!hasUnchecked(tasks ?? "")) {
       deps.awaitingChangeSet.delete(changeName);
       deps.onLog(`  ${issue.identifier}: confirmation detect released — tasks-empty`);
+      return false;
+    }
+    if (isStubArtifact(proposal) || isStubArtifact(design)) {
+      deps.awaitingChangeSet.delete(changeName);
+      deps.onLog(
+        `  ${issue.identifier}: confirmation detect released — proposal/design not yet filled in`,
+      );
       return false;
     }
     deps.awaitingChangeSet.add(changeName);
