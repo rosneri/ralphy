@@ -1,12 +1,15 @@
 import { join } from "node:path";
-import { prependFixTask, AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
+import { AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
+import { fsChange } from "../shared/capabilities/fs-change";
+import { git as gitCap } from "../shared/capabilities/git";
+import { runCapability } from "../shared/capabilities/run-capability";
 import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
 import { baseBranchFromLabels, type LinearIssue } from "./linear";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
-import { isWorktreeSafeToRemove, removeWorktree } from "./worktree";
+import { isWorktreeSafeToRemove } from "./worktree";
 
 /** Worker exited 0 but the CI fix loop never reached green. */
 const CI_FAILED_EXIT = 70;
@@ -265,7 +268,11 @@ async function runWorkerWithFixTask(
   body: string,
 ): Promise<number> {
   try {
-    await prependFixTask(join(ctx.changeDir, AGENT_TASKS_FILENAME), heading, body);
+    await runCapability(fsChange.prependTask, {
+      tasksPath: join(ctx.changeDir, AGENT_TASKS_FILENAME),
+      heading,
+      failureOutput: body,
+    });
   } catch (err) {
     ctx.log(`! could not prepend fix task: ${(err as Error).message}`, "red");
     return 1;
@@ -951,7 +958,7 @@ export async function runWorktreeCleanupPhase(
   }
 
   try {
-    await removeWorktree(projectRoot, cwd, git);
+    await runCapability(gitCap.removeWorktree, { projectRoot, cwd, runner: git });
     log(`  removed worktree ${cwd}`, "gray");
   } catch (err) {
     log(`! worktree remove failed for ${changeName}: ${(err as Error).message}`, "yellow");

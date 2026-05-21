@@ -12,9 +12,13 @@
  * are scoped to a single poll cycle — `buildAgentCoordinator` creates a
  * fresh `PollContext` via the `beforePoll` hook, so stale cache entries
  * from prior polls never bleed into the next one.
+ *
+ * Failure semantics: a rejected fetch is dropped from the memo so the
+ * next call retries. This avoids permanently caching a transient gh /
+ * network failure for the rest of the poll cycle.
  */
 
-import type { CmdRunner } from "../pr";
+import type { CmdRunner } from "../../agent/pr";
 
 export class PollContext {
   private readonly memo = new Map<string, Promise<unknown>>();
@@ -36,7 +40,17 @@ export class PollContext {
     if (existing) return existing;
     const pending = this.runGhView(url, fields, runner, cwd);
     this.memo.set(key, pending);
+    pending.catch(() => {
+      // Drop transient failures so the next caller retries instead of
+      // re-using a cached rejected promise for the rest of the poll.
+      if (this.memo.get(key) === pending) this.memo.delete(key);
+    });
     return pending;
+  }
+
+  /** Drop all memoised entries. Used in tests. */
+  clear(): void {
+    this.memo.clear();
   }
 
   private async runGhView(

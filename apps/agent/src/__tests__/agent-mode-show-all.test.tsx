@@ -39,7 +39,7 @@ const fakeWorker: ActiveWorker = {
     createdAt: "2026-05-15T00:00:00.000Z",
     blockedByIds: [],
   },
-  mode: "fresh",
+  trigger: "fresh",
   kill: () => {},
   lastReportedIteration: 0,
   lastSyncedIteration: 0,

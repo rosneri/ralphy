@@ -4,7 +4,22 @@
   "rules": {
     "no-explicit-any": "error",
     "import/no-cycle": "error",
-    "no-console": "warn"
+    "no-console": "warn",
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": ["**/runtime/**", "**/consumers/**"],
+            "message": "features must not import runtime/consumers"
+          },
+          {
+            "group": ["**/features/**", "**/capabilities/**"],
+            "message": "consumers must not import features/capabilities"
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
@@ -12,6 +27,22 @@
       "rules": {
         "no-console": "off",
         "no-control-regex": "off"
+      }
+    },
+    {
+      "files": ["**/detect.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "warn",
+          {
+            "patterns": [
+              { "group": ["**/*linear*"], "message": "detect.ts must be I/O-free" },
+              { "group": ["**/*gh-client*"], "message": "detect.ts must be I/O-free" },
+              { "group": ["**/git*"], "message": "detect.ts must be I/O-free" },
+              { "group": ["node:child_process"], "message": "detect.ts must be I/O-free" }
+            ]
+          }
+        ]
       }
     }
   ],

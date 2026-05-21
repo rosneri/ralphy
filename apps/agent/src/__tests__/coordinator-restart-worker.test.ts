@@ -1,5 +1,5 @@
 import { describe, expect, test, mock } from "bun:test";
-import { AgentCoordinator, type CoordinatorDeps, type SpawnMode } from "../agent/coordinator";
+import { AgentCoordinator, type CoordinatorDeps, type QueueTrigger } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import type { SetIndicator } from "@ralphy/types";
 
@@ -26,23 +26,15 @@ interface FakeWorker {
   exited: Promise<number>;
 }
 
-interface Ctx {
-  deps: CoordinatorDeps;
-  workers: FakeWorker[];
-  spawnArgs: Array<{ changeName: string; mode: SpawnMode }>;
-  applies: { id: string; ind: SetIndicator }[];
-  removes: { id: string; ind: SetIndicator }[];
-  comments: { id: string; body: string }[];
-  modeByCall: SpawnMode[];
-}
-
-function makeCtx(): Ctx {
+function makeCtx() {
   const workers: FakeWorker[] = [];
-  const spawnArgs: Array<{ changeName: string; mode: SpawnMode }> = [];
+  const spawnArgs: Array<{ changeName: string; trigger: QueueTrigger }> = [];
   const applies: { id: string; ind: SetIndicator }[] = [];
   const removes: { id: string; ind: SetIndicator }[] = [];
   const comments: { id: string; body: string }[] = [];
-  const modeByCall: SpawnMode[] = [];
+  const triggerByCall: QueueTrigger[] = [];
+
+  let coordRef: { coord?: AgentCoordinator } = {};
 
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => []),
@@ -51,8 +43,7 @@ function makeCtx(): Ctx {
     fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
-    prepare: mock(async (i: LinearIssue, mode: SpawnMode) => {
-      modeByCall.push(mode);
+    prepare: mock(async (i: LinearIssue) => {
       return { changeName: `change-${i.identifier.toLowerCase()}` };
     }),
     spawnWorker: mock((changeName: string) => {
@@ -62,8 +53,15 @@ function makeCtx(): Ctx {
       });
       const w: FakeWorker = { resolve, killCount: 0, exited };
       workers.push(w);
-      const lastMode = modeByCall[modeByCall.length - 1]!;
-      spawnArgs.push({ changeName, mode: lastMode });
+      // The coordinator pushes the ActiveWorker (with its trigger) right
+      // after spawnWorker returns, so we defer reading the trigger to a
+      // microtask. Tests then assert on `spawnArgs` after a tick.
+      Promise.resolve().then(() => {
+        const active = coordRef.coord?.activeWorkers.find((aw) => aw.changeName === changeName);
+        const trigger = active?.trigger ?? "fresh";
+        triggerByCall.push(trigger);
+        spawnArgs.push({ changeName, trigger });
+      });
       return {
         exited,
         kill: () => {
@@ -87,7 +85,7 @@ function makeCtx(): Ctx {
     onWorkersChanged: () => {},
   };
 
-  return { deps, workers, spawnArgs, applies, removes, comments, modeByCall };
+  return { deps, workers, spawnArgs, applies, removes, comments, triggerByCall, coordRef };
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
@@ -99,12 +97,12 @@ const SET_ERROR: SetIndicator = { type: "label", value: "error" };
 describe("AgentCoordinator.restartWorker", () => {
   test("kills active worker once, re-spawns as resume, and does not finalize the issue", async () => {
     const ctx = makeCtx();
-    const coord = new AgentCoordinator(ctx.deps, {
+    const coord = (ctx.coordRef.coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       setInProgress: SET_IN_PROGRESS,
       setDone: SET_DONE,
       setError: SET_ERROR,
-    });
+    }));
     await coord.init();
 
     // Seed an active worker by polling once.
@@ -130,7 +128,7 @@ describe("AgentCoordinator.restartWorker", () => {
 
     // A new worker should have been spawned as resume.
     expect(ctx.workers).toHaveLength(2);
-    expect(ctx.spawnArgs[1]).toEqual({ changeName: "change-eng-1", mode: "resume" });
+    expect(ctx.spawnArgs[1]).toEqual({ changeName: "change-eng-1", trigger: "resume" });
 
     // No finalize side-effects (no setDone/setError, no completion comment).
     expect(ctx.applies.slice(appliesBefore).map((a) => a.ind)).not.toContain(SET_DONE);
@@ -145,7 +143,7 @@ describe("AgentCoordinator.restartWorker", () => {
 
   test("restartWorker on an unknown change returns false and does not kill anything", async () => {
     const ctx = makeCtx();
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = (ctx.coordRef.coord = new AgentCoordinator(ctx.deps, { concurrency: 1 }));
     await coord.init();
     (ctx.deps.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
       issue("a", "ENG-1"),
@@ -160,7 +158,7 @@ describe("AgentCoordinator.restartWorker", () => {
 
   test("restartWorker after stop() returns false", async () => {
     const ctx = makeCtx();
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = (ctx.coordRef.coord = new AgentCoordinator(ctx.deps, { concurrency: 1 }));
     await coord.init();
     (ctx.deps.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
       issue("a", "ENG-1"),

@@ -33,11 +33,11 @@ describe("file-logger", () => {
     bus.emit({ type: "log", text: "first", ts: t1 });
     bus.emit({ type: "log", text: "second", ts: t2 });
     off();
-    const f1 = Bun.file(join(dir, "logs", "2026-05-21.jsonl"));
-    const f2 = Bun.file(join(dir, "logs", "2026-05-22.jsonl"));
-    await waitFor(async () => (await f1.exists()) && (await f2.exists()));
-    const text1 = await f1.text();
-    const text2 = await f2.text();
+    const p1 = join(dir, "logs", "2026-05-21.jsonl");
+    const p2 = join(dir, "logs", "2026-05-22.jsonl");
+    await waitFor(async () => (await Bun.file(p1).exists()) && (await Bun.file(p2).exists()));
+    const text1 = await Bun.file(p1).text();
+    const text2 = await Bun.file(p2).text();
     expect(text1).toContain('"text":"first"');
     expect(text2).toContain('"text":"second"');
   });
