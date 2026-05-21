@@ -523,4 +523,77 @@ describe("syncSpecAttachments", () => {
     const sa = state.specAttachments as { proposal: { attachmentId: string } };
     expect(sa.proposal.attachmentId).toMatch(/^att-/);
   });
+
+  test("skips upload when source file has only scaffold placeholders (RLF-147)", async () => {
+    writeProposal(
+      [
+        "# RLF-1: title",
+        "Source: [RLF-1](https://example/issue)",
+        "Status: Todo",
+        "Labels: Bug",
+        "",
+        "## Why",
+        "",
+        "_No description provided in Linear._",
+        "",
+        "## What Changes",
+        "",
+        "_Describe the concrete changes this proposal introduces (one bullet per change)._",
+        "",
+        "## Steering",
+        "",
+        "_Add steering notes here as the loop runs._",
+        "",
+      ].join("\n"),
+    );
+    writeDesign(
+      "# Design for RLF-1\n\n_Fill in the technical design as you work through the issue._\n",
+    );
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    expect(m.uploads).toHaveLength(0);
+    expect(m.creates).toHaveLength(0);
+    expect(m.deletes).toHaveLength(0);
+    expect(m.findCalls).toBe(0);
+    expect(log.entries.some((e) => e.includes("has no content yet, skipping"))).toBe(true);
+    // No state file written for an all-placeholder run.
+    expect(await Bun.file(statePath).exists()).toBe(false);
+  });
+
+  test("uploads once placeholder content is replaced with real content (RLF-147)", async () => {
+    writeProposal("# Design for RLF-1\n\n_Fill in…_\n");
+    writeDesign("# Design for RLF-1\n\n_Fill in…_\n");
+    const m = makeMutations();
+    const log = makeLog();
+    const deps = {
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    };
+    await syncSpecAttachments(deps);
+    expect(m.uploads).toHaveLength(0);
+
+    writeProposal("# proposal\n\nActual prose body that explains why.\n");
+    await syncSpecAttachments({ ...deps, iteration: 2 });
+    expect(m.uploads.map((u) => u.filename)).toEqual(["proposal.md"]);
+    expect(m.creates).toHaveLength(1);
+    const state = await readState();
+    const sa = state.specAttachments as {
+      proposal: { attachmentId: string; sha256: string };
+    };
+    expect(sa.proposal.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
 });
