@@ -24,3 +24,14 @@
 - [x] Run `bun run lint` and address any findings.
 - [x] Run `bun run test` and ensure the full suite (including the new tests) passes.
 - [x] Commit all changed files, push the branch, and open the PR with title `rlf-80-comment-indicator` and a short summary body.
+
+## Manual Testing
+
+- [x] CLI parses `--indicator getTodo:comment:ralph go` and stores `{ type: "comment", value: "ralph go" }` under `indicators.getTodo.filter`.
+- [x] `describeIndicators` renders the configured marker as `todo=[comment:ralph go]`.
+- [x] CLI rejects `--indicator getTodo:comment:` (empty value) with `indicator value cannot be empty`.
+- [x] CLI rejects `--indicator getTodo:bogus:x` with a message listing the supported types including `comment`.
+- [x] `printHelp()` lists `comment` alongside `label, status, attachment, project` in the `--indicator` types line.
+- [x] Workflow schema rejects `linear.indicators.setDone = { type: "comment", value: "done" }` with the read-only-marker message that names the offending slot.
+- [x] Workflow schema rejects `comment` marker with an empty `value` (zod min(1) violation).
+- [x] Workflow schema accepts a valid `linear.indicators.getTodo` filter containing `{ type: "comment", value: "ralph go" }`.
