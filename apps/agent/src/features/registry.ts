@@ -23,6 +23,7 @@ import { conflictFixFeature } from "./conflict-fix";
 import { ciFixFeature } from "./ci-fix";
 import { implementFeature } from "./implement";
 import { reviewFollowupFeature } from "./review-followup";
+import { newTicketFeature } from "./new-ticket";
 
 function stubFeature(id: FeatureId, ownedSlot: StateSlotName | null): Feature {
   return {
@@ -44,7 +45,7 @@ export const registry: readonly Feature[] = [
   ciFixFeature,
   implementFeature,
   reviewFollowupFeature,
-  stubFeature("new-ticket", null),
+  newTicketFeature,
   stubFeature("mention", null),
   stubFeature("stuck", null),
 ];
