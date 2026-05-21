@@ -7,4 +7,5 @@ coveragePathIgnorePatterns = [
   "**/agent/wire.ts",
   "**/agent/post-task.ts",
   "**/agent/json-runner.ts",
+  "**/agent/poll-context/**",
 ]

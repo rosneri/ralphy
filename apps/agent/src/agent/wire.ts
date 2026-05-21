@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { mkdir, readdir } from "node:fs/promises";
 import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
+import { writeField } from "@ralphy/core/state";
 import {
   prependFixTask,
   AGENT_TASKS_FILENAME,
@@ -63,6 +64,7 @@ import {
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
 import { createWorktree, seedWorktreeMcpConfig, worktreesDir, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
+import { PollContext } from "./poll-context";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "./pr-url";
 import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";
@@ -727,6 +729,12 @@ export function buildAgentCoordinator(
    *  comment remains the durable cross-restart fallback. */
   const lastHandledReviewActivity = new Map<string, string>();
 
+  /** Per-poll memo, replaced at the start of every poll cycle via the
+   *  `beforePoll` hook. Holds in-flight `gh pr view` promises so the
+   *  conflict scan and code-review scan don't double-invoke gh for the
+   *  same URL + field list within the same poll. */
+  let pollContext = new PollContext();
+
   const useWorktree = args.worktree || cfg.useWorktree;
 
   /** Changes currently known to be parked in `awaiting-confirmation`.
@@ -1271,11 +1279,12 @@ export function buildAgentCoordinator(
       let state: string | undefined;
       let m: string | undefined;
       try {
-        const res = await cmdRunner.run(
-          ["gh", "pr", "view", prUrl, "--json", "state,mergeable"],
+        const parsed = (await pollContext.fetchPrOnce(
+          prUrl,
+          ["state", "mergeable"],
+          cmdRunner,
           projectRoot,
-        );
-        const parsed = JSON.parse(res.stdout) as { state?: string; mergeable?: string };
+        )) as { state?: string; mergeable?: string };
         state = parsed.state;
         m = parsed.mergeable;
       } catch (err) {
@@ -1594,6 +1603,34 @@ export function buildAgentCoordinator(
     return out;
   }
 
+  /** Resolve the directory holding `.ralph-state.json` for the change tied
+   *  to `changeName`, or null when the change has not been scaffolded yet
+   *  (e.g. the issue has no worktree). Used by the review-watermark path
+   *  to persist `review.lastConsumedCommentAt` across agent restarts. */
+  async function resolveReviewStateDir(changeName: string): Promise<string | null> {
+    const root = cwdByChange.get(changeName);
+    if (root) return dirname(projectLayout(root).stateFile(changeName));
+    if (!useWorktree) return dirname(projectLayout(projectRoot).stateFile(changeName));
+    const wtPath = join(worktreesDir(projectRoot), changeName);
+    const statePath = projectLayout(wtPath).stateFile(changeName);
+    if (await Bun.file(statePath).exists()) return dirname(statePath);
+    return null;
+  }
+
+  /** Read `review.lastConsumedCommentAt` from `.ralph-state.json` in the
+   *  given dir. Returns null on missing file, parse failure, or missing
+   *  slot — the caller falls back to the in-memory map / lastRalphPickup. */
+  async function readReviewWatermark(stateDir: string): Promise<string | null> {
+    const file = Bun.file(join(stateDir, ".ralph-state.json"));
+    if (!(await file.exists())) return null;
+    try {
+      const parsed = (await file.json()) as { review?: { lastConsumedCommentAt?: string | null } };
+      return parsed?.review?.lastConsumedCommentAt ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Inspect an open PR for unresolved review-thread comments. Returns a
    * `github-review` trigger if there is at least one reviewer comment
@@ -1618,7 +1655,16 @@ export function buildAgentCoordinator(
       const last = t.comments[t.comments.length - 1]!.createdAt;
       return last > acc ? last : acc;
     }, "");
-    const lastHandled = lastHandledReviewActivity.get(prUrl) ?? null;
+    const changeName = changeNameForIssue(issue);
+    const stateDir = await resolveReviewStateDir(changeName);
+    const persistedLastHandled = stateDir ? await readReviewWatermark(stateDir) : null;
+    const memoLastHandled = lastHandledReviewActivity.get(prUrl) ?? null;
+    const lastHandled =
+      persistedLastHandled && memoLastHandled
+        ? persistedLastHandled > memoLastHandled
+          ? persistedLastHandled
+          : memoLastHandled
+        : (persistedLastHandled ?? memoLastHandled);
     const effectiveLastHandled =
       lastRalphPickup && lastHandled
         ? lastRalphPickup > lastHandled
@@ -1637,6 +1683,21 @@ export function buildAgentCoordinator(
         })
         .join("\n\n---\n\n");
       lastHandledReviewActivity.set(prUrl, newestReviewerActivity);
+      if (stateDir) {
+        try {
+          await writeField(
+            stateDir,
+            "review",
+            "review.lastConsumedCommentAt",
+            newestReviewerActivity,
+          );
+        } catch (err) {
+          onLog(
+            `! persist review.lastConsumedCommentAt for ${issue.identifier} failed: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
       return {
         source: "github-review",
         body,
@@ -2118,6 +2179,9 @@ export function buildAgentCoordinator(
 
   const coord = new AgentCoordinator(
     {
+      beforePoll: () => {
+        pollContext = new PollContext();
+      },
       fetchTodo: () => fetchByGet(indicators.getTodo, excludeFromTodo),
       fetchInProgress: () => fetchByGet(indicators.getInProgress, []),
       fetchConflicted: () => fetchByGet(indicators.getConflicted, []),

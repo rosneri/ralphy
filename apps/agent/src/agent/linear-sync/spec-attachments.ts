@@ -16,7 +16,7 @@
  */
 
 import { dirname, join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { writeField } from "@ralphy/core/state";
 import { isCommentNotFoundError } from "./comment-sync";
 import { renderMarkdownToPdf } from "./render-pdf";
 
@@ -110,11 +110,6 @@ interface SpecAttachmentsState {
   designPdf: SpecAttachmentSlot;
 }
 
-interface PersistedState {
-  specAttachments?: Partial<SpecAttachmentsState> | null;
-  [key: string]: unknown;
-}
-
 type LogFn = (text: string, color?: string) => void;
 
 export interface SpecAttachmentMutations {
@@ -158,51 +153,86 @@ interface SpecAttachmentsDeps {
 
 const EMPTY_SLOT: SpecAttachmentSlot = { attachmentId: null, sha256: null };
 
-async function readStateJson(statePath: string): Promise<PersistedState | null> {
+function stateDirOf(statePath: string): string {
+  return dirname(statePath);
+}
+
+async function readRawState(statePath: string): Promise<Record<string, unknown>> {
   const file = Bun.file(statePath);
-  if (!(await file.exists())) return null;
+  if (!(await file.exists())) return {};
   try {
-    return (await file.json()) as PersistedState;
+    const parsed: unknown = await file.json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
   } catch {
-    return null;
+    return {};
   }
 }
 
-async function writeStateJson(statePath: string, state: PersistedState): Promise<void> {
-  await mkdir(dirname(statePath), { recursive: true });
-  await Bun.write(statePath, JSON.stringify(state, null, 2) + "\n");
-}
-
-function readSpecState(state: PersistedState | null): SpecAttachmentsState {
-  const raw = state?.specAttachments ?? {};
+async function readSpecAttachments(statePath: string): Promise<SpecAttachmentsState> {
+  const raw = await readRawState(statePath);
+  const sa =
+    (raw.specAttachments as Partial<Record<Slot, Partial<SpecAttachmentSlot>>> | undefined) ?? {};
   return {
     proposal: {
-      attachmentId: raw?.proposal?.attachmentId ?? null,
-      sha256: raw?.proposal?.sha256 ?? null,
+      attachmentId: sa.proposal?.attachmentId ?? null,
+      sha256: sa.proposal?.sha256 ?? null,
     },
     design: {
-      attachmentId: raw?.design?.attachmentId ?? null,
-      sha256: raw?.design?.sha256 ?? null,
+      attachmentId: sa.design?.attachmentId ?? null,
+      sha256: sa.design?.sha256 ?? null,
     },
     proposalPdf: {
-      attachmentId: raw?.proposalPdf?.attachmentId ?? null,
-      sha256: raw?.proposalPdf?.sha256 ?? null,
+      attachmentId: sa.proposalPdf?.attachmentId ?? null,
+      sha256: sa.proposalPdf?.sha256 ?? null,
     },
     designPdf: {
-      attachmentId: raw?.designPdf?.attachmentId ?? null,
-      sha256: raw?.designPdf?.sha256 ?? null,
+      attachmentId: sa.designPdf?.attachmentId ?? null,
+      sha256: sa.designPdf?.sha256 ?? null,
     },
   };
 }
 
-async function patchSpecState(
+async function persistSlot(
   statePath: string,
-  patch: { slot: Slot; value: SpecAttachmentSlot },
+  slot: Slot,
+  value: SpecAttachmentSlot,
 ): Promise<void> {
-  const existing = (await readStateJson(statePath)) ?? {};
-  const current = readSpecState(existing);
-  const next: SpecAttachmentsState = { ...current, [patch.slot]: patch.value };
-  await writeStateJson(statePath, { ...existing, specAttachments: next });
+  await writeField(stateDirOf(statePath), "linear-attachments", `specAttachments.${slot}`, value);
+}
+
+/**
+ * Adopt a pre-existing Linear attachment matching `slot`'s title. Used
+ * when local state is empty (fresh worktree or wiped `.ralph-state.json`)
+ * to prevent creating a duplicate. Failures are logged yellow and the
+ * caller proceeds as if no match exists.
+ */
+async function adopt(deps: SpecAttachmentsDeps, slot: Slot): Promise<{ adoptedId: string | null }> {
+  const spec = SLOT_SPECS[slot];
+  try {
+    const adoptedId = await deps.mutations.findIssueAttachmentByTitle(
+      deps.apiKey,
+      deps.issueId,
+      spec.title,
+    );
+    if (adoptedId) {
+      await persistSlot(deps.statePath, slot, { attachmentId: adoptedId, sha256: null });
+      deps.log(
+        `  spec-attachments: adopted existing ${spec.uploadFilename} attachment ${adoptedId}`,
+        "gray",
+      );
+      return { adoptedId };
+    }
+    return { adoptedId: null };
+  } catch (err) {
+    deps.log(
+      `! spec-attachments: findIssueAttachmentByTitle ${spec.uploadFilename} failed (treating as no match): ${describeLinearError(err)}`,
+      "yellow",
+    );
+    return { adoptedId: null };
+  }
 }
 
 function sha256Hex(bytes: Uint8Array): string {
@@ -234,32 +264,15 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   // Hash the *source* so the md and pdf slots track the same content
   // signal. A change to proposal.md invalidates both proposal/proposalPdf.
   const hash = sha256Hex(sourceBytes);
-  const state = await readStateJson(deps.statePath);
-  let current = readSpecState(state)[slot] ?? EMPTY_SLOT;
+  let current = (await readSpecAttachments(deps.statePath))[slot] ?? EMPTY_SLOT;
 
   // Empty cache: ask Linear whether an attachment with this slot's title
   // already exists on the issue. Adopting it prevents a duplicate when
   // .ralph-state.json is wiped or the worktree is re-scaffolded.
   if (!current.attachmentId) {
-    try {
-      const adoptedId = await deps.mutations.findIssueAttachmentByTitle(
-        deps.apiKey,
-        deps.issueId,
-        spec.title,
-      );
-      if (adoptedId) {
-        current = { attachmentId: adoptedId, sha256: null };
-        await patchSpecState(deps.statePath, { slot, value: current });
-        deps.log(
-          `  spec-attachments: adopted existing ${spec.uploadFilename} attachment ${adoptedId}`,
-          "gray",
-        );
-      }
-    } catch (err) {
-      deps.log(
-        `! spec-attachments: findIssueAttachmentByTitle ${spec.uploadFilename} failed (treating as no match): ${describeLinearError(err)}`,
-        "yellow",
-      );
+    const { adoptedId } = await adopt(deps, slot);
+    if (adoptedId) {
+      current = { attachmentId: adoptedId, sha256: null };
     }
   }
 
@@ -337,10 +350,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     );
     return;
   }
-  await patchSpecState(deps.statePath, {
-    slot,
-    value: { attachmentId: newId, sha256: hash },
-  });
+  await persistSlot(deps.statePath, slot, { attachmentId: newId, sha256: hash });
   deps.log(`  spec-attachments: created ${spec.uploadFilename} attachment`, "gray");
 }
 

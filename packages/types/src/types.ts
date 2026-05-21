@@ -153,6 +153,16 @@ export const StateSchema = z.object({
       confirmedAt: null,
       rounds: 0,
     }),
+  /** Per-change watermark for the GitHub code-review trigger. Stores the
+   *  ISO timestamp of the newest reviewer comment that has already been
+   *  enqueued so a subsequent poll with the same unresolved-thread list
+   *  does not re-fire. Missing slot ⇒ old persisted state migrates with
+   *  `lastConsumedCommentAt: null`. */
+  review: z
+    .object({
+      lastConsumedCommentAt: z.string().nullable().default(null),
+    })
+    .default({ lastConsumedCommentAt: null }),
 });
 
 // --- Inferred types ---
