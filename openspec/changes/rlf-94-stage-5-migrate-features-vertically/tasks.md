@@ -40,3 +40,15 @@
 - [x] Run `bun run lint` from repo root — must pass
 - [x] Run `bun run test` from repo root — must pass, coverage threshold unchanged
 - [x] Manually verify the agent still polls, picks features, and runs end-to-end (Stage 0 characterization tests stay green throughout)
+
+## Manual Testing
+
+- [x] Verify `apps/agent/src/features/` contains all 8 vertical slices (`confirmation`, `conflict-fix`, `ci-fix`, `implement`, `review-followup`, `new-ticket`, `mention`, `stuck`), each with `index.ts` and a co-located `__tests__/` directory
+- [x] Verify the legacy `apps/agent/src/agent/confirmation/` directory no longer exists
+- [x] Verify `apps/agent/src/agent/coordinator.ts` no longer imports `classifyAwaitingConfirmation` and no longer branches per-feature (dispatch only via the registry)
+- [x] Verify `apps/agent/src/agent/post-task.ts` dispatches through the feature registry (`feature.postTask?.(...)`) with no remaining feature-specific switch arms
+- [x] Run `bunx openspec validate rlf-94-stage-5-migrate-features-vertically --strict` and confirm it passes
+- [x] Run `bun run lint` from repo root and confirm it passes with zero errors
+- [x] Run `bash scripts/check-no-unsafe-casts.sh` and confirm zero unsafe casts remain (fixed two false-positive matches inside JSDoc comments in `apps/agent/src/__test-utils__/recording-bus.ts`)
+- [x] Smoke-test the CLI: `bun apps/shell/src/index.ts --help` exits 0 and prints `ralphy v3.5.1` usage, proving the refactored agent boots
+- [x] Run the per-feature test files in isolation — each `features/<id>/__tests__/` plus `coordinator-feature-registry.test.ts`, `post-task-feature-registry.test.ts`, and `feature-boundaries.test.ts` pass (full-suite `nx run agent:test` shows two pre-existing flaky terminal-width tests in `agent-mode-awaiting.test.tsx` / `SteeringField.test.tsx` that pass in isolation; unrelated to this change)

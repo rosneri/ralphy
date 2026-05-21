@@ -4,10 +4,10 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { FeatureCtx } from "../features/types";
 
 /** Test-only Bus that captures emit() calls into the provided array.
- *  Properly satisfies the Bus interface so callers do not need an
- *  `as unknown as Bus` cast. `on` returns a no-op unsubscribe and
- *  `snapshot` returns an empty list; both are unused by feature code
- *  paths that only emit. */
+ *  Properly satisfies the Bus interface so callers do not need any
+ *  unsafe cast. `on` returns a no-op unsubscribe and `snapshot`
+ *  returns an empty list; both are unused by feature code paths that
+ *  only emit. */
 export function recordingBus(events: EmitInput[]): Bus {
   return {
     emit(e: EmitInput): void {
@@ -38,7 +38,7 @@ const FAKE_ISSUE: LinearIssue = {
 };
 
 /** Minimal FeatureCtx for tests whose detect/run signatures do not touch
- *  ctx fields. Lets callers avoid `as unknown as FeatureCtx`. */
+ *  ctx fields. Lets callers avoid unsafe casts on the ctx parameter. */
 export function makeBareCtx(): FeatureCtx {
   return {
     issue: FAKE_ISSUE,
