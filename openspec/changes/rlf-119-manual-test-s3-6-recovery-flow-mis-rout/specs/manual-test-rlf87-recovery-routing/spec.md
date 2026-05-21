@@ -22,7 +22,7 @@ The expected end-state after the recovery worker completes is: the PR is rebased
 - **And** the operator toggles confirmation mode ON between polls so `gateActive()` would otherwise return `true`
 - **And** the coordinator runs the next two polls
 - **Then** the agent log contains a `queued (conflict-fix)` line for the change on the first post-trigger poll
-- **And** the agent log does NOT contain `awaiting: 1` for the same id on that poll
+- **And** the agent log's `poll:` summary line for that poll does NOT contain `1 awaiting` (the awaiting bucket count, as emitted by `coordinator.ts`, stays at 0)
 - **And** a recovery worker rebases the PR onto `main` and clears the `ralph:conflict` label
 - **And** within one polling interval after the label is cleared, GitHub auto-merge fires and the PR is merged
 - **And** `state.confirmation.confirmedAt` remains `null` throughout (the recovery path did not require a human watermark)
@@ -36,7 +36,7 @@ The manual test MUST be scoreable purely from artifacts the operator can collect
 - **Given** the S3.6 reproduction is executed against an agent build that still contains the RLF-87 bug
 - **When** the operator completes the setup steps (push conflicting commit, apply `ralph:conflict`, toggle confirmation mode ON)
 - **And** the coordinator runs at least two further polls
-- **Then** the agent log shows `awaiting: 1` for the change on every poll after the trigger
+- **Then** the agent log's `poll:` summary line shows `1 awaiting` (the awaiting bucket count emitted by `coordinator.ts`) on every poll after the trigger
 - **And** the agent log contains no `queued (conflict-fix)` line for the same id
 - **And** `gh pr view` continues to report the `ralph:conflict` label on the Linear issue and `mergeStateStatus: DIRTY` on the PR
 - **And** the PR is never auto-merged
