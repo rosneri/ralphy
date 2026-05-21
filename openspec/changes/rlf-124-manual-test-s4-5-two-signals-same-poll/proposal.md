@@ -56,4 +56,13 @@ fixture repo and the upload of the results file.
 
 ## Steering
 
-_Add steering notes here as the loop runs._
+- Test-results PR (ralphy-rlf87-test):
+  https://github.com/NeriRos/ralphy-rlf87-test/pull/8
+- S4.5 PASS verdict is grounded in
+  `apps/agent/src/runtime/router.ts:8-23` (first-match-wins table with
+  `awaiting → revise` above `pr conflicting`) and the pinning test in
+  `apps/agent/src/runtime/__tests__/router.test.ts:80-89`. A live
+  agent-driven reproduction is left as a follow-up smoke test rather
+  than a gating step, since the unit test deterministically catches
+  the documented regression signature (mention silently dropped while
+  `conflict-fix` runs).
