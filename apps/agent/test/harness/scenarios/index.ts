@@ -8,9 +8,9 @@ export const registry: Record<string, ScenarioDefinition> = {
 export function getScenario(name: string): ScenarioDefinition {
   const s = registry[name];
   if (!s) {
-    throw new Error(
-      `harness: unknown scenario "${name}" (registered: ${Object.keys(registry).join(", ")})`,
-    );
+    throw new Error("harness: unknown scenario", {
+      cause: { name, registered: Object.keys(registry) },
+    });
   }
   return s;
 }

@@ -57,4 +57,42 @@ describe("createFakeLinear", () => {
     expect(linear.applied.setDone).toContain("RLF-1");
     expect(linear.applied.clearConflicted).toContain("RLF-1");
   });
+
+  test("applyIndicator classifies setError, setConflicted (status), and project marker", async () => {
+    const linear = createFakeLinear();
+    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    await linear.client.applyIndicator(issue, { type: "label", value: "ralphy:error" });
+    await linear.client.applyIndicator(issue, { type: "status", value: "Conflicted" });
+    await linear.client.applyIndicator(issue, { type: "project", value: "proj-1" });
+    expect(linear.applied.setError).toContain("RLF-1");
+    expect(linear.applied.setConflicted).toContain("RLF-1");
+    const updated = linear.issues().find((i) => i.id === "1");
+    expect(updated?.project?.id).toBe("proj-1");
+  });
+
+  test("removeIndicator logs clearReview", async () => {
+    const linear = createFakeLinear();
+    const issue = linear.seed({
+      id: "1",
+      identifier: "RLF-1",
+      title: "x",
+      labels: ["ralphy:review"],
+    });
+    await linear.client.removeIndicator(issue, { type: "label", value: "ralphy:review" });
+    expect(linear.applied.clearReview).toContain("RLF-1");
+  });
+
+  test("setLabels / setStatus / pushComment mutate seeded issues and throw on unknown id", () => {
+    const linear = createFakeLinear();
+    linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    linear.setLabels("1", ["foo"]);
+    linear.setStatus("1", "In Progress", "started");
+    linear.pushComment("1", "hi");
+    const issue = linear.issues().find((i) => i.id === "1");
+    expect(issue?.labels).toEqual(["foo"]);
+    expect(issue?.state.name).toBe("In Progress");
+    expect(linear.comments("1")[0]?.body).toBe("hi");
+    expect(() => linear.setLabels("missing", [])).toThrow("fake-linear: unknown issue");
+    expect(() => linear.setStatus("missing", "x", "y")).toThrow("fake-linear: unknown issue");
+  });
 });
