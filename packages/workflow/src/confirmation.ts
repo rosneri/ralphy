@@ -11,9 +11,14 @@ export interface ConfirmationTicketView {
   project?: { id: string; name: string } | null;
   /** Source-types of attachments on the issue. Empty/undefined when unknown. */
   attachmentSourceTypes?: readonly string[];
+  /** Bodies of non-Ralph comments on the issue. Empty/undefined when unknown. */
+  commentBodies?: readonly string[];
 }
 
-type Marker = { type: "label" | "status" | "attachment" | "project"; value: string };
+type Marker = {
+  type: "label" | "status" | "attachment" | "project" | "comment";
+  value: string;
+};
 
 interface GetIndicatorLike {
   filter: readonly Marker[];
@@ -55,6 +60,14 @@ function matchesAnyValue(
       return ticket.project != null && values.includes(ticket.project.name);
     case "attachment":
       return (ticket.attachmentSourceTypes ?? []).some((s) => values.includes(s));
+    case "comment": {
+      const bodies = ticket.commentBodies ?? [];
+      if (bodies.length === 0) return false;
+      return values.some((v) => {
+        const needle = v.toLowerCase();
+        return bodies.some((b) => b.toLowerCase().includes(needle));
+      });
+    }
   }
 }
 
