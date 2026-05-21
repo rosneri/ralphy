@@ -264,7 +264,13 @@ export type RalphEvent =
         | `feature.review-followup.${FeaturePhase}`
         | `feature.new-ticket.${FeaturePhase}`
         | `feature.mention.${FeaturePhase}`
-        | `feature.stuck.${FeaturePhase}`;
+        | `feature.stuck.${FeaturePhase}`
+        // Cross-slice signal: the mention slice MUST NOT write the
+        // `state.confirmation` slot directly; it emits this event so the
+        // confirmation slice can react. See the boundary scenario in
+        // `openspec/changes/rlf-94-stage-5-migrate-features-vertically/
+        // specs/agent-features-vertical/spec.md`.
+        | "feature.mention.reviseComment";
       ts: number;
       [k: string]: unknown;
     }
