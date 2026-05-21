@@ -811,6 +811,21 @@ export class AgentCoordinator {
         issue_identifier: issue.identifier,
         error: (err as Error).message,
       });
+      // Quarantine: prepare failure (most often a worktree creation
+      // failure) is the only signal the user has that the issue can't be
+      // picked up. Apply `setError` so the ticket is filtered out of the
+      // todo bucket and the human can investigate.
+      if (this.opts.setError) {
+        try {
+          await this.deps.applyIndicator(issue, this.opts.setError);
+          this.deps.onLog(`  ${issue.identifier}: setError applied`, "gray");
+        } catch (markErr) {
+          this.deps.onLog(
+            `! Linear setError failed for ${issue.identifier}: ${(markErr as Error).message}`,
+            "yellow",
+          );
+        }
+      }
       this.spawnNext();
       return;
     }

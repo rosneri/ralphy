@@ -109,7 +109,7 @@ describe("runCapability", () => {
       retryPolicy: { maxAttempts: 1, isRetryable: () => false, delayMs: () => 0 },
       errorFormatter: (e) => String(e),
       adopt: (raw) => ({ count: (raw as { items: unknown[] }).items.length }),
-      run: async () => ({ items: [1, 2, 3] }),
+      run: (async () => ({ items: [1, 2, 3] })) as unknown as () => Promise<{ count: number }>,
     };
     const out = await runCapability(cap, undefined, { bus });
     expect(out).toEqual({ count: 3 });

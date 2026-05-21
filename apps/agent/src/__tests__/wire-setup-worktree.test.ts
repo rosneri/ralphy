@@ -98,6 +98,16 @@ function installLinearStub(): { mutations: { kind: string }[] } {
     if (q.includes("issueLabels")) {
       return new Response(JSON.stringify({ data: { issueLabels: { nodes: [] } } }));
     }
+    if (q.includes("teams(filter")) {
+      return new Response(JSON.stringify({ data: { teams: { nodes: [{ id: "team-eng" }] } } }));
+    }
+    if (q.includes("issueLabelCreate")) {
+      return new Response(
+        JSON.stringify({
+          data: { issueLabelCreate: { success: true, issueLabel: { id: "label-error" } } },
+        }),
+      );
+    }
     if (q.includes("issueUpdate")) {
       mutations.push({ kind: "issueUpdate" });
       return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
@@ -123,7 +133,7 @@ function installLinearStub(): { mutations: { kind: string }[] } {
 
 describe("setupWorktree — RLF-39: worktree creation failure must not fall back to projectRoot", () => {
   test("useWorktree:true + createWorktree throws → no scaffold lands in projectRoot, red log emitted", async () => {
-    installLinearStub();
+    const stub = installLinearStub();
 
     await writeWorkflow(tempDir, {
       concurrency: 1,
@@ -208,6 +218,12 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
     expect(
       logs.some((l) => l.color === "yellow" && /falling back to project root/i.test(l.text)),
     ).toBe(false);
+
+    // Quarantine: the coordinator's prepare-failure handler must apply
+    // `setError` (the `ralph:error` label) so the ticket falls out of the
+    // todo bucket on the next poll. Recorded by the Linear stub as an
+    // `issueAddLabel` mutation.
+    expect(stub.mutations.some((m) => m.kind === "issueAddLabel")).toBe(true);
   });
 
   test("useWorktree:false preserves projectRoot fallback when no worktree is created", async () => {

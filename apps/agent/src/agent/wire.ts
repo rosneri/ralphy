@@ -9,6 +9,7 @@ import {
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
 import { fsChange } from "../shared/capabilities/fs-change";
+import { git } from "../shared/capabilities/git";
 import { runCapability } from "../shared/capabilities/run-capability";
 import {
   loadWorkflow,
@@ -63,7 +64,7 @@ import {
   type MentionTrigger,
 } from "./coordinator";
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
-import { createWorktree, seedWorktreeMcpConfig, worktreesDir, type GitRunner } from "./worktree";
+import { worktreesDir, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
 import { PollContext } from "../shared/capabilities/poll-context";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "./pr-url";
@@ -793,14 +794,21 @@ export function buildAgentCoordinator(
     if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
     const probeName = issue.identifier.toLowerCase();
     const baseBranch = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
-    let wt: Awaited<ReturnType<typeof createWorktree>>;
+    // `git.createWorktree` is `required: true` in the capability shell, so
+    // a thrown error here is rethrown and NEVER produces a fallback handle.
+    // The only handler is the coordinator's `launchWorker` catch, which
+    // quarantines the issue with `ralph:error`. Falling back to projectRoot
+    // would write the agent's branch into the developer's main checkout
+    // (RLF-39).
+    let wt: { cwd: string; branch: string };
     try {
-      wt = await createWorktree(projectRoot, probeName, baseBranch, gitRunner);
+      wt = await runCapability(git.createWorktree, {
+        projectRoot,
+        changeName: probeName,
+        baseBranch,
+        runner: gitRunner,
+      });
     } catch (err) {
-      // useWorktree is opt-in for isolation. Falling back to projectRoot here
-      // would write the agent's branch + edits into the developer's main
-      // checkout (see RLF-39). Rethrow so the coordinator skips this issue
-      // for this poll cycle and retries on the next poll.
       onLog(
         `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — skipping (useWorktree is required)`,
         "red",
@@ -814,7 +822,10 @@ export function buildAgentCoordinator(
     scaffoldStatesDir = wtLayout.statesDir;
     onLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
     try {
-      await seedWorktreeMcpConfig(projectRoot, wt.cwd);
+      await runCapability(git.seedWorktreeMcpConfig, {
+        projectRoot,
+        worktreeCwd: wt.cwd,
+      });
     } catch (err) {
       onLog(
         `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,

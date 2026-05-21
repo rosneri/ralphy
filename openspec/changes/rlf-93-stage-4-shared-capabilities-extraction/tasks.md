@@ -35,9 +35,9 @@
 
 ### git capability
 
-- [ ] Create `apps/agent/src/shared/capabilities/git.ts` wrapping `createWorktree`, `removeWorktree`, `seedWorktreeMcpConfig`, marked `required: true` for `createWorktree`.
-- [ ] Update `wire.ts` to call `runCapability(git.createWorktree, ...)` with no surrounding try/catch swallowing the throw; the only handler is the quarantine path that applies `ralph:error`.
-- [ ] Test that a thrown `createWorktree` never resolves to `cwd === projectRoot` and that the `ralph:error` label flow is invoked.
+- [x] Create `apps/agent/src/shared/capabilities/git.ts` wrapping `createWorktree`, `removeWorktree`, `seedWorktreeMcpConfig`, marked `required: true` for `createWorktree`.
+- [x] Update `wire.ts` to call `runCapability(git.createWorktree, ...)` with no surrounding try/catch swallowing the throw; the only handler is the quarantine path that applies `ralph:error`.
+- [x] Test that a thrown `createWorktree` never resolves to `cwd === projectRoot` and that the `ralph:error` label flow is invoked.
 
 ### gh-client capability
 
