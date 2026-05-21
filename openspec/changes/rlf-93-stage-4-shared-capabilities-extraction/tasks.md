@@ -29,9 +29,9 @@
 
 ### fs-change capability
 
-- [ ] Create `apps/agent/src/shared/capabilities/fs-change.ts` exposing `scaffold`, `prependTask`, `appendSteering` as `Capability` descriptors backed by current Bun.file/Bun.write code paths.
-- [ ] Replace direct fs writes in `wire.ts`, `scaffold.ts`, `post-task.ts`, `linear-sync/*` with calls through this capability.
-- [ ] Tests for `fs-change` covering scaffold idempotency, prepend ordering (directive goes before existing first task), steering append newline behavior.
+- [x] Create `apps/agent/src/shared/capabilities/fs-change.ts` exposing `scaffold`, `prependTask`, `appendSteering` as `Capability` descriptors backed by current Bun.file/Bun.write code paths.
+- [x] Replace direct fs writes in `wire.ts`, `scaffold.ts`, `post-task.ts`, `linear-sync/*` with calls through this capability.
+- [x] Tests for `fs-change` covering scaffold idempotency, prepend ordering (directive goes before existing first task), steering append newline behavior.
 
 ### git capability
 

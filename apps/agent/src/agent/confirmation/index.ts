@@ -1,6 +1,8 @@
 import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import type { SetIndicator } from "@ralphy/types";
+import { fsChange } from "../../shared/capabilities/fs-change";
+import { runCapability } from "../../shared/capabilities/run-capability";
 
 /** State slot persisted under `state.confirmation`. Mirrors the schema in
  *  `@ralphy/types`, but resolved to concrete fields with safe defaults so
@@ -123,12 +125,7 @@ export async function restartFromDesign(changeDir: string, changeName: string): 
 
 /** Append a steering note to steering.md (newest first). */
 export async function appendSteeringNote(changeDir: string, message: string): Promise<void> {
-  const path = join(changeDir, "steering.md");
-  const f = Bun.file(path);
-  const existing = (await f.exists()) ? await f.text() : null;
-  const updated = existing ? `${message}\n\n${existing.trimStart()}` : `${message}\n`;
-  await mkdir(dirname(path), { recursive: true });
-  await Bun.write(path, updated);
+  await runCapability(fsChange.appendSteering, { changeDir, message });
 }
 
 /** Outcome of inspecting a single awaiting-confirmation ticket. */

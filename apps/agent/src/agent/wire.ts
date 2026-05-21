@@ -4,11 +4,12 @@ import { logOutput, initWorkerLog, logSession } from "@ralphy/log";
 import { projectLayout } from "@ralphy/core/layout";
 import { writeField } from "@ralphy/core/state";
 import {
-  prependFixTask,
   AGENT_TASKS_FILENAME,
   MISSION_TASKS_FILENAME,
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
+import { fsChange } from "../shared/capabilities/fs-change";
+import { runCapability } from "../shared/capabilities/run-capability";
 import {
   loadWorkflow,
   renderWorkflowPrompt,
@@ -925,7 +926,11 @@ export function buildAgentCoordinator(
         body = buildReviewTaskBody(reviewerComments, issue.url);
       }
       try {
-        await prependFixTask(tasksFile, heading, body);
+        await runCapability(fsChange.prependTask, {
+          tasksPath: tasksFile,
+          heading,
+          failureOutput: body,
+        });
       } catch (err) {
         onLog(`! could not prepend review task: ${(err as Error).message}`, "red");
       }
@@ -949,7 +954,11 @@ export function buildAgentCoordinator(
         .filter(Boolean)
         .join("\n");
       try {
-        await prependFixTask(tasksFile, "Resolve PR merge conflicts", body);
+        await runCapability(fsChange.prependTask, {
+          tasksPath: tasksFile,
+          heading: "Resolve PR merge conflicts",
+          failureOutput: body,
+        });
       } catch (err) {
         onLog(`! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
       }

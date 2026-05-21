@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { fsChange } from "../shared/capabilities/fs-change";
+import { runCapability } from "../shared/capabilities/run-capability";
 import type { LinearComment, LinearIssue } from "./linear";
 
 /** Convert a Linear identifier (e.g. "ENG-123") into a safe change-name slug.
@@ -24,9 +25,6 @@ export async function scaffoldChangeForIssue(
   const name = changeNameForIssue(issue);
   const changeDir = join(tasksDir, name);
   const stateDir = join(statesDir, name);
-  await mkdir(changeDir, { recursive: true });
-  await mkdir(join(changeDir, "specs"), { recursive: true });
-  await mkdir(stateDir, { recursive: true });
 
   const commentsBlock =
     comments.length > 0
@@ -91,9 +89,13 @@ export async function scaffoldChangeForIssue(
     "",
   ].join("\n");
 
-  await Bun.write(join(changeDir, "proposal.md"), proposal);
-  await Bun.write(join(changeDir, "tasks.md"), tasks);
-  await Bun.write(join(changeDir, "design.md"), design);
+  await runCapability(fsChange.scaffold, {
+    changeDir,
+    stateDir,
+    proposal,
+    tasks,
+    design,
+  });
 
   return name;
 }
