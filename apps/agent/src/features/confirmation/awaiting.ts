@@ -130,106 +130,134 @@ export async function processAwaitingForIssue(
   issue: LinearIssue,
   deps: AwaitingDeps,
 ): Promise<boolean> {
-  const { cfg, apiKey, indicators } = deps;
-  if (!cfg.linear.confirmationMode.enabled) return false;
-  const cm = cfg.linear.confirmationMode;
-  const changeName = changeNameForIssue(issue);
-  const cwd = await resolveChangeCwdForIssue(changeName, {
-    projectRoot: deps.projectRoot,
-    useWorktree: deps.useWorktree,
-    cwdOf: deps.cwdOf,
-  });
-  const layout = projectLayout(cwd);
-  const changeDir = layout.changeDir(changeName);
-  const statePath = layout.stateFile(changeName);
-  const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
-  const ticketView: ConfirmationTicketView = {
-    labels: issue.labels,
-    state: issue.state,
-    project: issue.project,
-  };
-  const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
-  const { stateObj, confirmation } = await readConfirmationState(statePath);
-  if (approvalMatches && confirmation.confirmedAt === null) {
-    confirmation.confirmedAt = new Date().toISOString();
+  try {
+    const { cfg, apiKey, indicators } = deps;
+    if (!cfg.linear.confirmationMode.enabled) {
+      deps.onLog(`  ${issue.identifier}: confirmation detect released — disabled`);
+      return false;
+    }
+    const cm = cfg.linear.confirmationMode;
+    const changeName = changeNameForIssue(issue);
+    const cwd = await resolveChangeCwdForIssue(changeName, {
+      projectRoot: deps.projectRoot,
+      useWorktree: deps.useWorktree,
+      cwdOf: deps.cwdOf,
+    });
+    const layout = projectLayout(cwd);
+    const changeDir = layout.changeDir(changeName);
+    const statePath = layout.stateFile(changeName);
+    const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
+    const ticketView: ConfirmationTicketView = {
+      labels: issue.labels,
+      state: issue.state,
+      project: issue.project,
+    };
+    const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
+    const { stateObj, confirmation } = await readConfirmationState(statePath);
+    if (approvalMatches && confirmation.confirmedAt === null) {
+      confirmation.confirmedAt = new Date().toISOString();
+      try {
+        await writeConfirmationState(statePath, stateObj, confirmation);
+      } catch (err) {
+        deps.onLog(
+          `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
+    const active = gateActive({
+      config: { confirmationMode: cfg.linear.confirmationMode },
+      ticket: { labels: [...issue.labels] },
+      persistedConfirmation: confirmation,
+    });
+    if (!active) {
+      deps.awaitingChangeSet.delete(changeName);
+      deps.onLog(`  ${issue.identifier}: confirmation detect released — gate-cleared`);
+      return false;
+    }
+    if (!hasUnchecked(tasks ?? "")) {
+      deps.awaitingChangeSet.delete(changeName);
+      deps.onLog(`  ${issue.identifier}: confirmation detect released — tasks-empty`);
+      return false;
+    }
+    deps.awaitingChangeSet.add(changeName);
+    deps.reapForAwaiting(changeName);
+    await postPlanReadyCommentOnce(issue, statePath, changeName, {
+      apiKey,
+      cfg,
+      onLog: deps.onLog,
+    });
+    const { stateObj: state2, confirmation: confirmation2 } =
+      await readConfirmationState(statePath);
+    const { outcome, next } = await inspectAwaitingTicket(
+      confirmation2,
+      {
+        mentionHandle: cfg.linear.mentionHandle,
+        timeoutHours: cm.timeoutHours,
+        maxConfirmationRounds: cm.maxConfirmationRounds,
+        postComments: cfg.linear.postComments !== false && Boolean(apiKey),
+      },
+      {
+        approvalMatches,
+        fetchComments: async () => {
+          if (!apiKey) return [];
+          try {
+            const cs = await fetchIssueComments(apiKey, issue.id);
+            return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
+          } catch {
+            return [];
+          }
+        },
+        ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
+        applyIndicator: (ind) => deps.applyIndicator(issue, ind),
+        postComment: async (body) => {
+          if (!apiKey) return;
+          await addIssueComment(apiKey, issue.id, body);
+        },
+        reactToComment: async (commentId, emoji) => {
+          if (!apiKey) return;
+          await addReactionToComment(apiKey, commentId, emoji);
+        },
+        applyStuckLabel: async () => {
+          await deps.applyMarker(issue, { type: "label", value: "ralph:stuck" });
+        },
+        appendSteering: (msg) => appendSteeringNote(changeDir, msg),
+        restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
+        log: deps.onLog,
+      },
+    );
     try {
-      await writeConfirmationState(statePath, stateObj, confirmation);
+      await writeConfirmationState(statePath, state2, next);
     } catch (err) {
       deps.onLog(
-        `! persist confirmedAt failed for ${issue.identifier}: ${(err as Error).message}`,
+        `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
     }
-  }
-  const active = gateActive({
-    config: { confirmationMode: cfg.linear.confirmationMode },
-    ticket: { labels: [...issue.labels] },
-    persistedConfirmation: confirmation,
-  });
-  if (!active || !hasUnchecked(tasks ?? "")) {
-    deps.awaitingChangeSet.delete(changeName);
-    return false;
-  }
-  deps.awaitingChangeSet.add(changeName);
-  deps.reapForAwaiting(changeName);
-  await postPlanReadyCommentOnce(issue, statePath, changeName, { apiKey, cfg, onLog: deps.onLog });
-  const { stateObj: state2, confirmation: confirmation2 } = await readConfirmationState(statePath);
-  const { outcome, next } = await inspectAwaitingTicket(
-    confirmation2,
-    {
-      mentionHandle: cfg.linear.mentionHandle,
-      timeoutHours: cm.timeoutHours,
-      maxConfirmationRounds: cm.maxConfirmationRounds,
-      postComments: cfg.linear.postComments !== false && Boolean(apiKey),
-    },
-    {
-      approvalMatches,
-      fetchComments: async () => {
-        if (!apiKey) return [];
-        try {
-          const cs = await fetchIssueComments(apiKey, issue.id);
-          return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
-        } catch {
-          return [];
-        }
-      },
-      ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
-      applyIndicator: (ind) => deps.applyIndicator(issue, ind),
-      postComment: async (body) => {
-        if (!apiKey) return;
-        await addIssueComment(apiKey, issue.id, body);
-      },
-      reactToComment: async (commentId, emoji) => {
-        if (!apiKey) return;
-        await addReactionToComment(apiKey, commentId, emoji);
-      },
-      applyStuckLabel: async () => {
-        await deps.applyMarker(issue, { type: "label", value: "ralph:stuck" });
-      },
-      appendSteering: (msg) => appendSteeringNote(changeDir, msg),
-      restartFromDesign: () => restartFromDesignFs(changeDir, changeName),
-      log: deps.onLog,
-    },
-  );
-  try {
-    await writeConfirmationState(statePath, state2, next);
+    if (outcome === "approved") {
+      deps.awaitingChangeSet.delete(changeName);
+      deps.onLog(`  ${issue.identifier}: confirmation detect released — outcome=approved`);
+      return false;
+    }
+    if (outcome === "revised") {
+      deps.awaitingChangeSet.delete(changeName);
+      deps.onLog(`  ${issue.identifier}: confirmation detect released — outcome=revised`);
+      return false;
+    }
+    deps.onAwaitingTicket?.({
+      changeName,
+      issueIdentifier: issue.identifier,
+      issueUrl: issue.url,
+      issueTitle: issue.title,
+      since: next.askedAt,
+      round: next.rounds,
+    });
+    return true;
   } catch (err) {
     deps.onLog(
-      `! persist confirmation state failed for ${issue.identifier}: ${(err as Error).message}`,
+      `! confirmation detect threw for ${issue.identifier}: ${(err as Error).message}`,
       "yellow",
     );
+    return true;
   }
-  if (outcome === "approved" || outcome === "revised") {
-    deps.awaitingChangeSet.delete(changeName);
-    return false;
-  }
-  deps.onAwaitingTicket?.({
-    changeName,
-    issueIdentifier: issue.identifier,
-    issueUrl: issue.url,
-    issueTitle: issue.title,
-    since: next.askedAt,
-    round: next.rounds,
-  });
-  return true;
 }
