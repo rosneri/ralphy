@@ -85,6 +85,16 @@ describe("worker-spawner capability", () => {
     expect(events).not.toContain("worker.spawn.failed");
   });
 
+  test("default spawner shells out to Bun.spawn when args.spawn is omitted", async () => {
+    const handle = await runCapability(spawnWorker, {
+      cmd: ["bun", "-e", "process.exit(0)"],
+      cwd: root,
+      changeName: "eng-1",
+    });
+    expect(typeof handle.pid === "number" || handle.pid === undefined).toBe(true);
+    expect(await handle.exited).toBe(0);
+  });
+
   test("emits worker.spawn.failed and rethrows when the spawner throws", async () => {
     const bus = createBus();
     const events: string[] = [];
