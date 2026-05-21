@@ -335,6 +335,20 @@ export type RalphEvent =
       ts: number;
       [k: string]: unknown;
     }
+  // --- agent diagnostics (wire.ts forwards human-readable status lines) ---
+  //
+  // Replaces the prior direct `onLog(...)` calls inside
+  // `apps/agent/src/agent/wire.ts`. Subscribers (TUI / json-runner /
+  // file-logger) format the message back into the prior string. `area`
+  // identifies the sub-domain (e.g. "linear", "pr", "ci", "worktree")
+  // so consumers can filter or colour without parsing the message.
+  | {
+      type: "agent.diag";
+      ts: number;
+      area: string;
+      message: string;
+      color?: string;
+    }
   // --- internal ---
   | {
       type: "__bus_error__";

@@ -73,7 +73,7 @@ import {
 import { syncSpecAttachments, type SpecAttachmentMutations } from "./linear-sync/spec-attachments";
 import type { ConfirmationCaps } from "../features/confirmation";
 import type { FeatureCtx } from "../features/types";
-import { createNoopBus } from "@ralphy/events";
+import { createBus, subscribeAgentDiag } from "@ralphy/events";
 
 // Extracted helpers
 import { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl } from "./wire-pr-helpers";
@@ -188,6 +188,20 @@ export function buildAgentCoordinator(
 
   const logsDir = join(projectRoot, ".ralph", "logs");
 
+  // Internal bus used to route wire.ts diagnostics through the bus
+  // pipeline instead of calling onLog directly. The subscribed
+  // consumer forwards each `agent.diag` event back to the caller's
+  // onLog so the TUI / json-runner output is unchanged.
+  const bus = createBus();
+  subscribeAgentDiag(bus, onLog);
+  const diag = (area: string, message: string, color?: string): void => {
+    bus.emit(
+      color !== undefined
+        ? { type: "agent.diag", area, message, color }
+        : { type: "agent.diag", area, message },
+    );
+  };
+
   const concurrency = args.concurrency || cfg.concurrency;
   const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
 
@@ -249,12 +263,16 @@ export function buildAgentCoordinator(
       const newId = await createIssueLabel(apiKey, teamId, name);
       if (!newId) return null;
       map.set(name.toLowerCase(), newId);
-      onLog(`  created Linear label '${name}' for team ${t}`, "gray");
+      diag("linear-label", `  created Linear label '${name}' for team ${t}`, "gray");
       return newId;
     } catch (err) {
       const e = err as Error & { messages?: string[] };
       const detail = e.messages?.length ? ` — ${e.messages.join("; ")}` : "";
-      onLog(`! Linear label '${name}' creation threw: ${e.message}${detail}`, "yellow");
+      diag(
+        "linear-label",
+        `! Linear label '${name}' creation threw: ${e.message}${detail}`,
+        "yellow",
+      );
       labelCache.delete(t);
       return null;
     }
@@ -273,10 +291,10 @@ export function buildAgentCoordinator(
         throw err;
       }
       await updateIssueState(apiKey, issue.id, id);
-      onLog(`  → ${issue.identifier} status='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} status='${m.value}'`, "gray");
     } else if (m.type === "attachment") {
       await upsertRalphyAttachment(apiKey, issue.id, issue.url, m.value);
-      onLog(`  → ${issue.identifier} attachment='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} attachment='${m.value}'`, "gray");
     } else if (m.type === "project") {
       const projectId = await fetchProjectIdByName(apiKey, m.value);
       if (!projectId) {
@@ -289,7 +307,7 @@ export function buildAgentCoordinator(
         throw err;
       }
       await setIssueProject(apiKey, issue.id, projectId);
-      onLog(`  → ${issue.identifier} project='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} project='${m.value}'`, "gray");
     } else {
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
@@ -302,7 +320,7 @@ export function buildAgentCoordinator(
         throw err;
       }
       await addLabelToIssue(apiKey, issue.id, id);
-      onLog(`  → ${issue.identifier} +label='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} +label='${m.value}'`, "gray");
     }
   }
 
@@ -315,11 +333,15 @@ export function buildAgentCoordinator(
       if (m.type !== "label") continue;
       const id = await resolveLabelId(issue, m.value);
       if (!id) {
-        onLog(`! Linear label '${m.value}' not found for ${issue.identifier}`, "yellow");
+        diag(
+          "linear-marker",
+          `! Linear label '${m.value}' not found for ${issue.identifier}`,
+          "yellow",
+        );
         continue;
       }
       await removeLabelFromIssue(apiKey, issue.id, id);
-      onLog(`  → ${issue.identifier} -label='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} -label='${m.value}'`, "gray");
     }
   }
 
@@ -367,7 +389,8 @@ export function buildAgentCoordinator(
       const code = await proc.exited;
       if (code !== 0) {
         const stderr = await new Response(proc.stderr).text();
-        onLog(
+        diag(
+          "script",
           `! script exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
           "yellow",
         );
@@ -376,10 +399,10 @@ export function buildAgentCoordinator(
     });
 
   async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
-    onLog(`  ${label}: ${cmd}`, "gray");
+    diag("script", `  ${label}: ${cmd}`, "gray");
     const code = await scriptRunner(cmd, cwd);
     if (code !== 0) {
-      onLog(`! ${label} exited code ${code}`, "yellow");
+      diag("script", `! ${label} exited code ${code}`, "yellow");
     }
   }
 
@@ -405,7 +428,8 @@ export function buildAgentCoordinator(
         runner: gitRunner,
       });
     } catch (err) {
-      onLog(
+      diag(
+        "worktree",
         `! worktree create failed for ${issue.identifier}: ${(err as Error).message} — skipping (useWorktree is required)`,
         "red",
       );
@@ -416,14 +440,15 @@ export function buildAgentCoordinator(
     const wtLayout = projectLayout(wt.cwd);
     scaffoldTasksDir = wtLayout.tasksDir;
     scaffoldStatesDir = wtLayout.statesDir;
-    onLog(`  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
+    diag("worktree", `  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
     try {
       await runCapability(git.seedWorktreeMcpConfig, {
         projectRoot,
         worktreeCwd: wt.cwd,
       });
     } catch (err) {
-      onLog(
+      diag(
+        "worktree",
         `! seeding .mcp.json failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
@@ -445,7 +470,8 @@ export function buildAgentCoordinator(
       try {
         comments = await fetchIssueComments(apiKey, issue.id);
       } catch (err) {
-        onLog(
+        diag(
+          "linear",
           `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
@@ -465,7 +491,7 @@ export function buildAgentCoordinator(
           last_error: "",
         }).trim();
       } catch (err) {
-        onLog(`! workflow render failed: ${(err as Error).message}`, "yellow");
+        diag("workflow", `! workflow render failed: ${(err as Error).message}`, "yellow");
       }
       const appendPrompt = [args.prompt || cfg.appendPrompt || "", workflowPrompt]
         .filter(Boolean)
@@ -524,7 +550,8 @@ export function buildAgentCoordinator(
         try {
           comments = await fetchIssueComments(apiKey, issue.id);
         } catch (err) {
-          onLog(
+          diag(
+            "linear",
             `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
             "yellow",
           );
@@ -539,7 +566,7 @@ export function buildAgentCoordinator(
           failureOutput: body,
         });
       } catch (err) {
-        onLog(`! could not prepend review task: ${(err as Error).message}`, "red");
+        diag("tasks", `! could not prepend review task: ${(err as Error).message}`, "red");
       }
       await reactivateState(wtLayout.stateFile(changeName), changeName);
       return;
@@ -564,7 +591,7 @@ export function buildAgentCoordinator(
         failureOutput: body,
       });
     } catch (err) {
-      onLog(`! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
+      diag("tasks", `! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
     }
     await reactivateState(wtLayout.stateFile(changeName), changeName);
   }
@@ -583,7 +610,11 @@ export function buildAgentCoordinator(
         await Bun.write(stateFilePath, JSON.stringify(stateObj, null, 2) + "\n");
       }
     } catch (err) {
-      onLog(`! could not reactivate state for ${changeName}: ${(err as Error).message}`, "yellow");
+      diag(
+        "state",
+        `! could not reactivate state for ${changeName}: ${(err as Error).message}`,
+        "yellow",
+      );
     }
   }
 
@@ -690,14 +721,15 @@ export function buildAgentCoordinator(
           if (report.text !== nextTasks) {
             await Bun.write(missionTasksPath, report.text);
             const sections = report.headings.map((h) => `## ${h}`).join(", ");
-            onLog(
+            diag(
+              "tasks",
               `! normalized ${report.count} pre-checked item(s) in newly added section(s) ${sections}`,
               "yellow",
             );
           }
         }
       } catch (err) {
-        onLog(`! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
+        diag("tasks", `! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
       }
       const wantPr =
         wantPrBase &&
@@ -807,7 +839,7 @@ export function buildAgentCoordinator(
         state = parsed.state;
         m = parsed.mergeable;
       } catch (err) {
-        onLog(`! gh pr view ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
+        diag("pr", `! gh pr view ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
         return { url: prUrl, status: "unknown" };
       }
       if (state && state !== "OPEN") {
@@ -822,7 +854,8 @@ export function buildAgentCoordinator(
       await new Promise<void>((r) => setTimeout(r, 2000));
     }
     if (mergeable === null) {
-      onLog(
+      diag(
+        "pr",
         `  ${issue.identifier}: mergeability still UNKNOWN after retries (${prUrl}) — will recheck next poll`,
         "gray",
       );
@@ -834,7 +867,7 @@ export function buildAgentCoordinator(
       const ci = await getPrChecksStatus(prUrl, cmdRunner, projectRoot);
       if (ci.bucket === "fail") return { url: prUrl, status: "ci_failed" };
     } catch (err) {
-      onLog(`! gh pr checks ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
+      diag("ci", `! gh pr checks ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
     }
     return { url: prUrl, status: "mergeable" };
   }
@@ -863,7 +896,8 @@ export function buildAgentCoordinator(
 
     const fromLinear = await discoverPrUrlFromLinear(issue);
     if (fromLinear.url) {
-      onLog(
+      diag(
+        "pr",
         `  ${issue.identifier}: PR discovered via Linear attachment (${fromLinear.url})`,
         "gray",
       );
@@ -875,7 +909,8 @@ export function buildAgentCoordinator(
       return null;
     }
 
-    onLog(
+    diag(
+      "pr",
       `  ${issue.identifier}: no PR found via GitHub search or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
       "gray",
     );
@@ -890,7 +925,8 @@ export function buildAgentCoordinator(
     try {
       attachments = await fetchIssueAttachments(apiKey, issue.id);
     } catch (err) {
-      onLog(
+      diag(
+        "linear",
         `! Linear attachments fetch failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
@@ -949,10 +985,18 @@ export function buildAgentCoordinator(
       });
     } catch (err) {
       if (isRateLimitedError(err)) {
-        onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
+        diag(
+          "mention",
+          `! mention scan: rate limited, deferring rest of scan to next poll`,
+          "yellow",
+        );
         return [];
       }
-      onLog(`! mention scan: fetchMentionScanIssues failed: ${formatLinearError(err)}`, "yellow");
+      diag(
+        "mention",
+        `! mention scan: fetchMentionScanIssues failed: ${formatLinearError(err)}`,
+        "yellow",
+      );
       return [];
     }
     const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
@@ -961,7 +1005,11 @@ export function buildAgentCoordinator(
     const logRateLimited = (): void => {
       if (rateLimitedLogged) return;
       rateLimitedLogged = true;
-      onLog(`! mention scan: rate limited, deferring rest of scan to next poll`, "yellow");
+      diag(
+        "mention",
+        `! mention scan: rate limited, deferring rest of scan to next poll`,
+        "yellow",
+      );
     };
     for (const issue of candidates) {
       const comments = issue.comments ?? [];
@@ -990,7 +1038,8 @@ export function buildAgentCoordinator(
               queued.add(issue.id);
               break;
             }
-            onLog(
+            diag(
+              "mention",
               `! mention scan: Linear reaction failed for ${issue.identifier}: ${formatLinearError(err)}`,
               "yellow",
             );
@@ -1032,7 +1081,8 @@ export function buildAgentCoordinator(
                 "👀",
               );
             } catch (err) {
-              onLog(
+              diag(
+                "mention",
                 `! mention scan: GitHub reaction failed for ${prUrl}: ${formatLinearError(err)}`,
                 "yellow",
               );
@@ -1111,7 +1161,7 @@ export function buildAgentCoordinator(
       issue,
       worktree: cwdByChange.get(changeNameForIssue(issue)) ?? projectRoot,
       state: { writeField: async () => {} },
-      bus: createNoopBus(),
+      bus,
       caps: {
         gh: null,
         linear: null,
@@ -1212,7 +1262,8 @@ export function buildAgentCoordinator(
               const issue = issueByChange.get(changeName) ?? null;
               const issueId = issue?.id ?? null;
               if (!issueId) {
-                onLog(
+                diag(
+                  "comment-sync",
                   `  comment-sync: no Linear issue cached for ${changeName}; skipping steering refresh`,
                   "gray",
                 );
