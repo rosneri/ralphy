@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { PollContext } from "../agent/poll-context";
+import { PollContext } from "../shared/capabilities/poll-context";
 import type { CmdRunner } from "../agent/pr";
 
 function counterRunner(stdout: string): CmdRunner & { calls: { cmd: string[]; cwd: string }[] } {
@@ -52,6 +52,45 @@ describe("PollContext.fetchPrOnce", () => {
     await ctx.fetchPrOnce(url, ["state", "mergeable"], runner, ".");
     await ctx.fetchPrOnce(url, ["state", "mergeable"], runner, ".");
     await ctx.fetchPrOnce(url, ["state", "headRefName"], runner, ".");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  test("two PollContext instances do not share memos", async () => {
+    const runner = counterRunner(JSON.stringify({}));
+    const a = new PollContext();
+    const b = new PollContext();
+    const url = "https://github.com/o/r/pull/5";
+    await a.fetchPrOnce(url, ["state"], runner, ".");
+    await b.fetchPrOnce(url, ["state"], runner, ".");
+    expect(runner.calls).toHaveLength(2);
+  });
+
+  test("rejected fetch is dropped from the memo — next call retries", async () => {
+    let attempt = 0;
+    const calls: { cmd: string[]; cwd: string }[] = [];
+    const runner: CmdRunner = {
+      run: async (cmd, cwd) => {
+        attempt += 1;
+        calls.push({ cmd, cwd });
+        if (attempt === 1) throw new Error("transient");
+        return { stdout: JSON.stringify({ state: "OPEN" }), stderr: "" };
+      },
+    };
+    const ctx = new PollContext();
+    const url = "https://github.com/o/r/pull/6";
+    await expect(ctx.fetchPrOnce(url, ["state"], runner, ".")).rejects.toThrow("transient");
+    const second = await ctx.fetchPrOnce(url, ["state"], runner, ".");
+    expect(second).toEqual({ state: "OPEN" });
+    expect(calls).toHaveLength(2);
+  });
+
+  test("clear() drops cached entries", async () => {
+    const runner = counterRunner(JSON.stringify({}));
+    const ctx = new PollContext();
+    const url = "https://github.com/o/r/pull/7";
+    await ctx.fetchPrOnce(url, ["state"], runner, ".");
+    ctx.clear();
+    await ctx.fetchPrOnce(url, ["state"], runner, ".");
     expect(runner.calls).toHaveLength(2);
   });
 });

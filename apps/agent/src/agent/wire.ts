@@ -64,7 +64,7 @@ import {
 import { changeNameForIssue, scaffoldChangeForIssue } from "./scaffold";
 import { createWorktree, seedWorktreeMcpConfig, worktreesDir, type GitRunner } from "./worktree";
 import { type CmdRunner } from "./pr";
-import { PollContext } from "./poll-context";
+import { PollContext } from "../shared/capabilities/poll-context";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "./pr-url";
 import { getPrChecksStatus } from "./ci";
 import { runPostTask, type PostTaskPhase } from "./post-task";

@@ -197,6 +197,54 @@ export type RalphEvent =
       [k: string]: unknown;
     }
   | { type: "stopped"; ts: number; [k: string]: unknown }
+  // --- shared capabilities (capability shell auto-emits) ---
+  //
+  // Generic shape `${capability}.${operation}.{started,fetched,failed}`.
+  // The bus type is intentionally permissive because the capability shell
+  // composes the literal at runtime; the index signature on the catch-all
+  // entries below lets call sites pass `{ error, count, ... }` payloads
+  // without growing the union for every (capability, operation) pair.
+  | {
+      type: `linear.${string}.started` | `linear.${string}.fetched` | `linear.${string}.failed`;
+      ts: number;
+      [k: string]: unknown;
+    }
+  | {
+      type: `gh.${string}.started` | `gh.${string}.fetched` | `gh.${string}.failed`;
+      ts: number;
+      [k: string]: unknown;
+    }
+  | {
+      type:
+        | "git.worktree.created"
+        | "git.worktree.removed"
+        | "git.worktree.failed"
+        | `git.${string}.started`
+        | `git.${string}.fetched`
+        | `git.${string}.failed`;
+      ts: number;
+      [k: string]: unknown;
+    }
+  | {
+      type:
+        | "fs.change.scaffolded"
+        | "fs.change.task.prepended"
+        | "fs.change.steering.appended"
+        | `fs.${string}.started`
+        | `fs.${string}.fetched`
+        | `fs.${string}.failed`;
+      ts: number;
+      [k: string]: unknown;
+    }
+  | {
+      type:
+        | "worker.spawned"
+        | `worker.${string}.started`
+        | `worker.${string}.fetched`
+        | `worker.${string}.failed`;
+      ts: number;
+      [k: string]: unknown;
+    }
   // --- internal ---
   | {
       type: "__bus_error__";

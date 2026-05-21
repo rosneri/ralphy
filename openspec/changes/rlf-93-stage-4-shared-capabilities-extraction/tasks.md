@@ -13,19 +13,19 @@
 
 ### Capability shell + types
 
-- [ ] Create `apps/agent/src/shared/capabilities/types.ts` exporting `Capability<TArgs,TResult>`, `RetryPolicy`, `ErrorFormatter`.
-- [ ] Create `apps/agent/src/shared/capabilities/run-capability.ts` implementing the retry loop, error formatter call, bus emission of `${name}.started|fetched|failed`, and the `required → never return on throw` invariant.
-- [ ] Add unit tests `apps/agent/src/shared/capabilities/__tests__/run-capability.test.ts` covering: happy-path event ordering, retry on transient failure, no `.failed` between retries, `required: true` rethrows and produces no value, `errorFormatter` is called exactly once on terminal failure.
+- [x] Create `apps/agent/src/shared/capabilities/types.ts` exporting `Capability<TArgs,TResult>`, `RetryPolicy`, `ErrorFormatter`.
+- [x] Create `apps/agent/src/shared/capabilities/run-capability.ts` implementing the retry loop, error formatter call, bus emission of `${name}.started|fetched|failed`, and the `required → never return on throw` invariant.
+- [x] Add unit tests `apps/agent/src/shared/capabilities/__tests__/run-capability.test.ts` covering: happy-path event ordering, retry on transient failure, no `.failed` between retries, `required: true` rethrows and produces no value, `errorFormatter` is called exactly once on terminal failure.
 
 ### Bus event additions
 
-- [ ] Extend `packages/events/src/types.ts` `RalphEvent` union with capability events: `linear.*.{started,fetched,failed}`, `gh.*.{started,fetched,failed}`, `git.worktree.{created,removed,failed}`, `fs.change.{scaffolded,task.prepended,steering.appended}`, `worker.spawned`.
-- [ ] Update `packages/events/src/__tests__` to assert these literals are accepted by `Bus.emit`.
+- [x] Extend `packages/events/src/types.ts` `RalphEvent` union with capability events: `linear.*.{started,fetched,failed}`, `gh.*.{started,fetched,failed}`, `git.worktree.{created,removed,failed}`, `fs.change.{scaffolded,task.prepended,steering.appended}`, `worker.spawned`.
+- [x] Update `packages/events/src/__tests__` to assert these literals are accepted by `Bus.emit`.
 
 ### PollContext move
 
-- [ ] Move `apps/agent/src/agent/poll-context/index.ts` to `apps/agent/src/shared/capabilities/poll-context.ts`; update imports across the repo.
-- [ ] Add tests asserting field-order-insensitive memo key, single-runner invocation, memo isolation between instances, and that a rejected fetch is dropped from memo (no permanent negative cache).
+- [x] Move `apps/agent/src/agent/poll-context/index.ts` to `apps/agent/src/shared/capabilities/poll-context.ts`; update imports across the repo.
+- [x] Add tests asserting field-order-insensitive memo key, single-runner invocation, memo isolation between instances, and that a rejected fetch is dropped from memo (no permanent negative cache).
 
 ### fs-change capability
 
