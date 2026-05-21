@@ -41,10 +41,10 @@
 
 ### gh-client capability
 
-- [ ] Create `apps/agent/src/shared/capabilities/gh-client.ts` wrapping every `gh` invocation currently in `wire.ts`, `post-task.ts`, `ci.ts`, `pr.ts`, `pr-url/`.
-- [ ] Implement retry on transient `gh` failures (network / 5xx) but NOT on auth errors.
-- [ ] `errorFormatter` includes exit code + stderr tail.
-- [ ] Tests with a mock `CmdRunner` covering retry, error formatting, and bus event emission.
+- [x] Create `apps/agent/src/shared/capabilities/gh-client.ts` wrapping every `gh` invocation currently in `wire.ts`, `post-task.ts`, `ci.ts`, `pr.ts`, `pr-url/`.
+- [x] Implement retry on transient `gh` failures (network / 5xx) but NOT on auth errors.
+- [x] `errorFormatter` includes exit code + stderr tail.
+- [x] Tests with a mock `CmdRunner` covering retry, error formatting, and bus event emission.
 
 ### linear-client capability
 
