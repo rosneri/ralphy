@@ -35,6 +35,16 @@ export function branchForChange(changeName: string): string {
 }
 
 /**
+ * Canonical directory name for an issue's worktree under {@link worktreesDir}.
+ * Keyed on the short Linear identifier (lowercased) — not the full change-name
+ * slug — so a single issue keeps the same worktree directory even when the
+ * generated change-name slug changes between iterations.
+ */
+export function worktreeDirNameForIssue(issue: { identifier: string }): string {
+  return issue.identifier.toLowerCase();
+}
+
+/**
  * Create a new git worktree at `~/.ralph/<project>/worktrees/<changeName>` checked out
  * onto a fresh branch `ralph/<changeName>`. When the branch is being created,
  * `git fetch origin <baseBranch>` runs first and the new branch is rooted at

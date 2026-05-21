@@ -10,7 +10,7 @@ import type { ParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
 import { baseBranchFromLabels, fetchIssueComments, type LinearIssue } from "../linear";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
-import type { GitRunner } from "../worktree";
+import { worktreeDirNameForIssue, type GitRunner } from "../worktree";
 import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
 import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./task-bodies";
 
@@ -82,7 +82,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     let scaffoldStatesDir = statesDir;
     let branch: string | null = null;
     if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
-    const probeName = issue.identifier.toLowerCase();
+    const probeName = worktreeDirNameForIssue(issue);
     const baseBranch = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
     let wt: { cwd: string; branch: string };
     try {
