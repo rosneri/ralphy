@@ -167,12 +167,12 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     },
     setLabels: (id, labels) => {
       const cur = issues.get(id);
-      if (!cur) throw new Error(`fake-linear: unknown issue ${id}`);
+      if (!cur) throw new Error("fake-linear: unknown issue", { cause: { id } });
       issues.set(id, { ...cur, labels });
     },
     setStatus: (id, name, type) => {
       const cur = issues.get(id);
-      if (!cur) throw new Error(`fake-linear: unknown issue ${id}`);
+      if (!cur) throw new Error("fake-linear: unknown issue", { cause: { id } });
       issues.set(id, { ...cur, state: { name, type } });
     },
     pushComment: (issueId, body, author = "human") => {

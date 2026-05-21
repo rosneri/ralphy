@@ -20,7 +20,7 @@ export function createScriptedEngine({ scenario }: ScriptedEngineConfig): Engine
       }
       const step = scenario[i++];
       if (!step) {
-        throw new Error(`scripted-engine: missing step at ${i - 1}`);
+        throw new Error("scripted-engine: missing step", { cause: { index: i - 1 } });
       }
       return step;
     },

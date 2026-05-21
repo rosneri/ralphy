@@ -42,7 +42,7 @@ export function createFakeGh(): FakeGh {
     run: async (argv, cwd) => {
       calls.push({ argv, cwd });
       if (argv[0] !== "gh") {
-        throw new Error(`scripted shim: only gh calls supported, got: ${argv.join(" ")}`);
+        throw new Error("scripted shim: only gh calls supported", { cause: { argv } });
       }
       const sub = argv[1];
       const sub2 = argv[2];

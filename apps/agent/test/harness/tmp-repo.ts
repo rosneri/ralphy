@@ -28,7 +28,7 @@ async function git(args: string[], cwd: string): Promise<string> {
   const stderr = await new Response(proc.stderr).text();
   const code = await proc.exited;
   if (code !== 0) {
-    throw new Error(`git ${args.join(" ")} failed (${code}): ${stderr}`);
+    throw new Error("git command failed", { cause: { args, code, stderr } });
   }
   return stdout.trim();
 }
