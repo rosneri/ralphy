@@ -7,6 +7,7 @@ import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
 import type { LinearIssue } from "../../../agent/linear";
 import type { RalphyConfig } from "../../../agent/config";
+import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
 import type { Indicators } from "@ralphy/types";
 
 function makeIssue(): LinearIssue {
@@ -27,7 +28,7 @@ function makeIssue(): LinearIssue {
 }
 
 function makeConfig(): RalphyConfig {
-  return {
+  return WorkflowConfigSchema.parse({
     linear: {
       mentionHandle: "@ralphy",
       postComments: false,
@@ -39,7 +40,7 @@ function makeConfig(): RalphyConfig {
       },
       indicators: {},
     },
-  } as unknown as RalphyConfig;
+  });
 }
 
 interface Captured {

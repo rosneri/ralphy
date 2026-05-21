@@ -5,6 +5,7 @@ import { DEFAULT_WORKFLOW_MD } from "./default";
 import { renderTemplate } from "./template";
 
 export type { WorkflowConfig } from "./schema";
+export { WorkflowConfigSchema } from "./schema";
 export { renderTemplate } from "./template";
 export { DEFAULT_WORKFLOW_MD } from "./default";
 export {
