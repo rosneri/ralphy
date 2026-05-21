@@ -5,8 +5,9 @@ import { createElement } from "react";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot } from "@ralphy/paths";
-import { parseArgs, printHelp } from "./cli";
+import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { AgentMode } from "./components/AgentMode";
+import { shouldFallbackToJsonOutput } from "./non-tty-fallback";
 
 export async function main(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -14,7 +15,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  let args;
+  let args: ParsedArgs;
   try {
     args = await parseArgs(argv);
   } catch (err) {
@@ -46,6 +47,11 @@ export async function main(argv: string[]): Promise<number> {
   await mkdir(statesDir, { recursive: true });
   await mkdir(tasksDir, { recursive: true });
   await mkdir(join(projectRoot, ".ralph"), { recursive: true });
+
+  if (shouldFallbackToJsonOutput(args, process.stdin.isTTY)) {
+    process.stderr.write("agent: stdin is not a TTY — falling back to --json-output mode.\n");
+    args = { ...args, jsonOutput: true };
+  }
 
   if (args.jsonOutput) {
     const { runAgentJson } = await import("./agent/json-runner");
