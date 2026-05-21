@@ -19,7 +19,7 @@
  */
 
 import type { Bus, EmitInput } from "@ralphy/events";
-import type { Feature, FeatureCtx, FeatureId, FeatureMatch } from "./types";
+import type { Feature, FeatureCtx, FeatureId, FeatureMatch, TaskResult } from "./types";
 
 function emit(bus: Bus, type: string, payload: Record<string, unknown> = {}): void {
   bus.emit({ type, ...payload } as unknown as EmitInput);
@@ -74,6 +74,31 @@ export async function runFeature(
     emit(ctx.bus, `feature.${feature.id}.failed`, {
       error: formatError(err),
       phase: "run",
+    });
+  }
+}
+
+/**
+ * Invoke `feature.postTask?.(ctx, result)` under try/catch with surrounding
+ * `started` / `completed` / `failed` events tagged `phase: "postTask"`.
+ * Features without a `postTask` hook are silently skipped — no events fire,
+ * mirroring `detectFeature`'s clean-null shape so unmigrated stubs stay
+ * invisible in telemetry.
+ */
+export async function runFeaturePostTask(
+  feature: Feature,
+  ctx: FeatureCtx,
+  result: TaskResult,
+): Promise<void> {
+  if (!feature.postTask) return;
+  emit(ctx.bus, `feature.${feature.id}.started`, { phase: "postTask" });
+  try {
+    await feature.postTask(ctx, result);
+    emit(ctx.bus, `feature.${feature.id}.completed`, { phase: "postTask" });
+  } catch (err) {
+    emit(ctx.bus, `feature.${feature.id}.failed`, {
+      error: formatError(err),
+      phase: "postTask",
     });
   }
 }

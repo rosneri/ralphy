@@ -10,6 +10,9 @@ import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
 import { isWorktreeSafeToRemove } from "./worktree";
+import { registry as featureRegistry } from "../features/registry";
+import { runFeaturePostTask } from "../features/run-feature";
+import type { FeatureCtx } from "../features/types";
 
 /** Worker exited 0 but the CI fix loop never reached green. */
 const CI_FAILED_EXIT = 70;
@@ -106,6 +109,13 @@ interface PostTaskDeps {
   /** Optional: resolve the head branch of a blocker's single open PR. See
    *  PrPhaseDeps for details. */
   resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<string | null>;
+  /** Optional: build the per-issue `FeatureCtx` consumed by the feature
+   *  registry walk. When provided, `runPostTask` iterates the registry and
+   *  invokes `feature.postTask?.(...)` on each entry alongside the legacy
+   *  phases. Stub features have no `postTask`, so this dispatch is a no-op
+   *  until a slice migrates. Omitted in today's wire layer; the legacy
+   *  phases still own the full post-task flow in that case. */
+  buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1039,6 +1049,21 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     cfg,
     respawnWorker,
   } = input;
+
+  // Registry walk: let per-feature slices run their post-task tail
+  // alongside the legacy phases. Stub features have no `postTask`, so
+  // this is a no-op until a slice migrates. Walk runs even when the
+  // worker exited non-zero so failure-handling slices (e.g. stuck) can
+  // see the exit code.
+  if (deps.buildFeatureCtx && issue) {
+    const ctx = deps.buildFeatureCtx(issue);
+    if (ctx) {
+      const result = { exitCode, branch };
+      for (const feature of featureRegistry) {
+        await runFeaturePostTask(feature, ctx, result);
+      }
+    }
+  }
 
   // Phase 1: PR creation + CI/conflict watch
   let effectiveCode = exitCode;
