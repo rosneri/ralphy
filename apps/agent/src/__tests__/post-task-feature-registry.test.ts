@@ -134,15 +134,17 @@ describe("runPostTask — feature registry walk", () => {
     });
 
     expect(ctxCalls).toBe(1);
-    // conflict-fix has a real postTask but early-returns when
-    // `caps.conflictFix` isn't wired — `runFeaturePostTask` still emits
-    // started+completed because the postTask function exists. All other
-    // features here have no postTask and emit nothing.
+    // conflict-fix and ci-fix have real postTask hooks but early-return
+    // when their respective caps slot isn't wired — `runFeaturePostTask`
+    // still emits started+completed because the postTask function exists.
+    // All other features here have no postTask and emit nothing.
     const featureEvents = events
       .filter((e) => e.type.startsWith("feature."))
       .map((e) => e.type)
       .sort();
     expect(featureEvents).toEqual([
+      "feature.ci-fix.completed",
+      "feature.ci-fix.started",
       "feature.conflict-fix.completed",
       "feature.conflict-fix.started",
     ]);

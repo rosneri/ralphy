@@ -99,6 +99,22 @@ export interface ConflictFixCapsShape {
   getMergeability(): Promise<"mergeable" | "conflicting" | "unknown">;
 }
 
+/**
+ * Per-feature capability bundle for the ci-fix slice. Wire builds the
+ * closure once per (issue, poll) so the slice itself stays free of
+ * `gh`/git imports. `getCiStatus` returns the PR's check bucket — the
+ * slice's `postTask` records it under `state.ci` and emits an event,
+ * but does NOT spawn a re-fix loop. Re-running the worker on failing
+ * CI lives in `post-task.ts`'s `fixConflictsAndCiLoop` until the
+ * stage-final cleanup moves it here.
+ */
+export interface CiFixCapsShape {
+  /** Returns "pass" when all PR checks are green, "fail" when any
+   *  non-pending check failed, "pending" when checks are still running,
+   *  "unknown" when no PR is known or the gh call failed. */
+  getCiStatus(): Promise<"pass" | "fail" | "pending" | "unknown">;
+}
+
 export interface Capabilities {
   /** GitHub REST/CLI capability (PR data, mergeability, reviews). */
   gh: unknown;
@@ -118,6 +134,10 @@ export interface Capabilities {
    *  Optional so test contexts that don't exercise the conflict-fix
    *  feature can omit it without satisfying the mergeability check. */
   conflictFix?: ConflictFixCapsShape;
+  /** CI-fix slice closure bundle, wired by the agent's `wire.ts`.
+   *  Optional so test contexts that don't exercise the ci-fix feature
+   *  can omit it without satisfying the gh-checks closure. */
+  ciFix?: CiFixCapsShape;
 }
 
 /** Shared context passed to every `Feature.detect` and `Feature.run`. */
