@@ -7,6 +7,9 @@ import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
 import type { Bus, EmitInput, RalphEvent } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
+import { registry as featureRegistry } from "../features/registry";
+import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
+import type { FeatureCtx } from "../features/types";
 
 /**
  * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
@@ -191,6 +194,16 @@ export interface CoordinatorDeps {
    *  duplicate `gh pr view` calls within the same poll share a single
    *  invocation. Synchronous to avoid sequencing concerns. */
   beforePoll?: () => void;
+  /** Optional hook: build the per-issue `FeatureCtx` consumed by the
+   *  feature registry walk. When provided, the coordinator iterates the
+   *  registry for each in-progress issue and lets the first matching
+   *  `Feature` claim the poll (skipping the legacy `resume` queue). When
+   *  omitted (today's wire layer, until per-slice plumbing lands), the
+   *  registry walk is skipped entirely and the legacy branches own the
+   *  in-progress path. Stub features in `features/registry.ts` all return
+   *  `null` from `detect`, so wiring this dep is observable only as bus
+   *  events — behavior is unchanged until a slice replaces its stub. */
+  buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
 }
 
 interface CoordinatorOptions {
@@ -416,12 +429,19 @@ export class AgentCoordinator {
 
     let added = 0;
 
+    // Registry walk: let per-feature slices claim in-progress issues
+    // before the legacy `resume` path queues them. Stub features return
+    // `null` from `detect`, so until a real slice ships this loop is a
+    // no-op and the legacy branches still own behavior.
+    const claimedByFeature = await this.walkRegistryForInProgress(inProgress);
+
     // 1. In-progress issues take precedence on restart — re-attach first
     //    so concurrency budget is honored. Before queueing as resume,
     //    detect "finished but conflicting" tickets and route them into
     //    the conflict-fix flow by applying setConflicted.
     for (const issue of inProgress) {
       if (atTicketLimit()) break;
+      if (claimedByFeature.has(issue.id)) continue;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       if (await this.maybePromoteFinishedConflicted(issue)) continue;
@@ -532,6 +552,42 @@ export class AgentCoordinator {
       else flow[w.changeName] = "working";
     }
     return { found, added, buckets, prStatus, phase: {}, flow };
+  }
+
+  /**
+   * Iterate the feature registry over each in-progress issue. The first
+   * feature whose `detect` returns a non-null match claims the issue and
+   * its `run` is invoked under `runFeature` (which translates throws into
+   * `feature.<id>.failed` bus events). Lower-priority detectors get a
+   * `feature.<id>.skipped` event so telemetry stays symmetric. Issues
+   * that no feature claims fall through to the legacy `resume` path.
+   *
+   * Skipped entirely when `buildFeatureCtx` is not wired — the legacy
+   * branches still own the in-progress path in that case.
+   */
+  private async walkRegistryForInProgress(
+    inProgress: readonly LinearIssue[],
+  ): Promise<Set<string>> {
+    const claimed = new Set<string>();
+    if (!this.deps.buildFeatureCtx) return claimed;
+    for (const issue of inProgress) {
+      const ctx = this.deps.buildFeatureCtx(issue);
+      if (!ctx) continue;
+      let matchedId: string | null = null;
+      for (const feature of featureRegistry) {
+        if (matchedId !== null) {
+          emitFeatureSkipped(ctx.bus, feature.id, `preempted-by:${matchedId}`);
+          continue;
+        }
+        const match = await detectFeature(feature, ctx);
+        if (match) {
+          matchedId = feature.id;
+          await runFeature(feature, ctx, match);
+          claimed.add(issue.id);
+        }
+      }
+    }
+    return claimed;
   }
 
   /**
