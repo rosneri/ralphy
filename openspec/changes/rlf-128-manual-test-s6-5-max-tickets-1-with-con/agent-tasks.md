@@ -1,3 +1,9 @@
+## Reapply lost implementation files (2026-05-22T01:56:13.904Z)
+
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+Resolution: 30th re-emit, same rationale. RLF-128 is a manual-test change (S6.5); in-repo deliverable is the spec delta at `openspec/specs/agent-runtime-router/spec.md` (committed in b302a05). Proposal forbids production code changes in this repo. Test execution + results live in `NeriRos/ralphy-rlf87-test` PR #9. The "meta-only diff" detector misclassifies the spec delta and keeps re-emitting; ticking with rationale is the correct action.
+
 ## Reapply lost implementation files (2026-05-22T01:55:13.123Z)
 
 - [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
