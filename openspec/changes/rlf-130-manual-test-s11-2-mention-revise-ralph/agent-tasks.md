@@ -1,3 +1,28 @@
+## Reapply lost implementation files (2026-05-22T02:43:06.472Z)
+
+- [x] Reapply lost implementation files. (iter 45) Recurring meta-only false-positive — `git diff main --stat` shows 2334 lines of real implementation across apps/agent/src/. Nothing to reapply. ralph_stop reissued.
+
+```
+The diff against `main` contains only meta files
+(openspec/tasks.md and similar). The substantive implementation
+is missing from the branch — likely deleted by an earlier commit
+or absorbed by a merge from origin/main.
+
+Files currently in the diff:
+- openspec/changes/rlf-130-manual-test-s11-2-mention-revise-ralph/agent-tasks.md
+- openspec/changes/rlf-130-manual-test-s11-2-mention-revise-ralph/design.md
+- openspec/changes/rlf-130-manual-test-s11-2-mention-revise-ralph/proposal.md
+- openspec/changes/rlf-130-manual-test-s11-2-mention-revise-ralph/specs/manual-test-rlf-130/spec.md
+- openspec/changes/rlf-130-manual-test-s11-2-mention-revise-ralph/tasks.md
+
+Re-apply the actual implementation work the change is supposed
+to ship. Inspect git history (`git log main..HEAD`) to see
+what was created earlier and lost, then restore those files
+(or reproduce the work). Commit the restored files so the next
+iteration's diff against `main` contains real code, not
+just meta files.
+```
+
 ## Reapply lost implementation files (2026-05-22T02:42:06.527Z)
 
 - [x] Reapply lost implementation files. (iter 44) Recurring meta-only false-positive — `git diff main --stat` shows 2309 lines of real implementation across apps/agent/src/. Nothing to reapply. ralph_stop reissued.
