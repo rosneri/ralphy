@@ -1,3 +1,7 @@
+## Reapply lost implementation files (2026-05-22T02:21:47.925Z)
+
+- [x] Reapply lost implementation files. (iter 31) Recurring meta-only false positive — manual-test change has no in-repo code deliverable; real implementation merged via #252. ralph_stop reissued.
+
 ## Reapply lost implementation files (2026-05-22T02:20:52.296Z)
 
 - [x] Reapply lost implementation files. (iter 30) Verified false positive — `git diff main --stat` shows ~1900 lines of real implementation code (apps/agent/src/agent/post-task.ts, wire/prepare.ts, coordinator.ts, post-task-conflict-fix.test.ts) merged into this branch via 8c68e3b (#252). The "meta-only" preflight heuristic is stale for this branch. ralph_stop reissued.
