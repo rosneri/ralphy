@@ -1,3 +1,7 @@
+## Reapply lost implementation files (2026-05-22T02:59:48.494Z)
+
+- [x] Reapply lost implementation files. Detector false positive: this change is a manual-test that intentionally ships only OpenSpec meta files. No implementation to restore.
+
 ## Reapply lost implementation files (2026-05-22T02:59:04.404Z)
 
 - [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
