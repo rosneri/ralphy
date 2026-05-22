@@ -25,7 +25,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T01:36:25.508Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -50,7 +50,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T01:30:00.443Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -75,7 +75,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T01:23:38.745Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -100,7 +100,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T01:17:05.090Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -125,7 +125,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T01:10:42.047Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -150,7 +150,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T01:04:15.339Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -175,7 +175,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T00:57:46.571Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -200,7 +200,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T00:51:17.999Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -225,7 +225,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-22T00:44:58.093Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -250,7 +250,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T23:28:00.060Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -275,7 +275,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T23:21:37.299Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -300,7 +300,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T23:15:11.431Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -325,7 +325,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T23:08:46.807Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -350,7 +350,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T23:02:15.962Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -375,7 +375,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T22:55:49.444Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
@@ -400,7 +400,7 @@ just meta files.
 
 ## Reapply lost implementation files (2026-05-21T22:49:20.963Z)
 
-- [ ] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The diff against `main` contains only meta files
