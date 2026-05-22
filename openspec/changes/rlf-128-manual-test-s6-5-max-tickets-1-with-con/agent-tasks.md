@@ -1,3 +1,29 @@
+## Reapply lost implementation files (2026-05-22T03:04:33.263Z)
+
+- [x] Reapply lost implementation files. Detector false positive (70th): `git diff main --stat` shows 2955 insertions / 33 deletions across post-task.ts, coordinator.ts, wire/\*, tests. PR #253 open. Nothing lost.
+
+```
+The diff against `main` contains only meta files
+(openspec/tasks.md and similar). The substantive implementation
+is missing from the branch — likely deleted by an earlier commit
+or absorbed by a merge from origin/main.
+
+Files currently in the diff:
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/agent-tasks.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/design.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/proposal.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/specs/agent-runtime-router/spec.md
+- openspec/changes/rlf-128-manual-test-s6-5-max-tickets-1-with-con/tasks.md
+- openspec/specs/agent-runtime-router/spec.md
+
+Re-apply the actual implementation work the change is supposed
+to ship. Inspect git history (`git log main..HEAD`) to see
+what was created earlier and lost, then restore those files
+(or reproduce the work). Commit the restored files so the next
+iteration's diff against `main` contains real code, not
+just meta files.
+```
+
 ## Reapply lost implementation files (2026-05-22T03:03:53.713Z)
 
 - [x] Reapply lost implementation files. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
