@@ -98,7 +98,7 @@ ciPollIntervalSeconds: 60
 engine: claude
 
 # Model tier: "haiku", "sonnet", or "opus".
-model: opus
+model: sonnet
 
 linear:
   team: RLF
