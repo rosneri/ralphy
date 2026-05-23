@@ -11,9 +11,9 @@
 
 ## Implementation
 
-- [ ] Add `jsonLogChains: Map<string, Promise<void>>` module-level map and rewrite `logJsonEvent` to serialize writes per path in `packages/log/src/log.ts`
-- [ ] Add `flushJsonLog(logFile: string): Promise<void>` export in `packages/log/src/log.ts`
-- [ ] Reset the chain in `initWorkerLog` after truncating the file in `packages/log/src/log.ts`
-- [ ] Write a test in `packages/log/src/__tests__/log.test.ts` that fires many concurrent `logJsonEvent` calls and asserts all lines appear in the output file (use `flushJsonLog` to await completion)
-- [ ] Run `bun run lint` and fix any issues
-- [ ] Run `bun run test` and confirm all tests pass
+- [x] Add `jsonLogChains: Map<string, Promise<void>>` module-level map and rewrite `logJsonEvent` to serialize writes per path in `packages/log/src/log.ts`
+- [x] Add `flushJsonLog(logFile: string): Promise<void>` export in `packages/log/src/log.ts`
+- [x] Reset the chain in `initWorkerLog` after truncating the file in `packages/log/src/log.ts`
+- [x] Write a test in `packages/log/src/__tests__/log.test.ts` that fires many concurrent `logJsonEvent` calls and asserts all lines appear in the output file (use `flushJsonLog` to await completion)
+- [x] Run `bun run lint` and fix any issues
+- [x] Run `bun run test` and confirm all tests pass

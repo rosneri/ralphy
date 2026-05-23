@@ -3,6 +3,8 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { mkdir } from "node:fs/promises";
 
+const jsonLogChains: Map<string, Promise<void>> = new Map();
+
 type LogType = "session" | "phase" | "coord" | "output";
 
 const ANSI_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
@@ -57,11 +59,20 @@ export function logOutput(workerLogFile: string, text: string): void {
 
 /** Append a JSON event to a `.jsonl` log file, injecting a `ts` timestamp field. */
 export function logJsonEvent(logFile: string, event: Record<string, unknown>): void {
-  write(logFile, JSON.stringify({ ts: new Date().toISOString(), ...event }) + "\n");
+  const line = JSON.stringify({ ts: new Date().toISOString(), ...event }) + "\n";
+  const prev = jsonLogChains.get(logFile) ?? Promise.resolve();
+  const next = prev.then(() => appendFile(logFile, line)).catch(() => undefined);
+  jsonLogChains.set(logFile, next);
+}
+
+/** Await all pending writes for a given jsonl log file. */
+export async function flushJsonLog(logFile: string): Promise<void> {
+  await (jsonLogChains.get(logFile) ?? Promise.resolve());
 }
 
 /** Truncate/create a log file at the start of a run. */
 export async function initWorkerLog(logFile: string): Promise<void> {
   await mkdir(dirname(logFile), { recursive: true });
   await Bun.write(logFile, "");
+  jsonLogChains.delete(logFile);
 }
