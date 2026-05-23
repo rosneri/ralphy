@@ -223,14 +223,15 @@ function renderCodeBlock(doc: PDFKit.PDFDocument, token: Tokens.Code, indent: nu
   const lineHeight = doc.currentLineHeight(true);
   const lines = text.split(/\r?\n/);
 
+  // Add top padding before the block so the background doesn't overdraw content above.
+  doc.y += CODE_PADDING_Y / 2;
+
   for (const line of lines) {
     if (doc.y + lineHeight + CODE_PADDING_Y > doc.page.height - MARGIN) {
       doc.addPage();
     }
     const yTop = doc.y;
-    doc
-      .rect(x, yTop - CODE_PADDING_Y / 2, width, lineHeight + CODE_PADDING_Y / 2)
-      .fill(COLOR_CODE_BG);
+    doc.rect(x, yTop, width, lineHeight).fill(COLOR_CODE_BG);
     doc.fillColor(COLOR_TEXT);
     doc.text(line.length > 0 ? line : " ", x + CODE_PADDING_X, yTop, {
       width: width - 2 * CODE_PADDING_X,
@@ -238,6 +239,9 @@ function renderCodeBlock(doc: PDFKit.PDFDocument, token: Tokens.Code, indent: nu
     });
     doc.y = yTop + lineHeight;
   }
+
+  // Bottom padding after the block.
+  doc.y += CODE_PADDING_Y / 2;
   doc.moveDown(0.5);
   doc.font(FONT_BODY).fontSize(BODY_SIZE).fillColor(COLOR_TEXT);
 }
