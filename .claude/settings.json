@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "p=$(cat); if printf '%s' \"$p\" | grep -Eiq '(fix|fixing|repro|reproduce|debug|broken|regression).*(bug|issue|defect|problem|error)|(bug|issue|defect|regression).*(fix|repro)'; then printf 'Reminder: this prompt looks like a bug-fix request. Invoke the bug-fix-tdd skill and follow its test-first workflow (write failing fix_case + passing bug_case BEFORE editing production code).'; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
