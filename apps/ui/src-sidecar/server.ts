@@ -4,6 +4,7 @@ import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { taskRoutes } from "./routes/tasks";
 import { loopRoutes } from "./routes/loop";
 import { documentRoutes } from "./routes/documents";
+import { introRoutes } from "./routes/intro";
 import { addStream, removeStream } from "./streams";
 import { isTaskRunning } from "./routes/loop";
 import type { SidecarContext } from "./types";
@@ -37,9 +38,12 @@ interface WsData {
 type Route =
   | { handler: "tasks"; action: string; name: string | undefined }
   | { handler: "documents"; name: string; doc: string }
-  | { handler: "loop"; name: string; action: string };
+  | { handler: "loop"; name: string; action: string }
+  | { handler: "intro" };
 
 function parseRoute(pathname: string): Route | null {
+  if (pathname === "/intro") return { handler: "intro" };
+
   // GET /tasks or POST /tasks
   if (pathname === "/tasks") return { handler: "tasks", action: "list", name: undefined };
 
@@ -107,6 +111,8 @@ const server = Bun.serve<WsData>({
     try {
       const result = await runWithContext(createDefaultContext(), async () => {
         switch (route.handler) {
+          case "intro":
+            return introRoutes(req);
           case "tasks":
             return taskRoutes(req, route, ctx);
           case "documents":

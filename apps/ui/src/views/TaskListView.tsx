@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTasks } from "../hooks/useTasks";
 import { useSidecar } from "../context/Sidecar.context";
+import { StarterPackIntro } from "../components/StarterPackIntro";
 
 function formatCost(usd: number): string {
   return `$${(Math.round(usd * 100) / 100).toFixed(2)}`;
@@ -47,12 +48,7 @@ export function TaskListView() {
         {loading ? (
           <p style={{ color: "var(--text-dim)" }}>Loading tasks...</p>
         ) : tasks.length === 0 ? (
-          <div style={{ textAlign: "center", paddingTop: 60 }}>
-            <p style={{ color: "var(--text-dim)", marginBottom: 12 }}>No tasks yet</p>
-            <Link to="/tasks/new">
-              <button className="primary">Create your first task</button>
-            </Link>
-          </div>
+          <StarterPackIntro />
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
