@@ -154,6 +154,9 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       });
 
       let iter = 0;
+      // Capture iterations already completed in prior runs so respawned workers
+      // count toward the total maxIterations budget rather than resetting to 0.
+      const startingIteration = currentState.iteration;
       const loopStartTime = Date.now();
       let consFailures = 0;
       let lastResult = "";
@@ -163,7 +166,13 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         currentState = readState(stateDir);
         setState(currentState);
 
-        const stop = checkStopCondition(currentState, iter, opts, loopStartTime, consFailures);
+        const stop = checkStopCondition(
+          currentState,
+          startingIteration + iter,
+          opts,
+          loopStartTime,
+          consFailures,
+        );
         if (stop !== null) {
           finalStopReason = stop;
           break;
@@ -394,7 +403,13 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
 
           // Delay between iterations
           if (
-            checkStopCondition(currentState, iter, opts, loopStartTime, consFailures) === null &&
+            checkStopCondition(
+              currentState,
+              startingIteration + iter,
+              opts,
+              loopStartTime,
+              consFailures,
+            ) === null &&
             opts.delay > 0
           ) {
             addInfo(`Sleeping ${opts.delay}s before next iteration...`);
