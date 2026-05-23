@@ -77,7 +77,6 @@
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/paths": "workspace:*",
-        "@ralphy/telemetry": "workspace:*",
         "@ralphy/types": "workspace:*",
         "@ralphy/version": "workspace:*",
         "@ralphy/workflow": "workspace:*",
@@ -116,6 +115,7 @@
       "name": "@ralphy/ui",
       "version": "0.0.0",
       "dependencies": {
+        "@ralphy/content": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",

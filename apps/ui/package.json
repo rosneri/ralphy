@@ -10,6 +10,7 @@
     "dev:frontend": "bunx vite"
   },
   "dependencies": {
+    "@ralphy/content": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",
