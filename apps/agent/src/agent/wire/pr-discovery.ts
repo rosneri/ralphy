@@ -131,8 +131,12 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
         state = parsed.state;
         m = parsed.mergeable;
       } catch (err) {
-        diag("pr", `! gh pr view ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
-        return { url: prUrl, status: "unknown" };
+        diag(
+          "pr",
+          `! gh pr view ${prUrl} failed (attempt ${attempt + 1}/3): ${(err as Error).message} — will retry`,
+          "yellow",
+        );
+        // m stays undefined → loop sleeps and retries rather than bailing immediately
       }
       if (state && state !== "OPEN") {
         markPrUnavailable(changeName);
