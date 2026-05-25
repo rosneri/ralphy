@@ -8,6 +8,17 @@ import { findProjectRoot } from "@ralphy/paths";
 import { parseArgs, printHelp, type ParsedArgs } from "./cli";
 import { AgentMode } from "./components/AgentMode";
 import { shouldFallbackToJsonOutput } from "./non-tty-fallback";
+import {
+  tmuxAvailable,
+  sessionName,
+  sessionExists,
+  isInsideTmux,
+  getSessionStatus,
+  createSession,
+  attachSession,
+  switchClientToSession,
+  killSession,
+} from "./runtime/tmux";
 
 export async function main(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -44,6 +55,22 @@ export async function main(argv: string[]): Promise<number> {
     return typeof process.exitCode === "number" ? process.exitCode : 0;
   }
 
+  if (args.mode === "stop") {
+    const name = sessionName(projectRoot);
+    const killed = killSession(name);
+    process.stdout.write(
+      killed ? `Stopped agent session: ${name}\n` : `No session found: ${name}\n`,
+    );
+    return 0;
+  }
+
+  if (args.mode === "status") {
+    const name = sessionName(projectRoot);
+    const s = getSessionStatus(name);
+    process.stdout.write(JSON.stringify(s) + "\n");
+    return 0;
+  }
+
   await mkdir(statesDir, { recursive: true });
   await mkdir(tasksDir, { recursive: true });
   await mkdir(join(projectRoot, ".ralph"), { recursive: true });
@@ -57,6 +84,20 @@ export async function main(argv: string[]): Promise<number> {
     const { runAgentJson } = await import("./agent/json-runner");
     await runAgentJson({ args, projectRoot, statesDir, tasksDir });
     return typeof process.exitCode === "number" ? process.exitCode : 0;
+  }
+
+  if (!args.noTmux && !process.env["RALPH_AGENT_MANAGED"] && tmuxAvailable()) {
+    const name = sessionName(projectRoot);
+    if (!sessionExists(name)) {
+      const managedArgv = argv.filter((a) => a !== "--no-tmux");
+      createSession(name, managedArgv, { RALPH_AGENT_MANAGED: "1" });
+    }
+    if (isInsideTmux()) {
+      switchClientToSession(name);
+    } else {
+      attachSession(name);
+    }
+    return 0;
   }
 
   await runWithContext(createDefaultContext(), async () => {

@@ -10,7 +10,7 @@ import {
 
 export { VERSION };
 
-export type AgentMode = "agent" | "list";
+export type AgentMode = "agent" | "list" | "stop" | "status";
 
 export interface ParsedArgs extends CommonArgs {
   mode: AgentMode;
@@ -45,9 +45,11 @@ export interface ParsedArgs extends CommonArgs {
   debug: boolean;
   /** Force-enable the pre-existing-error baseline gate (overrides config). */
   preExistingErrorCheck?: boolean;
+  /** Disable tmux session management; run agent in the foreground directly. */
+  noTmux: boolean;
 }
 
-const VALID_MODES = new Set<string>(["agent", "list"]);
+const VALID_MODES = new Set<string>(["agent", "list", "stop", "status"]);
 
 const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getTodo",
@@ -78,6 +80,8 @@ const HELP_TEXT = [
   "Commands:",
   "  (default)               Poll Linear and run task loops concurrently (requires LINEAR_API_KEY)",
   "  list                    List active changes + Linear tickets per indicator bucket",
+  "  stop                    Kill the managed tmux agent session for this workspace",
+  "  status                  Report whether the managed tmux agent session exists and is attached",
   "",
   "Options:",
   "  --name <id>             Change name / ticket identifier (list / debug filter)",
@@ -112,6 +116,7 @@ const HELP_TEXT = [
   "  --stack-prs             Base the PR on a blocker issue's open-PR head branch when present (needs --create-pr)",
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
+  "  --no-tmux               Disable tmux session management; run agent in the foreground directly",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
   "                          (auto-enabled when stdin is not a TTY, e.g. pipes / nohup / CI)",
   "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
@@ -203,6 +208,7 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
     prompt: "",
     manualTest: false,
     debug: false,
+    noTmux: false,
   };
 
   const state = emptyParseState();
@@ -329,6 +335,9 @@ export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
         break;
       case "--pre-existing-error-check":
         result.preExistingErrorCheck = true;
+        break;
+      case "--no-tmux":
+        result.noTmux = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {
