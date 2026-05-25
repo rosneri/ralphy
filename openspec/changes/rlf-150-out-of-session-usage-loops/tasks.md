@@ -11,11 +11,11 @@
 
 ## Implementation
 
-- [ ] Add `SESSION_LIMIT_PATTERNS` and `isResultErrorLimitText()` to `packages/engine/src/agents/claude.ts`; check `result-error` events against it to set `detectedRateLimit = true`
-- [ ] Mirror the same `SESSION_LIMIT_PATTERNS` and `isResultErrorLimitText()` detection in `packages/engine/src/agents/scripted.ts`
-- [ ] Add guard in `apps/loop/src/hooks/useLoop.ts` between non-zero exit block and success path: when `engineResult.rateLimited` is true on exit 0, log, record, emit, and break
-- [ ] Add unit tests for result-error usage-limit detection in `packages/engine/src/__tests__/agents.test.ts`
-- [ ] Add engine-level tests for result-error usage-limit detection via scripted agent in `packages/engine/src/__tests__/engine.test.ts`
-- [ ] Add structural assertion in `apps/loop/src/hooks/__tests__/useLoop.test.ts` confirming the guard is present
-- [ ] Run `bun run lint` and confirm 0 errors
-- [ ] Run `bun test` in `packages/engine` and `apps/loop` and confirm all tests pass
+- [x] Add `SESSION_LIMIT_PATTERNS` and `isResultErrorLimitText()` to `packages/engine/src/agents/claude.ts`; check `result-error` events against it to set `detectedRateLimit = true`
+- [x] Mirror the same `SESSION_LIMIT_PATTERNS` and `isResultErrorLimitText()` detection in `packages/engine/src/agents/scripted.ts`
+- [x] Add guard in `apps/loop/src/hooks/useLoop.ts` between non-zero exit block and success path: when `engineResult.rateLimited` is true on exit 0, log, record, emit, and break
+- [x] Add unit tests for result-error usage-limit detection in `packages/engine/src/__tests__/agents.test.ts`
+- [x] Add engine-level tests for result-error usage-limit detection via scripted agent in `packages/engine/src/__tests__/engine.test.ts`
+- [x] Add structural assertion in `apps/loop/src/hooks/__tests__/useLoop.test.ts` confirming the guard is present
+- [x] Run `bun run lint` and confirm 0 errors
+- [x] Run `bun test` in `packages/engine` and `apps/loop` and confirm all tests pass
