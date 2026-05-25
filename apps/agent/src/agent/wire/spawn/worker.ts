@@ -140,6 +140,7 @@ export function createSpawnWorker(
       if (rp.reviewerContextStrategy !== "fresh")
         c.push("--review-context-strategy", rp.reviewerContextStrategy);
     }
+    const wantValidateOnly = cfg.validateOnComplete && !(args.createPr || cfg.createPrOnSuccess);
     if (wantValidateOnly) c.push("--validate-on-complete");
     c.push("--from-agent");
     return c;
