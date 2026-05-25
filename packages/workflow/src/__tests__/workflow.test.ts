@@ -237,6 +237,23 @@ describe("renderTemplate", () => {
     const out = renderWorkflowPrompt(wf, {});
     expect(out).toBe("proj=demo rules=no foo nt=dist/**");
   });
+
+  test("default workflow body does not include issue description (regression: proposal duplication)", () => {
+    const wf = parseWorkflow(DEFAULT_WORKFLOW_MD);
+    const description = "Users want a dark mode toggle in settings.";
+    const out = renderWorkflowPrompt(wf, {
+      issue: {
+        identifier: "RLF-1",
+        title: "Test issue",
+        description,
+        url: "https://linear.app/test",
+        labels: [],
+      },
+      attempt: 1,
+      last_error: "",
+    });
+    expect(out).not.toContain(description);
+  });
 });
 
 describe("resolveBaselineCommands", () => {

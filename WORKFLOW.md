@@ -206,8 +206,6 @@ You are working on {{ issue.identifier }}: {{ issue.title }}.
 Previous attempt failed with: {{ last_error }}
 {% endif %}
 
-{{ issue.description }}
-
 {% if issue.labels %}
 Labels: {{ issue.labels | join(", ") }}
 {% endif %}
