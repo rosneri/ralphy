@@ -62,6 +62,7 @@ export interface LoopOptions {
   verbose: boolean;
   manualTest: boolean;
   createPr?: boolean;
+  validateOnComplete?: boolean;
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;
@@ -217,7 +218,10 @@ export function buildTaskPrompt(
 
   // 5. Base context: change name and instructions
   prompt += `Change name: \`${state.name}\`\n\n`;
-  prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
+  const validateOnly = state.validateOnComplete && !state.createPr;
+  if (!validateOnly) {
+    prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
+  }
   prompt += `Commit all changed files yourself before finishing — stage files individually (e.g. \`git add path/to/file\`), never \`git add -A\` or \`git commit -am\`. Nothing is committed automatically after you exit.\n`;
 
   if (state.createPr) {

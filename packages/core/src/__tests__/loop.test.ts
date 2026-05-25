@@ -488,3 +488,30 @@ describe("buildTaskPrompt — review phase", () => {
       expect(prompt).not.toContain("Self-Review Phase");
     }));
 });
+
+describe("buildTaskPrompt — validateOnComplete", () => {
+  test("omits openspec-validate and PR instructions when validateOnComplete=true and createPr=false", () =>
+    withStorage(() => {
+      const state = { ...makeState(), validateOnComplete: true, createPr: false };
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("bunx openspec validate");
+      expect(prompt).not.toContain("gh pr create");
+    }));
+
+  test("keeps openspec-validate when validateOnComplete=true but createPr=true", () =>
+    withStorage(() => {
+      const state = { ...makeState(), validateOnComplete: true, createPr: true };
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("bunx openspec validate");
+    }));
+
+  test("keeps openspec-validate when validateOnComplete=false", () =>
+    withStorage(() => {
+      const state = { ...makeState(), validateOnComplete: false };
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("bunx openspec validate");
+    }));
+});

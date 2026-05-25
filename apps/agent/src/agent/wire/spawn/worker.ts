@@ -140,6 +140,7 @@ export function createSpawnWorker(
       if (rp.reviewerContextStrategy !== "fresh")
         c.push("--review-context-strategy", rp.reviewerContextStrategy);
     }
+    if (wantValidateOnly) c.push("--validate-on-complete");
     c.push("--from-agent");
     return c;
   }
@@ -204,6 +205,7 @@ export function createSpawnWorker(
       : cmdRunner;
 
     const wantPrBase = args.createPr || cfg.createPrOnSuccess;
+    const wantValidateOnly = cfg.validateOnComplete && !wantPrBase;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
     const issueForChange = issueByChange.get(changeName);
     const wantAutoMerge = issueForChange
@@ -274,6 +276,7 @@ export function createSpawnWorker(
           wantPr,
           wantFixCi,
           wantAutoMerge,
+          wantValidateOnly,
           cfg: {
             teardownScript: cfg.teardownScript ?? null,
             prBaseBranch: cfg.prBaseBranch,
@@ -286,6 +289,9 @@ export function createSpawnWorker(
             neverTouch: cfg.boundaries.never_touch,
             metaOnlyFiles: cfg.boundaries.meta_only_files,
             manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
+            validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
+              (c): c is string => Boolean(c),
+            ),
           },
           respawnWorker: respawn,
         },

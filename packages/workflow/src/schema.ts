@@ -145,6 +145,7 @@ export const WorkflowConfigSchema = z.object({
   teardownScript: z.string().optional(),
   appendPrompt: z.string().optional(),
   createPrOnSuccess: z.boolean().default(false),
+  validateOnComplete: z.boolean().default(false),
   prBaseBranch: z.string().default("main"),
   stackPrsOnDependencies: z.boolean().default(false),
   autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),

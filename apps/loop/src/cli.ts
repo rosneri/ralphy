@@ -27,6 +27,8 @@ export interface LoopParsedArgs extends CommonArgs {
   fromAgent: boolean;
   /** Review phase configuration forwarded from the workflow config. */
   reviewPhase: ReviewPhaseArgs;
+  /** Run validation commands after completion instead of creating a PR. */
+  validateOnComplete: boolean;
 }
 
 // allow-duplicate
@@ -59,6 +61,7 @@ const HELP_TEXT = [
   "  --max-failures <n>      Stop after N consecutive failures (default: 5, 0 = disable)",
   "  --unlimited             No iteration limit (default)",
   "  --manual-test           Enable manual testing phase (create test tasks in tasks.md)",
+  "  --validate-on-complete  Run validation commands after completion (no PR created)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
   "  --review-enabled        Enable self-review pass after all tasks complete",
@@ -93,6 +96,7 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
       maxRounds: 1,
       reviewerContextStrategy: "fresh",
     },
+    validateOnComplete: false,
   };
 
   const state = emptyParseState();
@@ -168,6 +172,9 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
         break;
       case "--review-context-strategy":
         expectReviewContextStrategy = true;
+        break;
+      case "--validate-on-complete":
+        result.validateOnComplete = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

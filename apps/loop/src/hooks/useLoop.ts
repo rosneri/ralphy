@@ -128,6 +128,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           model: opts.model,
           manualTest: opts.manualTest,
           createPr: opts.createPr ?? false,
+          validateOnComplete: opts.validateOnComplete ?? false,
         });
         // Carry over linearComments / specAttachments if linear-sync wrote
         // them before the loop could scaffold full state — otherwise we'd
@@ -320,7 +321,8 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           writeState(stateDir, currentState);
           setState(currentState);
           try {
-            if (typeof opts.changeStore.getStatus === "function") {
+            const skipStatusCheck = currentState.validateOnComplete && !currentState.createPr;
+            if (!skipStatusCheck && typeof opts.changeStore.getStatus === "function") {
               const status = await opts.changeStore.getStatus(opts.name);
               if (!status.isComplete) {
                 const blocked = status.artifacts
