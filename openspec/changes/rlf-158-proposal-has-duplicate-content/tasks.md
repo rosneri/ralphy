@@ -11,8 +11,8 @@
 
 ## Implementation
 
-- [ ] Remove `{{ issue.description }}` line (and surrounding blank line) from the body of `DEFAULT_WORKFLOW_MD` in `packages/workflow/src/default.ts`
-- [ ] Remove `{{ issue.description }}` line (and surrounding blank line) from the body section of `WORKFLOW.md`
-- [ ] Add a test in `packages/workflow/src/__tests__/workflow.test.ts` verifying that rendering `DEFAULT_WORKFLOW_MD` with an issue description does NOT include the description in the output
-- [ ] Run `bun run lint`
-- [ ] Run `bun run test`
+- [x] Remove `{{ issue.description }}` line (and surrounding blank line) from the body of `DEFAULT_WORKFLOW_MD` in `packages/workflow/src/default.ts`
+- [x] Remove `{{ issue.description }}` line (and surrounding blank line) from the body section of `WORKFLOW.md`
+- [x] Add a test in `packages/workflow/src/__tests__/workflow.test.ts` verifying that rendering `DEFAULT_WORKFLOW_MD` with an issue description does NOT include the description in the output
+- [x] Run `bun run lint`
+- [x] Run `bun run test`
