@@ -56,18 +56,32 @@ export interface LoopOptions {
 }
 
 const STEERING_MAX_LINES = 20;
+const AUTO_VERBOSITY_MOMENTS = 5;
 
 /**
  * Build the full prompt for a change iteration by concatenating:
- * 1. Steering section from proposal.md (first 20 non-header lines)
- * 2. First unchecked section of tasks.md
- * 3. Manual testing instruction if enabled and primary tasks complete
+ * 1. Auto verbosity guidance for the first 5 moments (warm-up phase)
+ * 2. Steering section from steering.md (first 20 non-header lines)
+ * 3. First unchecked section of tasks.md
+ * 4. Manual testing instruction if enabled and primary tasks complete
  */
 export function buildTaskPrompt(state: State, taskDir: string): string {
   const storage = getStorage();
   let prompt = "";
 
-  // 1. Steering from steering.md
+  // 1. Auto verbosity: keep the first 5 moments very short
+  if (state.iteration < AUTO_VERBOSITY_MOMENTS) {
+    const momentNum = state.iteration + 1;
+    prompt += "---\n";
+    prompt += `# Verbosity: VERY SHORT (Moment ${momentNum}/${AUTO_VERBOSITY_MOMENTS})\n\n`;
+    prompt +=
+      `This is warm-up moment ${momentNum} of ${AUTO_VERBOSITY_MOMENTS}. ` +
+      `Keep your response **very short** — take one small step only and do the minimum work needed to make progress. ` +
+      `You will have room to elaborate in later moments.\n\n`;
+    prompt += "---\n\n";
+  }
+
+  // 2. Steering from steering.md (was step 1 before auto-verbosity)
   const steeringContent = storage.read(join(taskDir, "steering.md"));
   if (steeringContent !== null) {
     const steeringLines = steeringContent
@@ -84,7 +98,7 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     }
   }
 
-  // 2. Pick the active tasks file. Prefer agent-tasks.md when it has
+  // 3. Pick the active tasks file. Prefer agent-tasks.md when it has
   //    unchecked items so internal flow tasks (CI repair, push reject,
   //    merge conflicts, …) preempt mission work. Fall back to tasks.md.
   const agentTasksPath = join(taskDir, AGENT_TASKS_FILENAME);
@@ -120,7 +134,7 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     prompt += `**First action**: create \`${taskDir}/tasks.md\` with a checklist of all work items derived from the prompt above (use \`## Section\` headings with \`- [ ] task\` items). Then begin the first unchecked item.\n\n`;
   }
 
-  // 3. Manual testing instruction (if enabled and no more tasks).
+  // 4. Manual testing instruction (if enabled and no more tasks).
   //    Waits until both the mission tasks and any internal flow tasks
   //    have been ticked off so the manual phase doesn't slip in while
   //    the agent is still recovering from a runtime failure.
@@ -146,7 +160,7 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     }
   }
 
-  // 4. Base context: change name and instructions
+  // 5. Base context: change name and instructions
   prompt += `Change name: \`${state.name}\`\n\n`;
   prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
   prompt += `Commit all changed files yourself before finishing — stage files individually (e.g. \`git add path/to/file\`), never \`git add -A\` or \`git commit -am\`. Nothing is committed automatically after you exit.\n`;

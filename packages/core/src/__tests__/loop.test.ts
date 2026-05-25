@@ -353,6 +353,46 @@ describe("countUncheckedTasks", () => {
   });
 });
 
+describe("buildTaskPrompt — auto verbosity (first 5 moments)", () => {
+  test("injects very-short verbosity block on moment 1 (iteration 0)", () =>
+    withStorage(() => {
+      const state = makeState(); // iteration defaults to 0
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("Verbosity: VERY SHORT");
+      expect(prompt).toContain("Moment 1/5");
+      expect(prompt).toContain("warm-up moment 1 of 5");
+    }));
+
+  test("injects verbosity block on moment 5 (iteration 4)", () =>
+    withStorage(() => {
+      const state = { ...makeState(), iteration: 4 };
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("Verbosity: VERY SHORT");
+      expect(prompt).toContain("Moment 5/5");
+    }));
+
+  test("omits verbosity block on moment 6 (iteration 5)", () =>
+    withStorage(() => {
+      const state = { ...makeState(), iteration: 5 };
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("Verbosity: VERY SHORT");
+    }));
+
+  test("verbosity block appears before steering content", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "steering.md"), "Follow convention X\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt.indexOf("Verbosity: VERY SHORT")).toBeLessThan(
+        prompt.indexOf("Follow convention X"),
+      );
+    }));
+});
+
 describe("buildTaskPrompt — tracking instruction", () => {
   test("instructs the agent to tick boxes when an unchecked section is included", () =>
     withStorage(() => {
