@@ -203,6 +203,7 @@ describe("agent/scaffold", () => {
     expect(tasks).toContain("`## Why`");
     expect(tasks).toContain("`## What Changes`");
     expect(tasks).toContain("spec delta");
+    expect(tasks).toContain("anything else to add");
 
     expect(proposal).toContain("## Why");
     expect(proposal).toContain("## What Changes");
@@ -225,6 +226,9 @@ describe("agent/scaffold", () => {
     const proposal = readFileSync(join(tasksDir, name, "proposal.md"), "utf-8");
     expect(proposal).toContain("## Additional instructions");
     expect(proposal).toContain("Always run lint before committing.");
+
+    const tasks = readFileSync(join(tasksDir, name, "tasks.md"), "utf-8");
+    expect(tasks).toContain("anything else to add");
   });
 
   test("scaffoldChangeForIssue omits Additional instructions when prompt is empty", async () => {
