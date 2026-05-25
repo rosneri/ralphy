@@ -9,7 +9,7 @@ import {
   getStorage,
   runWithContext,
   createDefaultContext,
-} from "./context";
+} from "../context";
 
 let tempDir: string;
 

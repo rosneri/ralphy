@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toggleSection } from "./ProgressList";
+import { toggleSection } from "../ProgressList";
 
 describe("ProgressList toggleSection", () => {
   test("sections start collapsed (empty expanded set)", () => {

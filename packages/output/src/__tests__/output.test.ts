@@ -1,6 +1,6 @@
 import { describe, test, expect, spyOn, beforeEach, afterEach } from "bun:test";
-import { styled, log, error, blank, separator, kv } from "./output";
-import type { Style, StyledText } from "./output";
+import { styled, log, error, blank, separator, kv } from "../output";
+import type { Style, StyledText } from "../output";
 
 let logSpy: ReturnType<typeof spyOn>;
 let errorSpy: ReturnType<typeof spyOn>;

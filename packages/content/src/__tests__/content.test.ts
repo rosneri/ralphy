@@ -6,7 +6,7 @@ import {
   resolveTasksDir,
   resolvePhasesDir,
   resolveChecklistsDir,
-} from "./content";
+} from "../content";
 
 describe("content path resolvers", () => {
   test("resolveScaffoldsDir returns an absolute path ending in /scaffolds", () => {

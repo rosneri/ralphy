@@ -1,12 +1,19 @@
 #!/usr/bin/env bun
 /**
- * Filename Case Check
+ * Filename Case Check (ralphy variant)
  *
- * All source files under apps/ and libs/ must use kebab-case filenames.
- * Exception: hook files (useSomething.ts) follow React camelCase convention.
+ * Source files under apps/ and packages/ must use one of:
+ *   - kebab-case        (e.g. login-form.tsx, post-task.ts)
+ *   - camelCase         (e.g. postTask.ts, useGamePhase.ts)
+ *   - PascalCase        (e.g. App.tsx, AgentMode.tsx, TaskLoop.test.tsx)
  *
- * Valid:   auth.context.tsx, login-form.tsx, useGamePhase.ts, panel-body.tsx
- * Invalid: LoginForm.tsx, ThemeToggleWrapper.tsx, SignOutButton.tsx
+ * Hook files (useSomething.ts) follow React camelCase convention. Compound
+ * extensions like `.test` / `.context` are allowed (foo.test.tsx, auth.context.tsx).
+ *
+ * Forbidden: SCREAMING_SNAKE_CASE, spaces, leading dot/digit, other punctuation.
+ *
+ * Valid:   App.tsx, postTask.ts, login-form.tsx, useGamePhase.ts, auth.context.tsx
+ * Invalid: SCREAMING_CASE.ts, "with spaces.ts", 1foo.ts, _hidden.ts
  */
 
 import { readdir } from "node:fs/promises";
@@ -30,15 +37,21 @@ function isExempt(filePath: string): boolean {
   return EXEMPT_PATTERNS.some((pattern) => pattern.test(filePath));
 }
 
-function isHookFile(name: string): boolean {
-  return /^use[A-Z]/.test(name);
-}
-
-function isKebabCase(name: string): boolean {
-  // Strip extension(s) — e.g. "login-form.test.tsx" → "login-form.test"
+function isValidName(name: string): boolean {
+  // Strip final extension only — e.g. "login-form.test.tsx" → "login-form.test"
   const withoutFinalExt = name.replace(/\.[^.]+$/, "");
-  // Allow: lowercase letters, digits, hyphens, dots (for .context, .test, etc.)
-  return /^[a-z0-9][a-z0-9.-]*$/.test(withoutFinalExt);
+  // Each dot-separated segment must be kebab-case, camelCase, or PascalCase.
+  // No SCREAMING_SNAKE (would need all-caps with underscores), no spaces, no
+  // leading digit/symbol, no underscores.
+  const segments = withoutFinalExt.split(".");
+  if (segments.length === 0) return false;
+  return segments.every((seg) => {
+    if (seg.length === 0) return false;
+    // Reject all-caps multi-letter segments (e.g. README, CONST_NAME).
+    if (/^[A-Z]+$/.test(seg) && seg.length > 1) return false;
+    // Allow: starts with letter, body is letters/digits/hyphens.
+    return /^[A-Za-z][A-Za-z0-9-]*$/.test(seg);
+  });
 }
 
 async function* walkFiles(dir: string): AsyncGenerator<string> {
@@ -55,15 +68,14 @@ async function* walkFiles(dir: string): AsyncGenerator<string> {
 }
 
 async function main(): Promise<void> {
-  const scanRoots = [join(REPO_ROOT, "apps"), join(REPO_ROOT, "libs")];
+  const scanRoots = [join(REPO_ROOT, "apps"), join(REPO_ROOT, "packages")];
   const violations: string[] = [];
 
   for (const root of scanRoots) {
     try {
       for await (const filePath of walkFiles(root)) {
         const name = filePath.split("/").pop() ?? "";
-        if (isHookFile(name)) continue;
-        if (!isKebabCase(name)) {
+        if (!isValidName(name)) {
           violations.push(relative(REPO_ROOT, filePath));
         }
       }
@@ -73,16 +85,16 @@ async function main(): Promise<void> {
   }
 
   if (violations.length === 0) {
-    console.log("✓ All source files use kebab-case names (hooks exempt)");
+    console.log("✓ All source files use kebab-case, camelCase, or PascalCase names");
     return;
   }
 
-  console.error(`✘ Found ${violations.length} file(s) with non-kebab-case names:\n`);
+  console.error(`✘ Found ${violations.length} file(s) with disallowed names:\n`);
   for (const v of violations) {
     console.error(`  ${v}`);
   }
   console.error(
-    "\nRename to kebab-case (e.g. LoginForm.tsx → login-form.tsx). Hook files (useSomething.ts) are exempt.",
+    "\nUse kebab-case, camelCase, or PascalCase. Forbidden: SCREAMING_SNAKE_CASE, spaces, leading digit/dot/underscore.",
   );
   process.exit(1);
 }
