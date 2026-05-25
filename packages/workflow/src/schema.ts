@@ -260,6 +260,30 @@ export const WorkflowConfigSchema = z.object({
       label: "ralph:pre-existing-error",
       outputCharLimit: 4000,
     }),
+  openspec: z
+    .object({
+      reviewPhase: z
+        .object({
+          enabled: z.boolean().default(false),
+          maxRounds: z.number().int().nonnegative().default(1),
+          reviewerModel: z.string().optional(),
+          reviewerContextStrategy: z.enum(["fresh", "warm"]).default("fresh"),
+        })
+        .strict()
+        .default({
+          enabled: false,
+          maxRounds: 1,
+          reviewerContextStrategy: "fresh",
+        }),
+    })
+    .strict()
+    .default({
+      reviewPhase: {
+        enabled: false,
+        maxRounds: 1,
+        reviewerContextStrategy: "fresh",
+      },
+    }),
 });
 
 export type WorkflowConfig = z.infer<typeof WorkflowConfigSchema>;

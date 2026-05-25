@@ -419,3 +419,72 @@ describe("buildTaskPrompt — createPr instructions", () => {
       expect(prompt).not.toContain("gh pr create");
     }));
 });
+
+describe("buildTaskPrompt — review phase", () => {
+  const reviewConfig = { enabled: true, maxRounds: 2 };
+
+  test("injects self-review prompt when all tasks done and no review-findings.md", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] all done\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir, reviewConfig);
+      expect(prompt).toContain("Self-Review Phase");
+      expect(prompt).toContain("review-findings.md");
+    }));
+
+  test("injects address-findings prompt when open findings and under cap", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] all done\n", "utf-8");
+      writeFileSync(join(tempDir, "review-findings.md"), "## Open\n\n- [ ] Fix the bug\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir, reviewConfig);
+      expect(prompt).toContain("Address Review Findings");
+      expect(prompt).toContain("1 open finding");
+    }));
+
+  test("omits review prompt when cap reached", () =>
+    withStorage(() => {
+      const state = { ...makeState(), reviewRounds: 2 };
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] all done\n", "utf-8");
+      writeFileSync(join(tempDir, "review-findings.md"), "## Open\n\n- [ ] Still open\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir, reviewConfig);
+      expect(prompt).not.toContain("Address Review Findings");
+      expect(prompt).not.toContain("Self-Review Phase");
+    }));
+
+  test("omits review prompt when review disabled (no config)", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] all done\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("Self-Review Phase");
+    }));
+
+  test("omits review prompt when tasks still have unchecked items", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Todo\n- [ ] not done\n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir, reviewConfig);
+      expect(prompt).not.toContain("Self-Review Phase");
+    }));
+
+  test("no review prompt when review-findings.md has no open items", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] all done\n", "utf-8");
+      writeFileSync(
+        join(tempDir, "review-findings.md"),
+        "## Open\n\n(no findings — close round)\n",
+        "utf-8",
+      );
+      const prompt = buildTaskPrompt(state, tempDir, reviewConfig);
+      expect(prompt).not.toContain("Address Review Findings");
+      expect(prompt).not.toContain("Self-Review Phase");
+    }));
+});

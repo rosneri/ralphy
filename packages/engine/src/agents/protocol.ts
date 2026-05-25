@@ -27,6 +27,13 @@ export interface AgentRequest {
   /** Optional hook for raw protocol lines (stdout/stderr from the underlying
    *  CLI). Used by the loop to append raw transcripts to a log file. */
   onRawLine?: (line: string) => void;
+  /** Context strategy for the reviewer spawn. "fresh" skips --resume so the
+   *  reviewer starts with a clean context window (default). "warm" passes
+   *  resumeSessionId through as normal. */
+  reviewerContextStrategy?: "fresh" | "warm";
+  /** Override model for the reviewer spawn. When set, uses this model
+   *  instead of the task's default model. */
+  reviewerModel?: string;
 }
 
 export interface AgentRunResult {

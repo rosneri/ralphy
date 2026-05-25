@@ -5,10 +5,12 @@ import type { FeedEvent } from "@ralphy/engine/feed-events";
 import {
   readState,
   writeState,
+  updateState,
   buildInitialState,
   ensureState,
   tryReadStateRaw,
 } from "@ralphy/core/state";
+import { countOpenFindings } from "@ralphy/core/openspec-phase";
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
 import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
@@ -27,6 +29,7 @@ import {
   MISSION_TASKS_FILENAME,
   type StopReason,
   type LoopOptions,
+  type ReviewRoundResult,
 } from "../loop";
 
 export type LogEntry =
@@ -235,6 +238,79 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         const missionDone = tasksContent !== null && allTasksCompleted(tasksContent);
         const agentDone = agentTasksContent === null || allTasksCompleted(agentTasksContent);
         if (missionDone && agentDone && tasksContent !== null) {
+          // --- Self-review gate (when enabled) ---
+          if (opts.reviewPhase?.enabled) {
+            const reviewFindingsPath = join(tasksDir, "review-findings.md");
+            const reviewFindingsFile = Bun.file(reviewFindingsPath);
+            const findingsExists = await reviewFindingsFile.exists();
+            const findingsContent = findingsExists ? await reviewFindingsFile.text() : null;
+            const openCount = findingsContent !== null ? countOpenFindings(findingsContent) : -1;
+            const capReached = currentState.reviewRounds >= opts.reviewPhase.maxRounds;
+
+            if (!capReached && (findingsContent === null || openCount > 0)) {
+              const roundNum = currentState.reviewRounds + 1;
+              addInfo(`Running self-review pass ${roundNum}/${opts.reviewPhase.maxRounds}…`);
+
+              const reviewPrompt = [
+                "# Self-Review Pass",
+                "",
+                `You are a fresh reviewer for change \`${opts.name}\`. Your sole task is to audit the implementation.`,
+                "",
+                "1. Read `proposal.md` and `design.md` from `openspec/changes/" + opts.name + "/`.",
+                "2. Run `git diff main` (or the base branch) to see all changes.",
+                "3. Check the diff against the acceptance criteria in `proposal.md`.",
+                `4. Write findings to \`${reviewFindingsPath}\`:`,
+                "   - If issues found: `- [ ] <finding>` under `## Open`.",
+                "   - If no issues: `(no findings — close round)` under `## Open`.",
+                "",
+                "Do not implement any fixes. Only write the findings file.",
+              ].join("\n");
+
+              await runEngine({
+                engine: opts.engine as import("@ralphy/types").Engine,
+                model: opts.reviewPhase.reviewerModel ?? opts.model,
+                prompt: reviewPrompt,
+                logFlag: opts.log,
+                logFile: join(stateDir, `log-review-${roundNum}.json`),
+                taskDir: tasksDir,
+                reviewerContextStrategy: opts.reviewPhase.reviewerContextStrategy ?? "fresh",
+                onFeedEvent: addFeedEvent,
+              });
+
+              const updatedFile = Bun.file(reviewFindingsPath);
+              const updatedContent = (await updatedFile.exists()) ? await updatedFile.text() : null;
+              const newOpenCount = updatedContent ? countOpenFindings(updatedContent) : 0;
+
+              currentState = updateState(stateDir, (s) => ({
+                ...s,
+                reviewRounds: s.reviewRounds + 1,
+                lastModified: new Date().toISOString(),
+              }));
+              setState(currentState);
+
+              const newCapReached = currentState.reviewRounds >= opts.reviewPhase.maxRounds;
+              const roundResult: ReviewRoundResult = {
+                openFindings: newOpenCount,
+                roundNumber: currentState.reviewRounds,
+                capReached: newCapReached,
+                findingsContent: updatedContent,
+              };
+              await opts.onReviewRound?.(roundResult);
+
+              if (newOpenCount > 0 && !newCapReached) {
+                addInfo(`Review found ${newOpenCount} finding(s) — looping back for a fix cycle.`);
+                continue;
+              }
+              if (newCapReached && newOpenCount > 0) {
+                addInfo(
+                  `Review cap reached with ${newOpenCount} open finding(s) — proceeding to done.`,
+                );
+              } else {
+                addInfo("Self-review passed — no open findings.");
+              }
+            }
+          }
+          // --- Archive ---
           addInfo("All tasks completed — archiving change.");
           currentState = {
             ...currentState,

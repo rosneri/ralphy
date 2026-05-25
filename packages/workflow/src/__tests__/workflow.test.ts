@@ -290,3 +290,43 @@ describe("findBoundaryViolations", () => {
     expect(findBoundaryViolations(["dist/x"], [])).toEqual([]);
   });
 });
+
+describe("parseWorkflow — openspec.reviewPhase", () => {
+  test("defaults: enabled false, maxRounds 1, strategy fresh", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.openspec.reviewPhase.enabled).toBe(false);
+    expect(config.openspec.reviewPhase.maxRounds).toBe(1);
+    expect(config.openspec.reviewPhase.reviewerContextStrategy).toBe("fresh");
+    expect(config.openspec.reviewPhase.reviewerModel).toBeUndefined();
+  });
+
+  test("accepts explicit enabled: true with defaults", () => {
+    const { config } = parseWorkflow(`---\nopenspec:\n  reviewPhase:\n    enabled: true\n---\n`);
+    expect(config.openspec.reviewPhase.enabled).toBe(true);
+    expect(config.openspec.reviewPhase.maxRounds).toBe(1);
+  });
+
+  test("accepts all valid fields", () => {
+    const { config } = parseWorkflow(
+      `---\nopenspec:\n  reviewPhase:\n    enabled: true\n    maxRounds: 3\n    reviewerModel: sonnet\n    reviewerContextStrategy: warm\n---\n`,
+    );
+    expect(config.openspec.reviewPhase.enabled).toBe(true);
+    expect(config.openspec.reviewPhase.maxRounds).toBe(3);
+    expect(config.openspec.reviewPhase.reviewerModel).toBe("sonnet");
+    expect(config.openspec.reviewPhase.reviewerContextStrategy).toBe("warm");
+  });
+
+  test("rejects unknown keys under reviewPhase (strict)", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nopenspec:\n  reviewPhase:\n    enabled: true\n    unknownKey: foo\n---\n`,
+      ),
+    ).toThrow();
+  });
+
+  test("rejects invalid reviewerContextStrategy value", () => {
+    expect(() =>
+      parseWorkflow(`---\nopenspec:\n  reviewPhase:\n    reviewerContextStrategy: invalid\n---\n`),
+    ).toThrow();
+  });
+});

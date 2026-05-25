@@ -180,6 +180,66 @@ describe("claudeAgent.run", () => {
     expect(call.cmd).toContain("prev-session");
   });
 
+  test("skips --resume when reviewerContextStrategy is 'fresh'", async () => {
+    setupProc([INIT, RESULT]);
+
+    await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      resumeSessionId: "prev-session",
+      reviewerContextStrategy: "fresh",
+      onFeedEvent: () => {},
+    });
+
+    const call = spawnMock.mock.calls[0]![0];
+    expect(call.cmd).not.toContain("--resume");
+    expect(call.cmd).not.toContain("prev-session");
+  });
+
+  test("passes --resume when reviewerContextStrategy is 'warm'", async () => {
+    setupProc([INIT, RESULT]);
+
+    await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      resumeSessionId: "prev-session",
+      reviewerContextStrategy: "warm",
+      onFeedEvent: () => {},
+    });
+
+    const call = spawnMock.mock.calls[0]![0];
+    expect(call.cmd).toContain("--resume");
+    expect(call.cmd).toContain("prev-session");
+  });
+
+  test("uses reviewerModel when provided", async () => {
+    setupProc([INIT, RESULT]);
+
+    await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      reviewerModel: "claude-reviewer-model",
+      onFeedEvent: () => {},
+    });
+
+    const call = spawnMock.mock.calls[0]![0];
+    expect(call.cmd).toContain("claude-reviewer-model");
+    expect(call.cmd).not.toContain("claude-test");
+  });
+
+  test("falls back to base model when reviewerModel is not set", async () => {
+    setupProc([INIT, RESULT]);
+
+    await claudeAgent.run({
+      model: "claude-base",
+      prompt: "go",
+      onFeedEvent: () => {},
+    });
+
+    const call = spawnMock.mock.calls[0]![0];
+    expect(call.cmd).toContain("claude-base");
+  });
+
   test("kills immediately when signal is already aborted (SIGTERM exit normalized to 0)", async () => {
     setupProc([INIT, RESULT], 143);
     const controller = new AbortController();
