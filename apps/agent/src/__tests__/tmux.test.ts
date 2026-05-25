@@ -29,6 +29,8 @@ const {
   tmuxAvailable,
   isInsideTmux,
   killSession,
+  attachSession,
+  switchClientToSession,
 } = await import("../runtime/tmux");
 
 beforeEach(() => {
@@ -177,5 +179,21 @@ describe("killSession", () => {
   it("returns false when kill-session exits non-zero", () => {
     nextSpawnResult = { exitCode: 1, stdout: "", stderr: "session not found" };
     expect(killSession("my-session")).toBe(false);
+  });
+});
+
+describe("attachSession", () => {
+  it("calls tmux attach-session with the given name", () => {
+    nextSpawnResult = { exitCode: 0, stdout: "", stderr: "" };
+    attachSession("my-session");
+    expect(spawnCalls[0]?.cmd).toEqual(["tmux", "attach-session", "-t", "my-session"]);
+  });
+});
+
+describe("switchClientToSession", () => {
+  it("calls tmux switch-client with the given name", () => {
+    nextSpawnResult = { exitCode: 0, stdout: "", stderr: "" };
+    switchClientToSession("my-session");
+    expect(spawnCalls[0]?.cmd).toEqual(["tmux", "switch-client", "-t", "my-session"]);
   });
 });
