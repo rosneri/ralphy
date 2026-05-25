@@ -59,15 +59,17 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
       const layout = projectLayout(root);
       const changeDir = layout.changeDir(worker.changeName);
       const statePath = layout.stateFile(worker.changeName);
-      await postPlanCommentOnce({
-        apiKey,
-        issueId: worker.issueId,
-        statePath,
-        changeDir,
-        changeName: worker.changeName,
-        log: onLog,
-        mutations: commentMutations,
-      });
+      if (!specAttachmentsEnabled) {
+        await postPlanCommentOnce({
+          apiKey,
+          issueId: worker.issueId,
+          statePath,
+          changeDir,
+          changeName: worker.changeName,
+          log: onLog,
+          mutations: commentMutations,
+        });
+      }
       await postOrUpdateTasksComment({
         apiKey,
         issueId: worker.issueId,

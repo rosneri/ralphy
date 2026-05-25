@@ -10,6 +10,9 @@ import {
   isCommentNotFoundError,
   type CommentMutations,
 } from "../agent/linear-sync/comment-sync";
+import { createCommentSyncHooks } from "../agent/wire/comment-sync";
+import type { RalphyConfig } from "../agent/config";
+import { WorkflowConfigSchema } from "@ralphy/workflow";
 
 let tempDir: string;
 let changeDir: string;
@@ -335,5 +338,116 @@ describe("postSteeringAndRefreshTasks", () => {
     expect(m.deletedIds).toEqual(["c-1"]);
     const s = await readState();
     expect((s.linearComments as { tasksCommentId?: string }).tasksCommentId).toBe("c-3");
+  });
+});
+
+describe("createCommentSyncHooks — syncTasks: plan comment suppression with spec attachments", () => {
+  let savedFetch: typeof globalThis.fetch;
+
+  function makeWireConfig(syncSpecsAsAttachments: boolean): RalphyConfig {
+    return WorkflowConfigSchema.parse({
+      linear: { syncTasksToComment: true, syncSpecsAsAttachments },
+    });
+  }
+
+  function installFetchStub(): void {
+    let cmt = 0;
+    let att = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PUT") {
+        return new Response("", { status: 200 });
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as { query?: string };
+      const q = body.query ?? "";
+      if (q.includes("commentCreate")) {
+        return new Response(
+          JSON.stringify({
+            data: { commentCreate: { success: true, comment: { id: `cmt-${++cmt}` } } },
+          }),
+        );
+      }
+      if (q.includes("fileUpload")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              fileUpload: {
+                uploadFile: {
+                  uploadUrl: "https://upload.example.com/put",
+                  assetUrl: "https://assets.example.com/file.md",
+                  headers: [],
+                },
+              },
+            },
+          }),
+        );
+      }
+      if (q.includes("IssueAttachmentByTitle") || q.includes("attachments(first")) {
+        return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }));
+      }
+      if (q.includes("CreateAttachment") || q.includes("attachmentCreate")) {
+        return new Response(
+          JSON.stringify({
+            data: { attachmentCreate: { success: true, attachment: { id: `att-${++att}` } } },
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ data: {} }));
+    }) as typeof fetch;
+  }
+
+  function writeChangeFiles(): void {
+    writeFileSync(
+      join(changeDir, "tasks.md"),
+      "## Planning\n\n- [x] design approved\n\n## Implementation\n\n- [ ] task one\n",
+      "utf-8",
+    );
+    writeFileSync(
+      join(changeDir, "proposal.md"),
+      "# Title\n\n## Why\n\nBecause reasons.\n\n## What Changes\n\n- Change item\n",
+      "utf-8",
+    );
+    writeFileSync(join(changeDir, "design.md"), "# Design\n\nDesign paragraph here.\n", "utf-8");
+  }
+
+  async function runSyncTasks(cfg: RalphyConfig): Promise<void> {
+    const hooks = createCommentSyncHooks({
+      apiKey: "test-key",
+      cfg,
+      projectRoot: tempDir,
+      onLog: () => {},
+      diag: () => {},
+      cwdByChange: new Map(),
+      issueByChange: new Map(),
+    });
+    await hooks.syncTasks!({ changeName: "demo", issueId: "issue-1" }, 1);
+  }
+
+  beforeEach(() => {
+    savedFetch = globalThis.fetch;
+    installFetchStub();
+    writeChangeFiles();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = savedFetch;
+  });
+
+  test("bug_case: plan comment is NOT assigned a real id when spec attachments enabled (regression guard)", async () => {
+    await runSyncTasks(makeWireConfig(true));
+    const s = await readState();
+    // After the fix, postPlanCommentOnce is skipped — planCommentId stays null (not a real comment id).
+    expect((s.linearComments as { planCommentId?: string | null }).planCommentId).toBeNull();
+  });
+
+  test("fix_case: plan comment is NOT created when spec attachments enabled", async () => {
+    await runSyncTasks(makeWireConfig(true));
+    const s = await readState();
+    expect((s.linearComments as { planCommentId?: string | null }).planCommentId).toBeNull();
+  });
+
+  test("plan comment IS created when spec attachments disabled", async () => {
+    await runSyncTasks(makeWireConfig(false));
+    const s = await readState();
+    expect((s.linearComments as { planCommentId?: string | null }).planCommentId).toBeTruthy();
   });
 });

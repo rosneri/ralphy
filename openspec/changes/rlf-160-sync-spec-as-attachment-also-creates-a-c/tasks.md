@@ -11,8 +11,8 @@
 
 ## Implementation
 
-- [ ] In `apps/agent/src/agent/wire/comment-sync.ts`, wrap the `postPlanCommentOnce()` call with `if (!specAttachmentsEnabled)` so it is skipped when spec attachments are enabled
-- [ ] Add a test in `apps/agent/src/__tests__/linear-comment-sync.test.ts` verifying that `postPlanCommentOnce` is NOT called (no plan comment is created) when spec attachments are enabled via the wire layer
-- [ ] Add a test verifying that `postPlanCommentOnce` IS still called when spec attachments are disabled
-- [ ] Run `bun run lint` and fix any lint errors
-- [ ] Run `bun run test` and confirm all tests pass
+- [x] In `apps/agent/src/agent/wire/comment-sync.ts`, wrap the `postPlanCommentOnce()` call with `if (!specAttachmentsEnabled)` so it is skipped when spec attachments are enabled
+- [x] Add a test in `apps/agent/src/__tests__/linear-comment-sync.test.ts` verifying that `postPlanCommentOnce` is NOT called (no plan comment is created) when spec attachments are enabled via the wire layer
+- [x] Add a test verifying that `postPlanCommentOnce` IS still called when spec attachments are disabled
+- [x] Run `bun run lint` and fix any lint errors
+- [x] Run `bun run test` and confirm all tests pass
