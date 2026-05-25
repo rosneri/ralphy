@@ -139,6 +139,11 @@ interface PostTaskDeps {
    * `MERGEABLE`. No-op when not wired (e.g. tests that don't care).
    */
   clearConflicted?: () => Promise<void>;
+  /**
+   * Override the delay (ms) between UNKNOWN-mergeability retries in the
+   * conflict-fix verify path. Default 2000 ms. Tests pass 0 for speed.
+   */
+  _mergeabilityUnknownRetryDelayMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1112,7 +1117,16 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         "yellow",
       );
     } else {
-      const status = await fetchPrStatus(prUrl, cmd, cwd);
+      const unknownDelayMs = deps._mergeabilityUnknownRetryDelayMs ?? 2000;
+      let status = await fetchPrStatus(prUrl, cmd, cwd);
+      for (
+        let attempt = 0;
+        attempt < 3 && status.kind === "ok" && status.mergeable === "UNKNOWN";
+        attempt++
+      ) {
+        await new Promise<void>((r) => setTimeout(r, unknownDelayMs));
+        status = await fetchPrStatus(prUrl, cmd, cwd);
+      }
       if (status.kind === "ok" && status.mergeable === "MERGEABLE") {
         log(
           `  ${identifier}: PR ${prUrl} is MERGEABLE after rebase — clearing conflict label`,

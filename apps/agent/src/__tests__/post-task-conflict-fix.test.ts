@@ -22,15 +22,22 @@ const FAKE_ISSUE: LinearIssue = {
   labels: [],
 };
 
+type PrViewSpec = { state?: string; mergeable?: string } | "fail";
+
 interface MakeCmdOpts {
-  /** Value returned for `gh pr view --json ...`. Stringified inline. */
-  prView?: { state?: string; mergeable?: string } | "fail";
+  /**
+   * Value(s) returned for `gh pr view --json ...`. When an array is provided,
+   * each successive `gh pr view` call consumes the next entry; once exhausted
+   * the last entry repeats. Stringified inline for JSON responses.
+   */
+  prView?: PrViewSpec | PrViewSpec[];
   /** URL returned by `gh pr list --head ...`. */
   prListUrl?: string | "";
 }
 
 function makeCmd(opts: MakeCmdOpts): { cmd: CmdRunner; calls: string[][] } {
   const calls: string[][] = [];
+  let viewCallIdx = 0;
   const cmd: CmdRunner = {
     run: async (args) => {
       calls.push([...args]);
@@ -38,12 +45,18 @@ function makeCmd(opts: MakeCmdOpts): { cmd: CmdRunner; calls: string[][] } {
         return { stdout: opts.prListUrl ?? "", stderr: "" };
       }
       if (args[0] === "gh" && args[1] === "pr" && args[2] === "view") {
-        if (opts.prView === "fail") {
+        const seq = Array.isArray(opts.prView)
+          ? opts.prView
+          : opts.prView !== undefined
+            ? [opts.prView]
+            : [{}];
+        const spec = seq[Math.min(viewCallIdx++, seq.length - 1)];
+        if (spec === "fail") {
           const err = new Error("gh failed") as Error & { stderr?: string };
           err.stderr = "auth required";
           throw err;
         }
-        return { stdout: JSON.stringify(opts.prView ?? {}), stderr: "" };
+        return { stdout: JSON.stringify(spec ?? {}), stderr: "" };
       }
       // Any other git/gh call — pretend success with empty output. The
       // conflict-fix short-circuit must not hit `git push`, so if such a
@@ -151,7 +164,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
     expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
   });
 
-  test("UNKNOWN → clearConflicted NOT invoked, yellow log, returns 0", async () => {
+  test("UNKNOWN (persistent) → retries 3x, clearConflicted NOT invoked, yellow log, returns 0", async () => {
     const { cmd, calls } = makeCmd({
       prListUrl: "https://github.com/owner/repo/pull/42\n",
       prView: { state: "OPEN", mergeable: "UNKNOWN" },
@@ -165,12 +178,49 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
       clearConflicted,
+      _mergeabilityUnknownRetryDelayMs: 0,
     });
 
     expect(code).toBe(0);
     expect(clearConflicted).toHaveBeenCalledTimes(0);
     expect(logs.some((l) => l.color === "yellow" && /UNKNOWN/.test(l.text))).toBe(true);
     expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
+    // 1 initial + 3 retries = 4 total gh pr view calls
+    const viewCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
+    expect(viewCalls.length).toBe(4);
+  });
+
+  test("UNKNOWN → MERGEABLE after retries → clearConflicted invoked, returns 0", async () => {
+    const { cmd, calls } = makeCmd({
+      prListUrl: "https://github.com/owner/repo/pull/42\n",
+      // First two calls return UNKNOWN, third returns MERGEABLE
+      prView: [
+        { state: "OPEN", mergeable: "UNKNOWN" },
+        { state: "OPEN", mergeable: "UNKNOWN" },
+        { state: "OPEN", mergeable: "MERGEABLE" },
+      ],
+    });
+    const clearConflicted = mock(async () => {});
+    const logs: { text: string; color?: string }[] = [];
+
+    const code = await runPostTask(baseInput(), {
+      cmd,
+      git,
+      log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
+      runScript: async () => {},
+      clearConflicted,
+      _mergeabilityUnknownRetryDelayMs: 0,
+    });
+
+    expect(code).toBe(0);
+    expect(clearConflicted).toHaveBeenCalledTimes(1);
+    // Should log green MERGEABLE message, not yellow UNKNOWN warning
+    expect(logs.some((l) => l.color === "green" && /MERGEABLE/.test(l.text))).toBe(true);
+    expect(logs.some((l) => /UNKNOWN/.test(l.text))).toBe(false);
+    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
+    // 3 gh pr view calls: UNKNOWN, UNKNOWN, MERGEABLE
+    const viewCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
+    expect(viewCalls.length).toBe(3);
   });
 
   test("gh fetch error → clearConflicted NOT invoked, yellow log, returns 0", async () => {
