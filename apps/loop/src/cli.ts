@@ -11,6 +11,13 @@ export { VERSION };
 
 export type LoopMode = "task" | "status" | "init" | "clean" | "debug";
 
+export interface ReviewPhaseArgs {
+  enabled: boolean;
+  maxRounds: number;
+  reviewerModel?: string;
+  reviewerContextStrategy: "fresh" | "warm";
+}
+
 export interface LoopParsedArgs extends CommonArgs {
   mode: LoopMode;
   name: string;
@@ -18,6 +25,8 @@ export interface LoopParsedArgs extends CommonArgs {
   manualTest: boolean;
   /** Set when spawned by the agent app — flips on PR creation for the task. */
   fromAgent: boolean;
+  /** Review phase configuration forwarded from the workflow config. */
+  reviewPhase: ReviewPhaseArgs;
 }
 
 // allow-duplicate
@@ -52,11 +61,16 @@ const HELP_TEXT = [
   "  --manual-test           Enable manual testing phase (create test tasks in tasks.md)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
+  "  --review-enabled        Enable self-review pass after all tasks complete",
+  "  --review-model <m>      Model for the review pass (haiku|sonnet|opus); implies --review-enabled",
+  "  --review-max-rounds <n> Max review-fix rounds (default: 1)",
+  "  --review-context-strategy <s>  fresh|warm (default: fresh)",
   "  --help, -h              Show this help message",
   "",
   "Examples:",
   '  ralphy loop task --name my-feature --prompt "Add dark mode"',
   "  ralphy loop task --name my-feature --claude sonnet --max-iterations 10",
+  "  ralphy loop task --name my-feature --review-enabled --review-model haiku",
   "  ralphy loop status --name my-feature",
   "  ralphy loop init",
 ].join("\n");
@@ -74,12 +88,20 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
     prompt: "",
     manualTest: false,
     fromAgent: false,
+    reviewPhase: {
+      enabled: false,
+      maxRounds: 1,
+      reviewerContextStrategy: "fresh",
+    },
   };
 
   const state = emptyParseState();
   let expectName = false;
   let expectPrompt = false;
   let expectPromptFile = false;
+  let expectReviewModel = false;
+  let expectReviewMaxRounds = false;
+  let expectReviewContextStrategy = false;
 
   for (const arg of argv) {
     if (expectName) {
@@ -95,6 +117,25 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
     if (expectPromptFile) {
       result.prompt = await Bun.file(arg).text();
       expectPromptFile = false;
+      continue;
+    }
+    if (expectReviewModel) {
+      result.reviewPhase.reviewerModel = arg;
+      result.reviewPhase.enabled = true;
+      expectReviewModel = false;
+      continue;
+    }
+    if (expectReviewMaxRounds) {
+      result.reviewPhase.maxRounds = parseInt(arg, 10);
+      expectReviewMaxRounds = false;
+      continue;
+    }
+    if (expectReviewContextStrategy) {
+      if (arg !== "fresh" && arg !== "warm") {
+        throw new Error('Invalid --review-context-strategy value. Must be "fresh" or "warm".');
+      }
+      result.reviewPhase.reviewerContextStrategy = arg;
+      expectReviewContextStrategy = false;
       continue;
     }
 
@@ -115,6 +156,18 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
         break;
       case "--from-agent":
         result.fromAgent = true;
+        break;
+      case "--review-enabled":
+        result.reviewPhase.enabled = true;
+        break;
+      case "--review-model":
+        expectReviewModel = true;
+        break;
+      case "--review-max-rounds":
+        expectReviewMaxRounds = true;
+        break;
+      case "--review-context-strategy":
+        expectReviewContextStrategy = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

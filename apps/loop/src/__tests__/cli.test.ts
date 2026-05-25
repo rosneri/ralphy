@@ -179,6 +179,56 @@ describe("parseArgs", () => {
   test("unknown argument error includes help hint", async () => {
     await expect(parseArgs(["--bogus"])).rejects.toThrow("ralphy loop --help");
   });
+
+  test("reviewPhase defaults to disabled", async () => {
+    const result = await parseArgs([]);
+    expect(result.reviewPhase.enabled).toBe(false);
+    expect(result.reviewPhase.maxRounds).toBe(1);
+    expect(result.reviewPhase.reviewerContextStrategy).toBe("fresh");
+    expect(result.reviewPhase.reviewerModel).toBeUndefined();
+  });
+
+  test("--review-enabled sets reviewPhase.enabled", async () => {
+    const result = await parseArgs(["--review-enabled"]);
+    expect(result.reviewPhase.enabled).toBe(true);
+  });
+
+  test("--review-model sets reviewerModel and enables review", async () => {
+    const result = await parseArgs(["--review-model", "haiku"]);
+    expect(result.reviewPhase.reviewerModel).toBe("haiku");
+    expect(result.reviewPhase.enabled).toBe(true);
+  });
+
+  test("--review-max-rounds sets maxRounds", async () => {
+    const result = await parseArgs(["--review-enabled", "--review-max-rounds", "3"]);
+    expect(result.reviewPhase.maxRounds).toBe(3);
+  });
+
+  test("--review-context-strategy warm sets reviewerContextStrategy", async () => {
+    const result = await parseArgs(["--review-enabled", "--review-context-strategy", "warm"]);
+    expect(result.reviewPhase.reviewerContextStrategy).toBe("warm");
+  });
+
+  test("--review-context-strategy rejects invalid value", async () => {
+    await expect(parseArgs(["--review-context-strategy", "invalid"])).rejects.toThrow(
+      "Invalid --review-context-strategy",
+    );
+  });
+
+  test("all review phase flags together", async () => {
+    const result = await parseArgs([
+      "--review-model",
+      "sonnet",
+      "--review-max-rounds",
+      "2",
+      "--review-context-strategy",
+      "warm",
+    ]);
+    expect(result.reviewPhase.enabled).toBe(true);
+    expect(result.reviewPhase.reviewerModel).toBe("sonnet");
+    expect(result.reviewPhase.maxRounds).toBe(2);
+    expect(result.reviewPhase.reviewerContextStrategy).toBe("warm");
+  });
 });
 
 describe("printHelp", () => {

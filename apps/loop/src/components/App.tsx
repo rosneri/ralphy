@@ -58,6 +58,7 @@ function TaskModeWrapper({ args, statesDir, tasksDir }: TaskModeWrapperProps) {
         statesDir,
         tasksDir,
         changeStore: new OpenSpecChangeStore(),
+        ...(args.reviewPhase.enabled ? { reviewPhase: args.reviewPhase } : {}),
       }}
     />
   );

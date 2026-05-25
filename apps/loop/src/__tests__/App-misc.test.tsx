@@ -33,6 +33,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     verbose: false,
     manualTest: false,
     fromAgent: false,
+    reviewPhase: { enabled: false, maxRounds: 1, reviewerContextStrategy: "fresh" },
     ...overrides,
   };
 }

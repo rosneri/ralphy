@@ -95,6 +95,21 @@ preExistingErrorCheck:
   label: "ralph:pre-existing-error"
   outputCharLimit: 4000
 
+# ─── OpenSpec review phase ────────────────────────────────────
+# After all tasks complete, spawn a fresh reviewer session that reads the
+# diff and writes findings to review-findings.md. If open findings remain
+# and the round cap hasn't been reached, the loop cycles back to implement.
+# openspec:
+#   reviewPhase:
+#     enabled: false
+#     # Maximum review→fix cycles before the change is archived anyway.
+#     maxRounds: 1
+#     # Model for the review pass. Defaults to the main \`model\` when omitted.
+#     # Set a cheaper model (e.g. "haiku") to save cost on review passes.
+#     # reviewerModel: haiku
+#     # "fresh" starts a new session; "warm" resumes the last task session.
+#     reviewerContextStrategy: fresh
+
 # ─── Linear integration ──────────────────────────────────────
 linear:
   # Linear team key (e.g. "ENG"). Omit to match all teams.

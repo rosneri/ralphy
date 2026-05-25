@@ -132,6 +132,14 @@ export function createSpawnWorker(
     if (args.log || cfg.logRawStream) c.push("--log");
     if (args.verbose || cfg.taskVerbose) c.push("--verbose");
     if (args.manualTest || cfg.enableManualTest) c.push("--manual-test");
+    const rp = cfg.openspec.reviewPhase;
+    if (rp.enabled) {
+      c.push("--review-enabled");
+      if (rp.maxRounds !== 1) c.push("--review-max-rounds", String(rp.maxRounds));
+      if (rp.reviewerModel !== undefined) c.push("--review-model", rp.reviewerModel);
+      if (rp.reviewerContextStrategy !== "fresh")
+        c.push("--review-context-strategy", rp.reviewerContextStrategy);
+    }
     c.push("--from-agent");
     return c;
   }
