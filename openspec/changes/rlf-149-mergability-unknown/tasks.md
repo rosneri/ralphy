@@ -11,8 +11,8 @@
 
 ## Implementation
 
-- [ ] Fix `apps/agent/src/agent/wire/pr-discovery.ts`: remove the immediate `return` on error in the mergeability retry loop so transient errors (HTTP 502) are retried instead of aborting
-- [ ] Fix `apps/agent/src/agent/post-task.ts`: add `_mergeabilityUnknownRetryDelayMs` to `PostTaskDeps` and add a retry loop (up to 3 retries) for UNKNOWN mergeability in the conflict-fix verify path
-- [ ] Update `apps/agent/src/__tests__/post-task-conflict-fix.test.ts`: extend `makeCmd` to support per-call response sequences, update the UNKNOWN test to assert 4 `gh pr view` calls, and add an UNKNOWN→MERGEABLE-after-retries test
-- [ ] Run `bun test apps/agent/src/__tests__/` and confirm all tests pass
-- [ ] Run `bun run lint` and confirm no new errors
+- [x] Fix `apps/agent/src/agent/wire/pr-discovery.ts`: remove the immediate `return` on error in the mergeability retry loop so transient errors (HTTP 502) are retried instead of aborting
+- [x] Fix `apps/agent/src/agent/post-task.ts`: add `_mergeabilityUnknownRetryDelayMs` to `PostTaskDeps` and add a retry loop (up to 3 retries) for UNKNOWN mergeability in the conflict-fix verify path
+- [x] Update `apps/agent/src/__tests__/post-task-conflict-fix.test.ts`: extend `makeCmd` to support per-call response sequences, update the UNKNOWN test to assert 4 `gh pr view` calls, and add an UNKNOWN→MERGEABLE-after-retries test
+- [x] Run `bun test apps/agent/src/__tests__/` and confirm all tests pass
+- [x] Run `bun run lint` and confirm no new errors
