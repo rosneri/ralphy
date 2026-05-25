@@ -1283,4 +1283,165 @@ describe("TaskLoop", () => {
       expect(resumeFeedTypes).not.toContain("session-unknown");
     });
   });
+
+  describe("review phase", () => {
+    test("self-review passes when engine writes no open findings", async () => {
+      await withStorage(async () => {
+        const taskDir = join(tempDir, "review-pass-task");
+        mkdirSync(taskDir, { recursive: true });
+        const state = makeState({ name: "review-pass-task" });
+        writeState(taskDir, state);
+        writeFileSync(join(taskDir, "tasks.md"), "- [x] Done task\n", "utf-8");
+
+        const reviewRoundResults: Array<{ openFindings: number; capReached: boolean }> = [];
+
+        const opts = {
+          name: "review-pass-task",
+          prompt: "Test prompt",
+          engine: "claude" as const,
+          model: "opus",
+          maxIterations: 0,
+          maxCostUsd: 0,
+          maxRuntimeMinutes: 0,
+          maxConsecutiveFailures: 5,
+          delay: 0,
+          log: false,
+          verbose: false,
+          manualTest: false,
+          statesDir: tempDir,
+          tasksDir: tempDir,
+          changeStore: stubChangeStore,
+          reviewPhase: { enabled: true, maxRounds: 1 },
+          onReviewRound: async (r: { openFindings: number; capReached: boolean }) => {
+            reviewRoundResults.push(r);
+          },
+        };
+
+        const { frames } = render(<TaskLoop opts={opts} />);
+        await new Promise((r) => setTimeout(r, 800));
+
+        const allText = frames.join("\n");
+        expect(allText.toLowerCase()).toContain("self-review passed");
+        expect(reviewRoundResults.length).toBe(1);
+        expect(reviewRoundResults[0]!.openFindings).toBe(0);
+        expect(reviewRoundResults[0]!.capReached).toBe(true);
+      });
+    });
+
+    test("review cap reached with open findings logs cap-reached message", async () => {
+      runEngineMock.mockImplementationOnce(async () => {
+        await Bun.write(
+          join(tempDir, "review-cap-task", "review-findings.md"),
+          "## Open\n- [ ] Finding 1\n",
+        );
+        return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
+      });
+
+      await withStorage(async () => {
+        const taskDir = join(tempDir, "review-cap-task");
+        mkdirSync(taskDir, { recursive: true });
+        const state = makeState({ name: "review-cap-task" });
+        writeState(taskDir, state);
+        writeFileSync(join(taskDir, "tasks.md"), "- [x] Done task\n", "utf-8");
+
+        const reviewRoundResults: Array<{ openFindings: number; capReached: boolean }> = [];
+
+        const opts = {
+          name: "review-cap-task",
+          prompt: "Test prompt",
+          engine: "claude" as const,
+          model: "opus",
+          maxIterations: 0,
+          maxCostUsd: 0,
+          maxRuntimeMinutes: 0,
+          maxConsecutiveFailures: 5,
+          delay: 0,
+          log: false,
+          verbose: false,
+          manualTest: false,
+          statesDir: tempDir,
+          tasksDir: tempDir,
+          changeStore: stubChangeStore,
+          reviewPhase: { enabled: true, maxRounds: 1 },
+          onReviewRound: async (r: { openFindings: number; capReached: boolean }) => {
+            reviewRoundResults.push(r);
+          },
+        };
+
+        const { frames } = render(<TaskLoop opts={opts} />);
+        await new Promise((r) => setTimeout(r, 800));
+
+        const allText = frames.join("\n");
+        expect(allText.toLowerCase()).toContain("review cap reached");
+        expect(reviewRoundResults.length).toBe(1);
+        expect(reviewRoundResults[0]!.openFindings).toBe(1);
+        expect(reviewRoundResults[0]!.capReached).toBe(true);
+      });
+    });
+
+    test("review loops back for fix cycle when findings found and cap not yet reached", async () => {
+      let reviewCallCount = 0;
+      runEngineMock.mockImplementation(async () => {
+        reviewCallCount++;
+        const findingsPath = join(tempDir, "review-loop-task", "review-findings.md");
+        if (reviewCallCount === 1) {
+          await Bun.write(findingsPath, "## Open\n- [ ] Finding 1\n");
+        } else {
+          await Bun.write(findingsPath, "## Open\n(no findings)\n");
+        }
+        return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
+      });
+
+      await withStorage(async () => {
+        const taskDir = join(tempDir, "review-loop-task");
+        mkdirSync(taskDir, { recursive: true });
+        const state = makeState({ name: "review-loop-task" });
+        writeState(taskDir, state);
+        writeFileSync(join(taskDir, "tasks.md"), "- [x] Done task\n", "utf-8");
+
+        const opts = {
+          name: "review-loop-task",
+          prompt: "Test prompt",
+          engine: "claude" as const,
+          model: "opus",
+          maxIterations: 0,
+          maxCostUsd: 0,
+          maxRuntimeMinutes: 0,
+          maxConsecutiveFailures: 5,
+          delay: 0,
+          log: false,
+          verbose: false,
+          manualTest: false,
+          statesDir: tempDir,
+          tasksDir: tempDir,
+          changeStore: stubChangeStore,
+          reviewPhase: { enabled: true, maxRounds: 2 },
+        };
+
+        const { frames } = render(<TaskLoop opts={opts} />);
+        await new Promise((r) => setTimeout(r, 1200));
+
+        const allText = frames.join("\n");
+        expect(allText.toLowerCase()).toContain("looping back for a fix cycle");
+        expect(allText.toLowerCase()).toContain("self-review passed");
+        expect(reviewCallCount).toBe(2);
+      });
+
+      runEngineMock.mockReset();
+      runEngineMock.mockImplementation(
+        async (opts: {
+          onFeedEvent?: (e: unknown) => void;
+          signal?: AbortSignal;
+          resumeSessionId?: string;
+        }): Promise<EngineResult> => {
+          if (opts.onFeedEvent) {
+            opts.onFeedEvent({ type: "session", model: "opus", sessionId: "test123" });
+            opts.onFeedEvent({ type: "text", text: "Working..." });
+            opts.onFeedEvent({ type: "turn-done" });
+          }
+          return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
+        },
+      );
+    });
+  });
 });
