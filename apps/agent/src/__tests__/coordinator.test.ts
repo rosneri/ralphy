@@ -885,11 +885,12 @@ describe("AgentCoordinator — conflict scan", () => {
     expect(ctx.workers.has("change-eng-1")).toBe(true);
   });
 
-  test("in-progress ticket without archived change resumes normally", async () => {
+  test("in-progress ticket with CONFLICTING PR is promoted even when change is not archived", async () => {
     const inProgressIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setInProgress([inProgressIssue]);
-    // Not archived — checkPrStatus should not even matter.
+    // Not archived — promotion should still fire on a conflicting PR so the
+    // ticket gets rebased before further commits pile on top.
     ctx.conflictByIssue.set("a", {
       url: "https://github.com/o/r/pull/1",
       status: "conflicted" as const,
@@ -900,8 +901,8 @@ describe("AgentCoordinator — conflict scan", () => {
     await coord.pollOnce();
     await tick();
 
-    expect(ctx.applies.find((a) => a.ind === setConflicted)).toBeUndefined();
-    expect(ctx.workers.has("change-eng-1")).toBe(true);
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setConflicted });
+    expect(ctx.workers.has("change-eng-1")).toBe(false);
   });
 
   test("pollOnce returns zero PR status counts when conflict scan disabled", async () => {

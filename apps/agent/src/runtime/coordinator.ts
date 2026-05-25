@@ -579,34 +579,27 @@ export class AgentCoordinator {
   }
 
   /**
-   * Detect "finished but conflicting" in-progress tickets — the change is
-   * archived locally (all tasks done, branch pushed), but the PR has merge
-   * conflicts with main, so `setDone` never fires on merge and the ticket
-   * sits in `getInProgress` forever. When detected, apply `setConflicted`
-   * + post a one-line Linear comment so the next poll picks the ticket up
-   * via `getConflicted` instead. Returns true when the ticket was promoted
-   * (or is already promoted) and should be skipped from the in-progress
-   * queue this poll.
+   * Detect in-progress tickets whose open PR is conflicting with main, and
+   * promote them into the conflict-fix flow by applying `setConflicted` +
+   * posting a one-line Linear comment. The next poll then picks the ticket
+   * up via `getConflicted` instead of `getInProgress`.
+   *
+   * Originally this only fired on "finished but conflicting" tickets (local
+   * change archived, all tasks done, just stuck on the merge). It now also
+   * fires for non-archived in-progress tickets — those still have open
+   * tasks, but if their PR is already conflicting with main the eventual
+   * push will fail, and surfacing the conflict immediately lets the
+   * conflict-fix worker rebase before more commits pile on top.
+   *
+   * Returns true when the ticket was promoted (or is already promoted) and
+   * should be skipped from the in-progress queue this poll.
    */
   private async maybePromoteFinishedConflicted(issue: LinearIssue): Promise<boolean> {
     const setConflicted = this.opts.setConflicted;
     if (!setConflicted) return false;
-    if (!this.deps.isChangeArchivedForIssue) return false;
 
     // Already labeled conflicted on Linear → let getConflicted route it.
     if (this.issueHasIndicator(issue, setConflicted)) return true;
-
-    let archived = false;
-    try {
-      archived = await this.deps.isChangeArchivedForIssue(issue);
-    } catch (err) {
-      this.deps.onLog(
-        `! archive lookup failed for ${issue.identifier}: ${(err as Error).message}`,
-        "yellow",
-      );
-      return false;
-    }
-    if (!archived) return false;
 
     let pr: { url: string; status: PrStatus } | null;
     try {
