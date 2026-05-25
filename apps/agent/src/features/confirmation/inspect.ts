@@ -120,20 +120,8 @@ export async function inspectAwaitingTicket(
     return { outcome: "stuck", next };
   }
 
-  // 1. Approval signal — fire clearApproved + persist confirmedAt.
-  if (deps.approvalMatches) {
-    if (deps.clearApproved) {
-      try {
-        await deps.applyIndicator(deps.clearApproved);
-      } catch (err) {
-        deps.log(`! clearApproved failed: ${(err as Error).message}`, "yellow");
-      }
-    }
-    next.confirmedAt = nowIso;
-    return { outcome: "approved", next };
-  }
-
-  // 2. Revise comment — append to steering, bump rounds, loop back to design.
+  // 1. Revise comment — checked FIRST so it wins over a simultaneously-present
+  //    approval label (label race: apply → remove → apply with revise in between).
   const reviseRe = buildReviseRegex(cfg.mentionHandle);
   let comments: { id: string; body: string; createdAt: string }[] = [];
   try {
@@ -178,6 +166,19 @@ export async function inspectAwaitingTicket(
     next.lastReminderAt = null;
     next.lastReviseConsumedAt = revise.createdAt;
     return { outcome: "revised", next };
+  }
+
+  // 2. Approval signal — only reached when no unconsumed revise comment exists.
+  if (deps.approvalMatches) {
+    if (deps.clearApproved) {
+      try {
+        await deps.applyIndicator(deps.clearApproved);
+      } catch (err) {
+        deps.log(`! clearApproved failed: ${(err as Error).message}`, "yellow");
+      }
+    }
+    next.confirmedAt = nowIso;
+    return { outcome: "approved", next };
   }
 
   // 3. Reminder cadence.

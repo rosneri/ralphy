@@ -163,6 +163,35 @@ describe("inspectAwaitingTicket — revise path", () => {
   });
 });
 
+describe("inspectAwaitingTicket — revise wins over simultaneous approval (S11.2 regression)", () => {
+  test("revise comment takes precedence when both approval label and unconsumed revise are present", async () => {
+    const clearApproved: SetIndicator = { type: "label", value: "ralph:approved" };
+    const { deps, rec } = makeDeps({
+      approvalMatches: true,
+      clearApproved,
+      comments: [
+        {
+          id: "c-revise",
+          body: "@ralphy revise: please rethink the approach",
+          createdAt: "2026-05-20T10:00:00.000Z",
+        },
+      ],
+    });
+    const start: ConfirmationState = {
+      ...defaultConfirmation(),
+      askedAt: "2026-05-20T09:00:00.000Z",
+    };
+    const { outcome, next } = await inspectAwaitingTicket(start, baseConfig(), deps);
+    expect(outcome).toBe("revised");
+    expect(next.rounds).toBe(1);
+    expect(next.confirmedAt).toBeNull();
+    expect(rec.restarts).toBe(1);
+    expect(rec.steering[0]).toContain("rethink the approach");
+    // approval indicator must NOT have been applied
+    expect(rec.applied).toEqual([]);
+  });
+});
+
 describe("inspectAwaitingTicket — reminder cadence", () => {
   test("posts reminder once timeoutHours elapsed, persists lastReminderAt", async () => {
     const { deps, rec } = makeDeps();
