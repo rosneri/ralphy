@@ -38,6 +38,7 @@ const baseArgs: ParsedArgs = {
   indicators: {},
   createPr: false,
   fixCi: false,
+  noTmux: false,
   stackPrs: false,
   codeReview: false,
   maxTickets: 0,
