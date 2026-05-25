@@ -144,6 +144,46 @@ describe("claudeAgent.run", () => {
     expect(result.rateLimited).toBe(true);
   });
 
+  test("detects usage-limit phrase in result-error and sets rateLimited", async () => {
+    const ERROR_RESULT = '{"type":"result","subtype":"error","result":"out of session tokens"}';
+    setupProc([INIT, ERROR_RESULT]);
+
+    const result = await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+    });
+
+    expect(result.rateLimited).toBe(true);
+  });
+
+  test("detects context window exceeded in result-error and sets rateLimited", async () => {
+    const ERROR_RESULT =
+      '{"type":"result","subtype":"error","result":"context window exceeded the maximum"}';
+    setupProc([INIT, ERROR_RESULT]);
+
+    const result = await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+    });
+
+    expect(result.rateLimited).toBe(true);
+  });
+
+  test("does not set rateLimited for unrelated result-error", async () => {
+    const ERROR_RESULT = '{"type":"result","subtype":"error","result":"tool call failed"}';
+    setupProc([INIT, ERROR_RESULT]);
+
+    const result = await claudeAgent.run({
+      model: "claude-test",
+      prompt: "go",
+      onFeedEvent: () => {},
+    });
+
+    expect(result.rateLimited).toBe(false);
+  });
+
   test("spawns claude with a scrubbed env that omits CLAUDECODE", async () => {
     setupProc([INIT, RESULT]);
     const original = process.env["CLAUDECODE"];

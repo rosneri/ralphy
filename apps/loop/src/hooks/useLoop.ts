@@ -449,6 +449,27 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             continue;
           }
 
+          // Guard: usage-limit result-error exits cleanly (exit 0) but sets rateLimited.
+          // The failure block above only runs on non-zero exits, so this catches the gap.
+          if (engineResult.rateLimited) {
+            addInfo("Usage limit reached — stopping loop.");
+            updateStateIteration(
+              stateDir,
+              "failed:rate-limited",
+              iterStart,
+              opts.engine,
+              opts.model,
+              engineResult.usage,
+            );
+            getProcessBus().emit({
+              type: "loop.engine_rate_limited",
+              exit_code: 0,
+              iteration: iter,
+            });
+            finalStopReason = "rateLimited";
+            break;
+          }
+
           // Success
           currentState = updateStateIteration(
             stateDir,
