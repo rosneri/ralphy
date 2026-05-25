@@ -1,3 +1,57 @@
+## Fix failing CI checks (2026-05-25T19:43:29.641Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26416962360 ---
+ci Unused dependency check ﻿2026-05-25T19:42:19.0661580Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-25T19:42:19.0661934Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-25T19:42:19.0695951Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-25T19:42:19.0696214Z env:
+ci Unused dependency check 2026-05-25T19:42:19.0696470Z NX_BASE: ab6e0624036fca26c564c66eec74d171c8ba5d2d
+ci Unused dependency check 2026-05-25T19:42:19.0696826Z NX_HEAD: d910d8739544b7f58abea3a2db89a76f1380300a
+ci Unused dependency check 2026-05-25T19:42:19.0697126Z ##[endgroup]
+ci Unused dependency check 2026-05-25T19:42:19.0772292Z $ knip
+ci Unused dependency check 2026-05-25T19:42:23.1648199Z [93m[4mUnused exported types[24m[39m (1)
+ci Unused dependency check 2026-05-25T19:42:23.1657214Z TmuxSessionStatus interface apps/agent/src/runtime/tmux.ts:5:18
+ci Unused dependency check 2026-05-25T19:42:23.1947544Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-25T19:42:23.1958066Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-25T19:42:23.5050308Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-25T19:42:23.5050707Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-25T19:42:23.5084492Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-25T19:42:23.5084747Z env:
+ci Test affected files + coverage 2026-05-25T19:42:23.5084981Z NX_BASE: ab6e0624036fca26c564c66eec74d171c8ba5d2d
+ci Test affected files + coverage 2026-05-25T19:42:23.5085328Z NX_HEAD: d910d8739544b7f58abea3a2db89a76f1380300a
+ci Test affected files + coverage 2026-05-25T19:42:23.5085608Z ##[endgroup]
+ci Test affected files + coverage 2026-05-25T19:42:23.5156952Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-25T19:42:23.5386808Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-25T19:42:23.5387217Z
+ci Test affected files + coverage 2026-05-25T19:42:24.6306800Z agent: 6 relevant test file(s)
+ci Test affected files + coverage 2026-05-25T19:42:24.6307550Z apps/agent/src/**tests**/agent-mode-awaiting.test.tsx
+ci Test affected files + coverage 2026-05-25T19:42:24.6308260Z apps/agent/src/**tests**/agent-mode-chip.test.tsx
+ci Test affected files + coverage 2026-05-25T19:42:24.6308933Z apps/agent/src/**tests**/agent-mode-header.test.tsx
+ci Test affected files + coverage 2026-05-25T19:42:24.6309620Z apps/agent/src/**tests**/agent-mode-show-all.test.tsx
+ci Test affected files + coverage 2026-05-25T19:42:24.6310136Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-25T19:42:24.6310540Z apps/agent/src/**tests**/tmux.test.ts
+ci Test affected files + coverage 2026-05-25T19:42:24.6310738Z
+ci Test affected files + coverage 2026-05-25T19:42:24.6321803Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-25T19:42:24.6550306Z
+ci Test affected files + coverage 2026-05-25T19:42:24.6551022Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-25T19:42:24.6795893Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.81ms]
+ci Test affected files + coverage 2026-05-25T19:42:24.6801867Z (pass) inspectAwaitingTicket — revise path > appends steering, restarts design, bumps rounds, resets confirmedAt [0.62ms]
+ci Test affected files + coverage 2026-05-25T19:42:24.6804272Z (pass) inspectAwaitingTicket — revise path > ignores revise mention inside backticks (e.g. our own plan-ready template) [0.29ms]
+ci Test affected files + coverage 2026-05-25T19:42:24.6806424Z (pass) inspectAwaitingTicket — revise path > ignores revise comments at or before lastReviseConsumedAt watermark [0.17ms]
+ci Test affected files + coverage 2026-05-25T19:42:24.6809312Z (pass) inspec
+…[truncated 301912 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-25T19:37:52.496Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

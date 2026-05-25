@@ -2,7 +2,7 @@ import { basename } from "node:path";
 
 const decoder = new TextDecoder();
 
-export interface TmuxSessionStatus {
+interface TmuxSessionStatus {
   exists: boolean;
   attached: boolean;
   name: string;
