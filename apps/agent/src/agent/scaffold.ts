@@ -79,6 +79,7 @@ export async function scaffoldChangeForIssue(
     `- [ ] Add at least one spec delta under \`specs/<capability>/spec.md\` describing the behavior added/modified/removed by this change`,
     `- [ ] Fill in design.md with the technical design (files to touch, data flow, edge cases)`,
     `- [ ] Append an \`## Implementation\` section below with concrete mission-specific tasks derived from the plan, including tests and \`bun run lint\` / \`bun run test\`. Every item in the new section MUST start as \`- [ ]\` (unchecked) — do not pre-check items even if you already did the work during planning. The loop ticks them off in later iterations after each one is verified.`,
+    `- [ ] Is there anything else to add? Review the complete change context and document any additional edge cases, constraints, or open questions not captured above.`,
     "",
   ].join("\n");
 
