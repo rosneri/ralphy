@@ -3,7 +3,7 @@
     "ralph": {
       "type": "stdio",
       "command": "bun",
-      "args": [".ralph/bin/mcp.js"],
+      "args": ["/Users/neri/Developer/ralphy/.ralph/bin/mcp.js"],
       "env": {}
     }
   }

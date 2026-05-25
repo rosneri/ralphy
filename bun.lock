@@ -77,7 +77,6 @@
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/paths": "workspace:*",
-        "@ralphy/telemetry": "workspace:*",
         "@ralphy/types": "workspace:*",
         "@ralphy/version": "workspace:*",
         "@ralphy/workflow": "workspace:*",
