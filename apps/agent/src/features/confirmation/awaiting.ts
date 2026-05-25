@@ -1,7 +1,7 @@
 import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { projectLayout } from "@ralphy/core/layout";
-import { gateActive, hasUnchecked } from "@ralphy/core/detections";
+import { gateActive, hasUnchecked, planningComplete } from "@ralphy/core/detections";
 import { isStubArtifact } from "@ralphy/core/openspec-phase";
 import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
@@ -273,6 +273,16 @@ export async function processAwaitingForIssue(
         onLog: deps.onLog,
       });
       deps.onLog(`  ${issue.identifier}: confirmation detect released — tasks-empty`);
+      return false;
+    }
+    if (!planningComplete(tasks ?? "")) {
+      deps.awaitingChangeSet.delete(changeName);
+      await releaseAwaitingMarker(issue, statePath, {
+        indicators,
+        applyIndicator: deps.applyIndicator,
+        onLog: deps.onLog,
+      });
+      deps.onLog(`  ${issue.identifier}: confirmation detect released — planning-incomplete`);
       return false;
     }
     if (isStubArtifact(proposal) || isStubArtifact(design)) {

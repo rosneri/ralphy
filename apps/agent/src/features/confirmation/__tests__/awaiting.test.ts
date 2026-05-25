@@ -75,7 +75,7 @@ async function seedBugSnapshot(root: string, changeName: string): Promise<void> 
   await mkdir(stateDir, { recursive: true });
   await Bun.write(
     join(changeDir, "tasks.md"),
-    "# Tasks\n\n## Implementation\n\n- [ ] do the thing\n",
+    "# Tasks\n\n## Planning\n\n- [x] research done\n\n## Implementation\n\n- [ ] do the thing\n",
   );
   await Bun.write(
     join(changeDir, "proposal.md"),
@@ -384,7 +384,7 @@ describe("processAwaitingForIssue", () => {
       await mkdir(stateDir, { recursive: true });
       await Bun.write(
         join(changeDir, "tasks.md"),
-        "# Tasks\n\n## Implementation\n\n- [ ] do the thing\n",
+        "# Tasks\n\n## Planning\n\n- [x] research done\n\n## Implementation\n\n- [ ] do the thing\n",
       );
       await Bun.write(
         join(changeDir, "proposal.md"),
@@ -436,7 +436,7 @@ describe("processAwaitingForIssue", () => {
       await mkdir(stateDir, { recursive: true });
       await Bun.write(
         join(changeDir, "tasks.md"),
-        "# Tasks\n\n## Implementation\n\n- [ ] do the thing\n",
+        "# Tasks\n\n## Planning\n\n- [x] research done\n\n## Implementation\n\n- [ ] do the thing\n",
       );
       await Bun.write(
         join(changeDir, "proposal.md"),
@@ -465,6 +465,43 @@ describe("processAwaitingForIssue", () => {
       const planBody = commentBodies.find((b) => b.includes("📋 Ralphy plan ready"));
       expect(planBody).toBeDefined();
       expect(planBody!).toContain("ask your operator to approve");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("releases when Planning section has unchecked items", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-planning-incomplete-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      const changeDir = join(dir, "openspec", "changes", changeName);
+      const stateDir = join(dir, ".ralph", "tasks", changeName);
+      await mkdir(changeDir, { recursive: true });
+      await mkdir(stateDir, { recursive: true });
+      // Planning section still has unchecked items — AI hasn't finished planning yet.
+      await Bun.write(
+        join(changeDir, "tasks.md"),
+        "# Tasks\n\n## Planning\n\n- [x] first\n- [ ] still todo\n\n## Implementation\n\n- [ ] do the thing\n",
+      );
+      await Bun.write(
+        join(changeDir, "proposal.md"),
+        "# Proposal\n\n## Why\n\nThis is why.\n\n## What Changes\n\n- Do it\n",
+      );
+      await Bun.write(join(changeDir, "design.md"), "# Design\n\nTechnical approach goes here.\n");
+      await Bun.write(join(stateDir, ".ralph-state.json"), "{}\n");
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const result = await processAwaitingForIssue(issue, makeDeps(dir, captured));
+
+      expect(result).toBe(false);
+      expect(captured.logs.some((l) => /planning-incomplete/.test(l))).toBe(true);
+      expect(captured.awaitingChangeSet.has(changeName)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
