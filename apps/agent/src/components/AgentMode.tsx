@@ -108,6 +108,7 @@ interface WorkerMeta {
   subtasks: Array<{ done: boolean; text: string }>;
   taskProgress: { checked: number; total: number } | null;
   openspecPhase: OpenSpecPhase | null;
+  reviewRounds: number;
   prUrl: string | null;
   currentCmd: { argv: string[]; startedAt: number } | null;
   tail: string[];
@@ -354,6 +355,8 @@ function openspecPhaseColor(phase: OpenSpecPhase): string {
       return "cyan";
     case "implement":
       return "yellow";
+    case "review":
+      return "magenta";
     case "done":
       return "green";
   }
@@ -560,6 +563,7 @@ export function AgentMode({
             subtasks: [],
             taskProgress: null,
             openspecPhase: null,
+            reviewRounds: 0,
             prUrl: null,
             currentCmd: null,
             tail: [],
@@ -752,8 +756,9 @@ export function AgentMode({
           try {
             const file = Bun.file(join(meta.statesDir, changeName, ".ralph-state.json"));
             if (await file.exists()) {
-              const json = (await file.json()) as { iteration?: number };
+              const json = (await file.json()) as { iteration?: number; reviewRounds?: number };
               meta.iter = json.iteration ?? meta.iter;
+              meta.reviewRounds = json.reviewRounds ?? meta.reviewRounds;
             }
           } catch (err) {
             console.error(
@@ -766,10 +771,12 @@ export function AgentMode({
               const tasksFile = Bun.file(join(meta.changeDir, "tasks.md"));
               const proposalFile = Bun.file(join(meta.changeDir, "proposal.md"));
               const designFile = Bun.file(join(meta.changeDir, "design.md"));
-              const [tasksText, proposalText, designText] = await Promise.all([
+              const reviewFindingsFile = Bun.file(join(meta.changeDir, "review-findings.md"));
+              const [tasksText, proposalText, designText, reviewFindingsText] = await Promise.all([
                 tasksFile.exists().then((ok) => (ok ? tasksFile.text() : null)),
                 proposalFile.exists().then((ok) => (ok ? proposalFile.text() : null)),
                 designFile.exists().then((ok) => (ok ? designFile.text() : null)),
+                reviewFindingsFile.exists().then((ok) => (ok ? reviewFindingsFile.text() : null)),
               ]);
               if (tasksText !== null) {
                 const subtasks = parseSubtasks(tasksText);
@@ -779,10 +786,14 @@ export function AgentMode({
                 const checked = subtasks.filter((s) => s.done).length;
                 meta.taskProgress = total > 0 ? { checked, total } : null;
               }
+              const reviewRounds = meta.reviewRounds;
               meta.openspecPhase = deriveOpenSpecPhase({
                 proposal: proposalText,
                 design: designText,
                 tasks: tasksText,
+                reviewFindings: reviewFindingsText,
+                reviewRounds,
+                maxReviewRounds: reviewFindingsText !== null || reviewRounds > 0 ? 999 : 0,
               });
             } catch (err) {
               console.error(
