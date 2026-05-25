@@ -61,3 +61,16 @@ ci Typecheck (affected) 2026-0
 ```
 
 ```
+
+## Manual Testing
+
+- [x] Run `bun test packages/core/src/__tests__/openspec-phase.test.ts` and confirm all 82 tests pass — covers `deriveOpenSpecPhase`, `countOpenFindings`, `phasePipeline`, and `shouldShowPhasePipeline` with the new `"review"` phase.
+- [x] Run `bun test packages/core/src/__tests__/loop.test.ts` and confirm all 40 tests pass — covers review-phase prompt injection when enabled and address-findings block when open findings exist.
+- [x] Run `bun test packages/engine/src/__tests__/agents.test.ts` and confirm all 23 tests pass — covers `buildClaudeArgs` skipping `--resume` for `reviewerContextStrategy: "fresh"` and applying `reviewerModel` override.
+- [x] Run `bun test apps/agent/src/agent/linear-sync/__tests__/review-comment.test.ts` and confirm all 7 tests pass — covers `formatReviewRoundComment` for findings / no-findings / cap-reached cases.
+- [x] Run `bun test packages/workflow/src/__tests__/workflow.test.ts` and confirm all 38 tests pass — covers `openspec.reviewPhase` config parsing, defaults, and unknown-key rejection.
+- [x] Verify `deriveOpenSpecPhase` backward-compat: call it directly in a REPL (`bun -e "import { deriveOpenSpecPhase } from './packages/core/src/openspec/phase.ts'; console.log(deriveOpenSpecPhase({ proposal: 'x', design: 'x', tasks: '- [x] done', reviewFindings: null, reviewRounds: 0, maxReviewRounds: 0 }))"`) and confirm it prints `done` (feature-disabled path).
+- [x] Verify `countOpenFindings` sentinel handling: run `bun -e "import { countOpenFindings } from './packages/core/src/openspec/phase.ts'; console.log(countOpenFindings('## Open\n\n(no findings — close round)\n'))"` and confirm it prints `0`.
+- [x] Verify `countOpenFindings` ignores checked items: run `bun -e "import { countOpenFindings } from './packages/core/src/openspec/phase.ts'; console.log(countOpenFindings('## Open\n\n- [x] Fixed\n- [ ] Still open\n'))"` and confirm it prints `1`.
+- [x] Verify `StateSchema` accepts old state without `reviewRounds`: run `bun -e "import { StateSchema } from './packages/types/src/types.ts'; const n = new Date().toISOString(); const s = StateSchema.parse({ version: '2', name: 'x', prompt: 'y', engine: 'claude', model: 'm', status: 'active', iteration: 0, usage: { total_cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 }, history: [], lastModified: n, createdAt: n, createPr: false }); console.log(s.reviewRounds)"` and confirm it prints `0`.
+- [x] Run `bunx nx run agent:typecheck` and confirm it exits 0 — validates that AgentMode's `openspecPhase: "review"` path compiles without error (the `reviewRounds` field on `WorkerMeta` and the `maxReviewRounds: 999` heuristic read from state).
