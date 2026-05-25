@@ -176,6 +176,16 @@ describe("parseArgs", () => {
     expect(result.verbose).toBe(true);
   });
 
+  test("parses --manual-test flag", async () => {
+    const result = await parseArgs(["--manual-test"]);
+    expect(result.manualTest).toBe(true);
+  });
+
+  test("parses --from-agent flag", async () => {
+    const result = await parseArgs(["--from-agent"]);
+    expect(result.fromAgent).toBe(true);
+  });
+
   test("unknown argument error includes help hint", async () => {
     await expect(parseArgs(["--bogus"])).rejects.toThrow("ralphy loop --help");
   });
