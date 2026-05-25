@@ -123,7 +123,33 @@ describe("App task mode", () => {
 
       const allText = frames.join("\n");
       expect(allText).toContain("Ralph Loop");
-      expect(allText).toContain("my-task");
+      // Banner shows the prompt first line, not the name slug
+      expect(allText).toContain("Do something");
+    });
+  });
+
+  test("Banner shows prompt first line as task label instead of name slug", async () => {
+    await withStorage(async () => {
+      const stateDir = join(tempDir, "slug-name");
+      mkdirSync(stateDir, { recursive: true });
+      const state = makeState({ name: "slug-name", prompt: "Human readable description" });
+      writeState(stateDir, state);
+
+      const args = makeArgs({
+        mode: "task",
+        name: "slug-name",
+        prompt: "Human readable description",
+        maxIterations: 1,
+      });
+
+      const { frames } = render(
+        <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
+      );
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("Human readable description");
+      expect(allText).not.toContain("Task:       slug-name");
     });
   });
 });

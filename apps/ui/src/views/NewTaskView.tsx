@@ -2,15 +2,37 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useSidecar } from "../context/Sidecar.context";
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/^#+\s*/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, "");
+}
+
 export function NewTaskView() {
   const { baseUrl } = useSidecar();
   const navigate = useNavigate();
-  const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [engine, setEngine] = useState("claude");
   const [model, setModel] = useState("sonnet");
+  const [name, setName] = useState("");
+  const [nameEdited, setNameEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handlePromptChange = (value: string) => {
+    setPrompt(value);
+    if (!nameEdited) {
+      setName(slugify(value));
+    }
+  };
+
+  const handleNameChange = (value: string) => {
+    setNameEdited(true);
+    setName(value);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,23 +75,11 @@ export function NewTaskView() {
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
             <label style={{ display: "block", marginBottom: 4, color: "var(--text-dim)" }}>
-              Task Name
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-task"
-              required
-            />
-          </div>
-
-          <div>
-            <label style={{ display: "block", marginBottom: 4, color: "var(--text-dim)" }}>
               Prompt
             </label>
             <textarea
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => handlePromptChange(e.target.value)}
               placeholder="Describe what you want the agent to do..."
               rows={6}
               required
@@ -96,6 +106,18 @@ export function NewTaskView() {
                 <option value="opus">Opus</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label style={{ display: "block", marginBottom: 4, color: "var(--text-dim)" }}>
+              Task Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => handleNameChange(e.target.value)}
+              placeholder="auto-generated from prompt"
+              required
+            />
           </div>
 
           {error && <p style={{ color: "var(--error)" }}>{error}</p>}

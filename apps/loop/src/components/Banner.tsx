@@ -50,7 +50,15 @@ export function Banner({ state, ...opts }: BannerProps) {
           {" "}
           <Text bold>Task:</Text>
           {"       "}
-          {state.name}
+          {(() => {
+            const raw = opts.taskPrompt || state.prompt;
+            const firstLine =
+              raw
+                ?.split("\n")
+                .map((l) => l.replace(/^#+\s*/, "").trim())
+                .find((l) => l.length > 0) ?? state.name;
+            return firstLine.length > 60 ? firstLine.slice(0, 60) + "…" : firstLine;
+          })()}
         </Text>
       )}
 

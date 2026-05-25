@@ -42,12 +42,12 @@ function makeState(overrides: Partial<BuildInitialStateOptions> = {}): State {
 }
 
 describe("Banner", () => {
-  test("renders task name and mode", () => {
+  test("renders task prompt as label and mode", () => {
     const state = makeState();
     const { lastFrame } = render(<Banner state={state} mode="task" taskPrompt="Do something" />);
     const frame = lastFrame()!;
     expect(frame).toContain("Ralph Loop");
-    expect(frame).toContain("test-task");
+    expect(frame).toContain("Do something");
     expect(frame).toContain("task");
   });
 
