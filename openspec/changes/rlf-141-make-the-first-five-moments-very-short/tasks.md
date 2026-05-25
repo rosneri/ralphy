@@ -11,7 +11,7 @@
 
 ## Implementation
 
-- [ ] Modify `buildTaskPrompt` in `packages/core/src/loop.ts` to inject a "Verbosity: VERY SHORT" block when `state.iteration < 5`
-- [ ] Add tests in `packages/core/src/__tests__/loop.test.ts` covering moments 1, 5, and 6 (boundary conditions) and verbosity block ordering
-- [ ] Run `bun run lint` and confirm 0 errors (warnings pre-exist and are unrelated)
-- [ ] Run `bun test packages/core/src/__tests__/loop.test.ts` and confirm all 38 tests pass
+- [x] Modify `buildTaskPrompt` in `packages/core/src/loop.ts` to inject a "Verbosity: VERY SHORT" block when `state.iteration < 5`
+- [x] Add tests in `packages/core/src/__tests__/loop.test.ts` covering moments 1, 5, and 6 (boundary conditions) and verbosity block ordering
+- [x] Run `bun run lint` and confirm 0 errors (warnings pre-exist and are unrelated)
+- [x] Run `bun test packages/core/src/__tests__/loop.test.ts` and confirm all 38 tests pass
