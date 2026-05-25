@@ -11,7 +11,7 @@
  * `@ralphy/core/detections.gateActive`, the two surfaces are independent.
  */
 
-export type OpenSpecPhase = "proposal" | "design" | "tasks" | "implement" | "done";
+export type OpenSpecPhase = "proposal" | "design" | "tasks" | "implement" | "review" | "done";
 
 export interface OpenSpecPhaseInputs {
   /** Contents of `proposal.md`, or `null` if the file does not exist. */
@@ -20,6 +20,12 @@ export interface OpenSpecPhaseInputs {
   design: string | null;
   /** Contents of `tasks.md`, or `null` if the file does not exist. */
   tasks: string | null;
+  /** Contents of `review-findings.md`, or `null` if no review has run yet. */
+  reviewFindings: string | null;
+  /** Number of review rounds already completed. */
+  reviewRounds: number;
+  /** Maximum allowed review rounds (0 = review phase disabled). */
+  maxReviewRounds: number;
 }
 
 /**
@@ -47,16 +53,51 @@ export function isStubArtifact(content: string | null): boolean {
  * Derive the current OpenSpec phase from the change's artifacts. Thin
  * wrapper over `derivePlanPhase` in `@ralphy/core/detections` so the two
  * derivations cannot drift.
+ *
+ * When `maxReviewRounds > 0` (review enabled), a "review" → "design" loop is
+ * inserted after all tasks complete:
+ *   - no review run yet          → "review"  (trigger first review pass)
+ *   - open findings + under cap  → "design"  (loop back for a fix cycle)
+ *   - no findings OR cap reached → "done"
+ *
+ * When `maxReviewRounds === 0` (default) the behaviour is unchanged.
  */
 export function deriveOpenSpecPhase(inputs: OpenSpecPhaseInputs): OpenSpecPhase {
-  const { proposal, design, tasks } = inputs;
-  if (tasks !== null && tasks.trim() !== "" && !/^- \[ \]/m.test(tasks)) {
+  const { proposal, design, tasks, reviewFindings, reviewRounds, maxReviewRounds } = inputs;
+  const allTasksDone = tasks !== null && tasks.trim() !== "" && !/^- \[ \]/m.test(tasks);
+
+  if (allTasksDone) {
+    if (maxReviewRounds > 0) {
+      if (reviewFindings === null) return "review";
+      const openCount = countOpenFindings(reviewFindings);
+      if (openCount > 0 && reviewRounds < maxReviewRounds) return "design";
+    }
     return "done";
   }
+
   if (isStubArtifact(proposal)) return "proposal";
   if (isStubArtifact(design)) return "design";
   if (tasks !== null && /^- \[ \]/m.test(tasks)) return "implement";
   return "tasks";
+}
+
+/**
+ * Count the number of open (unchecked) findings in a review-findings file.
+ * Only items under a `## Open` heading are counted; items under other headings
+ * (e.g. `## Resolved`) are ignored.
+ */
+export function countOpenFindings(content: string): number {
+  const lines = content.split("\n");
+  let inOpenSection = false;
+  let count = 0;
+  for (const line of lines) {
+    if (/^##\s/.test(line)) {
+      inOpenSection = /^##\s+Open\b/i.test(line);
+      continue;
+    }
+    if (inOpenSection && line.startsWith("- [ ]")) count++;
+  }
+  return count;
 }
 
 export type PhaseSegmentStatus = "done" | "current" | "pending";
@@ -72,6 +113,7 @@ export const PIPELINE_PHASES: ReadonlyArray<Exclude<OpenSpecPhase, "done">> = [
   "design",
   "tasks",
   "implement",
+  "review",
 ];
 
 /**
@@ -84,10 +126,11 @@ export const PIPELINE_PHASES: ReadonlyArray<Exclude<OpenSpecPhase, "done">> = [
  * | design    | yes      | no                         | no                              |
  * | tasks     | yes      | no                         | no                              |
  * | implement | no       | yes                        | yes                             |
+ * | review    | yes      | no                         | no                              |
  * | done      | no       | yes                        | yes                             |
  */
 export function shouldShowPhasePipeline(phase: OpenSpecPhase | undefined | null): boolean {
-  return phase === "proposal" || phase === "design" || phase === "tasks";
+  return phase === "proposal" || phase === "design" || phase === "tasks" || phase === "review";
 }
 
 export function shouldShowSubtasksPanel(

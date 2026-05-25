@@ -163,6 +163,10 @@ export const StateSchema = z.object({
       lastConsumedCommentAt: z.string().nullable().default(null),
     })
     .default({ lastConsumedCommentAt: null }),
+  /** Number of self-review rounds completed for this change. Incremented
+   *  each time a reviewer pass finishes. Persists across iterations so the
+   *  loop can enforce `maxReviewRounds`. Missing slot ⇒ 0. */
+  reviewRounds: z.number().default(0),
 });
 
 // --- Inferred types ---

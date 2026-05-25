@@ -23,6 +23,11 @@ export interface RunEngineOptions {
   signal?: AbortSignal;
   /** Resume an existing Claude session instead of starting fresh. */
   resumeSessionId?: string;
+  /** Context strategy for reviewer spawns. "fresh" skips --resume (default
+   *  when doing a review pass). "warm" passes resumeSessionId through. */
+  reviewerContextStrategy?: "fresh" | "warm";
+  /** Override model for reviewer spawns. */
+  reviewerModel?: string;
   /**
    * Inject a pre-built Agent (e.g. the scripted agent) instead of looking one
    * up by `engine`. Production callers should leave this unset; tests use it
@@ -121,6 +126,9 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
   if (opts.resumeSessionId !== undefined) request.resumeSessionId = opts.resumeSessionId;
   if (opts.interactive !== undefined) request.interactive = opts.interactive;
   if (opts.taskDir !== undefined) request.taskDir = opts.taskDir;
+  if (opts.reviewerContextStrategy !== undefined)
+    request.reviewerContextStrategy = opts.reviewerContextStrategy;
+  if (opts.reviewerModel !== undefined) request.reviewerModel = opts.reviewerModel;
   if (rawWriter) {
     request.onRawLine = (line: string) => {
       rawWriter!.write(line + "\n");

@@ -14,18 +14,24 @@ function isRateLimitText(text: string): boolean {
   return RATE_LIMIT_PATTERNS.some((re) => re.test(text));
 }
 
-function buildClaudeArgs(model: string, resumeSessionId?: string): string[] {
+function buildClaudeArgs(
+  model: string,
+  resumeSessionId?: string,
+  reviewerContextStrategy?: "fresh" | "warm",
+  reviewerModel?: string,
+): string[] {
+  const effectiveModel = reviewerModel ?? model;
   const args = [
     "-p",
     "-",
     "--dangerously-skip-permissions",
     "--model",
-    model,
+    effectiveModel,
     "--output-format",
     "stream-json",
     "--verbose",
   ];
-  if (resumeSessionId) {
+  if (resumeSessionId && reviewerContextStrategy !== "fresh") {
     args.push("--resume", resumeSessionId);
   }
   return args;
@@ -90,7 +96,15 @@ export const claudeAgent: Agent = {
     }
 
     const proc = spawn({
-      cmd: ["claude", ...buildClaudeArgs(req.model, req.resumeSessionId)],
+      cmd: [
+        "claude",
+        ...buildClaudeArgs(
+          req.model,
+          req.resumeSessionId,
+          req.reviewerContextStrategy,
+          req.reviewerModel,
+        ),
+      ],
       stdin: "pipe",
       stdout: "pipe",
       stderr: "inherit",

@@ -4,6 +4,7 @@ import type { ChangeStatus } from "@ralphy/change-store";
 import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
+import { countOpenFindings as countOpenFindingsInContent } from "./openspec/phase";
 
 // Re-export task utilities with standardized names for use in loop context
 export {
@@ -36,6 +37,17 @@ export interface LoopChangeStore {
   getStatus?(name: string): Promise<ChangeStatus>;
 }
 
+export interface ReviewRoundResult {
+  /** How many open findings the reviewer found. */
+  openFindings: number;
+  /** Which round number just completed (1-based). */
+  roundNumber: number;
+  /** Whether the cap was reached after this round. */
+  capReached: boolean;
+  /** Contents of review-findings.md (for attachment when cap reached). */
+  findingsContent: string | null;
+}
+
 export interface LoopOptions {
   name: string;
   prompt: string;
@@ -53,17 +65,35 @@ export interface LoopOptions {
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;
+  /** Review phase configuration. When provided and enabled, a fresh reviewer
+   *  session is spawned after all tasks complete. */
+  reviewPhase?: ReviewPhaseConfig & {
+    reviewerModel?: string;
+    reviewerContextStrategy?: "fresh" | "warm";
+  };
+  /** Called after each review round completes. Use to emit Linear comments. */
+  onReviewRound?: (result: ReviewRoundResult) => Promise<void>;
 }
 
 const STEERING_MAX_LINES = 20;
+
+export interface ReviewPhaseConfig {
+  enabled: boolean;
+  maxRounds: number;
+}
 
 /**
  * Build the full prompt for a change iteration by concatenating:
  * 1. Steering section from proposal.md (first 20 non-header lines)
  * 2. First unchecked section of tasks.md
  * 3. Manual testing instruction if enabled and primary tasks complete
+ * 4. Review phase instruction if enabled and all tasks are done
  */
-export function buildTaskPrompt(state: State, taskDir: string): string {
+export function buildTaskPrompt(
+  state: State,
+  taskDir: string,
+  reviewPhase?: ReviewPhaseConfig,
+): string {
   const storage = getStorage();
   let prompt = "";
 
@@ -146,7 +176,46 @@ export function buildTaskPrompt(state: State, taskDir: string): string {
     }
   }
 
-  // 4. Base context: change name and instructions
+  // 4. Review phase injection (when enabled and all tasks are complete).
+  //    (a) No review-findings.md yet → instruct the agent to run a review pass.
+  //    (b) review-findings.md has open findings and under cap → instruct the
+  //        agent to address those findings before the next review.
+  if (reviewPhase?.enabled) {
+    const reviewFindingsPath = join(taskDir, "review-findings.md");
+    const reviewFindingsContent = storage.read(reviewFindingsPath);
+    const hasUncheckedMission =
+      missionTasksContent !== null && /^- \[ \]/m.test(missionTasksContent);
+    const hasUncheckedAgent = agentTasksContent !== null && /^- \[ \]/m.test(agentTasksContent);
+    const allDone = !hasUncheckedMission && !hasUncheckedAgent;
+
+    if (allDone) {
+      if (reviewFindingsContent === null) {
+        prompt += "---\n\n## Self-Review Phase\n\n";
+        prompt += "All implementation tasks are complete. Run a self-review before closing:\n\n";
+        prompt += "1. Read `proposal.md` and `design.md` from `openspec/changes/<change-name>/`.\n";
+        prompt += "2. Run `git diff main` to review all changes in this branch.\n";
+        prompt += "3. Check the implementation against the acceptance criteria in `proposal.md`.\n";
+        prompt += `4. Write findings to \`${reviewFindingsPath}\`:\n`;
+        prompt += "   - If issues found: list them as `- [ ] <finding>` under `## Open`.\n";
+        prompt += "   - If no issues: write `(no findings — close round)` under `## Open`.\n\n";
+        prompt += "---\n\n";
+      } else {
+        const openCount = countOpenFindingsInContent(reviewFindingsContent);
+        if (openCount > 0 && state.reviewRounds < reviewPhase.maxRounds) {
+          prompt += "---\n\n## Address Review Findings\n\n";
+          prompt += `There are ${openCount} open finding(s) from the self-review. Address them before finishing:\n\n`;
+          prompt += `1. Read \`${reviewFindingsPath}\` to see the open findings.\n`;
+          prompt += "2. Fix each `- [ ]` item under `## Open`.\n";
+          prompt += "3. Check off each finding as you resolve it (`- [x]`).\n";
+          prompt +=
+            "4. When all findings are resolved, write a new review pass (update the file with `(no findings — close round)` or any remaining open items).\n\n";
+          prompt += "---\n\n";
+        }
+      }
+    }
+  }
+
+  // 5. Base context: change name and instructions
   prompt += `Change name: \`${state.name}\`\n\n`;
   prompt += `Run \`bunx openspec validate ${state.name}\` before committing.\n`;
   prompt += `Commit all changed files yourself before finishing — stage files individually (e.g. \`git add path/to/file\`), never \`git add -A\` or \`git commit -am\`. Nothing is committed automatically after you exit.\n`;

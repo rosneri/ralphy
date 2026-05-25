@@ -2,6 +2,7 @@
 export {
   type LoopOptions,
   type StopReason,
+  type ReviewRoundResult,
   buildTaskPrompt,
   checkStopCondition,
   checkStopSignal,
