@@ -1,3 +1,18 @@
+## Address GitHub @ralphy mention (2026-05-26T08:03:12.920Z)
+
+- [ ] Address GitHub @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+An @ralphy mention was left on GitHub PR (https://github.com/NeriRos/ralphy/pull/261#issuecomment-4541025435):
+
+**NeriRos — 2026-05-26T06:20:46Z (GitHub PR)**
+
+@ralphy-read the validate should be an indicator and not a config / parameter. We have certain tasks which don't require or but require a validation phase specific to the task, the validation should be defined by the worker ai iteration after the design phase and executed after the implementation phase
+
+Treat this comment as the next concrete request. If it's ambiguous,
+note your interpretation in proposal.md `## Steering` before acting.
+```
+
 ## Resolve PR merge conflicts (2026-05-26T05:56:38.230Z)
 
 - [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

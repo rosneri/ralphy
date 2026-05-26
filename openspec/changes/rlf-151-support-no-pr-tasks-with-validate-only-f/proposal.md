@@ -191,4 +191,6 @@ Never modify: dist/**, .claude/worktrees/**.
 
 ## Steering
 
-_Add steering notes here as the loop runs._
+**2026-05-26 — NeriRos:** The validate should be an indicator and not a config / parameter. We have certain tasks which don't require a PR but require a validation phase specific to the task. The validation should be defined by the worker AI iteration after the design phase and executed after the implementation phase.
+
+**Interpretation:** Remove `validateOnComplete` from `WorkflowConfigSchema` and all CLI flags. Instead, the worker AI creates `openspec/changes/<name>/specs/validate.md` during the design phase as the per-task validation indicator. The post-task handler detects this file to enter validate-only mode. When the spec file is first detected, the state is updated (`validateOnComplete = true, createPr = false`) so subsequent iterations omit PR creation instructions.

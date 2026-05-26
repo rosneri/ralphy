@@ -62,7 +62,6 @@ export interface LoopOptions {
   verbose: boolean;
   manualTest: boolean;
   createPr?: boolean;
-  validateOnComplete?: boolean;
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;

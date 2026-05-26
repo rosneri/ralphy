@@ -128,7 +128,6 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           model: opts.model,
           manualTest: opts.manualTest,
           createPr: opts.createPr ?? false,
-          validateOnComplete: opts.validateOnComplete ?? false,
         });
         // Carry over linearComments / specAttachments if linear-sync wrote
         // them before the loop could scaffold full state — otherwise we'd

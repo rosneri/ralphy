@@ -140,8 +140,6 @@ export function createSpawnWorker(
       if (rp.reviewerContextStrategy !== "fresh")
         c.push("--review-context-strategy", rp.reviewerContextStrategy);
     }
-    const wantValidateOnly = cfg.validateOnComplete && !(args.createPr || cfg.createPrOnSuccess);
-    if (wantValidateOnly) c.push("--validate-on-complete");
     c.push("--from-agent");
     return c;
   }
@@ -206,7 +204,6 @@ export function createSpawnWorker(
       : cmdRunner;
 
     const wantPrBase = args.createPr || cfg.createPrOnSuccess;
-    const wantValidateOnly = cfg.validateOnComplete && !wantPrBase;
     const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
     const issueForChange = issueByChange.get(changeName);
     const wantAutoMerge = issueForChange
@@ -214,6 +211,30 @@ export function createSpawnWorker(
       : false;
     const wrapped = handle.exited.then(async (code) => {
       const workerLayout = projectLayout(cwd);
+
+      // Detect per-task validation indicator: worker AI creates specs/validate.md during design.
+      const validateSpecPath = join(workerLayout.changeDir(changeName), "specs", "validate.md");
+      const hasValidateSpec = await Bun.file(validateSpecPath).exists();
+      const wantValidateOnly = hasValidateSpec && !wantPrBase;
+      if (hasValidateSpec) {
+        try {
+          const stateFile = workerLayout.stateFile(changeName);
+          const sf = Bun.file(stateFile);
+          if (await sf.exists()) {
+            const stateData = JSON.parse(await sf.text()) as {
+              validateOnComplete?: boolean;
+              createPr?: boolean;
+            };
+            if (!stateData.validateOnComplete) {
+              stateData.validateOnComplete = true;
+              stateData.createPr = false;
+              await Bun.write(stateFile, JSON.stringify(stateData, null, 2));
+            }
+          }
+        } catch {
+          // ignore state update errors
+        }
+      }
       try {
         const prevTasks = await prevTasksPromise;
         const nextFile = Bun.file(missionTasksPath);
