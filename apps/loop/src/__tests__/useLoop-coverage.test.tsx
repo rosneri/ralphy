@@ -102,7 +102,7 @@ describe("useLoop — reviewPhase block (coverage)", () => {
 
       const changeStore = {
         archiveChange,
-        getStatus: async (_n: string) => ({ isComplete: true, artifacts: [] }),
+        getStatus: async (_n: string) => ({ changeName: _n, isComplete: true, artifacts: [], applyRequires: [] }),
         listChanges: async () => [name],
       };
 

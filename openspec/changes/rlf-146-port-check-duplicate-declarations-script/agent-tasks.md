@@ -1,3 +1,68 @@
+## Fix failing CI checks (2026-05-26T01:57:03.068Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26427813491 ---
+ci Typecheck (affected) ﻿2026-05-26T01:54:05.5890769Z ##[group]Run bun run typecheck:ci
+ci Typecheck (affected) 2026-05-26T01:54:05.5891097Z [36;1mbun run typecheck:ci[0m
+ci Typecheck (affected) 2026-05-26T01:54:05.5927697Z shell: /usr/bin/bash -e {0}
+ci Typecheck (affected) 2026-05-26T01:54:05.5927969Z env:
+ci Typecheck (affected) 2026-05-26T01:54:05.5928220Z NX_BASE: 4967312c25a8eb54cbce078ed970b077f27ef9b3
+ci Typecheck (affected) 2026-05-26T01:54:05.5928575Z NX_HEAD: bdaef2d457ae1d31d3076ec628ebcb36e2bcb92b
+ci Typecheck (affected) 2026-05-26T01:54:05.5928933Z NODE_OPTIONS: --max-old-space-size=8192
+ci Typecheck (affected) 2026-05-26T01:54:05.5929217Z ##[endgroup]
+ci Typecheck (affected) 2026-05-26T01:54:05.6006053Z $ nx affected -t typecheck --parallel=1 --exclude=ui
+ci Typecheck (affected) 2026-05-26T01:54:05.8575231Z
+ci Typecheck (affected) 2026-05-26T01:54:05.8580215Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --base argument provided, but found environment variable NX_BASE so using its value as the affected base: [1m4967312c25a8eb54cbce078ed970b077f27ef9b3[22m[39m
+ci Typecheck (affected) 2026-05-26T01:54:05.8581552Z
+ci Typecheck (affected) 2026-05-26T01:54:05.8581565Z
+ci Typecheck (affected) 2026-05-26T01:54:05.8583354Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --head argument provided, but found environment variable NX_HEAD so using its value as the affected head: [1mbdaef2d457ae1d31d3076ec628ebcb36e2bcb92b[22m[39m
+ci Typecheck (affected) 2026-05-26T01:54:05.8584695Z
+ci Typecheck (affected) 2026-05-26T01:54:06.2875342Z
+ci Typecheck (affected) 2026-05-26T01:54:06.2876785Z [7m[1m[36m NX [39m[22m[27m [36mRunning target [1mtypecheck[22m for 21 projects:[39m
+ci Typecheck (affected) 2026-05-26T01:54:06.2877301Z
+ci Typecheck (affected) 2026-05-26T01:54:06.2877499Z [2m-[22m agent
+ci Typecheck (affected) 2026-05-26T01:54:06.2877863Z [2m-[22m shell
+ci Typecheck (affected) 2026-05-26T01:54:06.2878200Z [2m-[22m loop
+ci Typecheck (affected) 2026-05-26T01:54:06.2878513Z [2m-[22m agent-protocol
+ci Typecheck (affected) 2026-05-26T01:54:06.2878839Z [2m-[22m adapter-codex
+ci Typecheck (affected) 2026-05-26T01:54:06.2879123Z [2m-[22m engine
+ci Typecheck (affected) 2026-05-26T01:54:06.2879381Z [2m-[22m change-store
+ci Typecheck (affected) 2026-05-26T01:54:06.2879645Z [2m-[22m openspec
+ci Typecheck (affected) 2026-05-26T01:54:06.2879880Z [2m-[22m mcp
+ci Typecheck (affected) 2026-05-26T01:54:06.2880110Z [2m-[22m core
+ci Typecheck (affected) 2026-05-26T01:54:06.2880360Z [2m-[22m telemetry
+ci Typecheck (affected) 2026-05-26T01:54:06.2880614Z [2m-[22m events
+ci Typecheck (affected) 2026-05-26T01:54:06.2881163Z [2m-[22m cli-args
+ci Typecheck (affected) 2026-05-26T01:54:06.2881409Z [2m-[22m workflow
+ci Typecheck (affected) 2026-05-26T01:54:06.2881658Z [2m-[22m content
+ci Typecheck (affected) 2026-05-26T01:54:06.2881897Z [2m-[22m context
+ci Typecheck (affected) 2026-05-26T01:54:06.2882138Z [2m-[22m version
+ci Typecheck (affected) 2026-05-26T01:54:06.2882369Z [2m-[22m output
+ci Typecheck (affected) 2026-05-26T01:54:06.2882596Z [2m-[22m paths
+ci Typecheck (affected) 2026-05-26T01:54:06.2882830Z [2m-[22m types
+ci Typecheck (affected) 2026-05-26T01:54:06.2883052Z [2m-[22m log
+ci Typecheck (affected) 2026-05-26T01:54:06.2883171Z
+ci Typecheck (affected) 2026-05-26T01:54:06.2883300Z [2m[36m[39m[22m
+ci Typecheck (affected) 2026-05-26T01:54:08.2242845Z
+ci Typecheck (affected) 2026-05-26T01:54:08.2244233Z ##[group]✅ [2m> [22m[2mnx run[22m types:typecheck
+ci Typecheck (affected) 2026-05-26T01:54:08.2244664Z
+ci Typecheck (affected) 2026-05-26T01:54:08.2245144Z [2m> [22mtsc -b packages/types/tsconfig.json
+ci Typecheck (affected) 2026-05-26T01:54:08.2245755Z
+ci Typecheck (affected) 2026-05-26T01:54:09.3935864Z ##[endgroup]
+ci Typecheck (affected) 2026-05-26T01:54:09.3936699Z ##[group]✅ [2m> [22m[2mnx run[22m context:typecheck
+ci T
+…[truncated 379899 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T01:43:07.797Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
