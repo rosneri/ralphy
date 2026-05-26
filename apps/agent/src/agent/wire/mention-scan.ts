@@ -148,6 +148,13 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
         if (queued.has(issue.id)) continue;
       }
 
+      // The GitHub-side mention/review scan needs the ticket's PR. Tickets
+      // that have never been worked (unstarted/backlog/triage state types)
+      // cannot have a PR — skip the per-issue GitHub search + Linear
+      // attachments fetch entirely. The Linear-comment scan above still
+      // catches fresh `@ralphy` mentions on those tickets.
+      if (issue.state.type !== "started" && issue.state.type !== "completed") continue;
+
       const prUrl = await resolvePrUrlForIssue(issue);
       if (!prUrl) continue;
 

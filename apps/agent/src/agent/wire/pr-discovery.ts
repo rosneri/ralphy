@@ -95,11 +95,11 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
       return null;
     }
 
-    diag(
-      "pr",
-      `  ${issue.identifier}: no PR found via GitHub search or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
-      "gray",
-    );
+    // No PR found. Mark unavailable so subsequent polls in the next 10m
+    // short-circuit, but stay silent — callers decide whether a missing PR
+    // is worth a log line. The conflict-scan path (`checkPrStatus` below)
+    // logs explicitly; the mention-scan path stays silent because Todo
+    // tickets legitimately have no PR yet.
     markPrUnavailable(changeName);
     return null;
   }
@@ -113,7 +113,14 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     let prUrl: string | undefined = prByChange.get(changeName);
     if (!prUrl) {
       const found = await discoverPrUrl(issue, changeName);
-      if (!found) return null;
+      if (!found) {
+        diag(
+          "pr",
+          `  ${issue.identifier}: no PR found via GitHub search or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
+          "gray",
+        );
+        return null;
+      }
       prUrl = found;
       prByChange.set(changeName, prUrl);
     }
