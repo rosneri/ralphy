@@ -8,7 +8,7 @@ import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { buildInitialState, writeState } from "@ralphy/core/state";
 import type { State } from "@ralphy/types";
 import type { BuildInitialStateOptions } from "@ralphy/core/state";
-import type { ParsedArgs } from "../cli";
+import type { LoopParsedArgs as ParsedArgs } from "../cli";
 
 // Mock engine module
 mock.module("@ralphy/engine/engine", () => ({

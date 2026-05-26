@@ -37,7 +37,7 @@ export function buildReviewTaskBody(
   ].join("\n");
 }
 
-function escapeRegex(s: string): string {
+export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -93,7 +93,7 @@ export function findLastRalphPickupISO(
   return latest;
 }
 
-function stripCodeMarkup(s: string): string {
+export function stripCodeMarkup(s: string): string {
   return s.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
 }
 

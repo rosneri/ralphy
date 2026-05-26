@@ -10,7 +10,7 @@ export {
   type CoordinatorDeps,
   type PauseState,
   type PollResult,
-  type PrStatus,
+  type PrStatusBucket,
   type PrepareResult,
   type QueueTrigger,
   type MentionTrigger,

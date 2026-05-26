@@ -6,7 +6,7 @@ export interface TerminalSize {
   resizeKey: number;
 }
 
-function readSize(): { columns: number; rows: number } {
+export function readSize(): { columns: number; rows: number } {
   return {
     columns: process.stdout.columns ?? 80,
     rows: process.stdout.rows ?? 24,
@@ -22,7 +22,7 @@ function readSize(): { columns: number; rows: number } {
  * we cleared in a useEffect, which ran AFTER Static re-printed and silently
  * erased the log history on every resize — see RLF-57.)
  */
-function clearScreenAndScrollback(): void {
+export function clearScreenAndScrollback(): void {
   if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
 }
 

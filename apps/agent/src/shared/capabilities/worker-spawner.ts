@@ -20,6 +20,7 @@
 import { NO_RETRY, type Capability } from "./types";
 import { fsChange } from "./fs-change";
 import { runCapability } from "./run-capability";
+import { formatError } from "./format-error";
 
 export interface WorkerSpawnHandle {
   exited: Promise<number>;
@@ -42,10 +43,6 @@ interface SpawnWorkerArgs {
   prependTask?: { tasksPath: string; heading: string; failureOutput: string };
 }
 
-function defaultFormatter(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 const defaultSpawner: WorkerSpawner = (cmd, cwd) => {
   const proc = Bun.spawn({
     cmd,
@@ -65,7 +62,7 @@ export const spawnWorker: Capability<SpawnWorkerArgs, WorkerSpawnHandle> = {
   name: "worker.spawn",
   required: false,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: async (args) => {
     if (args.steeringNote) {
       await runCapability(fsChange.appendSteering, args.steeringNote);

@@ -1,7 +1,7 @@
-import type { ParsedArgs } from "./cli";
+import type { AgentParsedArgs } from "./cli";
 
 export function shouldFallbackToJsonOutput(
-  args: Pick<ParsedArgs, "jsonOutput">,
+  args: Pick<AgentParsedArgs, "jsonOutput">,
   stdinIsTty: boolean | undefined,
 ): boolean {
   return !args.jsonOutput && stdinIsTty !== true;

@@ -18,7 +18,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
-import { parseArgs } from "../cli";
+import { parseAgentArgs as parseArgs } from "../cli";
 import { loadRalphyConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";

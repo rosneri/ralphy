@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
-import type { ParsedArgs } from "../../cli";
+import type { AgentParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
 import type { CmdRunner } from "../pr";
 import type { MentionTrigger } from "../coordinator";
@@ -20,7 +20,7 @@ import type { Indicators } from "@ralphy/types";
 
 interface MentionScanInput {
   apiKey: string;
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   cfg: RalphyConfig;
   team: string | undefined;
   assignee: string | undefined;

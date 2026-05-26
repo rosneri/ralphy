@@ -6,7 +6,7 @@ import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
 import { fsChange } from "../../shared/capabilities/fs-change";
 import { git } from "../../shared/capabilities/git";
 import { runCapability } from "../../shared/capabilities/run-capability";
-import type { ParsedArgs } from "../../cli";
+import type { AgentParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
 import { baseBranchFromLabels, fetchIssueComments, type LinearIssue } from "../linear";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
@@ -23,7 +23,7 @@ interface WireMaps {
 }
 
 interface PrepareInput {
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   cfg: RalphyConfig;
   projectRoot: string;
   statesDir: string;

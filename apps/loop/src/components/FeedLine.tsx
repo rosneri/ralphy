@@ -160,6 +160,7 @@ function TurnDoneLine({ event }: { event: Extract<FeedEvent, { type: "turn-done"
   );
 }
 
+// allow-duplicate
 function formatCost(usd: number): string {
   return (Math.round(usd * 100) / 100).toFixed(2);
 }

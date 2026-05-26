@@ -1,28 +1,14 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
-import { VERSION, type ParsedArgs } from "../cli";
+import { VERSION, type AgentParsedArgs } from "../cli";
+import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import { ensureRalphyConfig, loadRalphyConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 import { getProcessBus } from "@ralphy/events";
 import { waitForActiveWorkers } from "../runtime/shutdown";
-
-// Reuse the same line-cleaning regexes as the Ink dashboard.
-const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
-const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
-const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
-const ITER_HEADER_LINE_RE = /^──/;
-
-function cleanOutputLine(raw: string): string | null {
-  const clean = raw.replace(ANSI_STRIP_RE, "").trim();
-  if (!clean) return null;
-  if (BOX_ONLY_RE.test(clean)) return null;
-  if (STATUS_BAR_LINE_RE.test(clean)) return null;
-  if (ITER_HEADER_LINE_RE.test(clean)) return null;
-  return clean;
-}
 
 function makeEmit(fileSink: {
   emit(event: Record<string, unknown>): void;
@@ -66,7 +52,7 @@ export async function runAgentJson({
   tasksDir,
   runPreflight = runPreflightImpl,
 }: {
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   projectRoot: string;
   statesDir: string;
   tasksDir: string;

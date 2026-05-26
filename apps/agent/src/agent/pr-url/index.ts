@@ -1,4 +1,5 @@
 import type { CmdRunner } from "../pr";
+import { escapeRegex } from "../wire/task-bodies";
 
 interface GitHubPrRow {
   url: string;
@@ -6,10 +7,6 @@ interface GitHubPrRow {
   headRefName: string;
   title: string;
   updatedAt?: string;
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

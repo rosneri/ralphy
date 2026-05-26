@@ -154,7 +154,7 @@ interface StuckInfo {
   watchingPrUrl: string | undefined;
 }
 
-function detectStuck(lines: DebugLogLine[]): StuckInfo | null {
+function detectDebugStuck(lines: DebugLogLine[]): StuckInfo | null {
   if (lines.length < 10) return null;
 
   // Count repeats of the same phase in the last 20 entries
@@ -467,7 +467,7 @@ export async function runDebug(opts: {
   }
 
   // Detect stuck loop
-  const stuck = detectStuck(timeline);
+  const stuck = detectDebugStuck(timeline);
 
   // Binary info
   const binary = await inspectBinary(projectRoot);

@@ -14,7 +14,7 @@ import { TaskList } from "../components/TaskList";
 import { IterationHeader } from "../components/IterationHeader";
 import { StopMessage } from "../components/StopMessage";
 import { App } from "../components/App";
-import type { ParsedArgs } from "../cli";
+import type { LoopParsedArgs as ParsedArgs } from "../cli";
 
 let tempDir: string;
 function withStorage<T>(fn: () => T): T {

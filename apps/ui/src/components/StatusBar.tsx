@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import type { State } from "@ralphy/types";
+import type { ProgressCount } from "../hooks/useTaskStream";
+import { formatCost } from "../utils/format-cost";
 
-interface ProgressCount {
-  checked: number;
-  unchecked: number;
-  total: number;
-}
 
 interface StatusBarProps {
   state: State;
@@ -14,9 +11,6 @@ interface StatusBarProps {
   stopReason: string | null;
 }
 
-function formatCost(usd: number): string {
-  return `$${(Math.round(usd * 100) / 100).toFixed(2)}`;
-}
 
 function formatDuration(ms: number): string {
   const s = Math.floor(ms / 1000);

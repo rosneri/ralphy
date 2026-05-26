@@ -8,7 +8,7 @@ import { FeedLine } from "./FeedLine";
 import { StatusBar } from "./StatusBar";
 import { StopMessage } from "./StopMessage";
 import { useLoop, type LogEntry } from "../hooks/useLoop";
-import { useTerminalSize } from "../hooks/useTerminalSize";
+import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
 import type { LoopOptions } from "../loop";
 
 interface TaskLoopProps {

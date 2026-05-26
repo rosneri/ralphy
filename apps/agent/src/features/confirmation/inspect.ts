@@ -1,5 +1,6 @@
 import type { SetIndicator } from "@ralphy/types";
 import type { ConfirmationState } from "./state";
+import { stripCodeMarkup } from "../../agent/wire/task-bodies";
 
 /** Build a regex matching `<handle> revise: <reason>`. Case-insensitive. */
 function buildReviseRegex(handle: string): RegExp {
@@ -11,13 +12,6 @@ interface ReviseMatch {
   commentId: string;
   createdAt: string;
   reason: string;
-}
-
-/** Strip fenced code blocks and inline code spans from a markdown body so
- *  illustrative examples (e.g. the `@ralphy revise: <reason>` shown in our
- *  own "plan ready" comment) don't get matched as real commands. */
-function stripCodeMarkup(body: string): string {
-  return body.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ");
 }
 
 /** Extract the newest revise comment from a list (created-at descending),

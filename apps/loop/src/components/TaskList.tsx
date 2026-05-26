@@ -7,7 +7,7 @@ import { worktreesDir } from "@ralphy/paths";
 /**
  * Count checked and unchecked task items in a markdown file.
  */
-function countTaskItems(content: string): { checked: number; unchecked: number } {
+function countLoopTaskItems(content: string): { checked: number; unchecked: number } {
   const checked = (content.match(/^- \[x\]/gm) ?? []).length;
   const unchecked = (content.match(/^- \[ \]/gm) ?? []).length;
   return { checked, unchecked };
@@ -69,7 +69,7 @@ function buildRows(statesDir: string, projectRoot?: string): TaskRow[] {
       let progressStyled = true;
       const tasksContent = storage.read(join(dir, entry, "tasks.md"));
       if (tasksContent !== null) {
-        const { checked, unchecked } = countTaskItems(tasksContent);
+        const { checked, unchecked } = countLoopTaskItems(tasksContent);
         const total = checked + unchecked;
         if (total > 0) {
           progress = `${checked}/${total}`;

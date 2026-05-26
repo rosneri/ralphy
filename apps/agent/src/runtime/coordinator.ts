@@ -67,7 +67,7 @@ export interface PrStatusCounts {
   conflicted: number;
   ciFailed: number;
 }
-export type PrStatus = "mergeable" | "conflicted" | "ci_failed" | "unknown";
+export type PrStatusBucket = "mergeable" | "conflicted" | "ci_failed" | "unknown";
 export type Flow = "awaiting" | "working" | "conflict-fix" | "ci-fix" | "review";
 export type PlanPhaseValue = "proposal" | "design" | "tasks" | "implement" | "done";
 export interface PollResult {
@@ -154,7 +154,7 @@ export interface CoordinatorDeps {
    *  Returns null if no PR is known for this issue (branch deleted, never
    *  created). `unknown` is used when GitHub hasn't computed mergeability
    *  yet or `gh` failed; the caller skips acting on it. */
-  checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatus } | null>;
+  checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatusBucket } | null>;
   /** Returns true when the openspec change for this issue has already been
    *  archived locally (i.e. a directory matching
    *  `openspec/changes/archive/*-<changeName>/` exists). Used to detect
@@ -601,7 +601,7 @@ export class AgentCoordinator {
     // Already labeled conflicted on Linear → let getConflicted route it.
     if (this.issueHasIndicator(issue, setConflicted)) return true;
 
-    let pr: { url: string; status: PrStatus } | null;
+    let pr: { url: string; status: PrStatusBucket } | null;
     try {
       pr = await this.deps.checkPrStatus(issue);
     } catch (err) {
@@ -791,7 +791,7 @@ export class AgentCoordinator {
       if (this.workers.some((w) => w.issueId === issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
       if (this.queue.some((q) => q.issue.id === issue.id)) continue;
-      let pr: { url: string; status: PrStatus } | null;
+      let pr: { url: string; status: PrStatusBucket } | null;
       try {
         pr = await this.deps.checkPrStatus(issue);
       } catch (err) {

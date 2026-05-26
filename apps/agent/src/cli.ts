@@ -12,7 +12,7 @@ export { VERSION };
 
 export type AgentMode = "agent" | "list" | "stop" | "status";
 
-export interface ParsedArgs extends CommonArgs {
+export interface AgentParsedArgs extends CommonArgs {
   mode: AgentMode;
   /** Identifier used in list mode (--name <ticket>). */
   name: string;
@@ -49,6 +49,7 @@ export interface ParsedArgs extends CommonArgs {
   noTmux: boolean;
 }
 
+// allow-duplicate
 const VALID_MODES = new Set<string>(["agent", "list", "stop", "status"]);
 
 const INDICATOR_KEYS = new Set<keyof Indicators>([
@@ -72,6 +73,7 @@ const GET_KEYS = new Set<keyof Indicators>([
   "getAutoMerge",
 ]);
 
+// allow-duplicate
 const HELP_TEXT = [
   `ralphy agent v${VERSION}`,
   "",
@@ -131,7 +133,7 @@ const HELP_TEXT = [
   "  ralphy agent list --debug --name ENG-123",
 ].join("\n");
 
-export function printHelp(): void {
+export function printAgentHelp(): void {
   log(HELP_TEXT);
 }
 
@@ -187,9 +189,9 @@ function mergeIndicator(bag: Partial<Indicators>, key: keyof Indicators, marker:
   }
 }
 
-export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
+export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   const common = initialCommonArgs();
-  const result: ParsedArgs = {
+  const result: AgentParsedArgs = {
     ...common,
     mode: "agent",
     name: "",

@@ -12,7 +12,7 @@ import {
   type AgentModeCoordinator,
 } from "../components/AgentMode";
 import type { ActiveWorker } from "../agent/coordinator";
-import type { ParsedArgs } from "../cli";
+import type { AgentParsedArgs as ParsedArgs } from "../cli";
 import type { RalphyConfig } from "../agent/config";
 
 async function flush(ms = 1300) {

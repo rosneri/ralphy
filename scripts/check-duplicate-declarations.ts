@@ -86,6 +86,29 @@ interface ConventionAllow {
 
 const CONVENTION_ALLOWLIST: readonly ConventionAllow[] = [
   {
+    reason: "Each app has exactly one entry-point main() function.",
+    matchPath: (file) =>
+      /^apps\/[^/]+\/src\/index\.ts$/.test(file) || /^apps\/[^/]+\/src\/scripts\//.test(file),
+    names: new Set(["main"]),
+  },
+  {
+    reason: "Each app has exactly one root App component.",
+    matchPath: (file) => /^apps\/[^/]+\/src\/(components\/)?App\.tsx$/.test(file),
+    names: new Set(["App"]),
+  },
+  {
+    reason:
+      "Per-feature event emitters — each feature folder has its own events.ts with emitCompleted/emitFailed/emitTransitioned.",
+    matchPath: (file) => /^apps\/agent\/src\/features\/[^/]+\/events\.ts$/.test(file),
+    names: new Set(["emitCompleted", "emitFailed", "emitTransitioned"]),
+  },
+  {
+    reason:
+      "Cross-app terminal UI components and formatting utilities independently defined in each app.",
+    matchPath: (file) => /^apps\/(loop|ui|agent)\/src\/(components|views|utils)\//.test(file),
+    names: new Set(["StatusBar", "StatusBarProps", "FeedLine", "formatCost"]),
+  },
+  {
     reason: "Astro route handlers — each API route must export its HTTP method(s).",
     matchPath: (file) => /^apps\/[^/]+\/src\/pages\//.test(file),
     names: new Set([

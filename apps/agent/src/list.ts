@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { getStorage } from "@ralphy/context";
-import type { GetIndicator, Indicators, Marker, SetIndicator } from "@ralphy/types";
-import { markersOf } from "@ralphy/types";
+import type { GetIndicator, Indicators, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
 import {
@@ -14,6 +13,8 @@ import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
+import { RALPHY_ATTACHMENT_TITLE } from "./shared/capabilities/linear-client";
+import { unionMarkers } from "./agent/wire/indicators";
 
 interface LocalRow {
   name: string;
@@ -116,21 +117,6 @@ function findPullRequestUrl(
     if (/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(a.url)) return a.url;
   }
   return null;
-}
-
-function unionMarkers(...sets: (SetIndicator | undefined)[]): Marker[] {
-  const out: Marker[] = [];
-  const seen = new Set<string>();
-  for (const s of sets) {
-    if (!s) continue;
-    for (const m of markersOf(s)) {
-      const key = `${m.type}:${m.value}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(m);
-    }
-  }
-  return out;
 }
 
 interface Bucket {
@@ -465,8 +451,6 @@ async function fetchIssueByIdentifier(
   const json = (await res.json()) as { data?: { issues?: { nodes?: RawIssue[] } } };
   return json.data?.issues?.nodes?.[0] ?? null;
 }
-
-const RALPHY_ATTACHMENT_TITLE = "Ralphy";
 
 function markerMatches(issue: RawIssue, marker: Marker): boolean {
   if (marker.type === "label") {

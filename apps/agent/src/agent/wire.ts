@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Indicators } from "@ralphy/types";
 import { createBus, subscribeAgentDiag } from "@ralphy/events";
 import { PollContext } from "../shared/capabilities/poll-context";
-import type { ParsedArgs } from "../cli";
+import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
 import { addIssueComment, fetchIssueComments, type LinearIssue } from "./linear";
@@ -28,7 +28,7 @@ export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubRe
 export type { AgentRunners };
 
 interface BuildAgentCoordinatorInput {
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   cfg: RalphyConfig;
   projectRoot: string;
   statesDir: string;

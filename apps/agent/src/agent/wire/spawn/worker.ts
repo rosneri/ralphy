@@ -4,7 +4,7 @@ import {
   MISSION_TASKS_FILENAME,
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
-import type { ParsedArgs } from "../../../cli";
+import type { AgentParsedArgs } from "../../../cli";
 import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
@@ -20,7 +20,7 @@ import type { Indicators } from "@ralphy/types";
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
 interface SpawnWorkerInput {
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   cfg: RalphyConfig;
   apiKey: string;
   projectRoot: string;

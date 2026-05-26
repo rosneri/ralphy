@@ -15,6 +15,7 @@
 import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { renderTasksBlock } from "./index";
+import { type LogFn, sha256Hex } from "./utils";
 
 const PLAN_COMMENT_TITLE = "📋 Ralph plan";
 const STEERING_COMMENT_TITLE = "🧭 Ralph steering";
@@ -30,8 +31,6 @@ interface PersistedState {
   linearComments?: Partial<LinearCommentsState> | null;
   [key: string]: unknown;
 }
-
-type LogFn = (text: string, color?: string) => void;
 
 export interface CommentMutations {
   createIssueComment: (apiKey: string, issueId: string, body: string) => Promise<string>;
@@ -83,12 +82,6 @@ function readComments(state: PersistedState | null): LinearCommentsState {
     planPostedAt: raw?.planPostedAt ?? null,
     tasksCommentSha256: raw?.tasksCommentSha256 ?? null,
   };
-}
-
-function sha256Hex(text: string): string {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(text);
-  return hasher.digest("hex");
 }
 
 async function patchComments(

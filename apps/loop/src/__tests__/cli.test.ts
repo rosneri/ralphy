@@ -2,7 +2,7 @@ import { describe, expect, test, spyOn } from "bun:test";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
-import { parseArgs, printHelp, VERSION } from "../cli";
+import { parseLoopArgs as parseArgs, printLoopHelp as printHelp, VERSION } from "../cli";
 
 describe("parseArgs", () => {
   test("defaults to task mode with claude/opus", async () => {

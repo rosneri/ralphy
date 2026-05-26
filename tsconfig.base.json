@@ -64,7 +64,8 @@
       "@ralphy/openspec": ["./packages/openspec/src/index.ts"],
       "@ralphy/openspec/*": ["./packages/openspec/src/*"],
       "@ralphy/change-store": ["./packages/change-store/src/index.ts"],
-      "@ralphy/change-store/*": ["./packages/change-store/src/*"]
+      "@ralphy/change-store/*": ["./packages/change-store/src/*"],
+      "@ralphy/ui-shared/*": ["./packages/ui-shared/src/*"]
     }
   },
   "exclude": ["node_modules", "dist"]

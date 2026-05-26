@@ -1,7 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { join } from "node:path";
 import { Text, useApp } from "ink";
-import type { ParsedArgs } from "../cli";
+import type { LoopParsedArgs } from "../cli";
 import { readState } from "@ralphy/core/state";
 import { getStorage } from "@ralphy/context";
 import { TaskStatus } from "./TaskStatus";
@@ -9,7 +9,7 @@ import { TaskLoop } from "./TaskLoop";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
 
 interface AppProps {
-  args: ParsedArgs;
+  args: LoopParsedArgs;
   statesDir: string;
   tasksDir: string;
   projectRoot: string;
@@ -33,7 +33,7 @@ function ErrorMessage({ message }: { message: string }) {
 }
 
 interface TaskModeWrapperProps {
-  args: ParsedArgs;
+  args: LoopParsedArgs;
   statesDir: string;
   tasksDir: string;
 }
