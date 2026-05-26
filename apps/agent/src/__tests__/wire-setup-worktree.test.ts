@@ -316,3 +316,215 @@ describe("git.seedWorktreeMcpConfig capability", () => {
     }
   });
 });
+
+describe("spawnWorker — review phase CLI flags", () => {
+  test("openspec.reviewPhase.enabled passes --review-enabled to worker", async () => {
+    installLinearStub();
+
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      openspec: {
+        reviewPhase: {
+          enabled: true,
+          maxRounds: 1,
+          reviewerContextStrategy: "fresh",
+        },
+      },
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+          setError: { type: "label", value: "ralph:error" },
+        },
+      },
+    });
+
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const spawnedCmds: string[][] = [];
+    const spawnWorker = (cmd: string[]): { exited: Promise<number>; kill: () => void } => {
+      spawnedCmds.push(cmd);
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const cmdRunner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners: {
+        git,
+        cmd: cmdRunner,
+        spawnWorker,
+        runScript: async () => 0,
+      } satisfies AgentRunners,
+    });
+
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(spawnedCmds.length).toBeGreaterThan(0);
+    const cmd = spawnedCmds[0]!;
+    expect(cmd).toContain("--review-enabled");
+    expect(cmd).not.toContain("--review-model");
+    expect(cmd).not.toContain("--review-max-rounds");
+    expect(cmd).not.toContain("--review-context-strategy");
+  });
+
+  test("openspec.reviewPhase.reviewerModel passes --review-model to worker", async () => {
+    installLinearStub();
+
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      openspec: {
+        reviewPhase: {
+          enabled: true,
+          maxRounds: 2,
+          reviewerModel: "haiku",
+          reviewerContextStrategy: "warm",
+        },
+      },
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+          setError: { type: "label", value: "ralph:error" },
+        },
+      },
+    });
+
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const spawnedCmds: string[][] = [];
+    const spawnWorker = (cmd: string[]): { exited: Promise<number>; kill: () => void } => {
+      spawnedCmds.push(cmd);
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const cmdRunner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners: {
+        git,
+        cmd: cmdRunner,
+        spawnWorker,
+        runScript: async () => 0,
+      } satisfies AgentRunners,
+    });
+
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(spawnedCmds.length).toBeGreaterThan(0);
+    const cmd = spawnedCmds[0]!;
+    expect(cmd).toContain("--review-enabled");
+    expect(cmd).toContain("--review-model");
+    expect(cmd[cmd.indexOf("--review-model") + 1]).toBe("haiku");
+    expect(cmd).toContain("--review-max-rounds");
+    expect(cmd[cmd.indexOf("--review-max-rounds") + 1]).toBe("2");
+    expect(cmd).toContain("--review-context-strategy");
+    expect(cmd[cmd.indexOf("--review-context-strategy") + 1]).toBe("warm");
+  });
+
+  test("openspec.reviewPhase.enabled false passes no review flags to worker", async () => {
+    installLinearStub();
+
+    await writeWorkflow(tempDir, {
+      concurrency: 1,
+      useWorktree: false,
+      createPrOnSuccess: false,
+      openspec: {
+        reviewPhase: {
+          enabled: false,
+        },
+      },
+      linear: {
+        team: "ENG",
+        postComments: false,
+        updateEveryIterations: 0,
+        indicators: {
+          getTodo: { filter: [{ type: "status", value: "Todo" }] },
+          setInProgress: { type: "status", value: "In Progress" },
+          setDone: { type: "status", value: "Done" },
+          setError: { type: "label", value: "ralph:error" },
+        },
+      },
+    });
+
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const spawnedCmds: string[][] = [];
+    const spawnWorker = (cmd: string[]): { exited: Promise<number>; kill: () => void } => {
+      spawnedCmds.push(cmd);
+      return { exited: Promise.resolve(0), kill: () => {} };
+    };
+
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const cmdRunner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners: {
+        git,
+        cmd: cmdRunner,
+        spawnWorker,
+        runScript: async () => 0,
+      } satisfies AgentRunners,
+    });
+
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(spawnedCmds.length).toBeGreaterThan(0);
+    const cmd = spawnedCmds[0]!;
+    expect(cmd).not.toContain("--review-enabled");
+    expect(cmd).not.toContain("--review-model");
+  });
+});
