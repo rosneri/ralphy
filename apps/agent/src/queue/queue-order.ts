@@ -5,7 +5,7 @@ import { chain, type Comparator } from "../sort/compare";
 
 /** Semantic origin of a queued issue. Carries intent for logging, comment
  *  posting and label flow; does NOT influence ordering — that's `priority`. */
-export type QueueTrigger = "fresh" | "resume" | "conflict-fix" | "review";
+export type QueueTrigger = "fresh" | "resume" | "conflict-fix" | "ci-fix" | "review";
 
 /** Per-issue review trigger emitted by mention scanning. Carries the
  *  comment that should become the next task verbatim, so the worker
@@ -26,8 +26,8 @@ export interface QueueEntry {
   issue: LinearIssue;
   trigger: QueueTrigger;
   /** Lower wins. Computed at enqueue time from the trigger semantics
-   *  (resume=0, conflict-fix=1, review=2, fresh=3). Sort uses this
-   *  number directly so trigger has no ordering coupling. */
+   *  (resume=0, conflict-fix=1, ci-fix=2, review=3, fresh=4). Sort uses
+   *  this number directly so trigger has no ordering coupling. */
   priority: number;
   mention?: MentionTrigger;
 }
@@ -41,10 +41,12 @@ export function defaultPriorityFor(trigger: QueueTrigger): number {
       return 0;
     case "conflict-fix":
       return 1;
-    case "review":
+    case "ci-fix":
       return 2;
-    case "fresh":
+    case "review":
       return 3;
+    case "fresh":
+      return 4;
   }
 }
 

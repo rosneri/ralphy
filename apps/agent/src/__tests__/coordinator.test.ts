@@ -83,6 +83,7 @@ interface DepsResult {
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
   setConflicted: (issues: LinearIssue[]) => void;
+  setCiFailed: (issues: LinearIssue[]) => void;
   setReview: (issues: LinearIssue[]) => void;
   setMentions: (mentions: { issue: LinearIssue; trigger: MentionTrigger }[]) => void;
   setDoneCandidates: (issues: LinearIssue[]) => void;
@@ -104,6 +105,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
   let conflicted: LinearIssue[] = [];
+  let ciFailed: LinearIssue[] = [];
   let review: LinearIssue[] = [];
   let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
   let doneCandidates: LinearIssue[] = [];
@@ -112,6 +114,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => inProgress),
     fetchConflicted: mock(async () => conflicted),
+    fetchCiFailed: mock(async () => ciFailed),
     fetchReview: mock(async () => review),
     fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
@@ -175,6 +178,9 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     setConflicted: (xs) => {
       conflicted = xs;
+    },
+    setCiFailed: (xs) => {
+      ciFailed = xs;
     },
     setReview: (xs) => {
       review = xs;
@@ -278,6 +284,7 @@ describe("AgentCoordinator — todo polling", () => {
       todo: 0,
       inProgress: 0,
       conflicted: 0,
+      ciFailed: 0,
       review: 0,
       mentions: 0,
       awaiting: 0,
@@ -356,6 +363,7 @@ describe("AgentCoordinator — todo polling", () => {
       todo: 2,
       inProgress: 1,
       conflicted: 1,
+      ciFailed: 0,
       review: 1,
       mentions: 1,
       awaiting: 0,
@@ -380,6 +388,7 @@ describe("AgentCoordinator — todo polling", () => {
       todo: 1,
       inProgress: 1,
       conflicted: 0,
+      ciFailed: 0,
       review: 0,
       mentions: 0,
       awaiting: 1,
@@ -791,6 +800,36 @@ describe("AgentCoordinator — conflict scan", () => {
     expect(ctx.applies).toEqual([]);
     expect(ctx.comments).toEqual([]);
     expect(ctx.workers.size).toBe(0);
+  });
+
+  test("ci_failed PR on done candidate is labeled and queued as ci-fix", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/501",
+      status: "ci_failed" as const,
+    });
+    const setCiFailed: SetIndicator = { type: "label", value: "ralph:ci-failed" };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, setCiFailed });
+    await coord.init();
+    const r = await coord.pollOnce();
+    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 1 });
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setCiFailed });
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("failing CI"))).toBe(true);
+    expect(coord.queuedCount).toBe(1);
+  });
+
+  test("getCiFailed bucket is fetched and queued as ci-fix trigger", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setCiFailed([ticket]);
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    await coord.init();
+    const r = await coord.pollOnce();
+    expect(r.buckets.ciFailed).toBe(1);
+    expect(r.added).toBe(1);
+    expect(coord.queuedCount).toBe(1);
   });
 
   test("pollOnce aggregates PR status counts across done candidates", async () => {

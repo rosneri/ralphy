@@ -40,6 +40,7 @@ function makeCtx() {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => []),
     fetchConflicted: mock(async () => []),
+    fetchCiFailed: mock(async () => []),
     fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),

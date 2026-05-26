@@ -48,6 +48,7 @@ export interface LinearClientLike {
   fetchTodo(): Promise<LinearIssue[]>;
   fetchInProgress(): Promise<LinearIssue[]>;
   fetchConflicted(): Promise<LinearIssue[]>;
+  fetchCiFailed(): Promise<LinearIssue[]>;
   fetchReview(): Promise<LinearIssue[]>;
   fetchMentions(): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
   fetchDoneCandidates(): Promise<LinearIssue[]>;

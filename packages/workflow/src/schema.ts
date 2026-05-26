@@ -11,6 +11,8 @@ const SET_INDICATOR_KEYS = [
   "setError",
   "setConflicted",
   "clearConflicted",
+  "setCiFailed",
+  "clearCiFailed",
   "clearReview",
   "clearApproved",
 ] as const;
@@ -30,6 +32,7 @@ const IndicatorsSchema = z.preprocess(
       getTodo: GetIndicatorSchema.optional(),
       getInProgress: GetIndicatorSchema.optional(),
       getConflicted: GetIndicatorSchema.optional(),
+      getCiFailed: GetIndicatorSchema.optional(),
       getReview: GetIndicatorSchema.optional(),
       getAutoMerge: GetIndicatorSchema.optional(),
       getApproved: GetIndicatorSchema.optional(),
@@ -37,8 +40,10 @@ const IndicatorsSchema = z.preprocess(
       setDone: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setConflicted: SetIndicatorSchema.optional(),
+      setCiFailed: SetIndicatorSchema.optional(),
       setAwaitingConfirmation: SetIndicatorSchema.optional(),
       clearConflicted: SetIndicatorSchema.optional(),
+      clearCiFailed: SetIndicatorSchema.optional(),
       clearReview: SetIndicatorSchema.optional(),
       clearApproved: SetIndicatorSchema.optional(),
       clearAwaitingConfirmation: SetIndicatorSchema.optional(),
@@ -46,6 +51,7 @@ const IndicatorsSchema = z.preprocess(
     .superRefine((value, ctx) => {
       for (const key of [
         "clearConflicted",
+        "clearCiFailed",
         "clearReview",
         "clearApproved",
         "clearAwaitingConfirmation",

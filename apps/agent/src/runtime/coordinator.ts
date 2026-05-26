@@ -50,6 +50,10 @@ export interface PollBuckets {
   todo: number;
   inProgress: number;
   conflicted: number;
+  /** Tickets labeled `setCiFailed` whose PR is red on CI. Mirrors
+   *  `conflicted`: detected by the conflict scan, then routed back into
+   *  the queue as a `ci-fix` trigger on the next poll. */
+  ciFailed: number;
   review: number;
   mentions: number;
   /** In-progress issues whose OpenSpec phase is `awaiting-confirmation`. They
@@ -95,7 +99,15 @@ function extractPrNumber(url: string): string | null {
 const emptyPollResult = (): PollResult => ({
   found: 0,
   added: 0,
-  buckets: { todo: 0, inProgress: 0, conflicted: 0, review: 0, mentions: 0, awaiting: 0 },
+  buckets: {
+    todo: 0,
+    inProgress: 0,
+    conflicted: 0,
+    ciFailed: 0,
+    review: 0,
+    mentions: 0,
+    awaiting: 0,
+  },
   prStatus: emptyPrStatus(),
   phase: {},
   flow: {},
@@ -108,6 +120,8 @@ export interface CoordinatorDeps {
   fetchInProgress: () => Promise<LinearIssue[]>;
   /** Issues already labeled conflicted (re-fix). Empty array if not configured. */
   fetchConflicted: () => Promise<LinearIssue[]>;
+  /** Issues already labeled CI-failed (re-fix). Empty array if not configured. */
+  fetchCiFailed: () => Promise<LinearIssue[]>;
   /** Done issues flagged for review follow-up (new reviewer comments).
    *  Empty array if `getReview` isn't configured. */
   fetchReview: () => Promise<LinearIssue[]>;
@@ -208,6 +222,8 @@ interface CoordinatorOptions {
   setError?: SetIndicator | undefined;
   setConflicted?: SetIndicator | undefined;
   clearConflicted?: SetIndicator | undefined;
+  setCiFailed?: SetIndicator | undefined;
+  clearCiFailed?: SetIndicator | undefined;
   clearReview?: SetIndicator | undefined;
   postComments?: boolean | undefined;
   commentEveryIterations?: number | undefined;
@@ -270,6 +286,9 @@ export class AgentCoordinator {
    *  against re-posting the conflict comment every poll. Cleared once
    *  the worker exits successfully (clearConflicted is applied). */
   private conflictNotified = new Set<string>();
+  /** Symmetric to `conflictNotified` for the ci-fix lifecycle. Cleared
+   *  when a ci-fix worker exits successfully. */
+  private ciFailedNotified = new Set<string>();
   /** Issue IDs we've already posted the "promoted to conflict-fix" comment
    *  for in this process run. Guards against double-posting if the next
    *  poll still sees the ticket in `getInProgress` (e.g. Linear hasn't
@@ -336,13 +355,15 @@ export class AgentCoordinator {
     let todo: LinearIssue[] = [];
     let inProgress: LinearIssue[] = [];
     let conflicted: LinearIssue[] = [];
+    let ciFailed: LinearIssue[] = [];
     let review: LinearIssue[] = [];
     let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
     try {
-      [todo, inProgress, conflicted, review, mentions] = await Promise.all([
+      [todo, inProgress, conflicted, ciFailed, review, mentions] = await Promise.all([
         this.deps.fetchTodo(),
         this.deps.fetchInProgress(),
         this.deps.fetchConflicted(),
+        this.deps.fetchCiFailed(),
         this.deps.fetchReview(),
         this.deps.fetchMentions(),
       ]);
@@ -370,13 +391,14 @@ export class AgentCoordinator {
       todo.length +
         resumableCount +
         conflicted.length +
+        ciFailed.length +
         review.length +
         mentions.length +
         awaitingCount >
       0
     ) {
       this.deps.onFileLog?.(
-        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${conflicted.length} conflicted, ${review.length} review, ${mentions.length} mention, ${awaitingCount} awaiting`,
+        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${conflicted.length} conflicted, ${ciFailed.length} ci-failed, ${review.length} review, ${mentions.length} mention, ${awaitingCount} awaiting`,
       );
     }
 
@@ -394,6 +416,7 @@ export class AgentCoordinator {
         todo: todo.length,
         inProgress: resumableCount,
         conflicted: conflicted.length,
+        ciFailed: ciFailed.length,
         review: review.length,
         mentions: mentions.length,
         awaiting: awaitingCount,
@@ -402,6 +425,7 @@ export class AgentCoordinator {
         buckets.todo +
         buckets.inProgress +
         buckets.conflicted +
+        buckets.ciFailed +
         buckets.review +
         buckets.mentions +
         buckets.awaiting;
@@ -454,6 +478,20 @@ export class AgentCoordinator {
       } else {
         this.deps.onLog(`  ↳ ${issue.identifier} queued (conflict-fix)`, "gray");
       }
+    }
+
+    // 2b. CI-failed issues: re-fix runs.
+    for (const issue of ciFailed) {
+      if (atTicketLimit()) break;
+      if (!eligible(issue.id)) continue;
+      this.queue.push({
+        issue,
+        trigger: "ci-fix",
+        priority: defaultPriorityFor("ci-fix"),
+      });
+      queuedIds.add(issue.id);
+      added += 1;
+      this.deps.onLog(`  ↳ ${issue.identifier} queued (ci-fix)`, "gray");
     }
 
     // 3. Review follow-up: done issues with new reviewer comments.
@@ -517,6 +555,7 @@ export class AgentCoordinator {
       todo: todo.length,
       inProgress: resumableCount,
       conflicted: conflicted.length,
+      ciFailed: ciFailed.length,
       review: review.length,
       mentions: mentions.length,
       awaiting: awaitingCount,
@@ -525,12 +564,14 @@ export class AgentCoordinator {
       buckets.todo +
       buckets.inProgress +
       buckets.conflicted +
+      buckets.ciFailed +
       buckets.review +
       buckets.mentions +
       buckets.awaiting;
     const flow: Record<string, Flow> = {};
     for (const w of this.workers) {
       if (w.trigger === "conflict-fix") flow[w.changeName] = "conflict-fix";
+      else if (w.trigger === "ci-fix") flow[w.changeName] = "ci-fix";
       else if (w.trigger === "review") flow[w.changeName] = "review";
       else flow[w.changeName] = "working";
     }
@@ -771,13 +812,13 @@ export class AgentCoordinator {
 
   /**
    * For every issue we believe is "done" but we tracked a PR for, check
-   * whether the PR has merge conflicts. If yes, apply `setConflicted`,
-   * post a Linear comment (once per detection), and enqueue the issue
-   * for a conflict-fix run.
+   * whether the PR has merge conflicts or red CI. If yes, apply the
+   * matching `setConflicted` / `setCiFailed` label, post a Linear comment
+   * (once per detection), and enqueue the issue for a re-fix run.
    */
   private async scanDoneForConflicts(): Promise<PrStatusCounts> {
     const counts = emptyPrStatus();
-    if (!this.opts.setConflicted) return counts; // can't mark conflicted → can't act
+    if (!this.opts.setConflicted && !this.opts.setCiFailed) return counts;
     let candidates: LinearIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
@@ -805,46 +846,87 @@ export class AgentCoordinator {
       if (pr.status === "mergeable") counts.mergeable += 1;
       else if (pr.status === "conflicted") counts.conflicted += 1;
       else if (pr.status === "ci_failed") counts.ciFailed += 1;
-      if (pr.status !== "conflicted") continue;
-      const alreadyNotified = this.conflictNotified.has(issue.id);
-      if (alreadyNotified) continue;
-      emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
 
-      try {
-        await this.deps.applyIndicator(issue, this.opts.setConflicted);
-        this.deps.onLog(`  ${issue.identifier}: setConflicted applied`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
-          "red",
-        );
-        emitCapture(this.bus, "agent_indicator_failed", {
-          indicator: "setConflicted",
-          issue_identifier: issue.identifier,
-          error: (err as Error).message,
+      if (pr.status === "conflicted" && this.opts.setConflicted) {
+        if (this.conflictNotified.has(issue.id)) continue;
+        emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
+        try {
+          await this.deps.applyIndicator(issue, this.opts.setConflicted);
+          this.deps.onLog(`  ${issue.identifier}: setConflicted applied`, "gray");
+        } catch (err) {
+          this.deps.onLog(
+            `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
+            "red",
+          );
+          emitCapture(this.bus, "agent_indicator_failed", {
+            indicator: "setConflicted",
+            issue_identifier: issue.identifier,
+            error: (err as Error).message,
+          });
+          continue;
+        }
+        this.conflictNotified.add(issue.id);
+        if (this.opts.postComments !== false) {
+          try {
+            await this.deps.postComment(
+              issue,
+              `⚠ Ralph detected merge conflicts on this PR (${pr.url}) — re-running to resolve`,
+            );
+            this.deps.onLog(`  ${issue.identifier}: posted conflict comment`, "gray");
+          } catch (err) {
+            this.deps.onLog(
+              `! Linear conflict comment failed for ${issue.identifier}: ${(err as Error).message}`,
+              "yellow",
+            );
+          }
+        }
+        this.queue.push({
+          issue,
+          trigger: "conflict-fix",
+          priority: defaultPriorityFor("conflict-fix"),
         });
         continue;
       }
-      this.conflictNotified.add(issue.id);
-      if (this.opts.postComments !== false) {
+
+      if (pr.status === "ci_failed" && this.opts.setCiFailed) {
+        if (this.ciFailedNotified.has(issue.id)) continue;
+        emitCapture(this.bus, "agent_ci_failed_detected", { issue_identifier: issue.identifier });
         try {
-          await this.deps.postComment(
-            issue,
-            `⚠ Ralph detected merge conflicts on this PR (${pr.url}) — re-running to resolve`,
-          );
-          this.deps.onLog(`  ${issue.identifier}: posted conflict comment`, "gray");
+          await this.deps.applyIndicator(issue, this.opts.setCiFailed);
+          this.deps.onLog(`  ${issue.identifier}: setCiFailed applied`, "gray");
         } catch (err) {
           this.deps.onLog(
-            `! Linear conflict comment failed for ${issue.identifier}: ${(err as Error).message}`,
-            "yellow",
+            `! Linear setCiFailed failed for ${issue.identifier}: ${(err as Error).message}`,
+            "red",
           );
+          emitCapture(this.bus, "agent_indicator_failed", {
+            indicator: "setCiFailed",
+            issue_identifier: issue.identifier,
+            error: (err as Error).message,
+          });
+          continue;
         }
+        this.ciFailedNotified.add(issue.id);
+        if (this.opts.postComments !== false) {
+          try {
+            await this.deps.postComment(
+              issue,
+              `⚠ Ralph detected failing CI on this PR (${pr.url}) — re-running to fix`,
+            );
+            this.deps.onLog(`  ${issue.identifier}: posted ci-failed comment`, "gray");
+          } catch (err) {
+            this.deps.onLog(
+              `! Linear ci-failed comment failed for ${issue.identifier}: ${(err as Error).message}`,
+              "yellow",
+            );
+          }
+        }
+        this.queue.push({
+          issue,
+          trigger: "ci-fix",
+          priority: defaultPriorityFor("ci-fix"),
+        });
       }
-      this.queue.push({
-        issue,
-        trigger: "conflict-fix",
-        priority: defaultPriorityFor("conflict-fix"),
-      });
     }
 
     this.spawnNext();
@@ -1221,6 +1303,17 @@ export class AgentCoordinator {
       if (trigger === "conflict-fix") {
         this.conflictNotified.delete(issue.id);
         this.conflictPromoted.delete(issue.id);
+      } else if (trigger === "ci-fix") {
+        this.ciFailedNotified.delete(issue.id);
+        // Post-task verifies CI; coordinator just re-arms the scan.
+        if (this.opts.clearCiFailed) {
+          try {
+            await this.deps.removeIndicator(issue, this.opts.clearCiFailed);
+            this.deps.onLog(`  ${issue.identifier}: clearCiFailed applied`, "gray");
+          } catch {
+            // non-fatal — next poll re-checks PR status
+          }
+        }
       } else if (this.opts.setDone) {
         try {
           await this.deps.applyIndicator(issue, this.opts.setDone);

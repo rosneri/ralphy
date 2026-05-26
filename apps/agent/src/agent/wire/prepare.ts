@@ -233,7 +233,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     trigger: QueueTrigger,
     mention?: MentionTrigger,
   ): Promise<void> {
-    if (trigger !== "review" && trigger !== "conflict-fix") return;
+    if (trigger !== "review" && trigger !== "conflict-fix" && trigger !== "ci-fix") return;
     const workerCwd = maps.cwdByChange.get(changeName);
     if (!workerCwd) return;
     const wtLayout = projectLayout(workerCwd);
@@ -300,14 +300,49 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     ]
       .filter(Boolean)
       .join("\n");
+    if (trigger === "conflict-fix") {
+      try {
+        await runCapability(fsChange.prependTask, {
+          tasksPath: tasksFile,
+          heading: "Resolve PR merge conflicts",
+          failureOutput: body,
+        });
+      } catch (err) {
+        diag("tasks", `! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
+      }
+      await reactivateState(wtLayout.stateFile(changeName), changeName);
+      return;
+    }
+
+    // ci-fix
+    const ciPrUrl = maps.prByChange.get(changeName);
+    const ciBranch = maps.branchByChange.get(changeName);
+    const ciBranchRef = ciBranch ?? "<current-branch>";
+    const ciBody = [
+      `The PR for this change has failing CI checks.`,
+      "",
+      "Steps:",
+      `1. Inspect the failing checks: \`gh pr checks ${ciPrUrl ?? "<pr-url>"}\` then`,
+      `   \`gh run view <run-id> --log-failed\` for each red run.`,
+      `2. Fix the underlying failures in the worktree (tests, lint, typecheck, build).`,
+      `3. Stage and commit the fixes.`,
+      `4. Push with \`git push origin ${ciBranchRef}\`. If the push is rejected as`,
+      `   non-fast-forward, \`git fetch origin ${ciBranchRef}\` then rebase before retrying.`,
+      `5. Wait for CI to re-run; if checks are still red, repeat from step 1.`,
+      `   Stop only when CI is green or when the failure is clearly outside the change's scope`,
+      `   (flaky infra, external service down) — in that case, log the rejection and exit.`,
+      ciPrUrl ? `\nPR: ${ciPrUrl}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
     try {
       await runCapability(fsChange.prependTask, {
         tasksPath: tasksFile,
-        heading: "Resolve PR merge conflicts",
-        failureOutput: body,
+        heading: "Fix failing CI checks",
+        failureOutput: ciBody,
       });
     } catch (err) {
-      diag("tasks", `! could not prepend conflict-fix task: ${(err as Error).message}`, "red");
+      diag("tasks", `! could not prepend ci-fix task: ${(err as Error).message}`, "red");
     }
     await reactivateState(wtLayout.stateFile(changeName), changeName);
   }

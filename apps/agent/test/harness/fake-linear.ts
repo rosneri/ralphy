@@ -118,6 +118,7 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     fetchTodo: async () => filterBy(indicators.getTodo),
     fetchInProgress: async () => filterBy(indicators.getInProgress),
     fetchConflicted: async () => filterBy(indicators.getConflicted),
+    fetchCiFailed: async () => filterBy(indicators.getCiFailed),
     fetchReview: async () => filterBy(indicators.getReview),
     fetchDoneCandidates: async () => filterBy(indicators.getDoneCandidates),
     fetchMentions: async () => {

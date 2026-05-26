@@ -58,6 +58,11 @@ export function describeIndicators(
       `conflicted=[${indicators.getConflicted.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
     );
   }
+  if (indicators.getCiFailed) {
+    parts.push(
+      `ciFailed=[${indicators.getCiFailed.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
+    );
+  }
   if (indicators.getReview) {
     parts.push(
       `review=[${indicators.getReview.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,

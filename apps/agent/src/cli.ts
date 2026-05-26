@@ -56,6 +56,7 @@ const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getTodo",
   "getInProgress",
   "getConflicted",
+  "getCiFailed",
   "getReview",
   "getAutoMerge",
   "setInProgress",
@@ -63,12 +64,15 @@ const INDICATOR_KEYS = new Set<keyof Indicators>([
   "setError",
   "setConflicted",
   "clearConflicted",
+  "setCiFailed",
+  "clearCiFailed",
   "clearReview",
 ]);
 const GET_KEYS = new Set<keyof Indicators>([
   "getTodo",
   "getInProgress",
   "getConflicted",
+  "getCiFailed",
   "getReview",
   "getAutoMerge",
 ]);

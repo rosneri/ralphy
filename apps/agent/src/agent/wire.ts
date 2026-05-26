@@ -122,11 +122,13 @@ export function buildAgentCoordinator(
     indicators.setDone,
     indicators.setError,
     indicators.setConflicted,
+    indicators.setCiFailed,
   );
   const excludeFromReview = unionMarkers(
     indicators.setInProgress,
     indicators.setError,
     indicators.setConflicted,
+    indicators.setCiFailed,
   );
 
   const gitRunner = input.runners?.git ?? bunGitRunner;
@@ -311,6 +313,7 @@ export function buildAgentCoordinator(
       fetchTodo: () => resolvers.fetchByGet(indicators.getTodo, excludeFromTodo),
       fetchInProgress: () => resolvers.fetchByGet(indicators.getInProgress, []),
       fetchConflicted: () => resolvers.fetchByGet(indicators.getConflicted, []),
+      fetchCiFailed: () => resolvers.fetchByGet(indicators.getCiFailed, []),
       fetchReview: () => resolvers.fetchByGet(indicators.getReview, excludeFromReview),
       fetchMentions,
       fetchDoneCandidates: () => fetchDoneCandidatesWith(apiKey, team, assignee, indicators),
@@ -355,6 +358,10 @@ export function buildAgentCoordinator(
         : {}),
       ...(indicators.clearConflicted !== undefined
         ? { clearConflicted: indicators.clearConflicted }
+        : {}),
+      ...(indicators.setCiFailed !== undefined ? { setCiFailed: indicators.setCiFailed } : {}),
+      ...(indicators.clearCiFailed !== undefined
+        ? { clearCiFailed: indicators.clearCiFailed }
         : {}),
       ...(indicators.clearReview !== undefined ? { clearReview: indicators.clearReview } : {}),
       ...(indicators.getAutoMerge !== undefined ? { getAutoMerge: indicators.getAutoMerge } : {}),

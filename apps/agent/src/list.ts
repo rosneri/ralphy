@@ -130,16 +130,19 @@ function buildBuckets(indicators: Indicators): Bucket[] {
     indicators.setDone,
     indicators.setError,
     indicators.setConflicted,
+    indicators.setCiFailed,
   );
   const excludeFromReview = unionMarkers(
     indicators.setInProgress,
     indicators.setError,
     indicators.setConflicted,
+    indicators.setCiFailed,
   );
   return [
     { label: "todo", indicator: indicators.getTodo, exclude: excludeFromTodo },
     { label: "in-progress", indicator: indicators.getInProgress, exclude: [] },
     { label: "conflicted", indicator: indicators.getConflicted, exclude: [] },
+    { label: "ci-failed", indicator: indicators.getCiFailed, exclude: [] },
     { label: "review", indicator: indicators.getReview, exclude: excludeFromReview },
     { label: "auto-merge", indicator: indicators.getAutoMerge, exclude: [] },
   ];

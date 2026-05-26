@@ -1,7 +1,7 @@
 {"ts":"<TIMESTAMP>","type":"started","version":"<VERSION>","filterDesc":"team=ENG, assignee=*, todo=[status:Todo], conflicted=[label:ralph:conflicted]","concurrency":1,"pollInterval":60,"configPath":"<CONFIG>"}
 {"ts":"<TIMESTAMP>","type":"poll_start"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  ↳ ENG-1 queued (fresh)","color":"gray"}
-{"ts":"<TIMESTAMP>","type":"poll_done","found":1,"added":1,"buckets":{"todo":1,"inProgress":0,"conflicted":0,"review":0,"mentions":0,"awaiting":0},"prStatus":{"mergeable":0,"conflicted":0,"ciFailed":0},"phase":{},"flow":{}}
+{"ts":"<TIMESTAMP>","type":"poll_done","found":1,"added":1,"buckets":{"todo":1,"inProgress":0,"conflicted":0,"ciFailed":0,"review":0,"mentions":0,"awaiting":0},"prStatus":{"mergeable":0,"conflicted":0,"ciFailed":0},"phase":{},"flow":{}}
 {"ts":"<TIMESTAMP>","type":"log","text":"  → ENG-1 status='In Progress'","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  ENG-1: setInProgress applied","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  ENG-1: posted \"started\" comment","color":"gray"}
@@ -22,4 +22,4 @@
 {"ts":"<TIMESTAMP>","type":"log","text":"  ENG-1: setDone applied","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  ENG-1: clearInProgress applied","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"poll_start"}
-{"ts":"<TIMESTAMP>","type":"poll_done","found":0,"added":0,"buckets":{"todo":0,"inProgress":0,"conflicted":0,"review":0,"mentions":0,"awaiting":0},"prStatus":{"mergeable":1,"conflicted":0,"ciFailed":0},"phase":{},"flow":{}}
+{"ts":"<TIMESTAMP>","type":"poll_done","found":0,"added":0,"buckets":{"todo":0,"inProgress":0,"conflicted":0,"ciFailed":0,"review":0,"mentions":0,"awaiting":0},"prStatus":{"mergeable":1,"conflicted":0,"ciFailed":0},"phase":{},"flow":{}}

@@ -74,6 +74,7 @@ export async function createHarness(opts: CreateHarnessOptions): Promise<Extende
     fetchTodo: () => linear.client.fetchTodo(),
     fetchInProgress: () => linear.client.fetchInProgress(),
     fetchConflicted: () => linear.client.fetchConflicted(),
+    fetchCiFailed: () => linear.client.fetchCiFailed(),
     fetchReview: () => linear.client.fetchReview(),
     fetchMentions: () => linear.client.fetchMentions(),
     fetchDoneCandidates: () => linear.client.fetchDoneCandidates(),
