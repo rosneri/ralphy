@@ -1,3 +1,67 @@
+## Fix failing CI checks (2026-05-26T02:01:45.915Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26427949309 ---
+ci Format check (affected) ﻿2026-05-26T01:58:45.1967194Z ##[group]Run bun run fmt:ci
+ci Format check (affected) 2026-05-26T01:58:45.1967492Z [36;1mbun run fmt:ci[0m
+ci Format check (affected) 2026-05-26T01:58:45.2004867Z shell: /usr/bin/bash -e {0}
+ci Format check (affected) 2026-05-26T01:58:45.2005134Z env:
+ci Format check (affected) 2026-05-26T01:58:45.2005374Z NX_BASE: 4967312c25a8eb54cbce078ed970b077f27ef9b3
+ci Format check (affected) 2026-05-26T01:58:45.2005731Z NX_HEAD: bae39f7242ac90b80c1b7fc9924fe8bf932bdf44
+ci Format check (affected) 2026-05-26T01:58:45.2006038Z ##[endgroup]
+ci Format check (affected) 2026-05-26T01:58:45.2109158Z $ nx affected -t fmt:check --exclude=ui
+ci Format check (affected) 2026-05-26T01:58:45.4613735Z
+ci Format check (affected) 2026-05-26T01:58:45.4618019Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --base argument provided, but found environment variable NX_BASE so using its value as the affected base: [1m4967312c25a8eb54cbce078ed970b077f27ef9b3[22m[39m
+ci Format check (affected) 2026-05-26T01:58:45.4621041Z
+ci Format check (affected) 2026-05-26T01:58:45.4621104Z
+ci Format check (affected) 2026-05-26T01:58:45.4623824Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --head argument provided, but found environment variable NX_HEAD so using its value as the affected head: [1mbae39f7242ac90b80c1b7fc9924fe8bf932bdf44[22m[39m
+ci Format check (affected) 2026-05-26T01:58:45.4625214Z
+ci Format check (affected) 2026-05-26T01:58:45.8895145Z
+ci Format check (affected) 2026-05-26T01:58:45.8896542Z [7m[1m[36m NX [39m[22m[27m [36mRunning target [1mfmt:check[22m for 21 projects:[39m
+ci Format check (affected) 2026-05-26T01:58:45.8896954Z
+ci Format check (affected) 2026-05-26T01:58:45.8897080Z [2m-[22m agent
+ci Format check (affected) 2026-05-26T01:58:45.8897327Z [2m-[22m shell
+ci Format check (affected) 2026-05-26T01:58:45.8897563Z [2m-[22m loop
+ci Format check (affected) 2026-05-26T01:58:45.8897833Z [2m-[22m agent-protocol
+ci Format check (affected) 2026-05-26T01:58:45.8898138Z [2m-[22m adapter-codex
+ci Format check (affected) 2026-05-26T01:58:45.8898406Z [2m-[22m engine
+ci Format check (affected) 2026-05-26T01:58:45.8898657Z [2m-[22m change-store
+ci Format check (affected) 2026-05-26T01:58:45.8898961Z [2m-[22m openspec
+ci Format check (affected) 2026-05-26T01:58:45.8899186Z [2m-[22m mcp
+ci Format check (affected) 2026-05-26T01:58:45.8899405Z [2m-[22m core
+ci Format check (affected) 2026-05-26T01:58:45.8899649Z [2m-[22m telemetry
+ci Format check (affected) 2026-05-26T01:58:45.8899890Z [2m-[22m events
+ci Format check (affected) 2026-05-26T01:58:45.8900133Z [2m-[22m cli-args
+ci Format check (affected) 2026-05-26T01:58:45.8900373Z [2m-[22m workflow
+ci Format check (affected) 2026-05-26T01:58:45.8900612Z [2m-[22m content
+ci Format check (affected) 2026-05-26T01:58:45.8900881Z [2m-[22m context
+ci Format check (affected) 2026-05-26T01:58:45.8901123Z [2m-[22m version
+ci Format check (affected) 2026-05-26T01:58:45.8901344Z [2m-[22m output
+ci Format check (affected) 2026-05-26T01:58:45.8901720Z [2m-[22m paths
+ci Format check (affected) 2026-05-26T01:58:45.8901938Z [2m-[22m types
+ci Format check (affected) 2026-05-26T01:58:45.8902148Z [2m-[22m log
+ci Format check (affected) 2026-05-26T01:58:45.8902267Z
+ci Format check (affected) 2026-05-26T01:58:45.8902393Z [2m[36m[39m[22m
+ci Format check (affected) 2026-05-26T01:58:46.0976729Z
+ci Format check (affected) 2026-05-26T01:58:46.0978425Z ##[group]✅ [2m> [22m[2mnx run[22m types:"fmt:check"
+ci Format check (affected) 2026-05-26T01:58:46.0978714Z
+ci Format check (affected) 2026-05-26T01:58:46.0979123Z [2m> [22moxfmt --check packages/types/src
+ci Format check (affected) 2026-05-26T01:58:46.0979375Z
+ci Format check (affected) 2026-05-26T01:58:46.0979539Z Checking formatting...
+ci Format check (affected) 2026-05-26T01:58:46.0979692Z
+ci Format check (affected) 20
+…[truncated 386674 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T01:57:03.068Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
