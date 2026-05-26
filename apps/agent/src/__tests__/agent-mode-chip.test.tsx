@@ -113,7 +113,7 @@ const baseArgs: ParsedArgs = {
   debug: false,
 };
 
-describe("AgentMode activity chip", () => {
+describe("AgentMode phase pipeline", () => {
   let tmpRoot: string;
   let changeDir: string;
   let savedKey: string | undefined;
@@ -137,7 +137,7 @@ describe("AgentMode activity chip", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
-  test("renders the [working] chip alongside the phase pipeline", async () => {
+  test("renders the phase pipeline without an activity chip", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
         args: baseArgs,
@@ -153,8 +153,8 @@ describe("AgentMode activity chip", () => {
     );
     await flush();
     const frame = lastFrame() ?? "";
-    // Chip is rendered independent of the pipeline.
-    expect(frame).toContain("[working]");
+    // Activity chip must not appear.
+    expect(frame).not.toContain("[working]");
     // Pipeline segments still render (proposal / design / tasks).
     expect(frame).toMatch(/proposal/);
     expect(frame).toMatch(/design/);
