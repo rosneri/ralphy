@@ -306,10 +306,10 @@ describe("git.seedWorktreeMcpConfig capability", () => {
         }),
       );
       await git.seedWorktreeMcpConfig.run({ projectRoot: root, worktreeCwd: worktree });
-      const written = await Bun.file(join(worktree, ".mcp.json")).json<{
+      const written = (await Bun.file(join(worktree, ".mcp.json")).json()) as {
         mcpServers: Record<string, { args: string[] }>;
-      }>();
-      expect(written.mcpServers.ralphy.args[0]).toBe(join(root, ".ralph/bin/mcp.js"));
+      };
+      expect(written.mcpServers["ralphy"]!.args[0]).toBe(join(root, ".ralph/bin/mcp.js"));
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(worktree, { recursive: true, force: true });
