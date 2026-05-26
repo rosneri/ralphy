@@ -353,7 +353,7 @@ describe("createCommentSyncHooks — syncTasks: plan comment suppression with sp
   function installFetchStub(): void {
     let cmt = 0;
     let att = 0;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       if ((init?.method ?? "GET") === "PUT") {
         return new Response("", { status: 200 });
       }
