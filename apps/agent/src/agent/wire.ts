@@ -295,7 +295,8 @@ export function buildAgentCoordinator(
         pollContext = new PollContext();
       },
       fetchTodo: () => resolvers.fetchByGet(indicators.getTodo, excludeFromTodo),
-      fetchInProgress: () => resolvers.fetchByGet(indicators.getInProgress, []),
+      fetchInProgress: () =>
+        resolvers.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
       fetchReview: () => resolvers.fetchByGet(indicators.getReview, excludeFromReview),
       fetchMentions,
       fetchDoneCandidates: () => fetchDoneCandidatesWith(apiKey, team, assignee, indicators),

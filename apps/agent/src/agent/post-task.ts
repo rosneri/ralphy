@@ -404,7 +404,10 @@ async function createPrWithRetry(
         );
         try {
           await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
-          await ctx.cmd.run(["git", "pull", "--rebase", "origin", ctx.branch], ctx.cwd);
+          await ctx.cmd.run(
+            ["git", "pull", "--rebase", "--autostash", "origin", ctx.branch],
+            ctx.cwd,
+          );
           continue;
         } catch (rebaseErr) {
           const re = rebaseErr as Error & { stderr?: string; stdout?: string };
