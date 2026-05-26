@@ -113,7 +113,7 @@ const baseArgs: ParsedArgs = {
   debug: false,
 };
 
-describe("AgentMode activity chip", () => {
+describe("AgentMode phase pipeline", () => {
   let tmpRoot: string;
   let changeDir: string;
   let savedKey: string | undefined;
@@ -123,8 +123,7 @@ describe("AgentMode activity chip", () => {
     changeDir = join(tmpRoot, "change");
     await mkdir(changeDir, { recursive: true });
     // Real proposal + real design + no tasks.md → phase resolves to `tasks`,
-    // which still falls inside `shouldShowPhasePipeline` so the pipeline
-    // renders alongside the (independent) activity chip.
+    // which falls inside `shouldShowPhasePipeline` so the pipeline renders.
     await writeFile(join(changeDir, "proposal.md"), "# Proposal\n\nReal proposal content.\n");
     await writeFile(join(changeDir, "design.md"), "# Design\n\nReal design content.\n");
     savedKey = process.env["LINEAR_API_KEY"];
@@ -137,7 +136,7 @@ describe("AgentMode activity chip", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
-  test("renders the [working] chip alongside the phase pipeline", async () => {
+  test("renders the phase pipeline", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
         args: baseArgs,
@@ -153,8 +152,6 @@ describe("AgentMode activity chip", () => {
     );
     await flush();
     const frame = lastFrame() ?? "";
-    // Chip is rendered independent of the pipeline.
-    expect(frame).toContain("[working]");
     // Pipeline segments still render (proposal / design / tasks).
     expect(frame).toMatch(/proposal/);
     expect(frame).toMatch(/design/);
