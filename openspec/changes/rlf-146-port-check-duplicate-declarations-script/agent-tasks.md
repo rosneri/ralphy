@@ -1,3 +1,57 @@
+## Fix failing CI checks (2026-05-26T01:13:14.433Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26426579626 ---
+ci Unused dependency check ﻿2026-05-26T01:11:02.5357440Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-26T01:11:02.5357765Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-26T01:11:02.5391630Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-26T01:11:02.5392120Z env:
+ci Unused dependency check 2026-05-26T01:11:02.5392380Z NX_BASE: 4967312c25a8eb54cbce078ed970b077f27ef9b3
+ci Unused dependency check 2026-05-26T01:11:02.5392733Z NX_HEAD: d2b4abe2b8640d3e36d9ae7f3330143ea65eba42
+ci Unused dependency check 2026-05-26T01:11:02.5393035Z ##[endgroup]
+ci Unused dependency check 2026-05-26T01:11:02.5469688Z $ knip
+ci Unused dependency check 2026-05-26T01:11:06.7860037Z [93m[4mUnlisted dependencies[24m[39m (5)
+ci Unused dependency check 2026-05-26T01:11:06.7943744Z @ralphy/ui-shared apps/agent/src/components/AgentMode.tsx:53:10  
+ci Unused dependency check 2026-05-26T01:11:06.7944970Z @ralphy/ui-shared apps/agent/src/hooks/**tests**/useTerminalSize.test.ts:5:10
+ci Unused dependency check 2026-05-26T01:11:06.7946177Z @ralphy/ui-shared apps/loop/src/components/StatusBar.tsx:4:10  
+ci Unused dependency check 2026-05-26T01:11:06.7947336Z @ralphy/ui-shared apps/loop/src/components/TaskLoop.tsx:11:10  
+ci Unused dependency check 2026-05-26T01:11:06.7948516Z @ralphy/ui-shared apps/loop/src/hooks/**tests**/useTerminalSize.test.ts:5:10
+ci Unused dependency check 2026-05-26T01:11:06.7949559Z [93m[4mUnused exports[24m[39m (4)
+ci Unused dependency check 2026-05-26T01:11:06.7950480Z ANSI_STRIP_RE apps/agent/src/shared/capabilities/output-utils.ts:1:14
+ci Unused dependency check 2026-05-26T01:11:06.7951565Z BOX_ONLY_RE apps/agent/src/shared/capabilities/output-utils.ts:2:14
+ci Unused dependency check 2026-05-26T01:11:06.7952908Z STATUS_BAR_LINE_RE apps/agent/src/shared/capabilities/output-utils.ts:3:14
+ci Unused dependency check 2026-05-26T01:11:06.7953946Z ITER_HEADER_LINE_RE apps/agent/src/shared/capabilities/output-utils.ts:4:14
+ci Unused dependency check 2026-05-26T01:11:06.8244315Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-26T01:11:06.8254875Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-26T01:11:07.1233376Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-26T01:11:07.1233889Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-26T01:11:07.1267505Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-26T01:11:07.1267753Z env:
+ci Test affected files + coverage 2026-05-26T01:11:07.1267996Z NX_BASE: 4967312c25a8eb54cbce078ed970b077f27ef9b3
+ci Test affected files + coverage 2026-05-26T01:11:07.1268340Z NX_HEAD: d2b4abe2b8640d3e36d9ae7f3330143ea65eba42
+ci Test affected files + coverage 2026-05-26T01:11:07.1268632Z ##[endgroup]
+ci Test affected files + coverage 2026-05-26T01:11:07.1342250Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-26T01:11:07.1572479Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-26T01:11:07.1572809Z
+ci Test affected files + coverage 2026-05-26T01:11:17.6362591Z agent: 14 relevant test file(s)
+ci Test affected files + coverage 2026-05-26T01:11:17.6363410Z apps/agent/src/**tests**/agent-characterization.test.ts
+ci Test affected files + coverage 2026-05-26T01:11:17.6364174Z apps/agent/src/**tests**/agent-integration.test.ts
+ci Test affected files + coverage 2026-05-26T01:11:17.6364878Z apps/agent/src/**tests**/agent-mode-awaiting.test.tsx
+ci Test affected files + coverage 2026-05-26T01:11:17.6365584Z apps/agent/src/**tests**/agent-mode-chip.test.tsx
+ci Test affected files + coverage 2026-05-26T01:11:17.6366306Z apps/agent/src/**tests**/agent-mode-header.test.tsx
+ci Test affected files + coverage 2026-05-26T01:11:17.636706
+…[truncated 366369 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T01:04:29.360Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

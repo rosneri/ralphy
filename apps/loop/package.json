@@ -18,6 +18,7 @@
     "@ralphy/output": "workspace:*",
     "@ralphy/paths": "workspace:*",
     "@ralphy/types": "workspace:*",
+    "@ralphy/ui-shared": "workspace:*",
     "@ralphy/version": "workspace:*",
     "@ralphy/workflow": "workspace:*",
     "ink": "^5.1.0",
