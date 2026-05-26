@@ -285,17 +285,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
       `1. \`git fetch origin ${cfg.prBaseBranch}\` then rebase or merge \`${cfg.prBaseBranch}\` into the current branch.`,
       "2. Resolve conflicts in the files git lists.",
       "3. Stage and commit the resolution.",
-      `4. Push the resolved branch with \`git push --force-with-lease origin ${branchRef}\`.`,
-      `   The post-task harness will NOT push for you in conflict-fix mode — you own the push.`,
-      `   If the push is rejected, inspect the rejection output and react inline before retrying:`,
-      `     - **stale lease / non-fast-forward** (\`stale info\`, someone else pushed to \`${branchRef}\`):`,
-      `       \`git fetch origin ${branchRef}\` then rebase/merge their changes in, re-resolve any new`,
-      `       conflicts, and retry the push.`,
-      `     - **pre-push hook failure** (lint, typecheck, tests): fix the underlying problem locally,`,
-      `       \`git add\` + \`git commit --amend\` (or a new fixup commit), then retry the push.`,
-      `     - **ref-update policy rejection** (branch protection, required reviews): log the rejection`,
-      `       message and stop — this requires human intervention; do not force past it.`,
-      `   Only stop after exhausting the in-context fix. The push must succeed before this iteration ends.`,
+      `   The post-task harness will push the branch for you after this iteration completes.`,
       prUrl ? `\nPR: ${prUrl}` : "",
     ]
       .filter(Boolean)

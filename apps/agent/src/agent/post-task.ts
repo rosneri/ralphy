@@ -9,7 +9,6 @@ import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
-import { fetchPrStatus } from "../pr-status";
 import { isWorktreeSafeToRemove } from "./worktree";
 import { registry as featureRegistry } from "../features/registry";
 import { runFeaturePostTask } from "../features/run-feature";
@@ -134,16 +133,11 @@ interface PostTaskDeps {
   /**
    * Optional: apply the `clearConflicted` indicator side-effect for the
    * current issue. Wired by the agent wire layer to the existing Linear
-   * `removeIndicator(issue, indicators.clearConflicted)` call. Invoked only
-   * on the conflict-fix verify path when `fetchPrStatus` returns
-   * `MERGEABLE`. No-op when not wired (e.g. tests that don't care).
+   * `removeIndicator(issue, indicators.clearConflicted)` call. Invoked by
+   * `runPostTask` after `runPrPhase` returns 0 when `mode === "conflict-fix"`.
+   * No-op when not wired (e.g. tests that don't care).
    */
   clearConflicted?: () => Promise<void>;
-  /**
-   * Override the delay (ms) between UNKNOWN-mergeability retries in the
-   * conflict-fix verify path. Default 2000 ms. Tests pass 0 for speed.
-   */
-  _mergeabilityUnknownRetryDelayMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,69 +1093,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     log(`  skipping PR phase for ${changeName} (worker exited with code ${effectiveCode})`, "gray");
   }
 
-  // RLF-82: conflict-fix verify-only short-circuit. The worker iteration
-  // owns the push (see `wire/prepare.ts::prepareTaskForTrigger`), so this
-  // branch never invokes `git push`, `createPrWithRetry`, `pushWithLeases`,
-  // or `fixConflictsAndCiLoop`. It only verifies the PR's current
-  // mergeability via a single `fetchPrStatus` call and reacts to the
-  // outcome (clearConflicted on MERGEABLE; leave label in place otherwise).
-  if (input.mode === "conflict-fix" && effectiveCode === 0) {
-    const identifier = issue?.identifier ?? changeName;
-    let prUrl: string | null = input.prUrl ?? null;
-    if (!prUrl && branch) {
-      prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
-    }
-    if (!prUrl) {
-      log(
-        `  ${identifier}: no open PR found for conflict-fix verification — nothing to verify`,
-        "yellow",
-      );
-    } else {
-      const unknownDelayMs = deps._mergeabilityUnknownRetryDelayMs ?? 2000;
-      let status = await fetchPrStatus(prUrl, cmd, cwd);
-      for (
-        let attempt = 0;
-        attempt < 3 && status.kind === "ok" && status.mergeable === "UNKNOWN";
-        attempt++
-      ) {
-        await new Promise<void>((r) => setTimeout(r, unknownDelayMs));
-        status = await fetchPrStatus(prUrl, cmd, cwd);
-      }
-      if (status.kind === "ok" && status.mergeable === "MERGEABLE") {
-        log(
-          `  ${identifier}: PR ${prUrl} is MERGEABLE after rebase — clearing conflict label`,
-          "green",
-        );
-        if (deps.clearConflicted) {
-          try {
-            await deps.clearConflicted();
-          } catch (err) {
-            log(`! clearConflicted failed for ${identifier}: ${(err as Error).message}`, "yellow");
-          }
-        }
-      } else if (status.kind === "ok" && status.mergeable === "CONFLICTING") {
-        log(`! ${identifier}: still CONFLICTING after rebase; will retry`, "yellow");
-      } else if (status.kind === "ok") {
-        log(
-          `! ${identifier}: PR mergeability is UNKNOWN — leaving conflict label in place; next poll will retry`,
-          "yellow",
-        );
-      } else {
-        log(
-          `! ${identifier}: PR status fetch failed (${status.message}) — leaving conflict label in place`,
-          "yellow",
-        );
-      }
-    }
-    emit("done");
-    await runWorktreeCleanupPhase(
-      { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
-      { git, log, emit },
-    );
-    await runTeardownPhase({ cwd, teardownScript: cfg.teardownScript }, { runScript, log, emit });
-    return effectiveCode;
-  }
-
   if (effectiveCode === 0 && wantPr) {
     effectiveCode = await runPrPhase(
       {
@@ -1187,6 +1118,20 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
           : {}),
       },
     );
+  }
+
+  // After the PR phase (or when wantPr is false), call clearConflicted for a
+  // successful conflict-fix run. This mirrors the old short-circuit behaviour:
+  // the call is not gated on wantPr so it fires even in configs where PR
+  // creation is disabled (e.g. test environments).
+  if (input.mode === "conflict-fix" && effectiveCode === 0 && deps.clearConflicted) {
+    const identifier = issue?.identifier ?? changeName;
+    try {
+      await deps.clearConflicted();
+      log(`  ${identifier}: cleared conflict label after successful push`, "green");
+    } catch (err) {
+      log(`! clearConflicted failed for ${identifier}: ${(err as Error).message}`, "yellow");
+    }
   }
 
   emit(

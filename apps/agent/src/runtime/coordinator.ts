@@ -1214,10 +1214,9 @@ export class AgentCoordinator {
     }
 
     if (ok) {
-      // Conflict-fix success: post-task verifies mergeability and owns the
-      // clearConflicted side-effect (RLF-82). The coordinator only resets
-      // its in-process notification bookkeeping here so the conflict-scan
-      // re-arms on the next poll.
+      // Conflict-fix success: post-task calls clearConflicted after runPrPhase
+      // confirms the push succeeded. The coordinator only resets its in-process
+      // notification bookkeeping here so the conflict-scan re-arms on the next poll.
       if (trigger === "conflict-fix") {
         this.conflictNotified.delete(issue.id);
         this.conflictPromoted.delete(issue.id);

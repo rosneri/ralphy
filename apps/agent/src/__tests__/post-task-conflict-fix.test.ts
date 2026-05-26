@@ -9,12 +9,12 @@ import type { LinearIssue } from "../agent/linear";
 
 const FAKE_ISSUE: LinearIssue = {
   id: "issue-1",
-  identifier: "RLF-82",
-  title: "Conflict-fix verify",
-  url: "https://linear.app/team/issue/RLF-82",
+  identifier: "RLF-169",
+  title: "Conflict-fix via runPrPhase",
+  url: "https://linear.app/team/issue/RLF-169",
   description: "",
   priority: 2,
-  createdAt: "2026-05-22T00:00:00.000Z",
+  createdAt: "2026-05-26T00:00:00.000Z",
   blockedByIds: [],
   state: { name: "In Progress", type: "started" },
   assignee: null,
@@ -22,52 +22,45 @@ const FAKE_ISSUE: LinearIssue = {
   labels: [],
 };
 
-type PrViewSpec = { state?: string; mergeable?: string } | "fail";
-
 interface MakeCmdOpts {
-  /**
-   * Value(s) returned for `gh pr view --json ...`. When an array is provided,
-   * each successive `gh pr view` call consumes the next entry; once exhausted
-   * the last entry repeats. Stringified inline for JSON responses.
-   */
-  prView?: PrViewSpec | PrViewSpec[];
-  /** URL returned by `gh pr list --head ...`. */
-  prListUrl?: string | "";
+  /** Whether git log returns commits (default: true — has commits to PR). */
+  hasCommits?: boolean;
+  /** URL returned by gh pr list --head (existing open PR). */
+  existingPrUrl?: string;
 }
 
-function makeCmd(opts: MakeCmdOpts): { cmd: CmdRunner; calls: string[][] } {
+function makeCmd(opts: MakeCmdOpts = {}): { cmd: CmdRunner; calls: string[][] } {
+  const hasCommits = opts.hasCommits ?? true;
+  const existingPrUrl = opts.existingPrUrl ?? "https://github.com/owner/repo/pull/42";
   const calls: string[][] = [];
-  let viewCallIdx = 0;
+
   const cmd: CmdRunner = {
     run: async (args) => {
       calls.push([...args]);
-      if (args[0] === "gh" && args[1] === "pr" && args[2] === "list") {
-        return { stdout: opts.prListUrl ?? "", stderr: "" };
+
+      // git log --oneline main..HEAD --no-merges
+      if (args[0] === "git" && args[1] === "log" && args[2] === "--oneline") {
+        return { stdout: hasCommits ? "abc123 Resolve merge conflicts\n" : "", stderr: "" };
       }
-      if (args[0] === "gh" && args[1] === "pr" && args[2] === "view") {
-        const seq = Array.isArray(opts.prView)
-          ? opts.prView
-          : opts.prView !== undefined
-            ? [opts.prView]
-            : [{}];
-        const spec = seq[Math.min(viewCallIdx++, seq.length - 1)];
-        if (spec === "fail") {
-          const err = new Error("gh failed") as Error & { stderr?: string };
-          err.stderr = "auth required";
-          throw err;
-        }
-        return { stdout: JSON.stringify(spec ?? {}), stderr: "" };
+
+      // gh pr list --head <branch> --state open ... (find existing PR)
+      if (args[0] === "gh" && args[1] === "pr" && args[2] === "list" && args.includes("--head")) {
+        return { stdout: existingPrUrl, stderr: "" };
       }
-      // Any other git/gh call — pretend success with empty output. The
-      // conflict-fix short-circuit must not hit `git push`, so if such a
-      // call ever shows up the test's assertions will surface it.
+
+      // git diff --name-only (for meta-only and never_touch checks)
+      if (args[0] === "git" && args[1] === "diff" && args[2] === "--name-only") {
+        return { stdout: "", stderr: "" };
+      }
+
+      // Default: success with empty output
       return { stdout: "", stderr: "" };
     },
   };
   return { cmd, calls };
 }
 
-describe("runPostTask — conflict-fix verify-only short-circuit", () => {
+describe("runPostTask — conflict-fix flows through runPrPhase", () => {
   let tmpDir: string;
   let changeDir: string;
   let stateFilePath: string;
@@ -88,8 +81,10 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  const baseInput = (overrides: { mode?: "conflict-fix" | "fresh" } = {}) => ({
-    mode: overrides.mode ?? ("conflict-fix" as const),
+  const baseInput = (
+    overrides: Partial<{ mode: "conflict-fix" | "fresh"; exitCode: number }> = {},
+  ) => ({
+    mode: (overrides.mode ?? "conflict-fix") as "conflict-fix" | "fresh",
     changeName: "my-change",
     cwd: tmpDir,
     projectRoot: tmpDir,
@@ -97,7 +92,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
     stateFilePath,
     branch: "ralph/my-change",
     issue: FAKE_ISSUE,
-    exitCode: 0,
+    exitCode: overrides.exitCode ?? 0,
     useWorktree: false,
     wantPr: true,
     wantFixCi: false,
@@ -118,11 +113,8 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
   const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
 
-  test("MERGEABLE → clearConflicted invoked exactly once and runPostTask returns 0", async () => {
-    const { cmd, calls } = makeCmd({
-      prListUrl: "https://github.com/owner/repo/pull/42\n",
-      prView: { state: "OPEN", mergeable: "MERGEABLE" },
-    });
+  test("conflict-fix success: git push is called, existing PR surfaced, clearConflicted invoked", async () => {
+    const { cmd, calls } = makeCmd();
     const clearConflicted = mock(async () => {});
 
     const code = await runPostTask(baseInput(), {
@@ -134,128 +126,54 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(1);
-    // Must NOT push or open a PR.
-    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
+    // Must push the branch (via createPullRequest)
+    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(true);
+    // Must NOT create a new PR (existing one found)
     expect(calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")).toBe(false);
-  });
-
-  test("CONFLICTING → clearConflicted NOT invoked, yellow log, returns 0", async () => {
-    const { cmd, calls } = makeCmd({
-      prListUrl: "https://github.com/owner/repo/pull/42\n",
-      prView: { state: "OPEN", mergeable: "CONFLICTING" },
-    });
-    const clearConflicted = mock(async () => {});
-    const logs: { text: string; color?: string }[] = [];
-
-    const code = await runPostTask(baseInput(), {
-      cmd,
-      git,
-      log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
-      runScript: async () => {},
-      clearConflicted,
-    });
-
-    expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
-    expect(
-      logs.some((l) => l.color === "yellow" && /still CONFLICTING after rebase/.test(l.text)),
-    ).toBe(true);
-    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
-  });
-
-  test("UNKNOWN (persistent) → retries 3x, clearConflicted NOT invoked, yellow log, returns 0", async () => {
-    const { cmd, calls } = makeCmd({
-      prListUrl: "https://github.com/owner/repo/pull/42\n",
-      prView: { state: "OPEN", mergeable: "UNKNOWN" },
-    });
-    const clearConflicted = mock(async () => {});
-    const logs: { text: string; color?: string }[] = [];
-
-    const code = await runPostTask(baseInput(), {
-      cmd,
-      git,
-      log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
-      runScript: async () => {},
-      clearConflicted,
-      _mergeabilityUnknownRetryDelayMs: 0,
-    });
-
-    expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
-    expect(logs.some((l) => l.color === "yellow" && /UNKNOWN/.test(l.text))).toBe(true);
-    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
-    // 1 initial + 3 retries = 4 total gh pr view calls
-    const viewCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
-    expect(viewCalls.length).toBe(4);
-  });
-
-  test("UNKNOWN → MERGEABLE after retries → clearConflicted invoked, returns 0", async () => {
-    const { cmd, calls } = makeCmd({
-      prListUrl: "https://github.com/owner/repo/pull/42\n",
-      // First two calls return UNKNOWN, third returns MERGEABLE
-      prView: [
-        { state: "OPEN", mergeable: "UNKNOWN" },
-        { state: "OPEN", mergeable: "UNKNOWN" },
-        { state: "OPEN", mergeable: "MERGEABLE" },
-      ],
-    });
-    const clearConflicted = mock(async () => {});
-    const logs: { text: string; color?: string }[] = [];
-
-    const code = await runPostTask(baseInput(), {
-      cmd,
-      git,
-      log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
-      runScript: async () => {},
-      clearConflicted,
-      _mergeabilityUnknownRetryDelayMs: 0,
-    });
-
-    expect(code).toBe(0);
+    // clearConflicted must be called once after runPrPhase returns 0
     expect(clearConflicted).toHaveBeenCalledTimes(1);
-    // Should log green MERGEABLE message, not yellow UNKNOWN warning
-    expect(logs.some((l) => l.color === "green" && /MERGEABLE/.test(l.text))).toBe(true);
-    expect(logs.some((l) => /UNKNOWN/.test(l.text))).toBe(false);
-    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
-    // 3 gh pr view calls: UNKNOWN, UNKNOWN, MERGEABLE
-    const viewCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view");
-    expect(viewCalls.length).toBe(3);
   });
 
-  test("gh fetch error → clearConflicted NOT invoked, yellow log, returns 0", async () => {
-    const { cmd, calls } = makeCmd({
-      prListUrl: "https://github.com/owner/repo/pull/42\n",
-      prView: "fail",
-    });
+  test("worker exits non-zero: PR phase skipped, no push, no clearConflicted", async () => {
+    const { cmd, calls } = makeCmd();
     const clearConflicted = mock(async () => {});
-    const logs: { text: string; color?: string }[] = [];
+
+    const code = await runPostTask(baseInput({ exitCode: 1 }), {
+      cmd,
+      git,
+      log: () => {},
+      runScript: async () => {},
+      clearConflicted,
+    });
+
+    expect(code).toBe(1);
+    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
+    expect(clearConflicted).toHaveBeenCalledTimes(0);
+  });
+
+  test("no commits ahead of base: runPrPhase skips PR, clearConflicted still called", async () => {
+    // When createPullRequest returns null (no commits ahead of base), runPrPhase
+    // returns 0 (worker resolved everything and commits were rebased away).
+    // clearConflicted is still called because runPrPhase returned 0 — the PR
+    // is effectively clean regardless of whether a new push was needed.
+    const { cmd, calls } = makeCmd({ hasCommits: false });
+    const clearConflicted = mock(async () => {});
 
     const code = await runPostTask(baseInput(), {
       cmd,
       git,
-      log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
+      log: () => {},
       runScript: async () => {},
       clearConflicted,
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
-    expect(logs.some((l) => l.color === "yellow" && /PR status fetch failed/.test(l.text))).toBe(
-      true,
-    );
     expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
+    expect(clearConflicted).toHaveBeenCalledTimes(1);
   });
 
-  test("non-conflict-fix mode does NOT take the short-circuit (legacy PR path engages)", async () => {
-    // For mode!=conflict-fix the legacy `runPrPhase` is invoked. It will
-    // begin by running `git status --porcelain` to inspect the worktree.
-    // We don't drive the full flow here — we only assert the conflict-fix
-    // verify path did NOT short-circuit (no `gh pr list --head` for verify)
-    // and clearConflicted was not invoked.
-    const { cmd, calls } = makeCmd({
-      prView: { mergeable: "MERGEABLE" },
-    });
+  test("fresh mode: clearConflicted NOT called even on success", async () => {
+    const { cmd } = makeCmd();
     const clearConflicted = mock(async () => {});
 
     await runPostTask(baseInput({ mode: "fresh" }), {
@@ -266,9 +184,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       clearConflicted,
     });
 
+    // clearConflicted is only for conflict-fix mode
     expect(clearConflicted).toHaveBeenCalledTimes(0);
-    // The legacy path runs `git status --porcelain` as its first step;
-    // the short-circuit path never does. Confirm we took the legacy path.
-    expect(calls.some((c) => c[0] === "git" && c[1] === "status")).toBe(true);
   });
 });
