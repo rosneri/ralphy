@@ -9,6 +9,12 @@ import { createJsonLogFileSink } from "./json-log/json-log-file";
 import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
 import { getProcessBus } from "@ralphy/events";
 import { waitForActiveWorkers } from "../runtime/shutdown";
+import {
+  readWorkerSnapshot,
+  diffWorkerSnapshot,
+  initialWorkerSnapshot,
+  type WorkerSnapshot,
+} from "./state/worker-state-poll";
 
 function makeEmit(fileSink: {
   emit(event: Record<string, unknown>): void;
@@ -43,7 +49,18 @@ function makeEmit(fileSink: {
  *   awaiting_confirmation — a ticket entered the confirmation gate this round
  *                          (one-shot per round entry; `round` is the deriver's
  *                          round counter, `since` is `confirmation.askedAt`)
+ *   baseline_gate_failed — baseline gate threw during a poll cycle
+ *   pause_active     — coordinator entered the baseline-broken paused state
+ *   pause_cleared    — coordinator exited the paused state
+ *   worker_iteration — worker advanced to a new iteration (from .ralph-state.json)
+ *   worker_review_rounds — worker review-round counter changed
+ *   worker_openspec_phase — worker's derived OpenSpec phase changed
+ *   worker_current_task — worker's current pending tasks.md task changed
  *   stopped          — SIGINT/SIGTERM received; coordinator is stopping
+ *
+ * The same event set is mirrored to `--json-log-file` by the Ink TUI mode
+ * (apps/agent/src/components/AgentMode.tsx) so consumers see one consistent
+ * stream regardless of which mode the agent is running in.
  */
 export async function runAgentJson({
   args,
@@ -81,6 +98,12 @@ export async function runAgentJson({
   }
 
   const lastEmittedRoundByChange = new Map<string, number>();
+  interface WorkerEntry {
+    statesDir: string;
+    changeDir: string;
+    snapshot: WorkerSnapshot;
+  }
+  const workerEntries = new Map<string, WorkerEntry>();
   const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildAgentCoordinator({
     args,
     cfg,
@@ -95,9 +118,15 @@ export async function runAgentJson({
     },
     onWorkersChanged: () => {},
     onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+      workerEntries.set(changeName, {
+        statesDir: dir,
+        changeDir,
+        snapshot: initialWorkerSnapshot(),
+      });
       emit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
     },
     onWorkerExited: (changeName) => {
+      workerEntries.delete(changeName);
       emit({ type: "worker_exited", changeName });
     },
     onWorkerPhase: (changeName, phase, detail) => {
@@ -165,9 +194,8 @@ export async function runAgentJson({
       await runBaselineGate();
     } catch (err) {
       emit({
-        type: "log",
-        text: `baseline gate failed: ${(err as Error).message}`,
-        color: "yellow",
+        type: "baseline_gate_failed",
+        message: err instanceof Error ? err.message : String(err),
       });
     }
     if (cancelled) return;
@@ -177,6 +205,43 @@ export async function runAgentJson({
     pollTimer = setTimeout(tick, pollInterval * 1000);
   };
   void tick();
+
+  // Worker state-change watcher — mirrors AgentMode's 1s polling loop so the
+  // --json-output stream carries the same iteration/phase/task transitions
+  // the TUI dashboard surfaces.
+  let lastPauseKey: string | null = null;
+  const stateWatcher = setInterval(() => {
+    if (cancelled) return;
+    void (async () => {
+      const pause = coord.getPause?.() ?? null;
+      const pauseKey = pause ? `${pause.issueIdentifier}:${pause.since}` : null;
+      if (pauseKey !== lastPauseKey) {
+        if (pauseKey === null) {
+          emit({ type: "pause_cleared" });
+        } else if (pause) {
+          emit({
+            type: "pause_active",
+            issueIdentifier: pause.issueIdentifier,
+            command: pause.command,
+            since: pause.since,
+          });
+        }
+        lastPauseKey = pauseKey;
+      }
+      for (const [changeName, entry] of workerEntries) {
+        const next = await readWorkerSnapshot({
+          changeName,
+          statesDir: entry.statesDir,
+          changeDir: entry.changeDir,
+          prev: entry.snapshot,
+        });
+        for (const ev of diffWorkerSnapshot(changeName, entry.snapshot, next)) {
+          emit(ev);
+        }
+        entry.snapshot = next;
+      }
+    })();
+  }, 1000);
 
   await new Promise<void>((resolve) => {
     let shuttingDown = false;
@@ -188,6 +253,7 @@ export async function runAgentJson({
       cancelled = true;
       emit({ type: "stopped" });
       if (pollTimer) clearTimeout(pollTimer);
+      clearInterval(stateWatcher);
       void waitForActiveWorkers({
         stop: () => coord.stop(),
         getActiveCount: () => coord.activeCount,

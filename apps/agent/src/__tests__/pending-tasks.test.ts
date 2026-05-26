@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { orderSubtasksForCappedDisplay, parseSubtasks } from "../components/AgentMode";
+import { orderSubtasksForCappedDisplay } from "../components/AgentMode";
+import { parseSubtasks } from "../agent/state/worker-state-poll";
 
 describe("parseSubtasks", () => {
   it("skips items under a Planning heading and returns the rest in order", () => {

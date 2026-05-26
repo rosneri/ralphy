@@ -40,9 +40,7 @@ export type AgentModeBuildCoordinator = (
   getWorkerCwd: (changeName: string) => string | undefined;
   runBaselineGate: () => Promise<void>;
 };
-import { isFlowTaskHeading } from "@ralphy/core/tasks-md";
 import {
-  deriveOpenSpecPhase,
   phasePipeline,
   shouldShowPhasePipeline,
   shouldShowProgressBar,
@@ -55,6 +53,11 @@ import { SteeringField } from "./SteeringField";
 import { appendSteeringMessage } from "@ralphy/core/loop";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { cleanOutputLine } from "../shared/capabilities/output-utils";
+import {
+  readWorkerSnapshot,
+  diffWorkerSnapshot,
+  type WorkerSnapshot,
+} from "../agent/state/worker-state-poll";
 
 /**
  * Append a steering message to the change's steering.md, wrapped in a default
@@ -118,34 +121,6 @@ interface WorkerMeta {
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
 const MAX_PENDING_DISPLAY = 15;
-
-/**
- * Extract all `- [x]` / `- [ ]` items from a tasks.md document, in order.
- *
- * Skips items under:
- *  - `## Planning` — OpenSpec pipeline scaffolding, not mission work.
- *  - any section whose heading is a recognized flow-task heading
- *    (`Fix failing CI checks`, `Resolve PR merge conflicts`, …). This
- *    is the backward-compat path: new flow tasks land in
- *    `agent-tasks.md` (which this function never reads), but older
- *    in-flight `tasks.md` files may still contain inline flow sections.
- */
-export function parseSubtasks(tasksMd: string): Array<{ done: boolean; text: string }> {
-  const out: Array<{ done: boolean; text: string }> = [];
-  let skipSection = false;
-  for (const line of tasksMd.split("\n")) {
-    const heading = line.match(/^##\s+(.+?)\s*$/);
-    if (heading) {
-      const title = heading[1]!.trim();
-      skipSection = title.toLowerCase() === "planning" || isFlowTaskHeading(title);
-      continue;
-    }
-    if (skipSection) continue;
-    const m = line.match(/^- \[([ xX])\] (.+)$/);
-    if (m) out.push({ done: m[1] !== " ", text: m[2]!.trim() });
-  }
-  return out;
-}
 
 /**
  * Reorder subtasks for the capped SUBTASKS panel: unchecked items first,
@@ -461,12 +436,13 @@ export function AgentMode({
   if (fileSinkRef.current === null) {
     fileSinkRef.current = createJsonLogFileSink(args.jsonLogFile);
   }
+  const fileEmit = (event: Record<string, unknown>): void => {
+    fileSinkRef.current?.emit(event);
+  };
 
   useEffect(() => {
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
-    const fileSink = fileSinkRef.current!;
-    const fileEmit = (event: Record<string, unknown>): void => fileSink.emit(event);
 
     async function init() {
       logSession(`=== session start ${SESSION_START} ===`);
@@ -619,7 +595,9 @@ export function AgentMode({
         try {
           await runBaselineGate();
         } catch (err) {
-          appendLog(`! baseline gate failed: ${(err as Error).message}`, "yellow");
+          const message = err instanceof Error ? err.message : String(err);
+          fileEmit({ type: "baseline_gate_failed", message });
+          appendLog(`! baseline gate failed: ${message}`, "yellow");
         }
         if (cancelled) return;
         // Refreshed inside coord.pollOnce via the onAwaitingTicket callback —
@@ -648,7 +626,9 @@ export function AgentMode({
     }
 
     void init().catch((err: unknown) => {
-      appendLog(`! ${err instanceof Error ? err.message : String(err)}`, "red");
+      const message = err instanceof Error ? err.message : String(err);
+      fileEmit({ type: "error", code: "init_failure", text: message });
+      appendLog(`! ${message}`, "red");
       // Delay exit so React can render the error in the logs panel before unmounting.
       setTimeout(() => {
         exit();
@@ -707,60 +687,50 @@ export function AgentMode({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const lastPauseRef = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     const interval = setInterval(() => {
       if (cancelled) return;
       void (async () => {
-        for (const [changeName, meta] of workerMetaRef.current) {
-          try {
-            const file = Bun.file(join(meta.statesDir, changeName, ".ralph-state.json"));
-            if (await file.exists()) {
-              const json = (await file.json()) as { iteration?: number; reviewRounds?: number };
-              meta.iter = json.iteration ?? meta.iter;
-              meta.reviewRounds = json.reviewRounds ?? meta.reviewRounds;
-            }
-          } catch (err) {
-            console.error(
-              `Failed to read state file for worker '${changeName}' (may not exist yet):`,
-              err,
-            );
+        const pause = coordRef.current?.getPause?.() ?? null;
+        const pauseKey = pause ? `${pause.issueIdentifier}:${pause.since}` : null;
+        if (pauseKey !== lastPauseRef.current) {
+          if (pauseKey === null) {
+            fileEmit({ type: "pause_cleared" });
+          } else if (pause) {
+            fileEmit({
+              type: "pause_active",
+              issueIdentifier: pause.issueIdentifier,
+              command: pause.command,
+              since: pause.since,
+            });
           }
-          if (meta.changeDir) {
-            try {
-              const tasksFile = Bun.file(join(meta.changeDir, "tasks.md"));
-              const proposalFile = Bun.file(join(meta.changeDir, "proposal.md"));
-              const designFile = Bun.file(join(meta.changeDir, "design.md"));
-              const reviewFindingsFile = Bun.file(join(meta.changeDir, "review-findings.md"));
-              const [tasksText, proposalText, designText, reviewFindingsText] = await Promise.all([
-                tasksFile.exists().then((ok) => (ok ? tasksFile.text() : null)),
-                proposalFile.exists().then((ok) => (ok ? proposalFile.text() : null)),
-                designFile.exists().then((ok) => (ok ? designFile.text() : null)),
-                reviewFindingsFile.exists().then((ok) => (ok ? reviewFindingsFile.text() : null)),
-              ]);
-              if (tasksText !== null) {
-                const subtasks = parseSubtasks(tasksText);
-                meta.subtasks = subtasks;
-                meta.currentTask = subtasks.find((s) => !s.done)?.text ?? null;
-                const total = subtasks.length;
-                const checked = subtasks.filter((s) => s.done).length;
-                meta.taskProgress = total > 0 ? { checked, total } : null;
-              }
-              const reviewRounds = meta.reviewRounds;
-              meta.openspecPhase = deriveOpenSpecPhase({
-                proposal: proposalText,
-                design: designText,
-                tasks: tasksText,
-                reviewFindings: reviewFindingsText,
-                reviewRounds,
-                maxReviewRounds: reviewFindingsText !== null || reviewRounds > 0 ? 999 : 0,
-              });
-            } catch (err) {
-              console.error(
-                `Failed to read change artifacts for worker '${changeName}' (may not exist yet):`,
-                err,
-              );
-            }
+          lastPauseRef.current = pauseKey;
+        }
+        for (const [changeName, meta] of workerMetaRef.current) {
+          const prev: WorkerSnapshot = {
+            iter: meta.iter,
+            reviewRounds: meta.reviewRounds,
+            openspecPhase: meta.openspecPhase,
+            currentTask: meta.currentTask,
+            subtasks: meta.subtasks,
+            taskProgress: meta.taskProgress,
+          };
+          const next = await readWorkerSnapshot({
+            changeName,
+            statesDir: meta.statesDir,
+            changeDir: meta.changeDir,
+            prev,
+          });
+          meta.iter = next.iter;
+          meta.reviewRounds = next.reviewRounds;
+          meta.openspecPhase = next.openspecPhase;
+          meta.currentTask = next.currentTask;
+          meta.subtasks = next.subtasks;
+          meta.taskProgress = next.taskProgress;
+          for (const ev of diffWorkerSnapshot(changeName, prev, next)) {
+            fileEmit(ev);
           }
         }
         if (!cancelled) setClock((c) => c + 1);
@@ -1370,11 +1340,16 @@ export function AgentMode({
                     onSubmit={async (message) => {
                       try {
                         await appendSteering(join(tasksDir, w.changeName), message);
+                        fileEmit({ type: "steering_submitted", changeName: w.changeName, message });
                       } catch (err) {
-                        appendLog(
-                          `! steering append failed for ${w.changeName}: ${(err as Error).message}`,
-                          "red",
-                        );
+                        const text = (err as Error).message;
+                        fileEmit({
+                          type: "error",
+                          code: "steering_failure",
+                          changeName: w.changeName,
+                          text,
+                        });
+                        appendLog(`! steering append failed for ${w.changeName}: ${text}`, "red");
                         throw err;
                       }
                       // Fire the comment-sync hook (best-effort) before the
@@ -1386,6 +1361,11 @@ export function AgentMode({
                         /* hook errors are already logged inside the coordinator */
                       }
                       const restarted = await coordRef.current?.restartWorker(w.changeName);
+                      fileEmit({
+                        type: "worker_restart",
+                        changeName: w.changeName,
+                        restarted: !!restarted,
+                      });
                       if (restarted) {
                         appendLog(`  ${w.changeName}: steering applied, restarting worker`, "cyan");
                       } else {
