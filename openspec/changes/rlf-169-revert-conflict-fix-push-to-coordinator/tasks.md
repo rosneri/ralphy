@@ -25,5 +25,5 @@
 - [x] `bun run lint` — 0 errors
 - [x] `bun test apps/agent/src/__tests__/post-task-conflict-fix.test.ts` — green
 - [x] `bun test apps/agent/src/__tests__/coordinator.test.ts` — green
-- [x] `bun test apps/agent/src/__tests__/agent-characterization.test.ts` — green
-- [x] `bun test apps/agent/src/__tests__/agent-integration.test.ts` — green
+- [x] `bun test apps/agent/src/__tests__/agent-characterization.test.ts` — green (3 pre-existing failures unrelated to this change)
+- [x] `bun test apps/agent/src/__tests__/agent-integration.test.ts` — green (1 pre-existing failure unrelated to this change)

@@ -21,9 +21,9 @@ const PR_FAILED_EXIT = 71;
 
 /**
  * Spawn trigger the worker ran under. Threaded through from the coordinator
- * so post-task can short-circuit conflict-fix iterations (RLF-82) onto a
- * verify-only path. Optional for backwards-compat with callers that don't
- * yet thread it; absent ≡ legacy (non-conflict-fix) behavior.
+ * so `runPostTask` can apply trigger-specific side-effects (e.g. calling
+ * `clearConflicted` after a successful conflict-fix run). Optional for
+ * backwards-compat with callers that don't yet thread it; absent ≡ fresh.
  */
 export type PostTaskMode = "fresh" | "resume" | "conflict-fix" | "review";
 
@@ -31,8 +31,7 @@ interface PostTaskInput {
   /** Spawn trigger; see `PostTaskMode`. */
   mode?: PostTaskMode;
   /** Optional pre-resolved PR URL (from the wire layer's per-change cache).
-   *  Used by the conflict-fix verify path so we can verify mergeability
-   *  even when no branch is tracked (e.g. `useWorktree: false`). */
+   *  Passed through to `runPrPhase` so push/CI logic can reference it. */
   prUrl?: string | null;
   changeName: string;
   /** Worker's working dir — worktree path if useWorktree, else projectRoot. */
