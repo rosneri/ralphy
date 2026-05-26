@@ -457,12 +457,15 @@ export function AgentMode({
     logCoord(text, workerLogFile);
   }
 
-  const fileSinkRef = useRef(createJsonLogFileSink(args.jsonLogFile));
+  const fileSinkRef = useRef<ReturnType<typeof createJsonLogFileSink> | null>(null);
+  if (fileSinkRef.current === null) {
+    fileSinkRef.current = createJsonLogFileSink(args.jsonLogFile);
+  }
 
   useEffect(() => {
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
-    const fileSink = fileSinkRef.current;
+    const fileSink = fileSinkRef.current!;
     const fileEmit = (event: Record<string, unknown>): void => fileSink.emit(event);
 
     async function init() {
