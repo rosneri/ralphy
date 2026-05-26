@@ -1375,11 +1375,7 @@ describe("TaskLoop", () => {
       writeState(taskDir, state);
       writeFileSync(join(taskDir, "tasks.md"), "- [x] all done\n", "utf-8");
       // Pre-write findings with an open item so the review phase loops back immediately
-      writeFileSync(
-        join(taskDir, "review-findings.md"),
-        "## Open\n- [ ] fix the thing\n",
-        "utf-8",
-      );
+      writeFileSync(join(taskDir, "review-findings.md"), "## Open\n- [ ] fix the thing\n", "utf-8");
 
       const opts = {
         name: "review-loop-task",
@@ -1428,11 +1424,7 @@ describe("TaskLoop", () => {
       writeState(taskDir, state);
       writeFileSync(join(taskDir, "tasks.md"), "- [x] all done\n", "utf-8");
       // Pre-write findings with an open item
-      writeFileSync(
-        join(taskDir, "review-findings.md"),
-        "## Open\n- [ ] still broken\n",
-        "utf-8",
-      );
+      writeFileSync(join(taskDir, "review-findings.md"), "## Open\n- [ ] still broken\n", "utf-8");
 
       const opts = {
         name: "review-cap-msg-task",
