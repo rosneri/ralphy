@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildTaskPrompt,
-  buildExecutePrompt,
   buildResearchPrompt,
   buildPlanPrompt,
   buildReviewPrompt,
@@ -521,26 +520,22 @@ describe("buildTaskPrompt — validateOnComplete", () => {
     }));
 });
 
-describe("buildTaskPrompt alias", () => {
-  test("buildTaskPrompt is the same function as buildExecutePrompt", () => {
-    expect(buildTaskPrompt).toBe(buildExecutePrompt);
-  });
-
-  test("buildTaskPrompt produces the same output as buildExecutePrompt", () =>
+describe("buildPhasePrompt — execute uses buildTaskPrompt", () => {
+  test("execute phase produces same output as buildTaskPrompt directly", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
-      expect(buildTaskPrompt(state, tempDir)).toBe(buildExecutePrompt(state, tempDir));
+      expect(buildPhasePrompt("execute", state, tempDir)).toBe(buildTaskPrompt(state, tempDir));
     }));
 });
 
 describe("buildPhasePrompt router", () => {
-  test("routes 'execute' to buildExecutePrompt", () =>
+  test("routes 'execute' to buildTaskPrompt", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
       const phasePrompt = buildPhasePrompt("execute", state, tempDir);
-      const directPrompt = buildExecutePrompt(state, tempDir);
+      const directPrompt = buildTaskPrompt(state, tempDir);
       expect(phasePrompt).toBe(directPrompt);
     }));
 

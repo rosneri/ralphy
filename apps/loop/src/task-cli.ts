@@ -8,9 +8,7 @@ import {
 } from "@ralphy/cli-args";
 import type { TaskPhase } from "./loop";
 
-export type { TaskPhase };
-
-export interface TaskParsedArgs extends CommonArgs {
+interface TaskParsedArgs extends CommonArgs {
   phase: TaskPhase;
   name: string;
   prompt: string;

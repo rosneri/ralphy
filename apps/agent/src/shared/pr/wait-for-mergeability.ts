@@ -13,7 +13,7 @@
  * `fetchPrStatus`, etc.).
  */
 
-export interface MergeabilityProbe {
+interface MergeabilityProbe {
   /** PR state: "OPEN" | "CLOSED" | "MERGED" | undefined. */
   state?: string;
   /** REST `mergeable`: "MERGEABLE" | "CONFLICTING" | "UNKNOWN" | undefined. */
@@ -25,7 +25,7 @@ export interface MergeabilityProbe {
   mergeStateStatus?: string;
 }
 
-export type MergeabilityOutcome =
+type MergeabilityOutcome =
   | { kind: "mergeable" }
   | { kind: "conflicting" }
   | { kind: "closed" } // state flipped to CLOSED/MERGED mid-poll
@@ -39,7 +39,7 @@ export type MergeabilityOutcome =
  */
 export const DEFAULT_BACKOFFS_MS = [2000, 3000, 5000, 8000, 13000];
 
-export interface WaitForMergeabilityOptions {
+interface WaitForMergeabilityOptions {
   probe: (attempt: number) => Promise<MergeabilityProbe>;
   backoffsMs?: number[];
   /**

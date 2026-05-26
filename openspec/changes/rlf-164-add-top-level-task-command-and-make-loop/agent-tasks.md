@@ -1,3 +1,59 @@
+## Fix failing CI checks (2026-05-26T21:42:49.706Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26476762893 ---
+ci Unused dependency check ﻿2026-05-26T21:41:39.0596253Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-26T21:41:39.0596824Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-26T21:41:39.0627317Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-26T21:41:39.0627775Z env:
+ci Unused dependency check 2026-05-26T21:41:39.0628194Z NX_BASE: 2f73550977cc380d16fbb753495049ecfb4ef2f3
+ci Unused dependency check 2026-05-26T21:41:39.0628783Z NX_HEAD: 77cd7838d95658c768c72e7ca44b57bb686c729b
+ci Unused dependency check 2026-05-26T21:41:39.0629271Z ##[endgroup]
+ci Unused dependency check 2026-05-26T21:41:39.0703409Z $ knip
+ci Unused dependency check 2026-05-26T21:41:42.8516247Z [93m[4mUnused exports[24m[39m (4)
+ci Unused dependency check 2026-05-26T21:41:42.8525914Z buildExecutePrompt apps/loop/src/loop.ts:8:3
+ci Unused dependency check 2026-05-26T21:41:42.8526734Z buildResearchPrompt apps/loop/src/loop.ts:9:3
+ci Unused dependency check 2026-05-26T21:41:42.8527212Z buildPlanPrompt apps/loop/src/loop.ts:10:3
+ci Unused dependency check 2026-05-26T21:41:42.8527687Z buildReviewPrompt apps/loop/src/loop.ts:11:3
+ci Unused dependency check 2026-05-26T21:41:42.8528217Z [93m[4mUnused exported types[24m[39m (5)
+ci Unused dependency check 2026-05-26T21:41:42.8597362Z MergeabilityProbe interface apps/agent/src/shared/pr/wait-for-mergeability.ts:16:18
+ci Unused dependency check 2026-05-26T21:41:42.8598562Z MergeabilityOutcome type apps/agent/src/shared/pr/wait-for-mergeability.ts:28:13
+ci Unused dependency check 2026-05-26T21:41:42.8599656Z WaitForMergeabilityOptions interface apps/agent/src/shared/pr/wait-for-mergeability.ts:42:18
+ci Unused dependency check 2026-05-26T21:41:42.8600541Z TaskPhase type apps/loop/src/task-cli.ts:11:15  
+ci Unused dependency check 2026-05-26T21:41:42.8601173Z TaskParsedArgs interface apps/loop/src/task-cli.ts:13:18  
+ci Unused dependency check 2026-05-26T21:41:42.8601723Z [93m[4mDuplicate exports[24m[39m (1)
+ci Unused dependency check 2026-05-26T21:41:42.8602191Z buildExecutePrompt|buildTaskPrompt packages/core/src/loop.ts
+ci Unused dependency check 2026-05-26T21:41:42.8792228Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-26T21:41:42.8795913Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-26T21:41:43.2583731Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-26T21:41:43.2584169Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-26T21:41:43.2603943Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-26T21:41:43.2604237Z env:
+ci Test affected files + coverage 2026-05-26T21:41:43.2604623Z NX_BASE: 2f73550977cc380d16fbb753495049ecfb4ef2f3
+ci Test affected files + coverage 2026-05-26T21:41:43.2604992Z NX_HEAD: 77cd7838d95658c768c72e7ca44b57bb686c729b
+ci Test affected files + coverage 2026-05-26T21:41:43.2605302Z ##[endgroup]
+ci Test affected files + coverage 2026-05-26T21:41:43.2665163Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-26T21:41:43.2886473Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-26T21:41:43.2886942Z
+ci Test affected files + coverage 2026-05-26T21:41:45.6583728Z loop: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-26T21:41:45.6584455Z apps/loop/src/**tests**/task-cli.test.ts
+ci Test affected files + coverage 2026-05-26T21:41:45.6584840Z
+ci Test affected files + coverage 2026-05-26T21:41:45.6596286Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-26T21:41:45.6679538Z
+ci Test affected files + coverage 2026-05-26T21:41:45.6680631Z ##[group]src/**tests**/FeedLine.test.tsx:
+ci Test affected files + coverage 2026-05
+…[truncated 165335 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T21:38:40.559Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

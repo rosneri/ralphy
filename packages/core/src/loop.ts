@@ -93,7 +93,7 @@ export interface ReviewPhaseConfig {
  * 3. Manual testing instruction if enabled and primary tasks complete
  * 4. Review phase instruction if enabled and all tasks are done
  */
-export function buildExecutePrompt(
+export function buildTaskPrompt(
   state: State,
   taskDir: string,
   reviewPhase?: ReviewPhaseConfig,
@@ -237,9 +237,6 @@ export function buildExecutePrompt(
   return prompt;
 }
 
-/** Backward-compatible alias for buildExecutePrompt. */
-export const buildTaskPrompt = buildExecutePrompt;
-
 function buildSteeringBlock(taskDir: string): string {
   const storage = getStorage();
   const steeringContent = storage.read(join(taskDir, "steering.md"));
@@ -336,7 +333,7 @@ export function buildPhasePrompt(
     case "plan":
       return buildPlanPrompt(state, taskDir);
     case "execute":
-      return buildExecutePrompt(state, taskDir, reviewPhase);
+      return buildTaskPrompt(state, taskDir, reviewPhase);
     case "review":
       return buildReviewPrompt(state, taskDir);
   }
