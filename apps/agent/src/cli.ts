@@ -346,5 +346,12 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     }
   }
 
+  if (result.fixCi && !result.createPr) {
+    throw new Error("--fix-ci requires --create-pr");
+  }
+  if (result.stackPrs && !result.createPr) {
+    throw new Error("--stack-prs requires --create-pr");
+  }
+
   return result;
 }
