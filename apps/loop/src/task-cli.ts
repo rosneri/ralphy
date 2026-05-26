@@ -19,6 +19,7 @@ export interface TaskParsedArgs extends CommonArgs {
 
 const VALID_PHASES = new Set<string>(["research", "plan", "execute", "review"]);
 
+// allow-duplicate
 const HELP_TEXT = [
   `ralphy task v${VERSION}`,
   "",
