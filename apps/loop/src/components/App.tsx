@@ -108,7 +108,14 @@ export function App({ args, taskPhase, statesDir, tasksDir }: AppProps) {
       }
       // Directory creation is handled up front in index.ts / the sidecar; the
       // storage provider will create parents lazily on first write as well.
-      return <TaskModeWrapper args={args} taskPhase={taskPhase} statesDir={statesDir} tasksDir={tasksDir} />;
+      return (
+        <TaskModeWrapper
+          args={args}
+          taskPhase={taskPhase}
+          statesDir={statesDir}
+          tasksDir={tasksDir}
+        />
+      );
     }
   }
 }
