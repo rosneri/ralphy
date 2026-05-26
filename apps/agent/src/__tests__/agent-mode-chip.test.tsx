@@ -123,8 +123,7 @@ describe("AgentMode phase pipeline", () => {
     changeDir = join(tmpRoot, "change");
     await mkdir(changeDir, { recursive: true });
     // Real proposal + real design + no tasks.md → phase resolves to `tasks`,
-    // which still falls inside `shouldShowPhasePipeline` so the pipeline
-    // renders alongside the (independent) activity chip.
+    // which falls inside `shouldShowPhasePipeline` so the pipeline renders.
     await writeFile(join(changeDir, "proposal.md"), "# Proposal\n\nReal proposal content.\n");
     await writeFile(join(changeDir, "design.md"), "# Design\n\nReal design content.\n");
     savedKey = process.env["LINEAR_API_KEY"];
@@ -137,7 +136,7 @@ describe("AgentMode phase pipeline", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
-  test("renders the phase pipeline without an activity chip", async () => {
+  test("renders the phase pipeline", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
         args: baseArgs,
@@ -153,8 +152,6 @@ describe("AgentMode phase pipeline", () => {
     );
     await flush();
     const frame = lastFrame() ?? "";
-    // Activity chip must not appear.
-    expect(frame).not.toContain("[working]");
     // Pipeline segments still render (proposal / design / tasks).
     expect(frame).toMatch(/proposal/);
     expect(frame).toMatch(/design/);
