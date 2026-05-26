@@ -3,6 +3,11 @@ import { fsChange } from "../shared/capabilities/fs-change";
 import { runCapability } from "../shared/capabilities/run-capability";
 import type { LinearComment, LinearIssue } from "./linear";
 
+export interface TicketAttachment {
+  url: string;
+  title: string | null;
+}
+
 /** Convert a Linear identifier (e.g. "ENG-123") into a safe change-name slug.
  *  The trailing-dash trim runs *after* the 40-char slice so that titles whose
  *  slice boundary lands on a separator don't re-introduce the trailing `-`. */
@@ -21,6 +26,7 @@ export async function scaffoldChangeForIssue(
   issue: LinearIssue,
   comments: LinearComment[] = [],
   appendPrompt: string = "",
+  attachments: TicketAttachment[] = [],
 ): Promise<string> {
   const name = changeNameForIssue(issue);
   const changeDir = join(tasksDir, name);
@@ -41,6 +47,16 @@ export async function scaffoldChangeForIssue(
         ]
       : [];
 
+  const attachmentsBlock =
+    attachments.length > 0
+      ? [
+          "",
+          "## Ticket Attachments",
+          "",
+          ...attachments.map((a) => `- [${a.title ?? "Attachment"}](${a.url})`),
+        ]
+      : [];
+
   const descriptionBody = issue.description?.trim() || "_No description provided in Linear._";
   const proposal = [
     `# ${issue.identifier}: ${issue.title}`,
@@ -58,6 +74,7 @@ export async function scaffoldChangeForIssue(
     "",
     "_Describe the concrete changes this proposal introduces (one bullet per change)._",
     ...commentsBlock,
+    ...attachmentsBlock,
     ...(appendPrompt.trim() ? ["", "## Additional instructions", "", appendPrompt.trim()] : []),
     "",
     "## Steering",
