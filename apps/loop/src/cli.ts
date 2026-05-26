@@ -11,7 +11,7 @@ export { VERSION };
 
 export type LoopMode = "task" | "status" | "init" | "clean" | "debug";
 
-export interface ParsedArgs extends CommonArgs {
+export interface LoopParsedArgs extends CommonArgs {
   mode: LoopMode;
   name: string;
   prompt: string;
@@ -20,8 +20,10 @@ export interface ParsedArgs extends CommonArgs {
   fromAgent: boolean;
 }
 
+// allow-duplicate
 const VALID_MODES = new Set<string>(["task", "status", "init", "clean", "debug"]);
 
+// allow-duplicate
 const HELP_TEXT = [
   `ralphy loop v${VERSION}`,
   "",
@@ -59,13 +61,13 @@ const HELP_TEXT = [
   "  ralphy loop init",
 ].join("\n");
 
-export function printHelp(): void {
+export function printLoopHelp(): void {
   log(HELP_TEXT);
 }
 
-export async function parseArgs(argv: string[]): Promise<ParsedArgs> {
+export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
   const common = initialCommonArgs();
-  const result: ParsedArgs = {
+  const result: LoopParsedArgs = {
     ...common,
     mode: "task",
     name: "",

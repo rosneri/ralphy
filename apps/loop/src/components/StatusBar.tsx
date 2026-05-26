@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { Spinner } from "@inkjs/ui";
-import { useTerminalSize } from "../hooks/useTerminalSize";
+import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
 
 interface StatusBarProps {
   iteration: number;

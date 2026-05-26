@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { parseArgs } from "../cli";
+import { parseAgentArgs as parseArgs } from "../cli";
 import YAML from "yaml";
 import { loadRalphyConfig } from "../agent/config";
 

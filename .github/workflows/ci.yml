@@ -23,6 +23,10 @@ jobs:
         with:
           nx-shas: "true"
 
+      - name: No duplicate declarations
+        if: "!cancelled()"
+        run: bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
+
       - name: No direct axios in apps/ui
         if: "!cancelled()"
         run: bun scripts/check-no-direct-http.ts

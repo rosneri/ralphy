@@ -17,6 +17,7 @@
     "@ralphy/paths": "workspace:*",
     "@ralphy/telemetry": "workspace:*",
     "@ralphy/types": "workspace:*",
+    "@ralphy/ui-shared": "workspace:*",
     "@ralphy/version": "workspace:*",
     "@ralphy/workflow": "workspace:*",
     "ink": "^5.1.0",

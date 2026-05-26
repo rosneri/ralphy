@@ -18,11 +18,12 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
-import { parseArgs } from "../cli";
+import { parseAgentArgs as parseArgs } from "../cli";
 import { loadRalphyConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
+import { git } from "../shared/capabilities/git";
 
 let tempDir: string;
 let originalFetch: typeof fetch;
@@ -290,5 +291,28 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
     await tick();
 
     expect(spawnCwd).toBe(tempDir);
+  });
+});
+
+describe("git.seedWorktreeMcpConfig capability", () => {
+  test("copies and rewrites .mcp.json into worktree", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rlf39-seed-"));
+    const worktree = mkdtempSync(join(tmpdir(), "rlf39-wt-"));
+    try {
+      await Bun.write(
+        join(root, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: { ralphy: { command: "node", args: [".ralph/bin/mcp.js"] } },
+        }),
+      );
+      await git.seedWorktreeMcpConfig.run({ projectRoot: root, worktreeCwd: worktree });
+      const written = (await Bun.file(join(worktree, ".mcp.json")).json()) as {
+        mcpServers: Record<string, { args: string[] }>;
+      };
+      expect(written.mcpServers["ralphy"]!.args[0]).toBe(join(root, ".ralph/bin/mcp.js"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(worktree, { recursive: true, force: true });
+    }
   });
 });

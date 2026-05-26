@@ -1,11 +1,8 @@
 import { useCallback, useState } from "react";
+import { formatCost } from "../utils/format-cost";
 import { Link } from "react-router-dom";
 import { useTasks } from "../hooks/useTasks";
 import { useSidecar } from "../context/Sidecar.context";
-
-function formatCost(usd: number): string {
-  return `$${(Math.round(usd * 100) / 100).toFixed(2)}`;
-}
 
 export function TaskListView() {
   const { connected, baseUrl } = useSidecar();

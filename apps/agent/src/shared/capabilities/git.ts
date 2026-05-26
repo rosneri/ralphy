@@ -13,11 +13,13 @@
  */
 
 import { NO_RETRY, type Capability } from "./types";
+import { formatError } from "./format-error";
 import {
   createWorktree as createWorktreeImpl,
   removeWorktree as removeWorktreeImpl,
   seedWorktreeMcpConfig as seedWorktreeMcpConfigImpl,
   type GitRunner,
+  type WorktreeHandle,
 } from "../../agent/worktree";
 
 interface CreateWorktreeArgs {
@@ -38,20 +40,11 @@ interface SeedMcpConfigArgs {
   worktreeCwd: string;
 }
 
-interface WorktreeHandle {
-  cwd: string;
-  branch: string;
-}
-
-function defaultFormatter(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 const createWorktree: Capability<CreateWorktreeArgs, WorktreeHandle> = {
   name: "git.worktree.create",
   required: true,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: (args) =>
     createWorktreeImpl(args.projectRoot, args.changeName, args.baseBranch, args.runner),
 };
@@ -60,7 +53,7 @@ const removeWorktree: Capability<RemoveWorktreeArgs, void> = {
   name: "git.worktree.remove",
   required: false,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: (args) => removeWorktreeImpl(args.projectRoot, args.cwd, args.runner),
 };
 
@@ -68,7 +61,7 @@ const seedWorktreeMcpConfig: Capability<SeedMcpConfigArgs, void> = {
   name: "git.worktree.seedMcpConfig",
   required: false,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: (args) => seedWorktreeMcpConfigImpl(args.projectRoot, args.worktreeCwd),
 };
 

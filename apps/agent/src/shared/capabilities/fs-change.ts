@@ -20,6 +20,7 @@ import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { prependFixTask } from "@ralphy/core/tasks-md";
 import { NO_RETRY, type Capability } from "./types";
+import { formatError } from "./format-error";
 
 interface ScaffoldArgs {
   /** Absolute path to `openspec/changes/<name>/`. */
@@ -47,15 +48,11 @@ interface AppendSteeringArgs {
   message: string;
 }
 
-function defaultFormatter(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 const scaffold: Capability<ScaffoldArgs, void> = {
   name: "fs.change.scaffold",
   required: false,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: async (args) => {
     await mkdir(args.changeDir, { recursive: true });
     await mkdir(join(args.changeDir, "specs"), { recursive: true });
@@ -70,7 +67,7 @@ const prependTask: Capability<PrependTaskArgs, void> = {
   name: "fs.change.task.prepend",
   required: false,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: async (args) => {
     await prependFixTask(args.tasksPath, args.heading, args.failureOutput);
   },
@@ -80,7 +77,7 @@ const appendSteering: Capability<AppendSteeringArgs, void> = {
   name: "fs.change.steering.append",
   required: false,
   retryPolicy: NO_RETRY,
-  errorFormatter: defaultFormatter,
+  errorFormatter: formatError,
   run: async (args) => {
     const path = join(args.changeDir, "steering.md");
     const f = Bun.file(path);

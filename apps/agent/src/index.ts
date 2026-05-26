@@ -5,7 +5,7 @@ import { createElement } from "react";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot } from "@ralphy/paths";
-import { parseArgs, printHelp, type ParsedArgs } from "./cli";
+import { parseAgentArgs, printAgentHelp, type AgentParsedArgs } from "./cli";
 import { AgentMode } from "./components/AgentMode";
 import { shouldFallbackToJsonOutput } from "./non-tty-fallback";
 import {
@@ -22,16 +22,16 @@ import {
 
 export async function main(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
-    printHelp();
+    printAgentHelp();
     return 0;
   }
 
-  let args: ParsedArgs;
+  let args: AgentParsedArgs;
   try {
-    args = await parseArgs(argv);
+    args = await parseAgentArgs(argv);
   } catch (err) {
     process.stderr.write((err instanceof Error ? err.message : String(err)) + "\n\n");
-    printHelp();
+    printAgentHelp();
     return 1;
   }
 

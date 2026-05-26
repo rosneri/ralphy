@@ -77,7 +77,6 @@
         "@ralphy/openspec": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/paths": "workspace:*",
-        "@ralphy/telemetry": "workspace:*",
         "@ralphy/types": "workspace:*",
         "@ralphy/version": "workspace:*",
         "@ralphy/workflow": "workspace:*",
@@ -225,6 +224,17 @@
     "packages/types": {
       "name": "@ralphy/types",
       "version": "0.0.0",
+    },
+    "packages/ui-shared": {
+      "name": "@ralphy/ui-shared",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/react": "^18.3.18",
+        "react": "^18.3.1",
+      },
+      "peerDependencies": {
+        "react": "^18.3.1",
+      },
     },
     "packages/version": {
       "name": "@ralphy/version",
@@ -865,6 +875,8 @@
     "@ralphy/types": ["@ralphy/types@workspace:packages/types"],
 
     "@ralphy/ui": ["@ralphy/ui@workspace:apps/ui"],
+
+    "@ralphy/ui-shared": ["@ralphy/ui-shared@workspace:packages/ui-shared"],
 
     "@ralphy/version": ["@ralphy/version@workspace:packages/version"],
 

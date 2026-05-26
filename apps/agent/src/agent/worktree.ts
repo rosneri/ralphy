@@ -2,7 +2,7 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { exists } from "node:fs/promises";
 
-interface WorktreeHandle {
+export interface WorktreeHandle {
   /** Absolute path to the new working tree. */
   cwd: string;
   /** Branch name created for this worktree. */

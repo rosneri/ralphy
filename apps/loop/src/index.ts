@@ -6,7 +6,7 @@ import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot, worktreesDir } from "@ralphy/paths";
 import { resolveOpenspecBin } from "@ralphy/openspec";
-import { parseArgs, printHelp } from "./cli";
+import { parseLoopArgs, printLoopHelp } from "./cli";
 import { App } from "./components/App";
 import { runDebug } from "./debug";
 
@@ -34,16 +34,16 @@ async function ensureRalphGitignore(projectRoot: string): Promise<void> {
 
 export async function main(argv: string[]): Promise<number> {
   if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
-    printHelp();
+    printLoopHelp();
     return 0;
   }
 
   let args;
   try {
-    args = await parseArgs(argv);
+    args = await parseLoopArgs(argv);
   } catch (err) {
     process.stderr.write((err instanceof Error ? err.message : String(err)) + "\n\n");
-    printHelp();
+    printLoopHelp();
     return 1;
   }
 

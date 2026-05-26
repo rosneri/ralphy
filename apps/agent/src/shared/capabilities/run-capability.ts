@@ -51,7 +51,7 @@ export async function runCapability<A, R, Raw = R>(
       const canRetry = attempt < cap.retryPolicy.maxAttempts && cap.retryPolicy.isRetryable(err);
       if (!canRetry) break;
       const delay = Math.max(0, cap.retryPolicy.delayMs(attempt, err));
-      if (delay > 0) await sleep(delay);
+      if (delay > 0) await sleepMs(delay);
     }
   }
 
@@ -68,6 +68,6 @@ export async function runCapability<A, R, Raw = R>(
   throw lastError;
 }
 
-function sleep(ms: number): Promise<void> {
+function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

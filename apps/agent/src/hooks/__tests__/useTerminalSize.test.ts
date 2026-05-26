@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import React from "react";
 import { render } from "ink-testing-library";
 import { Text } from "ink";
-import { useTerminalSize, type TerminalSize } from "../useTerminalSize";
+import { useTerminalSize, type TerminalSize } from "@ralphy/ui-shared/useTerminalSize";
 
 function mutStdout() {
   return process.stdout;

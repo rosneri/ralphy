@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useSidecar } from "../context/Sidecar.context";
 import type { FeedEvent, State } from "@ralphy/types";
 
-interface ProgressCount {
+export interface ProgressCount {
   checked: number;
   unchecked: number;
   total: number;

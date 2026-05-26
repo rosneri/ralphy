@@ -70,7 +70,7 @@ mock.module("@ralphy/telemetry", () => ({
   setDefaultProperties: () => {},
 }));
 
-import { parseArgs } from "../cli";
+import { parseAgentArgs as parseArgs } from "../cli";
 import { loadRalphyConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";

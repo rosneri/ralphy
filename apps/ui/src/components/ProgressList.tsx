@@ -59,9 +59,7 @@ export function ProgressList({ items }: ProgressListProps) {
                 fontFamily: "inherit",
               }}
             >
-              <span style={{ display: "inline-block", width: 10 }}>
-                {isExpanded ? "▾" : "▸"}
-              </span>
+              <span style={{ display: "inline-block", width: 10 }}>{isExpanded ? "▾" : "▸"}</span>
               <span style={{ flex: 1 }}>{section}</span>
               <span style={{ fontWeight: 500 }}>
                 {doneCount} / {sectionItems.length}

@@ -1,4 +1,4 @@
-import type { ParsedArgs } from "../../cli";
+import type { AgentParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
 import type { AgentCoordinator } from "../coordinator";
 import type { CmdRunner } from "../pr";
@@ -13,7 +13,7 @@ import {
 } from "../linear";
 
 interface BaselineInput {
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   cfg: RalphyConfig;
   apiKey: string;
   team: string | undefined;

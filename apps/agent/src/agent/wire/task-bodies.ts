@@ -1,12 +1,5 @@
-import type { MentionTrigger } from "../coordinator";
-
-/** True when a Linear comment body was authored by Ralph itself. Match by
- *  the distinctive emoji-prefixed lead used in every comment ralph posts;
- *  this avoids needing to know the Linear user identity at filter time. */
-export function isRalphComment(body: string): boolean {
-  const trimmed = body.trimStart();
-  return /^(🤖|🔄|✅|✗|⚠|🔁|📋)\s*Ralphy?\b/.test(trimmed);
-}
+import type { MentionTrigger } from "../../queue/queue-order";
+export { isRalphComment } from "../../shared/utils/ralph-comment";
 
 /** Format reviewer comments as a fix-task body. Each comment becomes a
  *  fenced block with the author + timestamp header so the worker can see
@@ -37,7 +30,7 @@ export function buildReviewTaskBody(
   ].join("\n");
 }
 
-function escapeRegex(s: string): string {
+export function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
@@ -93,7 +86,7 @@ export function findLastRalphPickupISO(
   return latest;
 }
 
-function stripCodeMarkup(s: string): string {
+export function stripCodeMarkup(s: string): string {
   return s.replace(/```[\s\S]*?```/g, " ").replace(/`[^`]*`/g, " ");
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test, spyOn } from "bun:test";
-import { parseArgs, printHelp, VERSION } from "../cli";
+import { parseAgentArgs as parseArgs, printAgentHelp as printHelp, VERSION } from "../cli";
 
 describe("agent parseArgs", () => {
   test("parses linear/concurrency flags", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Static, Text, Transform, useApp, useInput, useStdin } from "ink";
 import { join } from "node:path";
-import { VERSION, type ParsedArgs } from "../cli";
+import { VERSION, type AgentParsedArgs } from "../cli";
 import {
   ensureRalphyConfig as ensureRalphyConfigImpl,
   loadRalphyConfig as loadRalphyConfigImpl,
@@ -50,10 +50,11 @@ import {
   type OpenSpecPhase,
 } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
-import { useTerminalSize } from "../hooks/useTerminalSize";
+import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
 import { SteeringField } from "./SteeringField";
 import { appendSteeringMessage } from "@ralphy/core/loop";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import { cleanOutputLine } from "../shared/capabilities/output-utils";
 
 /**
  * Append a steering message to the change's steering.md, wrapped in a default
@@ -67,7 +68,7 @@ async function appendSteeringImpl(changeDir: string, message: string): Promise<v
 }
 
 interface AgentModeProps {
-  args: ParsedArgs;
+  args: AgentParsedArgs;
   projectRoot: string;
   statesDir: string;
   tasksDir: string;
@@ -268,25 +269,6 @@ function Link({ url, label, color }: { url: string; label: string; color: string
       </Text>
     </Transform>
   );
-}
-
-// Strip ANSI escape codes (CSI, OSC, and 2-char sequences).
-const ANSI_STRIP_RE = /\x1b(?:\[[0-9;]*[A-Za-z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|.)/g;
-// Lines that are only box-drawing chars + spaces: Ink render artifacts.
-const BOX_ONLY_RE = /^[\s─│╭╮╰╯╌┄━┃]+$/;
-// Status bar tick line: braille-spinner "iter N │ $X │ Ns │ model" from TaskLoop's StatusBar.
-const STATUS_BAR_LINE_RE = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏✓✗]\s+iter\s+\d+/;
-// Iteration header from IterationHeader component (starts with ──).
-const ITER_HEADER_LINE_RE = /^──/;
-
-/** Strip ANSI codes; return null if the line is a subprocess UI rendering artifact. */
-function cleanOutputLine(raw: string): string | null {
-  const clean = raw.replace(ANSI_STRIP_RE, "").trim();
-  if (!clean) return null;
-  if (BOX_ONLY_RE.test(clean)) return null;
-  if (STATUS_BAR_LINE_RE.test(clean)) return null;
-  if (ITER_HEADER_LINE_RE.test(clean)) return null;
-  return clean;
 }
 
 function priorityBadge(p: number): { text: string; color: string; label: string } {

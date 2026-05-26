@@ -19,26 +19,18 @@
  */
 
 import type { Bus } from "@ralphy/events";
+import { formatError } from "../shared/capabilities/format-error";
 import type { Feature, FeatureCtx, FeatureId, FeatureMatch, TaskResult } from "./types";
 
 type FeaturePhase = "detected" | "started" | "completed" | "failed" | "skipped";
 
-function emit(
+function emitFeatureEvent(
   bus: Bus,
   id: FeatureId,
   phase: FeaturePhase,
   payload: Record<string, unknown> = {},
 ): void {
   bus.emit({ type: `feature.${id}.${phase}`, ...payload });
-}
-
-function formatError(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  try {
-    return String(err);
-  } catch {
-    return "unknown error";
-  }
 }
 
 /**
@@ -55,7 +47,7 @@ export async function detectFeature(
   try {
     return await feature.detect(ctx);
   } catch (err) {
-    emit(ctx.bus, feature.id, "failed", {
+    emitFeatureEvent(ctx.bus, feature.id, "failed", {
       error: formatError(err),
       phase: "detect",
     });
@@ -72,13 +64,13 @@ export async function runFeature(
   ctx: FeatureCtx,
   match: FeatureMatch,
 ): Promise<void> {
-  emit(ctx.bus, feature.id, "detected", { reason: match.reason });
-  emit(ctx.bus, feature.id, "started", { reason: match.reason });
+  emitFeatureEvent(ctx.bus, feature.id, "detected", { reason: match.reason });
+  emitFeatureEvent(ctx.bus, feature.id, "started", { reason: match.reason });
   try {
     await feature.run(ctx, match);
-    emit(ctx.bus, feature.id, "completed", {});
+    emitFeatureEvent(ctx.bus, feature.id, "completed", {});
   } catch (err) {
-    emit(ctx.bus, feature.id, "failed", {
+    emitFeatureEvent(ctx.bus, feature.id, "failed", {
       error: formatError(err),
       phase: "run",
     });
@@ -98,12 +90,12 @@ export async function runFeaturePostTask(
   result: TaskResult,
 ): Promise<void> {
   if (!feature.postTask) return;
-  emit(ctx.bus, feature.id, "started", { phase: "postTask" });
+  emitFeatureEvent(ctx.bus, feature.id, "started", { phase: "postTask" });
   try {
     await feature.postTask(ctx, result);
-    emit(ctx.bus, feature.id, "completed", { phase: "postTask" });
+    emitFeatureEvent(ctx.bus, feature.id, "completed", { phase: "postTask" });
   } catch (err) {
-    emit(ctx.bus, feature.id, "failed", {
+    emitFeatureEvent(ctx.bus, feature.id, "failed", {
       error: formatError(err),
       phase: "postTask",
     });
@@ -116,5 +108,5 @@ export async function runFeaturePostTask(
  * match). Keeps telemetry symmetric with the `detected` event.
  */
 export function emitFeatureSkipped(bus: Bus, id: FeatureId, reason: string): void {
-  emit(bus, id, "skipped", { reason });
+  emitFeatureEvent(bus, id, "skipped", { reason });
 }

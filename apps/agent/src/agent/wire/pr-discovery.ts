@@ -4,7 +4,7 @@ import { getPrChecksStatus } from "../ci";
 import { fetchIssueAttachments, type LinearIssue } from "../linear";
 import { changeNameForIssue } from "../scaffold";
 import type { CmdRunner } from "../pr";
-import type { PrStatus } from "../coordinator";
+import type { PrStatusBucket as PrStatus } from "../coordinator";
 import { pickOpenPrUrlFromAttachments } from "./pr-helpers";
 
 const PR_UNAVAILABLE_TTL_MS = 10 * 60 * 1000;

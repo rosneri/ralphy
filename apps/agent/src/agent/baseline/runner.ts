@@ -56,7 +56,7 @@ export async function runBaseline(input: RunBaselineInput): Promise<BaselineResu
       command: `git checkout ${baseBranch}`,
       exitCode: -1,
       stdout: "",
-      stderr: truncate(e.stderr ?? e.message, outputCharLimit),
+      stderr: truncateOutput(e.stderr ?? e.message, outputCharLimit),
       fingerprint: fingerprintFor(`git checkout ${baseBranch}`, e.stderr ?? e.message),
     };
     return {
@@ -86,8 +86,8 @@ export async function runBaseline(input: RunBaselineInput): Promise<BaselineResu
       failures.push({
         command,
         exitCode,
-        stdout: truncate(stdout, outputCharLimit),
-        stderr: truncate(stderr, outputCharLimit),
+        stdout: truncateOutput(stdout, outputCharLimit),
+        stderr: truncateOutput(stderr, outputCharLimit),
         fingerprint: fingerprintFor(command, stderr || stdout),
       });
     }
@@ -104,7 +104,7 @@ function parseCommand(cmd: string): string[] {
   return cmd.trim().split(/\s+/);
 }
 
-function truncate(text: string, limit: number): string {
+function truncateOutput(text: string, limit: number): string {
   if (text.length <= limit) return text;
   return text.slice(0, limit) + `\n…(truncated ${text.length - limit} chars)`;
 }

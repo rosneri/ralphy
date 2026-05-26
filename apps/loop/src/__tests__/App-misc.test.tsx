@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
-import type { ParsedArgs } from "../cli";
+import type { LoopParsedArgs as ParsedArgs } from "../cli";
 
 mock.module("@ralphy/openspec", () => ({
   OpenSpecChangeStore: class {},

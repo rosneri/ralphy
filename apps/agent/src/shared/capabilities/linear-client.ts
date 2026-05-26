@@ -12,14 +12,7 @@
 
 import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-
-/** Match comments authored by Ralph itself, by the emoji-prefixed lead used
- *  in every comment ralph posts. Duplicated from `agent/wire/task-bodies` to
- *  keep `shared/capabilities` free of cycles back into `agent/`. */
-function isRalphComment(body: string): boolean {
-  const trimmed = body.trimStart();
-  return /^(🤖|🔄|✅|✗|⚠|🔁)\s*Ralph\b/.test(trimmed);
-}
+import { isRalphComment } from "../utils/ralph-comment";
 
 export interface LinearIssue {
   id: string;
@@ -662,7 +655,7 @@ interface LinearAttachment {
   title: string | null;
 }
 
-const RALPHY_ATTACHMENT_TITLE = "Ralphy";
+export const RALPHY_ATTACHMENT_TITLE = "Ralphy";
 
 export async function createRalphyAttachment(
   apiKey: string,

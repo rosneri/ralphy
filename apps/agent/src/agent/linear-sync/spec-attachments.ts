@@ -19,6 +19,7 @@ import { dirname, join } from "node:path";
 import { writeField } from "@ralphy/core/state";
 import { isCommentNotFoundError } from "./comment-sync";
 import { renderMarkdownToPdf } from "./render-pdf";
+import { type LogFn, sha256Hex } from "./utils";
 
 /** Build a Linear-API error suffix that surfaces .status / .body / .messages
  *  fields attached by linearRequest. Without this, every HTTP failure
@@ -109,8 +110,6 @@ interface SpecAttachmentsState {
   proposalPdf: SpecAttachmentSlot;
   designPdf: SpecAttachmentSlot;
 }
-
-type LogFn = (text: string, color?: string) => void;
 
 export interface SpecAttachmentMutations {
   uploadFileToLinear: (
@@ -252,12 +251,6 @@ function hasMeaningfulContent(bytes: Uint8Array): boolean {
     return true;
   }
   return false;
-}
-
-function sha256Hex(bytes: Uint8Array): string {
-  const hasher = new Bun.CryptoHasher("sha256");
-  hasher.update(bytes);
-  return hasher.digest("hex");
 }
 
 async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {

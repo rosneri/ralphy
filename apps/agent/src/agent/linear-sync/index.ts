@@ -3,6 +3,8 @@
  * Used by the sticky-comment sync in `comment-sync.ts`.
  */
 
+import { truncate } from "./utils";
+
 export const RALPHY_TASKS_START = "<!-- ralphy:tasks:start -->";
 export const RALPHY_TASKS_END = "<!-- ralphy:tasks:end -->";
 
@@ -73,11 +75,6 @@ function parseTasksMd(md: string): ParsedSection[] {
     i += 1;
   }
   return sections;
-}
-
-function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return `${s.slice(0, max)}\n…(truncated)`;
 }
 
 export function renderTasksBlock(tasksMd: string, meta: RenderMeta): string {
