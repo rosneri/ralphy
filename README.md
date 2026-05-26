@@ -81,7 +81,7 @@ export LINEAR_API_KEY=lin_api_xxx
 ralphy agent --linear-team ENG --linear-assignee me --concurrency 3 --poll-interval 60
 ```
 
-A default `ralphy.config.json` is written on first run. CLI flags override config per-invocation.
+Configuration lives in **`WORKFLOW.md`** at the project root — YAML frontmatter for settings, followed by a Jinja-style prompt template the worker renders for every iteration. A default is written on first run. CLI flags override config per-invocation.
 
 ### Lifecycle and triggers
 
@@ -169,48 +169,70 @@ A `Marker` is one of three types:
 
 Use an array when one event sets multiple — e.g. `setDone` flipping a status _and_ adding a label _and_ updating the attachment subtitle.
 
-Example `ralphy.config.json`:
+Example `WORKFLOW.md` frontmatter — the prompt template after the closing `---` is omitted here; see the bundled default for the full file:
 
-```jsonc
-{
-  "concurrency": 3,
-  "pollIntervalSeconds": 60,
-  "engine": "claude",
-  "model": "opus",
-  "useWorktree": true,
-  "createPrOnSuccess": true,
-  "autoMergeStrategy": "squash",
-  "fixCiOnFailure": true,
-  "linear": {
-    "team": "ENG",
-    "assignee": "me",
-    "postComments": true,
-    "updateEveryIterations": 10,
-    "mentionTrigger": true,
-    "mentionHandle": "@ralphy",
-    "codeReviewTrigger": true,
-    "codeReviewStaleHours": 24,
-    "syncTasksToComment": true,
-    "syncTasksToDescription": false,
-    "indicators": {
-      "getTodo": { "filter": [{ "type": "status", "value": "Todo" }] },
-      "getInProgress": {
-        "filter": [{ "type": "status", "value": "In Progress" }],
-      },
-      "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
-      "getAutoMerge": {
-        "filter": [{ "type": "label", "value": "ralph:auto-merge" }],
-      },
-      "setInProgress": { "type": "status", "value": "In Progress" },
-      "setDone": [
-        { "type": "status", "value": "In Review" },
-        { "type": "label", "value": "ralphy-done" },
-      ],
-      "setError": { "type": "label", "value": "ralph:error" },
-      "clearReview": { "type": "label", "value": "ralph:review" },
-    },
-  },
-}
+```yaml
+---
+concurrency: 3
+pollIntervalSeconds: 60
+engine: claude
+model: opus
+useWorktree: true
+createPrOnSuccess: true
+autoMergeStrategy: squash
+fixCiOnFailure: true
+
+linear:
+  team: ENG
+  assignee: me
+  postComments: true
+  updateEveryIterations: 10
+  mentionTrigger: true
+  mentionHandle: "@ralphy"
+  codeReviewTrigger: true
+  codeReviewStaleHours: 24
+  syncTasksToComment: true
+  syncSpecsAsAttachments: true
+
+  indicators:
+    # Todo → In Progress
+    getTodo:
+      filter:
+        - type: status
+          value: Todo
+    getInProgress:
+      filter:
+        - type: status
+          value: In Progress
+    setInProgress:
+      type: status
+      value: In Progress
+
+    # Done / review hand-off
+    setDone:
+      - type: status
+        value: In Review
+      - type: label
+        value: ralphy-done
+    getReview:
+      filter:
+        - type: label
+          value: "ralph:review"
+    clearReview:
+      type: label
+      value: "ralph:review"
+
+    # Auto-merge opt-in
+    getAutoMerge:
+      filter:
+        - type: label
+          value: "ralph:auto-merge"
+
+    # Error quarantine
+    setError:
+      type: label
+      value: "ralph:error"
+---
 ```
 
 #### Confirmation mode (human gate before `implement`)
@@ -231,9 +253,14 @@ After `timeoutHours` (default `48`) with no activity Ralphy posts a single nudge
 
 Wire up the matching indicators alongside the rest of the `linear.indicators` map:
 
-```jsonc
-"getApproved":   { "filter": [{ "type": "label", "value": "ralph:approved" }] },
-"clearApproved": { "type": "label", "value": "ralph:approved" }
+```yaml
+getApproved:
+  filter:
+    - type: label
+      value: "ralph:approved"
+clearApproved:
+  type: label
+  value: "ralph:approved"
 ```
 
 See `linear.confirmationMode` in `WORKFLOW.md` for the full set of knobs.
@@ -259,15 +286,13 @@ The loop exits; the next poll re-checks the PR. The cycle continues until the PR
 
 Once every task in `tasks.md` is checked off, the worker can spawn an in-process reviewer pass before exiting. The reviewer reads `proposal.md`, `design.md`, and the diff, and either appends new tasks back into `tasks.md` (looping the worker for another round) or signs off. Configure under `openspec.reviewPhase`:
 
-```jsonc
-"openspec": {
-  "reviewPhase": {
-    "enabled": true,
-    "maxRounds": 2,                   // hard cap on review iterations (default 1)
-    "reviewerModel": "claude-sonnet-4-6",  // override the reviewer's model (optional)
-    "reviewerContextStrategy": "fresh"     // "fresh" = clean context per round (default), "warm" = reuse worker context
-  }
-}
+```yaml
+openspec:
+  reviewPhase:
+    enabled: true
+    maxRounds: 2 # hard cap on review iterations (default 1)
+    reviewerModel: claude-sonnet-4-6 # override the reviewer's model (optional)
+    reviewerContextStrategy: fresh # "fresh" = clean context per round (default), "warm" = reuse worker context
 ```
 
 CLI equivalents: `--review-enabled`, `--review-max-rounds <N>`, `--review-model <id>`, `--review-context-strategy fresh|warm`. The worker passes these to itself when respawning, so the same review settings apply across `respawn` / `conflict-fix` / `ci-fix` lifecycles.
@@ -285,16 +310,6 @@ The first time planning completes (every `- [ ]` under `## Planning` in
 `tasks.md` becomes `- [x]`), Ralph posts a one-shot "📋 Plan" comment
 summarizing `proposal.md` (`## Why` + `## What Changes`) and the first
 paragraph of `design.md`.
-
-##### Legacy: sync into the issue description
-
-Set `linear.syncTasksToDescription: true` to mirror `tasks.md` into the
-linked Linear issue description body instead (the pre-RLF-62 behavior).
-Ralph writes a checklist between sentinel HTML comments
-(`<!-- ralphy:tasks:start -->` / `<!-- ralphy:tasks:end -->`); content
-outside the markers is preserved verbatim. When both
-`syncTasksToComment` and `syncTasksToDescription` are true,
-comment-sync wins and a one-time warning is logged.
 
 #### Conflict re-fix / CI re-fix
 
@@ -340,16 +355,15 @@ HEAD. If any command fails:
 When the baseline goes green (the human merged the fix), the next poll lifts
 the pause automatically.
 
-```jsonc
-{
-  "preExistingErrorCheck": {
-    "enabled": false,
-    "commands": ["bun run lint", "bun run test"], // falls back to commands.lint + commands.test when empty
-    "baseBranch": "main",
-    "label": "ralph:pre-existing-error",
-    "outputCharLimit": 4000,
-  },
-}
+```yaml
+preExistingErrorCheck:
+  enabled: false
+  commands: # falls back to commands.lint + commands.test when empty
+    - bun run lint
+    - bun run test
+  baseBranch: main
+  label: "ralph:pre-existing-error"
+  outputCharLimit: 4000
 ```
 
 ### Worktrees, setup, teardown
@@ -444,7 +458,7 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--debug --name <id>` | Diagnose why a Linear ticket (e.g. `ENG-42`) is not being picked up — checks team, assignee, include / exclude markers, and blocked-by relations against every configured `get*` indicator. |
 
-`ralph list` reads `ralphy.config.json` and, when `LINEAR_API_KEY` is set, fetches every issue matching each configured `getTodo` / `getInProgress` / `getReview` / `getAutoMerge` indicator using the same include / exclude rules as `ralph agent`. For each ticket it also resolves the linked GitHub PR URL from Linear attachments and prints its conflict / CI status from `gh pr view`.
+`ralph list` reads `WORKFLOW.md` and, when `LINEAR_API_KEY` is set, fetches every issue matching each configured `getTodo` / `getInProgress` / `getReview` / `getAutoMerge` indicator using the same include / exclude rules as `ralph agent`. For each ticket it also resolves the linked GitHub PR URL from Linear attachments and prints its conflict / CI status from `gh pr view`.
 
 **`--max-tickets`.** Caps how many issues ralph picks up in a single agent run. Once the limit is hit the coordinator stops enqueuing new work; in-flight workers continue to completion, and the dashboard header shows `│ tickets ≤N`. The limit resets each restart.
 
