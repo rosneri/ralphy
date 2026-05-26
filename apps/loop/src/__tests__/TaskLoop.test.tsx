@@ -1207,6 +1207,302 @@ describe("TaskLoop", () => {
     });
   });
 
+  test("recovers specAttachments from partial-write state (malformed + specAttachments)", async () => {
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "spec-attach-task");
+      mkdirSync(taskDir, { recursive: true });
+      // Write a malformed state (missing required fields) that has a valid specAttachments entry
+      const knownAttachId = "attach-id-999";
+      writeFileSync(
+        join(taskDir, ".ralph-state.json"),
+        JSON.stringify({
+          specAttachments: {
+            proposal: { attachmentId: knownAttachId, sha256: "abc123" },
+            design: { attachmentId: null, sha256: null },
+            proposalPdf: { attachmentId: null, sha256: null },
+            designPdf: { attachmentId: null, sha256: null },
+          },
+          status: "active",
+          lastModified: "2026-05-18T17:43:45.968Z",
+        }),
+        "utf-8",
+      );
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] only\n", "utf-8");
+
+      const opts = {
+        name: "spec-attach-task",
+        prompt: "Spec attach test",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("malformed");
+
+      const rewritten = JSON.parse(
+        require("node:fs").readFileSync(join(taskDir, ".ralph-state.json"), "utf-8"),
+      );
+      expect(rewritten.specAttachments?.proposal?.attachmentId).toBe(knownAttachId);
+    });
+  });
+
+  test("review phase runs when all tasks complete and findings exist", async () => {
+    // tasks.md is all done, no findings → review runs → no open findings → self-review passed
+    runEngineMock.mockImplementationOnce(async () => ({
+      exitCode: 0,
+      usage: null,
+      sessionId: null,
+      rateLimited: false,
+    }));
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "review-phase-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "review-phase-task" });
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] all done\n", "utf-8");
+
+      const reviewFindings: string[] = [];
+      const opts = {
+        name: "review-phase-task",
+        prompt: "Review phase test",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 3,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+        reviewPhase: { enabled: true, maxRounds: 1, reviewerModel: "opus" },
+        onReviewRound: async (result: import("../loop").ReviewRoundResult) => {
+          reviewFindings.push(`round=${result.roundNumber} open=${result.openFindings}`);
+        },
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("self-review pass");
+    });
+  });
+
+  test("review phase skips when cap already reached", async () => {
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "review-cap-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = {
+        ...makeState({ name: "review-cap-task" }),
+        reviewRounds: 2,
+      };
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] all done\n", "utf-8");
+
+      const opts = {
+        name: "review-cap-task",
+        prompt: "Cap test",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 3,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+        reviewPhase: { enabled: true, maxRounds: 2 },
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      // Cap already reached so review is skipped, goes straight to archive
+      expect(allText).toContain("All tasks completed");
+      // review engine mock should NOT have been called for a review
+      expect(runEngineMock).not.toHaveBeenCalled();
+    });
+  });
+
+  test("review phase loops back when open findings remain and cap not reached", async () => {
+    // Review engine call #1: looping back (findings pre-written, mock doesn't change them)
+    // Review engine call #2: clears findings so loop exits cleanly
+    runEngineMock
+      .mockImplementationOnce(async () => ({
+        exitCode: 0,
+        usage: null,
+        sessionId: null,
+        rateLimited: false,
+      }))
+      .mockImplementationOnce(async () => {
+        // Clear findings so the second review passes and the loop can archive
+        writeFileSync(
+          join(tempDir, "review-loop-task", "review-findings.md"),
+          "## Open\n(no findings — close round)\n",
+          "utf-8",
+        );
+        return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
+      });
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "review-loop-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "review-loop-task" });
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] all done\n", "utf-8");
+      // Pre-write findings with an open item so the review phase loops back immediately
+      writeFileSync(
+        join(taskDir, "review-findings.md"),
+        "## Open\n- [ ] fix the thing\n",
+        "utf-8",
+      );
+
+      const opts = {
+        name: "review-loop-task",
+        prompt: "Review loop test",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 5,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+        reviewPhase: { enabled: true, maxRounds: 3 },
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 700));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("finding(s) — looping back");
+    });
+  });
+
+  test("review phase cap reached with open findings shows cap message", async () => {
+    // Pre-write open findings; review engine mock doesn't change them.
+    // reviewRounds starts at 1 so after one more review, cap (2) is hit.
+    runEngineMock.mockImplementationOnce(async () => ({
+      exitCode: 0,
+      usage: null,
+      sessionId: null,
+      rateLimited: false,
+    }));
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "review-cap-msg-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = {
+        ...makeState({ name: "review-cap-msg-task" }),
+        reviewRounds: 1,
+      };
+      writeState(taskDir, state);
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] all done\n", "utf-8");
+      // Pre-write findings with an open item
+      writeFileSync(
+        join(taskDir, "review-findings.md"),
+        "## Open\n- [ ] still broken\n",
+        "utf-8",
+      );
+
+      const opts = {
+        name: "review-cap-msg-task",
+        prompt: "Review cap message test",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 5,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+        reviewPhase: { enabled: true, maxRounds: 2 },
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("Review cap reached");
+    });
+  });
+
+  test("stops when engine exits 0 but rateLimited is true (session usage limit)", async () => {
+    runEngineMock.mockImplementationOnce(async () => ({
+      exitCode: 0,
+      usage: null,
+      sessionId: null,
+      rateLimited: true,
+    }));
+
+    await withStorage(async () => {
+      const taskDir = join(tempDir, "session-usage-task");
+      mkdirSync(taskDir, { recursive: true });
+      const state = makeState({ name: "session-usage-task" });
+      writeState(taskDir, state);
+
+      const opts = {
+        name: "session-usage-task",
+        prompt: "Session usage prompt",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 5,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        statesDir: tempDir,
+        tasksDir: tempDir,
+        changeStore: stubChangeStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("rate/usage limit");
+      // Only one engine call — loop stopped after the clean-exit rate limit
+      expect(runEngineMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   test("steering resume filters session feed events", async () => {
     let engineStartResolve: () => void;
     const engineStarted = new Promise<void>((r) => {
