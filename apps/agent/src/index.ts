@@ -89,7 +89,12 @@ export async function main(argv: string[]): Promise<number> {
   if (!args.noTmux && !process.env["RALPH_AGENT_MANAGED"] && tmuxAvailable()) {
     const name = sessionName(projectRoot);
     if (!sessionExists(name)) {
-      const managedArgv = argv.filter((a) => a !== "--no-tmux");
+      const binPath = process.argv[1];
+      if (!binPath) {
+        throw new Error("cannot re-exec ralphy under tmux: process.argv[1] is empty");
+      }
+      const flags = argv.filter((a) => a !== "--no-tmux");
+      const managedArgv = [process.execPath, binPath, "agent", ...flags];
       createSession(name, managedArgv, { RALPH_AGENT_MANAGED: "1" });
     }
     if (isInsideTmux()) {
