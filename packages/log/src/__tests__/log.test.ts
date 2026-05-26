@@ -16,6 +16,7 @@ describe("logJsonEvent", () => {
       .exists()
       .then((exists) => {
         if (exists) return Bun.write(logFile, "");
+        return undefined;
       });
   });
 
@@ -56,6 +57,6 @@ describe("logJsonEvent", () => {
     const content = await Bun.file(logFile).text();
     const lines = content.trim().split("\n").filter(Boolean);
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]).phase).toBe("after");
+    expect(JSON.parse(lines[0]!).phase).toBe("after");
   });
 });
