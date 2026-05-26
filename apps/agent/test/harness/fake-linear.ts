@@ -8,7 +8,6 @@ import type { MentionTrigger } from "../../src/queue/queue-order";
 export interface FakeLinearIndicators {
   getTodo?: GetIndicator;
   getInProgress?: GetIndicator;
-  getConflicted?: GetIndicator;
   getReview?: GetIndicator;
   getDoneCandidates?: GetIndicator;
 }
@@ -83,8 +82,6 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     setInProgress: [],
     setDone: [],
     setError: [],
-    setConflicted: [],
-    clearConflicted: [],
     clearReview: [],
   };
 
@@ -92,9 +89,6 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     const markers = markersOf(ind);
     const labels = markers.filter((m) => m.type === "label").map((m) => m.value.toLowerCase());
     const statuses = markers.filter((m) => m.type === "status").map((m) => m.value.toLowerCase());
-    if (labels.includes("ralphy:conflicted") || statuses.includes("conflicted")) {
-      return "setConflicted";
-    }
     if (statuses.includes("done") || labels.includes("ralphy:done")) return "setDone";
     if (statuses.includes("in progress") || labels.includes("ralphy:in-progress")) {
       return "setInProgress";
@@ -117,8 +111,6 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
   const client: LinearClientLike = {
     fetchTodo: async () => filterBy(indicators.getTodo),
     fetchInProgress: async () => filterBy(indicators.getInProgress),
-    fetchConflicted: async () => filterBy(indicators.getConflicted),
-    fetchCiFailed: async () => filterBy(indicators.getCiFailed),
     fetchReview: async () => filterBy(indicators.getReview),
     fetchDoneCandidates: async () => filterBy(indicators.getDoneCandidates),
     fetchMentions: async () => {
@@ -151,7 +143,6 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     removeIndicator: async (issue, ind) => {
       const markers = markersOf(ind);
       const labels = markers.filter((m) => m.type === "label").map((m) => m.value.toLowerCase());
-      if (labels.includes("ralphy:conflicted")) applied.clearConflicted.push(issue.identifier);
       if (labels.includes("ralphy:review")) applied.clearReview.push(issue.identifier);
       const cur = issues.get(issue.id) ?? issue;
       issues.set(issue.id, removeMarkers(cur, markers));

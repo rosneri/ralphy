@@ -217,11 +217,6 @@ export interface Indicators {
   getTodo?: GetIndicator;
   /** Issues to resume after restart (already in flight). */
   getInProgress?: GetIndicator;
-  /** Issues whose PR is conflicted and needs a re-fix run. */
-  getConflicted?: GetIndicator;
-  /** Issues whose PR is red on CI and needs a re-fix run. Mirrors
-   *  `getConflicted` for the CI-failed lifecycle. */
-  getCiFailed?: GetIndicator;
   /** Done issues with new reviewer comments that need a follow-up run. */
   getReview?: GetIndicator;
   /** Issues opted in for auto-merge: when matched, the agent enables
@@ -233,14 +228,6 @@ export interface Indicators {
   setDone?: SetIndicator;
   /** Marker(s) applied on non-zero exit (quarantine signal). */
   setError?: SetIndicator;
-  /** Marker(s) applied when PR conflict detected. */
-  setConflicted?: SetIndicator;
-  /** Label-only marker(s) removed when conflict is fixed. */
-  clearConflicted?: SetIndicator;
-  /** Marker(s) applied when PR has failing CI checks. */
-  setCiFailed?: SetIndicator;
-  /** Label-only marker(s) removed when CI is green again. */
-  clearCiFailed?: SetIndicator;
   /** Label-only marker(s) removed when the review indicator is picked up. */
   clearReview?: SetIndicator;
   /** Issues that the human has explicitly approved (confirmation gate). */

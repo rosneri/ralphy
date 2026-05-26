@@ -201,17 +201,10 @@ linear:
     #   type: label
     #   value: "ralph:review"
     #
-    # ── Conflicted ───────────────────────
-    # getConflicted:
-    #   filter:
-    #     - type: label
-    #       value: "ralph:conflict"
-    # setConflicted:
-    #   type: label
-    #   value: "ralph:conflict"
-    # clearConflicted:
-    #   type: label
-    #   value: "ralph:conflict"
+    # ── Merge state (conflicted / ci-failed / mergeable) ─
+    # Driven by GitHub directly via \`gh pr view\` — no Linear
+    # indicators here. Tickets whose PR is conflicting or red on CI
+    # are queued for the matching fix flow automatically each poll.
     #
     # ── Confirmation gate (opt-in) ───────
     # Pairs with linear.confirmationMode above. The agent parks gated

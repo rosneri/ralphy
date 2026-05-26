@@ -15,6 +15,7 @@ export const POSTHOG_EVENT_ALLOWLIST: ReadonlySet<RalphEventType> = new Set<Ralp
   "agent_indicator_failed",
   "agent_conflict_promoted",
   "agent_conflict_detected",
+  "agent_ci_failed_detected",
   "agent_prepare_failed",
   "agent_worker_spawned",
   "agent_worker_exited",

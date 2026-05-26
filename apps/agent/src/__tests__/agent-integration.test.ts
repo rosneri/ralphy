@@ -426,12 +426,9 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
         updateEveryIterations: 0,
         indicators: {
           getTodo: { filter: [{ type: "status", value: "Todo" }] },
-          getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
           setInProgress: { type: "status", value: "In Progress" },
           setDone: { type: "status", value: "Done" },
           setError: { type: "label", value: "ralph:error" },
-          setConflicted: { type: "label", value: "ralph:conflicted" },
-          clearConflicted: { type: "label", value: "ralph:conflicted" },
         },
       },
     });
@@ -509,36 +506,25 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     const poll3 = await coord.pollOnce();
     await tick();
 
-    // setConflicted label applied, conflict comment posted, conflict-fix
-    // worker re-spawned (since we cleared workers map after exit, we'd
-    // expect a new entry).
-    expect(
-      linear.labelMutations.some(
-        (m) => m.op === "add" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-1",
-      ),
-    ).toBe(true);
+    // Conflict comment posted; conflict-fix worker re-spawned. No Linear
+    // label cycle — gh is the single source of truth for merge state now.
     expect(linear.comments.some((c) => c.body.includes("merge conflicts"))).toBe(true);
-    void poll3; // not asserting `added` here — conflict-scan adds out-of-band
+    void poll3;
 
-    // Worker for the conflict-fix run is active.
     const fixWorker = workers.get(changeName);
     expect(fixWorker).toBeDefined();
 
-    // ---- 7. Conflict-fix worker exits cleanly → clearConflicted ----
-    // Per RLF-82 the post-task verifies via `fetchPrStatus` before
-    // clearing the conflict label; the AI is presumed to have resolved
-    // and pushed the conflicts, so the fake PR view must now report
-    // MERGEABLE.
+    // ---- 7. Conflict-fix worker exits cleanly → no label flips ----
     setMergeable(changeName, "MERGEABLE");
     fixWorker!.resolve(0);
     await tick();
 
+    // No `ralph:conflicted` label was ever applied; nothing to remove.
     expect(
       linear.labelMutations.some(
-        (m) =>
-          m.op === "remove" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-1",
+        (m) => m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-1",
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     // setDone is NOT applied a second time (already done; conflict-fix
     // path skips setDone).
@@ -582,12 +568,9 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
         updateEveryIterations: 0,
         indicators: {
           getTodo: { filter: [{ type: "status", value: "Todo" }] },
-          getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
           setInProgress: { type: "status", value: "In Progress" },
           setDone: { type: "status", value: "Done" },
           setError: { type: "label", value: "ralph:error" },
-          setConflicted: { type: "label", value: "ralph:conflicted" },
-          clearConflicted: { type: "label", value: "ralph:conflicted" },
         },
       },
     });

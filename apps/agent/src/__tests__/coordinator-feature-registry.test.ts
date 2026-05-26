@@ -26,8 +26,6 @@ function baseDeps(inProgress: LinearIssue[], bus: Bus): CoordinatorDeps {
   return {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => inProgress),
-    fetchConflicted: mock(async () => []),
-    fetchCiFailed: mock(async () => []),
     fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),

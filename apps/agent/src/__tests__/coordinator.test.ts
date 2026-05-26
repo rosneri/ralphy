@@ -82,8 +82,6 @@ interface DepsResult {
   /** Update what fetchTodo returns on the next call. */
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
-  setConflicted: (issues: LinearIssue[]) => void;
-  setCiFailed: (issues: LinearIssue[]) => void;
   setReview: (issues: LinearIssue[]) => void;
   setMentions: (mentions: { issue: LinearIssue; trigger: MentionTrigger }[]) => void;
   setDoneCandidates: (issues: LinearIssue[]) => void;
@@ -104,8 +102,6 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
 
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
-  let conflicted: LinearIssue[] = [];
-  let ciFailed: LinearIssue[] = [];
   let review: LinearIssue[] = [];
   let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
   let doneCandidates: LinearIssue[] = [];
@@ -113,8 +109,6 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => inProgress),
-    fetchConflicted: mock(async () => conflicted),
-    fetchCiFailed: mock(async () => ciFailed),
     fetchReview: mock(async () => review),
     fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
@@ -175,12 +169,6 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     setInProgress: (xs) => {
       inProgress = xs;
-    },
-    setConflicted: (xs) => {
-      conflicted = xs;
-    },
-    setCiFailed: (xs) => {
-      ciFailed = xs;
     },
     setReview: (xs) => {
       review = xs;
@@ -343,7 +331,6 @@ describe("AgentCoordinator — todo polling", () => {
   test("pollOnce returns per-bucket counts for the dashboard", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1"), issue("b", "ENG-2")] });
     ctx.setInProgress([issue("c", "ENG-3")]);
-    ctx.setConflicted([issue("d", "ENG-4")]);
     ctx.setReview([issue("e", "ENG-5")]);
     ctx.setMentions([
       {
@@ -362,13 +349,13 @@ describe("AgentCoordinator — todo polling", () => {
     expect(r.buckets).toEqual({
       todo: 2,
       inProgress: 1,
-      conflicted: 1,
+      conflicted: 0,
       ciFailed: 0,
       review: 1,
       mentions: 1,
       awaiting: 0,
     });
-    expect(r.found).toBe(6);
+    expect(r.found).toBe(5);
   });
 
   test("awaiting-confirmation in-progress tickets are diverted into buckets.awaiting and never enqueued", async () => {
@@ -599,10 +586,11 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     expect(ctx.applies.find((a) => a.id === "a")).toBeUndefined();
   });
 
-  test("getConflicted issues route through prepare(conflict-fix)", async () => {
-    const conflictedIssue = issue("a", "ENG-1");
+  test("done-candidate with CONFLICTING PR routes through prepare(conflict-fix)", async () => {
+    const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
-    ctx.setConflicted([conflictedIssue]);
+    ctx.setDoneCandidates([doneIssue]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const observed: QueueTrigger[] = [];
     ctx.deps.prepare = async (i) => ({ changeName: `change-${i.identifier.toLowerCase()}` });
     ctx.deps.prepareTaskForTrigger = async (_i, _name, trigger) => {
@@ -725,20 +713,13 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeDefined();
   });
 
-  test("conflict-fix success skips setDone and defers clearConflicted to post-task", async () => {
-    // RLF-82: clearConflicted on conflict-fix success is owned by the
-    // post-task verify path (which calls fetchPrStatus before clearing).
-    // The coordinator no longer auto-clears on exit-code 0.
-    const conflictedIssue = issue("a", "ENG-1");
+  test("conflict-fix success skips setDone (state re-checked from GitHub next poll)", async () => {
+    const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
-    ctx.setConflicted([conflictedIssue]);
+    ctx.setDoneCandidates([doneIssue]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const setDone: SetIndicator = { type: "status", value: "Done" };
-    const clearConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
-    const coord = new AgentCoordinator(ctx.deps, {
-      concurrency: 1,
-      setDone,
-      clearConflicted,
-    });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -746,63 +727,44 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     await tick();
 
     expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeUndefined();
-    expect(ctx.removes.find((r) => r.id === "a" && r.ind === clearConflicted)).toBeUndefined();
   });
 });
 
-describe("AgentCoordinator — conflict scan", () => {
-  test("scans setDone candidates and respawns on CONFLICTING PR", async () => {
+describe("AgentCoordinator — gh-driven merge-state scan", () => {
+  test("done-candidate with CONFLICTING PR queues conflict-fix and spawns worker", async () => {
     const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
     await coord.pollOnce();
     await tick();
 
-    // setConflicted applied, comment posted, worker spawned for issue
-    expect(ctx.applies).toContainEqual({ id: "a", ind: setConflicted });
     expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("merge conflicts"))).toBe(true);
     expect(ctx.workers.has("change-eng-1")).toBe(true);
+    // No Linear label applied — gh is the source of truth now.
+    expect(ctx.applies.find((a) => a.id === "a")).toBeUndefined();
   });
 
-  test("conflict scan does not re-notify on subsequent polls", async () => {
+  test("merge-state scan does not re-notify on subsequent polls (in-memory dedup)", async () => {
     const doneIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
     await coord.pollOnce();
     await tick();
 
-    const firstApplies = ctx.applies.length;
     const firstComments = ctx.comments.length;
 
     await coord.pollOnce();
     await tick();
-    expect(ctx.applies.length).toBe(firstApplies);
     expect(ctx.comments.length).toBe(firstComments);
   });
 
-  test("conflict scan with no setConflicted indicator is a no-op", async () => {
-    const doneIssue = issue("a", "ENG-1");
-    const ctx = makeDeps();
-    ctx.setDoneCandidates([doneIssue]);
-    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 }); // no setConflicted
-    await coord.init();
-    await coord.pollOnce();
-    await tick();
-    expect(ctx.applies).toEqual([]);
-    expect(ctx.comments).toEqual([]);
-    expect(ctx.workers.size).toBe(0);
-  });
-
-  test("ci_failed PR on done candidate is labeled and queued as ci-fix", async () => {
+  test("ci_failed PR on done candidate is queued as ci-fix", async () => {
     const ticket = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setDoneCandidates([ticket]);
@@ -810,25 +772,12 @@ describe("AgentCoordinator — conflict scan", () => {
       url: "https://github.com/o/r/pull/501",
       status: "ci_failed" as const,
     });
-    const setCiFailed: SetIndicator = { type: "label", value: "ralph:ci-failed" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, setCiFailed });
-    await coord.init();
-    const r = await coord.pollOnce();
-    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 1 });
-    expect(ctx.applies).toContainEqual({ id: "a", ind: setCiFailed });
-    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("failing CI"))).toBe(true);
-    expect(coord.queuedCount).toBe(1);
-  });
-
-  test("getCiFailed bucket is fetched and queued as ci-fix trigger", async () => {
-    const ticket = issue("a", "ENG-1");
-    const ctx = makeDeps();
-    ctx.setCiFailed([ticket]);
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
     await coord.init();
     const r = await coord.pollOnce();
+    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 1 });
     expect(r.buckets.ciFailed).toBe(1);
-    expect(r.added).toBe(1);
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("failing CI"))).toBe(true);
     expect(coord.queuedCount).toBe(1);
   });
 
@@ -844,29 +793,27 @@ describe("AgentCoordinator — conflict scan", () => {
     ctx.conflictByIssue.set("b", { url: "https://gh/pr/2", status: "mergeable" as const });
     ctx.conflictByIssue.set("c", { url: "https://gh/pr/3", status: "conflicted" as const });
     ctx.conflictByIssue.set("d", { url: "https://gh/pr/4", status: "ci_failed" as const });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflicted" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, setConflicted });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
     await coord.init();
     const r = await coord.pollOnce();
     expect(r.prStatus).toEqual({ mergeable: 2, conflicted: 1, ciFailed: 1 });
+    expect(r.buckets.conflicted).toBe(1);
+    expect(r.buckets.ciFailed).toBe(1);
   });
 
-  test("finished in-progress ticket with CONFLICTING PR is promoted, not resumed", async () => {
-    const finishedIssue = issue("a", "ENG-1");
+  test("in-progress ticket with CONFLICTING PR is promoted, not resumed", async () => {
+    const inProgressIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
-    ctx.setInProgress([finishedIssue]);
-    ctx.archivedIssues.add("a");
+    ctx.setInProgress([inProgressIssue]);
     ctx.conflictByIssue.set("a", {
       url: "https://github.com/o/r/pull/376",
       status: "conflicted" as const,
     });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
     await coord.pollOnce();
     await tick();
 
-    expect(ctx.applies).toContainEqual({ id: "a", ind: setConflicted });
     expect(
       ctx.comments.filter(
         (c) =>
@@ -875,30 +822,46 @@ describe("AgentCoordinator — conflict scan", () => {
           c.body.includes("promoted to conflict-fix flow"),
       ).length,
     ).toBe(1);
-    // Must NOT have queued a resume worker for the finished issue.
-    expect(ctx.workers.has("change-eng-1")).toBe(false);
+    // Worker spawned via conflict-fix queue entry, not resume.
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
   });
 
-  test("promotion is idempotent across polls (one label add, one comment)", async () => {
-    const finishedIssue = issue("a", "ENG-1");
+  test("in-progress ticket with CI-failed PR is promoted to ci-fix", async () => {
+    const inProgressIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
-    ctx.setInProgress([finishedIssue]);
-    ctx.archivedIssues.add("a");
+    ctx.setInProgress([inProgressIssue]);
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/400",
+      status: "ci_failed" as const,
+    });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    expect(
+      ctx.comments.filter(
+        (c) => c.id === "a" && c.body.includes("failing CI") && c.body.includes("ci-fix"),
+      ).length,
+    ).toBe(1);
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+  });
+
+  test("promotion is idempotent across polls (one comment)", async () => {
+    const inProgressIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setInProgress([inProgressIssue]);
     ctx.conflictByIssue.set("a", {
       url: "https://github.com/o/r/pull/376",
       status: "conflicted" as const,
     });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
     await coord.pollOnce();
     await tick();
-    // Simulate Linear having propagated the label on the next poll.
-    finishedIssue.labels = ["ralph:conflict"];
     await coord.pollOnce();
     await tick();
 
-    expect(ctx.applies.filter((a) => a.id === "a" && a.ind === setConflicted).length).toBe(1);
     expect(
       ctx.comments.filter((c) => c.id === "a" && c.body.includes("promoted to conflict-fix"))
         .length,
@@ -909,49 +872,16 @@ describe("AgentCoordinator — conflict scan", () => {
     const inProgressIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
     ctx.setInProgress([inProgressIssue]);
-    ctx.archivedIssues.add("a");
     ctx.conflictByIssue.set("a", {
       url: "https://github.com/o/r/pull/1",
       status: "mergeable" as const,
     });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
-    await coord.init();
-    await coord.pollOnce();
-    await tick();
-
-    expect(ctx.applies.find((a) => a.ind === setConflicted)).toBeUndefined();
-    expect(ctx.workers.has("change-eng-1")).toBe(true);
-  });
-
-  test("in-progress ticket with CONFLICTING PR is promoted even when change is not archived", async () => {
-    const inProgressIssue = issue("a", "ENG-1");
-    const ctx = makeDeps();
-    ctx.setInProgress([inProgressIssue]);
-    // Not archived — promotion should still fire on a conflicting PR so the
-    // ticket gets rebased before further commits pile on top.
-    ctx.conflictByIssue.set("a", {
-      url: "https://github.com/o/r/pull/1",
-      status: "conflicted" as const,
-    });
-    const setConflicted: SetIndicator = { type: "label", value: "ralph:conflict" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setConflicted });
-    await coord.init();
-    await coord.pollOnce();
-    await tick();
-
-    expect(ctx.applies).toContainEqual({ id: "a", ind: setConflicted });
-    expect(ctx.workers.has("change-eng-1")).toBe(false);
-  });
-
-  test("pollOnce returns zero PR status counts when conflict scan disabled", async () => {
-    const ctx = makeDeps();
-    ctx.setDoneCandidates([issue("a", "ENG-1")]);
-    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
     await coord.init();
-    const r = await coord.pollOnce();
-    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 0 });
+    await coord.pollOnce();
+    await tick();
+
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
   });
 });
 
@@ -1014,7 +944,8 @@ describe("AgentCoordinator — progress comments", () => {
     const urgent2 = issue("t2", "ENG-2", 1);
     const ctx = makeDeps();
     ctx.setTodo([urgent1, urgent2]);
-    ctx.setConflicted([conflict]);
+    ctx.setDoneCandidates([conflict]);
+    ctx.conflictByIssue.set("c1", { url: "https://gh/pr/9", status: "conflicted" as const });
 
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
@@ -1026,9 +957,6 @@ describe("AgentCoordinator — progress comments", () => {
 
     expect(ctx.workers.has("change-eng-9")).toBe(true);
     expect(ctx.workers.has("change-eng-1")).toBe(false);
-    expect(
-      ctx.logs.some((l) => l.text.includes("ENG-9 queued (auto-merge unblock, prioritized)")),
-    ).toBe(true);
     ctx.workers.get("change-eng-9")!.resolve(0);
     await tick();
   });
@@ -1039,7 +967,9 @@ describe("AgentCoordinator — progress comments", () => {
     const lowPri = issue("c2", "ENG-8", 3);
     lowPri.labels = ["ralph:auto-merge"];
     const ctx = makeDeps();
-    ctx.setConflicted([lowPri, highPri]);
+    ctx.setDoneCandidates([lowPri, highPri]);
+    ctx.conflictByIssue.set("c1", { url: "https://gh/pr/9", status: "conflicted" as const });
+    ctx.conflictByIssue.set("c2", { url: "https://gh/pr/8", status: "conflicted" as const });
 
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
@@ -1061,7 +991,8 @@ describe("AgentCoordinator — progress comments", () => {
     const urgent = issue("t1", "ENG-1", 1);
     const ctx = makeDeps();
     ctx.setTodo([urgent]);
-    ctx.setConflicted([conflict]);
+    ctx.setDoneCandidates([conflict]);
+    ctx.conflictByIssue.set("c1", { url: "https://gh/pr/9", status: "conflicted" as const });
 
     // No getAutoMerge option → existing priority-only sort wins; urgent todo
     // beats a no-priority conflict-fix.

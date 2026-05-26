@@ -9,10 +9,6 @@ const SET_INDICATOR_KEYS = [
   "setInProgress",
   "setDone",
   "setError",
-  "setConflicted",
-  "clearConflicted",
-  "setCiFailed",
-  "clearCiFailed",
   "clearReview",
   "clearApproved",
 ] as const;
@@ -31,31 +27,19 @@ const IndicatorsSchema = z.preprocess(
     .object({
       getTodo: GetIndicatorSchema.optional(),
       getInProgress: GetIndicatorSchema.optional(),
-      getConflicted: GetIndicatorSchema.optional(),
-      getCiFailed: GetIndicatorSchema.optional(),
       getReview: GetIndicatorSchema.optional(),
       getAutoMerge: GetIndicatorSchema.optional(),
       getApproved: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
-      setConflicted: SetIndicatorSchema.optional(),
-      setCiFailed: SetIndicatorSchema.optional(),
       setAwaitingConfirmation: SetIndicatorSchema.optional(),
-      clearConflicted: SetIndicatorSchema.optional(),
-      clearCiFailed: SetIndicatorSchema.optional(),
       clearReview: SetIndicatorSchema.optional(),
       clearApproved: SetIndicatorSchema.optional(),
       clearAwaitingConfirmation: SetIndicatorSchema.optional(),
     })
     .superRefine((value, ctx) => {
-      for (const key of [
-        "clearConflicted",
-        "clearCiFailed",
-        "clearReview",
-        "clearApproved",
-        "clearAwaitingConfirmation",
-      ] as const) {
+      for (const key of ["clearReview", "clearApproved", "clearAwaitingConfirmation"] as const) {
         const clear = value[key];
         if (!clear) continue;
         const markers = Array.isArray(clear) ? clear : [clear];

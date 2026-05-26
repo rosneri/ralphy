@@ -137,6 +137,11 @@ export type RalphEvent =
       issue_identifier: string;
     }
   | {
+      type: "agent_ci_failed_detected";
+      ts: number;
+      issue_identifier: string;
+    }
+  | {
       type: "agent_prepare_failed";
       ts: number;
       [k: string]: unknown;

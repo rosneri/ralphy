@@ -102,11 +102,11 @@ describe("agent/config", () => {
     await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
-  test("loadRalphyConfig rejects status-typed clearConflicted with pretty error", async () => {
+  test("loadRalphyConfig rejects status-typed clearReview with pretty error", async () => {
     await writeWorkflow(tempDir, {
       linear: {
         indicators: {
-          clearConflicted: { type: "status", value: "Done" },
+          clearReview: { type: "status", value: "Done" },
         },
       },
     });

@@ -61,10 +61,6 @@ interface SpawnWorkerInput {
     durationMs?: number,
     ok?: boolean,
   ) => void;
-  /** Apply the `clearConflicted` indicator for the issue tied to
-   *  `changeName`. Invoked by `runPostTask` on the conflict-fix verify
-   *  path when `fetchPrStatus` reports MERGEABLE. */
-  clearConflicted?: (issue: LinearIssue) => Promise<void>;
 }
 
 export function createSpawnWorker(
@@ -102,7 +98,6 @@ export function createSpawnWorker(
     onWorkerPhase,
     onWorkerOutput,
     onWorkerCmd,
-    clearConflicted,
   } = input;
 
   function buildTaskCmdFor(changeName: string): string[] {
@@ -317,15 +312,6 @@ export function createSpawnWorker(
           },
           resolveDependencyBaseBranch: (issue) =>
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
-          ...(clearConflicted
-            ? {
-                clearConflicted: async () => {
-                  const issueForChange2 = issueByChange.get(changeName);
-                  if (!issueForChange2) return;
-                  await clearConflicted(issueForChange2);
-                },
-              }
-            : {}),
         },
       );
       cwdByChange.delete(changeName);

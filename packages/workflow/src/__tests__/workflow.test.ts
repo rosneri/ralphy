@@ -39,10 +39,10 @@ describe("parseWorkflow", () => {
     expect(() => parseWorkflow("no frontmatter")).toThrow("frontmatter");
   });
 
-  test("rejects status-typed clearConflicted", () => {
+  test("rejects status-typed clearReview", () => {
     expect(() =>
       parseWorkflow(
-        `---\nlinear:\n  indicators:\n    clearConflicted:\n      type: status\n      value: Done\n---\n`,
+        `---\nlinear:\n  indicators:\n    clearReview:\n      type: status\n      value: Done\n---\n`,
       ),
     ).toThrow("invalid settings");
   });
@@ -81,10 +81,10 @@ describe("parseWorkflow", () => {
     ).toThrow("invalid settings");
   });
 
-  test("project marker in clearConflicted is rejected with label-only message", () => {
+  test("project marker in clearReview is rejected with label-only message", () => {
     expect(() =>
       parseWorkflow(
-        `---\nlinear:\n  indicators:\n    clearConflicted:\n      type: project\n      value: "Ralph Queue"\n---\n`,
+        `---\nlinear:\n  indicators:\n    clearReview:\n      type: project\n      value: "Ralph Queue"\n---\n`,
       ),
     ).toThrow("markers must be label-typed");
   });
@@ -144,10 +144,10 @@ describe("parseWorkflow", () => {
     ]);
   });
 
-  test("rejects project-typed clearConflicted with label-only message", () => {
+  test("rejects project-typed clearReview with label-only message", () => {
     expect(() =>
       parseWorkflow(
-        `---\nlinear:\n  indicators:\n    clearConflicted:\n      type: project\n      value: "Ralph In Progress"\n---\n`,
+        `---\nlinear:\n  indicators:\n    clearReview:\n      type: project\n      value: "Ralph In Progress"\n---\n`,
       ),
     ).toThrow("markers must be label-typed");
   });

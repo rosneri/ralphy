@@ -39,16 +39,12 @@ export interface AppliedLog {
   setInProgress: string[];
   setDone: string[];
   setError: string[];
-  setConflicted: string[];
-  clearConflicted: string[];
   clearReview: string[];
 }
 
 export interface LinearClientLike {
   fetchTodo(): Promise<LinearIssue[]>;
   fetchInProgress(): Promise<LinearIssue[]>;
-  fetchConflicted(): Promise<LinearIssue[]>;
-  fetchCiFailed(): Promise<LinearIssue[]>;
   fetchReview(): Promise<LinearIssue[]>;
   fetchMentions(): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
   fetchDoneCandidates(): Promise<LinearIssue[]>;

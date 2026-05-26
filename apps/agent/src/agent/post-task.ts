@@ -132,14 +132,6 @@ interface PostTaskDeps {
    *  phases still own the full post-task flow in that case. */
   buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
   /**
-   * Optional: apply the `clearConflicted` indicator side-effect for the
-   * current issue. Wired by the agent wire layer to the existing Linear
-   * `removeIndicator(issue, indicators.clearConflicted)` call. Invoked only
-   * on the conflict-fix verify path when `fetchPrStatus` returns
-   * `MERGEABLE`. No-op when not wired (e.g. tests that don't care).
-   */
-  clearConflicted?: () => Promise<void>;
-  /**
    * Override the delay (ms) between UNKNOWN-mergeability retries in the
    * conflict-fix verify path. Default 2000 ms. Tests pass 0 for speed.
    */
@@ -1128,27 +1120,17 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         status = await fetchPrStatus(prUrl, cmd, cwd);
       }
       if (status.kind === "ok" && status.mergeable === "MERGEABLE") {
-        log(
-          `  ${identifier}: PR ${prUrl} is MERGEABLE after rebase — clearing conflict label`,
-          "green",
-        );
-        if (deps.clearConflicted) {
-          try {
-            await deps.clearConflicted();
-          } catch (err) {
-            log(`! clearConflicted failed for ${identifier}: ${(err as Error).message}`, "yellow");
-          }
-        }
+        log(`  ${identifier}: PR ${prUrl} is MERGEABLE after rebase`, "green");
       } else if (status.kind === "ok" && status.mergeable === "CONFLICTING") {
         log(`! ${identifier}: still CONFLICTING after rebase; will retry`, "yellow");
       } else if (status.kind === "ok") {
         log(
-          `! ${identifier}: PR mergeability is UNKNOWN — leaving conflict label in place; next poll will retry`,
+          `! ${identifier}: PR mergeability is UNKNOWN — next poll will re-check from GitHub`,
           "yellow",
         );
       } else {
         log(
-          `! ${identifier}: PR status fetch failed (${status.message}) — leaving conflict label in place`,
+          `! ${identifier}: PR status fetch failed (${status.message}) — next poll will re-check`,
           "yellow",
         );
       }

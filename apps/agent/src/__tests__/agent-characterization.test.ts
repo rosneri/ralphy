@@ -822,12 +822,9 @@ const baseWorkflow = {
     updateEveryIterations: 0,
     indicators: {
       getTodo: { filter: [{ type: "status", value: "Todo" }] },
-      getConflicted: { filter: [{ type: "label", value: "ralph:conflicted" }] },
       setInProgress: { type: "status", value: "In Progress" },
       setDone: { type: "status", value: "Done" },
       setError: { type: "label", value: "ralph:error" },
-      setConflicted: { type: "label", value: "ralph:conflicted" },
-      clearConflicted: { type: "label", value: "ralph:conflicted" },
     },
   },
 };
@@ -1996,19 +1993,10 @@ describe("agent characterization — Stage-0 regression net", () => {
     await coord.pollOnce();
     await tick();
 
-    // setConflicted label applied (the audit-trail / promotion signal).
-    expect(
-      linear.labelMutations.some(
-        (m) => m.op === "add" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-7",
-      ),
-    ).toBe(true);
-    expect(linear.issues.get("uuid-eng-7")!.labels.has("ralph:conflicted")).toBe(true);
-
-    // Conflict-promotion comment posted on the issue. Today's contract uses
-    // the phrase "merge conflicts" in the body; pinning the substring keeps
-    // the assertion robust to copy tweaks while still catching a regression
-    // that drops the comment entirely.
+    // Conflict-promotion comment posted on the issue. No Linear label is
+    // applied — gh is the single source of truth for merge state now.
     expect(linear.comments.some((c) => c.body.includes("merge conflicts"))).toBe(true);
+    expect(linear.issues.get("uuid-eng-7")!.labels.has("ralph:conflicted")).toBe(false);
 
     // A conflict-fix worker was spawned for this change.
     const spawnsAfterPromotion = spawnCalls.filter((c) => c.includes(changeName)).length;
@@ -2027,20 +2015,13 @@ describe("agent characterization — Stage-0 regression net", () => {
       ).length,
     ).toBeGreaterThanOrEqual(2);
 
-    // Conflict-fix worker exits cleanly → post-task verifies PR is now
-    // MERGEABLE and fires clearConflicted (RLF-82 verify-only path). No
-    // second setDone is issued (the ticket is already Done; conflict-fix
-    // is a PR-level fixup, not a fresh lifecycle run).
+    // Conflict-fix worker exits cleanly. The next poll's gh scan will see
+    // MERGEABLE and not re-queue. No setDone is re-issued (the ticket is
+    // already Done; conflict-fix is a PR-level fixup, not a fresh run).
     setMergeable(changeName, "MERGEABLE");
     fixWorker!.resolve(0);
     await tick();
 
-    expect(
-      linear.labelMutations.some(
-        (m) =>
-          m.op === "remove" && m.labelName === "ralph:conflicted" && m.issueId === "uuid-eng-7",
-      ),
-    ).toBe(true);
     const doneCountAfterFix = linear.statusMutations.filter((s) => s.statusName === "Done").length;
     expect(doneCountAfterFix).toBe(1);
   });

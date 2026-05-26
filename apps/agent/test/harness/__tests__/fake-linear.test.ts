@@ -2,11 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { createFakeLinear } from "../fake-linear";
 
 describe("createFakeLinear", () => {
-  test("filters fetchTodo/inProgress/conflicted/review by marker", async () => {
+  test("filters fetchTodo/inProgress/review by marker", async () => {
     const linear = createFakeLinear({
       getTodo: { filter: [{ type: "label", value: "ralphy:todo" }] },
       getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
-      getConflicted: { filter: [{ type: "label", value: "ralphy:conflicted" }] },
       getReview: { filter: [{ type: "label", value: "ralphy:review" }] },
     });
     linear.seed({ id: "1", identifier: "RLF-1", title: "todo", labels: ["ralphy:todo"] });
@@ -16,17 +15,10 @@ describe("createFakeLinear", () => {
       title: "in-progress",
       state: { name: "In Progress", type: "started" },
     });
-    linear.seed({
-      id: "3",
-      identifier: "RLF-3",
-      title: "conflicted",
-      labels: ["ralphy:conflicted"],
-    });
     linear.seed({ id: "4", identifier: "RLF-4", title: "review", labels: ["ralphy:review"] });
 
     expect((await linear.client.fetchTodo()).map((i) => i.identifier)).toEqual(["RLF-1"]);
     expect((await linear.client.fetchInProgress()).map((i) => i.identifier)).toEqual(["RLF-2"]);
-    expect((await linear.client.fetchConflicted()).map((i) => i.identifier)).toEqual(["RLF-3"]);
     expect((await linear.client.fetchReview()).map((i) => i.identifier)).toEqual(["RLF-4"]);
   });
 
@@ -52,20 +44,16 @@ describe("createFakeLinear", () => {
     const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
     await linear.client.applyIndicator(issue, { type: "label", value: "ralphy:in-progress" });
     await linear.client.applyIndicator(issue, { type: "status", value: "Done" });
-    await linear.client.removeIndicator(issue, { type: "label", value: "ralphy:conflicted" });
     expect(linear.applied.setInProgress).toContain("RLF-1");
     expect(linear.applied.setDone).toContain("RLF-1");
-    expect(linear.applied.clearConflicted).toContain("RLF-1");
   });
 
-  test("applyIndicator classifies setError, setConflicted (status), and project marker", async () => {
+  test("applyIndicator classifies setError and project marker", async () => {
     const linear = createFakeLinear();
     const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
     await linear.client.applyIndicator(issue, { type: "label", value: "ralphy:error" });
-    await linear.client.applyIndicator(issue, { type: "status", value: "Conflicted" });
     await linear.client.applyIndicator(issue, { type: "project", value: "proj-1" });
     expect(linear.applied.setError).toContain("RLF-1");
-    expect(linear.applied.setConflicted).toContain("RLF-1");
     const updated = linear.issues().find((i) => i.id === "1");
     expect(updated?.project?.id).toBe("proj-1");
   });

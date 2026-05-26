@@ -203,9 +203,6 @@ export function fetchDoneCandidatesWith(
 ): Promise<LinearIssue[]> {
   if (!indicators.setDone) return Promise.resolve([]);
   const include = markersOf(indicators.setDone);
-  const exclude: typeof include = [];
-  if (indicators.setConflicted) exclude.push(...markersOf(indicators.setConflicted));
-  if (indicators.setCiFailed) exclude.push(...markersOf(indicators.setCiFailed));
   if (include.length === 0) return Promise.resolve([]);
-  return fetchOpenIssues(apiKey, { team, assignee, include, exclude });
+  return fetchOpenIssues(apiKey, { team, assignee, include, exclude: [] });
 }

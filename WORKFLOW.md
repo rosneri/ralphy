@@ -167,17 +167,9 @@ linear:
       type: label
       value: "ralph:review"
 
-    # Conflict lifecycle
-    getConflicted:
-      filter:
-        - type: label
-          value: "ralph:conflict"
-    setConflicted:
-      type: label
-      value: "ralph:conflict"
-    clearConflicted:
-      type: label
-      value: "ralph:conflict"
+    # Merge-state lifecycle (conflicted / ci-failed / mergeable) is
+    # driven by GitHub directly via `gh pr view` — no Linear indicators
+    # to configure here.
 
     # Auto-merge opt-in
     getAutoMerge:

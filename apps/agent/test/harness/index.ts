@@ -38,7 +38,6 @@ export interface ExtendedHarnessCtx extends HarnessCtx {
 const DEFAULT_INDICATORS: FakeLinearIndicators = {
   getTodo: { filter: [{ type: "label", value: "ralphy:todo" }] },
   getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
-  getConflicted: { filter: [{ type: "label", value: "ralphy:conflicted" }] },
   getReview: { filter: [{ type: "label", value: "ralphy:review" }] },
 };
 
@@ -73,8 +72,6 @@ export async function createHarness(opts: CreateHarnessOptions): Promise<Extende
   const coordDeps: CoordinatorDeps = {
     fetchTodo: () => linear.client.fetchTodo(),
     fetchInProgress: () => linear.client.fetchInProgress(),
-    fetchConflicted: () => linear.client.fetchConflicted(),
-    fetchCiFailed: () => linear.client.fetchCiFailed(),
     fetchReview: () => linear.client.fetchReview(),
     fetchMentions: () => linear.client.fetchMentions(),
     fetchDoneCandidates: () => linear.client.fetchDoneCandidates(),

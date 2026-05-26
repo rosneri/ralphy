@@ -123,18 +123,15 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       prListUrl: "https://github.com/owner/repo/pull/42\n",
       prView: { state: "OPEN", mergeable: "MERGEABLE" },
     });
-    const clearConflicted = mock(async () => {});
 
     const code = await runPostTask(baseInput(), {
       cmd,
       git,
       log: () => {},
       runScript: async () => {},
-      clearConflicted,
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(1);
     // Must NOT push or open a PR.
     expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
     expect(calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")).toBe(false);
@@ -145,7 +142,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       prListUrl: "https://github.com/owner/repo/pull/42\n",
       prView: { state: "OPEN", mergeable: "CONFLICTING" },
     });
-    const clearConflicted = mock(async () => {});
+
     const logs: { text: string; color?: string }[] = [];
 
     const code = await runPostTask(baseInput(), {
@@ -153,11 +150,9 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
-      clearConflicted,
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
     expect(
       logs.some((l) => l.color === "yellow" && /still CONFLICTING after rebase/.test(l.text)),
     ).toBe(true);
@@ -169,7 +164,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       prListUrl: "https://github.com/owner/repo/pull/42\n",
       prView: { state: "OPEN", mergeable: "UNKNOWN" },
     });
-    const clearConflicted = mock(async () => {});
+
     const logs: { text: string; color?: string }[] = [];
 
     const code = await runPostTask(baseInput(), {
@@ -177,12 +172,10 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
-      clearConflicted,
       _mergeabilityUnknownRetryDelayMs: 0,
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
     expect(logs.some((l) => l.color === "yellow" && /UNKNOWN/.test(l.text))).toBe(true);
     expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
     // 1 initial + 3 retries = 4 total gh pr view calls
@@ -200,7 +193,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
         { state: "OPEN", mergeable: "MERGEABLE" },
       ],
     });
-    const clearConflicted = mock(async () => {});
+
     const logs: { text: string; color?: string }[] = [];
 
     const code = await runPostTask(baseInput(), {
@@ -208,12 +201,10 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
-      clearConflicted,
       _mergeabilityUnknownRetryDelayMs: 0,
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(1);
     // Should log green MERGEABLE message, not yellow UNKNOWN warning
     expect(logs.some((l) => l.color === "green" && /MERGEABLE/.test(l.text))).toBe(true);
     expect(logs.some((l) => /UNKNOWN/.test(l.text))).toBe(false);
@@ -228,7 +219,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       prListUrl: "https://github.com/owner/repo/pull/42\n",
       prView: "fail",
     });
-    const clearConflicted = mock(async () => {});
+
     const logs: { text: string; color?: string }[] = [];
 
     const code = await runPostTask(baseInput(), {
@@ -236,11 +227,9 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
-      clearConflicted,
     });
 
     expect(code).toBe(0);
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
     expect(logs.some((l) => l.color === "yellow" && /PR status fetch failed/.test(l.text))).toBe(
       true,
     );
@@ -256,17 +245,14 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
     const { cmd, calls } = makeCmd({
       prView: { mergeable: "MERGEABLE" },
     });
-    const clearConflicted = mock(async () => {});
 
     await runPostTask(baseInput({ mode: "fresh" }), {
       cmd,
       git,
       log: () => {},
       runScript: async () => {},
-      clearConflicted,
     });
 
-    expect(clearConflicted).toHaveBeenCalledTimes(0);
     // The legacy path runs `git status --porcelain` as its first step;
     // the short-circuit path never does. Confirm we took the legacy path.
     expect(calls.some((c) => c[0] === "git" && c[1] === "status")).toBe(true);

@@ -1,7 +1,5 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
-import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../agent/linear";
-import { issueMatchesGetIndicator } from "../agent/linear";
 import { compareQueueEntries, defaultPriorityFor, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
@@ -50,9 +48,9 @@ export interface PollBuckets {
   todo: number;
   inProgress: number;
   conflicted: number;
-  /** Tickets labeled `setCiFailed` whose PR is red on CI. Mirrors
-   *  `conflicted`: detected by the conflict scan, then routed back into
-   *  the queue as a `ci-fix` trigger on the next poll. */
+  /** PRs reported red on CI by `gh pr view` in this poll's merge-state
+   *  scan. Mirrors `conflicted`: routed back into the queue as a
+   *  `ci-fix` trigger by the same scan that counts them. */
   ciFailed: number;
   review: number;
   mentions: number;
@@ -118,10 +116,6 @@ export interface CoordinatorDeps {
   fetchTodo: () => Promise<LinearIssue[]>;
   /** Issues to resume after restart. Empty array if `getInProgress` isn't configured. */
   fetchInProgress: () => Promise<LinearIssue[]>;
-  /** Issues already labeled conflicted (re-fix). Empty array if not configured. */
-  fetchConflicted: () => Promise<LinearIssue[]>;
-  /** Issues already labeled CI-failed (re-fix). Empty array if not configured. */
-  fetchCiFailed: () => Promise<LinearIssue[]>;
   /** Done issues flagged for review follow-up (new reviewer comments).
    *  Empty array if `getReview` isn't configured. */
   fetchReview: () => Promise<LinearIssue[]>;
@@ -220,10 +214,6 @@ interface CoordinatorOptions {
   setInProgress?: SetIndicator | undefined;
   setDone?: SetIndicator | undefined;
   setError?: SetIndicator | undefined;
-  setConflicted?: SetIndicator | undefined;
-  clearConflicted?: SetIndicator | undefined;
-  setCiFailed?: SetIndicator | undefined;
-  clearCiFailed?: SetIndicator | undefined;
   clearReview?: SetIndicator | undefined;
   postComments?: boolean | undefined;
   commentEveryIterations?: number | undefined;
@@ -282,18 +272,16 @@ export class AgentCoordinator {
   private queue: QueueEntry[] = [];
   private stopped = false;
   private paused: PauseState | null = null;
-  /** Issues we've already detected as conflicted in this process — guards
-   *  against re-posting the conflict comment every poll. Cleared once
-   *  the worker exits successfully (clearConflicted is applied). */
+  /** Issues we've already detected as conflicted in this process —
+   *  guards against re-queueing + re-posting the conflict comment every
+   *  poll. Cleared once the conflict-fix worker exits successfully so
+   *  the next gh-driven scan re-arms. */
   private conflictNotified = new Set<string>();
-  /** Symmetric to `conflictNotified` for the ci-fix lifecycle. Cleared
-   *  when a ci-fix worker exits successfully. */
+  /** Symmetric to `conflictNotified` for the ci-fix lifecycle. */
   private ciFailedNotified = new Set<string>();
-  /** Issue IDs we've already posted the "promoted to conflict-fix" comment
-   *  for in this process run. Guards against double-posting if the next
-   *  poll still sees the ticket in `getInProgress` (e.g. Linear hasn't
-   *  yet propagated the label, or the label add failed). Cleared when the
-   *  conflict-fix worker exits (clearConflicted applied). */
+  /** Issue IDs we've already posted a "promoted to conflict-fix / ci-fix"
+   *  comment for in this process run. Cleared when the matching worker
+   *  exits successfully. */
   private conflictPromoted = new Set<string>();
   /** Total issues launched this process run — used to enforce maxTickets. */
   private ticketsStarted = 0;
@@ -354,16 +342,12 @@ export class AgentCoordinator {
 
     let todo: LinearIssue[] = [];
     let inProgress: LinearIssue[] = [];
-    let conflicted: LinearIssue[] = [];
-    let ciFailed: LinearIssue[] = [];
     let review: LinearIssue[] = [];
     let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
     try {
-      [todo, inProgress, conflicted, ciFailed, review, mentions] = await Promise.all([
+      [todo, inProgress, review, mentions] = await Promise.all([
         this.deps.fetchTodo(),
         this.deps.fetchInProgress(),
-        this.deps.fetchConflicted(),
-        this.deps.fetchCiFailed(),
         this.deps.fetchReview(),
         this.deps.fetchMentions(),
       ]);
@@ -387,18 +371,9 @@ export class AgentCoordinator {
     const awaitingCount = awaitingClaimed.size;
     const resumableCount = inProgress.length - awaitingCount;
 
-    if (
-      todo.length +
-        resumableCount +
-        conflicted.length +
-        ciFailed.length +
-        review.length +
-        mentions.length +
-        awaitingCount >
-      0
-    ) {
+    if (todo.length + resumableCount + review.length + mentions.length + awaitingCount > 0) {
       this.deps.onFileLog?.(
-        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${conflicted.length} conflicted, ${ciFailed.length} ci-failed, ${review.length} review, ${mentions.length} mention, ${awaitingCount} awaiting`,
+        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${review.length} review, ${mentions.length} mention, ${awaitingCount} awaiting`,
       );
     }
 
@@ -415,20 +390,14 @@ export class AgentCoordinator {
       const buckets: PollBuckets = {
         todo: todo.length,
         inProgress: resumableCount,
-        conflicted: conflicted.length,
-        ciFailed: ciFailed.length,
+        conflicted: 0,
+        ciFailed: 0,
         review: review.length,
         mentions: mentions.length,
         awaiting: awaitingCount,
       };
       const found =
-        buckets.todo +
-        buckets.inProgress +
-        buckets.conflicted +
-        buckets.ciFailed +
-        buckets.review +
-        buckets.mentions +
-        buckets.awaiting;
+        buckets.todo + buckets.inProgress + buckets.review + buckets.mentions + buckets.awaiting;
       return { found, added: 0, buckets, prStatus: emptyPrStatus(), phase: {}, flow: {} };
     }
 
@@ -445,8 +414,9 @@ export class AgentCoordinator {
 
     // 1. In-progress issues take precedence on restart — re-attach first
     //    so concurrency budget is honored. Before queueing as resume,
-    //    detect "finished but conflicting" tickets and route them into
-    //    the conflict-fix flow by applying setConflicted.
+    //    check the PR's state on GitHub: a conflicting / red-CI PR
+    //    short-circuits the resume and routes the ticket into the matching
+    //    fix flow.
     for (const issue of inProgress) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
@@ -462,37 +432,8 @@ export class AgentCoordinator {
       this.deps.onLog(`  ↳ ${issue.identifier} queued (resume)`, "gray");
     }
 
-    // 2. Conflicted issues: re-fix runs.
-    for (const issue of conflicted) {
-      if (atTicketLimit()) break;
-      if (!eligible(issue.id)) continue;
-      this.queue.push({
-        issue,
-        trigger: "conflict-fix",
-        priority: defaultPriorityFor("conflict-fix"),
-      });
-      queuedIds.add(issue.id);
-      added += 1;
-      if (this.isAutoMergeUnblock(issue)) {
-        this.deps.onLog(`  ↳ ${issue.identifier} queued (auto-merge unblock, prioritized)`, "cyan");
-      } else {
-        this.deps.onLog(`  ↳ ${issue.identifier} queued (conflict-fix)`, "gray");
-      }
-    }
-
-    // 2b. CI-failed issues: re-fix runs.
-    for (const issue of ciFailed) {
-      if (atTicketLimit()) break;
-      if (!eligible(issue.id)) continue;
-      this.queue.push({
-        issue,
-        trigger: "ci-fix",
-        priority: defaultPriorityFor("ci-fix"),
-      });
-      queuedIds.add(issue.id);
-      added += 1;
-      this.deps.onLog(`  ↳ ${issue.identifier} queued (ci-fix)`, "gray");
-    }
+    // Conflicted + CI-failed enqueueing happens inside `scanPrMergeStates`
+    // below — gh is the single source of truth for those states.
 
     // 3. Review follow-up: done issues with new reviewer comments.
     for (const issue of review) {
@@ -542,20 +483,24 @@ export class AgentCoordinator {
       this.deps.onLog(`  ↳ ${issue.identifier} queued (fresh)`, "gray");
     }
 
-    if (added > 0) {
+    // Run the gh-driven merge-state scan BEFORE the queue sort + spawn
+    // so its conflict-fix / ci-fix entries get sorted with the rest and
+    // auto-merge boost can promote them ahead of urgent todos.
+    const prStatus = await this.scanPrMergeStates();
+
+    if (this.queue.length > 0) {
       this.queue.sort(compareQueueEntries(this.opts.getAutoMerge));
     }
 
     this.spawnNext();
-    const prStatus = await this.scanDoneForConflicts();
     await this.reportProgress();
     await this.syncWorkerTasks();
 
     const buckets: PollBuckets = {
       todo: todo.length,
       inProgress: resumableCount,
-      conflicted: conflicted.length,
-      ciFailed: ciFailed.length,
+      conflicted: prStatus.conflicted,
+      ciFailed: prStatus.ciFailed,
       review: review.length,
       mentions: mentions.length,
       awaiting: awaitingCount,
@@ -620,28 +565,17 @@ export class AgentCoordinator {
   }
 
   /**
-   * Detect in-progress tickets whose open PR is conflicting with main, and
-   * promote them into the conflict-fix flow by applying `setConflicted` +
-   * posting a one-line Linear comment. The next poll then picks the ticket
-   * up via `getConflicted` instead of `getInProgress`.
-   *
-   * Originally this only fired on "finished but conflicting" tickets (local
-   * change archived, all tasks done, just stuck on the merge). It now also
-   * fires for non-archived in-progress tickets — those still have open
-   * tasks, but if their PR is already conflicting with main the eventual
-   * push will fail, and surfacing the conflict immediately lets the
-   * conflict-fix worker rebase before more commits pile on top.
+   * Detect in-progress tickets whose open PR is conflicting with main or
+   * red on CI, and promote them straight into the matching fix flow
+   * (`conflict-fix` or `ci-fix`). The promotion short-circuits the
+   * resume queue and posts a one-line Linear comment for visibility —
+   * no Linear labels are involved in the routing (GitHub is the source
+   * of truth for merge state).
    *
    * Returns true when the ticket was promoted (or is already promoted) and
    * should be skipped from the in-progress queue this poll.
    */
   private async maybePromoteFinishedConflicted(issue: LinearIssue): Promise<boolean> {
-    const setConflicted = this.opts.setConflicted;
-    if (!setConflicted) return false;
-
-    // Already labeled conflicted on Linear → let getConflicted route it.
-    if (this.issueHasIndicator(issue, setConflicted)) return true;
-
     let pr: { url: string; status: PrStatusBucket } | null;
     try {
       pr = await this.deps.checkPrStatus(issue);
@@ -652,67 +586,50 @@ export class AgentCoordinator {
       );
       return false;
     }
-    if (!pr || pr.status !== "conflicted") return false;
+    if (!pr) return false;
+    if (pr.status !== "conflicted" && pr.status !== "ci_failed") return false;
 
-    try {
-      await this.deps.applyIndicator(issue, setConflicted);
-      this.deps.onLog(
-        `  ${issue.identifier}: promoted to conflict-fix (PR ${pr.url} conflicting)`,
-        "yellow",
-      );
-    } catch (err) {
-      this.deps.onLog(
-        `! Linear setConflicted (promotion) failed for ${issue.identifier}: ${(err as Error).message}`,
-        "red",
-      );
-      emitCapture(this.bus, "agent_indicator_failed", {
-        indicator: "setConflicted",
-        issue_identifier: issue.identifier,
-        error: (err as Error).message,
-      });
-      return false;
-    }
+    const trigger = pr.status === "conflicted" ? "conflict-fix" : "ci-fix";
+    const stateLabel = pr.status === "conflicted" ? "conflicting with main" : "failing CI";
+
+    if (this.conflictPromoted.has(issue.id)) return true;
 
     emitCapture(this.bus, "agent_conflict_promoted", {
       issue_identifier: issue.identifier,
       pr_url: pr.url,
+      trigger,
     });
+    this.deps.onLog(
+      `  ${issue.identifier}: promoted to ${trigger} (PR ${pr.url} ${stateLabel})`,
+      "yellow",
+    );
 
-    if (!this.conflictPromoted.has(issue.id) && this.opts.postComments !== false) {
+    if (this.opts.postComments !== false) {
       const prNum = extractPrNumber(pr.url);
       const ref = prNum !== null ? `PR #${prNum}` : `PR ${pr.url}`;
       try {
         await this.deps.postComment(
           issue,
-          `⚠️ ${ref} is conflicting with main — promoted to conflict-fix flow.`,
+          `⚠️ ${ref} is ${stateLabel} — promoted to ${trigger} flow.`,
         );
-        this.deps.onLog(`  ${issue.identifier}: posted conflict-promotion comment`, "gray");
+        this.deps.onLog(`  ${issue.identifier}: posted ${trigger}-promotion comment`, "gray");
       } catch (err) {
         this.deps.onLog(
-          `! Linear conflict-promotion comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          `! Linear ${trigger}-promotion comment failed for ${issue.identifier}: ${(err as Error).message}`,
           "yellow",
         );
       }
     }
     this.conflictPromoted.add(issue.id);
+    if (pr.status === "conflicted") this.conflictNotified.add(issue.id);
+    else this.ciFailedNotified.add(issue.id);
+
+    this.queue.push({
+      issue,
+      trigger,
+      priority: defaultPriorityFor(trigger),
+    });
     return true;
-  }
-
-  /** True when the issue's labels already include every label-marker the
-   *  SetIndicator would add. Non-label markers (status, project, etc.) are
-   *  ignored — the conflict-promotion check only cares about whether the
-   *  conflict label is already present. */
-  private issueHasIndicator(issue: LinearIssue, ind: SetIndicator): boolean {
-    const labels = new Set(issue.labels.map((l) => l.toLowerCase()));
-    const labelMarkers = markersOf(ind).filter((m) => m.type === "label");
-    if (labelMarkers.length === 0) return false;
-    return labelMarkers.every((m) => labels.has(m.value.toLowerCase()));
-  }
-
-  /** True when the issue carries the auto-merge indicator. Used to boost
-   *  conflict-fix items ahead of every other queued mode/priority. */
-  private isAutoMergeUnblock(issue: LinearIssue): boolean {
-    return issueMatchesGetIndicator(issue, this.opts.getAutoMerge);
   }
 
   /** Returns true if all `blockedByIds` are not present in `inProgress`/
@@ -811,19 +728,19 @@ export class AgentCoordinator {
   }
 
   /**
-   * For every issue we believe is "done" but we tracked a PR for, check
-   * whether the PR has merge conflicts or red CI. If yes, apply the
-   * matching `setConflicted` / `setCiFailed` label, post a Linear comment
-   * (once per detection), and enqueue the issue for a re-fix run.
+   * For every done-candidate ticket (status=setDone with an open PR),
+   * read the PR's merge + CI state from GitHub. Conflicting and CI-red
+   * PRs are queued for re-fix runs (`conflict-fix` / `ci-fix`). The
+   * in-memory `conflictNotified` / `ciFailedNotified` sets dedup across
+   * polls — Linear labels are no longer involved in the routing.
    */
-  private async scanDoneForConflicts(): Promise<PrStatusCounts> {
+  private async scanPrMergeStates(): Promise<PrStatusCounts> {
     const counts = emptyPrStatus();
-    if (!this.opts.setConflicted && !this.opts.setCiFailed) return counts;
     let candidates: LinearIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
     } catch (err) {
-      this.deps.onLog(`! conflict scan fetch failed: ${(err as Error).message}`, "yellow");
+      this.deps.onLog(`! PR merge-state scan fetch failed: ${(err as Error).message}`, "yellow");
       return counts;
     }
     if (candidates.length === 0) return counts;
@@ -847,32 +764,20 @@ export class AgentCoordinator {
       else if (pr.status === "conflicted") counts.conflicted += 1;
       else if (pr.status === "ci_failed") counts.ciFailed += 1;
 
-      if (pr.status === "conflicted" && this.opts.setConflicted) {
+      if (pr.status === "conflicted") {
         if (this.conflictNotified.has(issue.id)) continue;
         emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
-        try {
-          await this.deps.applyIndicator(issue, this.opts.setConflicted);
-          this.deps.onLog(`  ${issue.identifier}: setConflicted applied`, "gray");
-        } catch (err) {
-          this.deps.onLog(
-            `! Linear setConflicted failed for ${issue.identifier}: ${(err as Error).message}`,
-            "red",
-          );
-          emitCapture(this.bus, "agent_indicator_failed", {
-            indicator: "setConflicted",
-            issue_identifier: issue.identifier,
-            error: (err as Error).message,
-          });
-          continue;
-        }
         this.conflictNotified.add(issue.id);
+        this.deps.onLog(
+          `  ${issue.identifier}: PR ${pr.url} conflicting — queued (conflict-fix)`,
+          "yellow",
+        );
         if (this.opts.postComments !== false) {
           try {
             await this.deps.postComment(
               issue,
               `⚠ Ralph detected merge conflicts on this PR (${pr.url}) — re-running to resolve`,
             );
-            this.deps.onLog(`  ${issue.identifier}: posted conflict comment`, "gray");
           } catch (err) {
             this.deps.onLog(
               `! Linear conflict comment failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -888,32 +793,20 @@ export class AgentCoordinator {
         continue;
       }
 
-      if (pr.status === "ci_failed" && this.opts.setCiFailed) {
+      if (pr.status === "ci_failed") {
         if (this.ciFailedNotified.has(issue.id)) continue;
         emitCapture(this.bus, "agent_ci_failed_detected", { issue_identifier: issue.identifier });
-        try {
-          await this.deps.applyIndicator(issue, this.opts.setCiFailed);
-          this.deps.onLog(`  ${issue.identifier}: setCiFailed applied`, "gray");
-        } catch (err) {
-          this.deps.onLog(
-            `! Linear setCiFailed failed for ${issue.identifier}: ${(err as Error).message}`,
-            "red",
-          );
-          emitCapture(this.bus, "agent_indicator_failed", {
-            indicator: "setCiFailed",
-            issue_identifier: issue.identifier,
-            error: (err as Error).message,
-          });
-          continue;
-        }
         this.ciFailedNotified.add(issue.id);
+        this.deps.onLog(
+          `  ${issue.identifier}: PR ${pr.url} CI failing — queued (ci-fix)`,
+          "yellow",
+        );
         if (this.opts.postComments !== false) {
           try {
             await this.deps.postComment(
               issue,
               `⚠ Ralph detected failing CI on this PR (${pr.url}) — re-running to fix`,
             );
-            this.deps.onLog(`  ${issue.identifier}: posted ci-failed comment`, "gray");
           } catch (err) {
             this.deps.onLog(
               `! Linear ci-failed comment failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -929,7 +822,6 @@ export class AgentCoordinator {
       }
     }
 
-    this.spawnNext();
     return counts;
   }
 
@@ -953,7 +845,10 @@ export class AgentCoordinator {
     let prep: PrepareResult;
     try {
       prep = await this.deps.prepare(issue);
-      if ((trigger === "conflict-fix" || trigger === "review") && this.deps.prepareTaskForTrigger) {
+      if (
+        (trigger === "conflict-fix" || trigger === "ci-fix" || trigger === "review") &&
+        this.deps.prepareTaskForTrigger
+      ) {
         await this.deps.prepareTaskForTrigger(issue, prep.changeName, trigger, mention);
       }
     } catch (err) {
@@ -1296,24 +1191,15 @@ export class AgentCoordinator {
     }
 
     if (ok) {
-      // Conflict-fix success: post-task verifies mergeability and owns the
-      // clearConflicted side-effect (RLF-82). The coordinator only resets
-      // its in-process notification bookkeeping here so the conflict-scan
-      // re-arms on the next poll.
+      // Conflict-fix / ci-fix success: the worker iteration drove the
+      // re-fix; the coordinator just re-arms the gh-driven scan so the
+      // next poll re-evaluates the PR state from scratch.
       if (trigger === "conflict-fix") {
         this.conflictNotified.delete(issue.id);
         this.conflictPromoted.delete(issue.id);
       } else if (trigger === "ci-fix") {
         this.ciFailedNotified.delete(issue.id);
-        // Post-task verifies CI; coordinator just re-arms the scan.
-        if (this.opts.clearCiFailed) {
-          try {
-            await this.deps.removeIndicator(issue, this.opts.clearCiFailed);
-            this.deps.onLog(`  ${issue.identifier}: clearCiFailed applied`, "gray");
-          } catch {
-            // non-fatal — next poll re-checks PR status
-          }
-        }
+        this.conflictPromoted.delete(issue.id);
       } else if (this.opts.setDone) {
         try {
           await this.deps.applyIndicator(issue, this.opts.setDone);

@@ -31,8 +31,6 @@ function baseDeps(opts: {
   return {
     fetchTodo: mock(async () => opts.todo),
     fetchInProgress: mock(async () => opts.inProgress),
-    fetchConflicted: mock(async () => []),
-    fetchCiFailed: mock(async () => []),
     fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
