@@ -18,7 +18,7 @@ afterEach(() => {
 describe("S12.4 — LINEAR_API_KEY set but Linear returns 401", () => {
   test("fetchOpenIssues throws immediately with status 401 and does not retry", async () => {
     let callCount = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
       callCount++;
       return new Response("{}", { status: 401 });
     }) as typeof fetch;
@@ -38,15 +38,17 @@ describe("S12.4 — LINEAR_API_KEY set but Linear returns 401", () => {
 });
 
 describe("S12.6 — git in detached HEAD", () => {
-  test.todo(
+  test.skip(
     "agent refuses with a recovery hint when the repo is in detached HEAD state " +
       "(no git preflight check exists yet — file a bug under RLF-99 if this is needed)",
+    () => {},
   );
 });
 
 describe("S12.7 — no `main` branch on local repo", () => {
-  test.todo(
+  test.skip(
     "agent fails preflight and suggests --pr-base-branch when `main` does not exist " +
       "(no prBaseBranch preflight check exists yet — file a bug under RLF-99 if this is needed)",
+    () => {},
   );
 });
