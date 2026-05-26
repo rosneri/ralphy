@@ -1108,9 +1108,9 @@ describe("agent characterization — Stage-0 regression net", () => {
       statusName: "In Progress",
     });
 
-    // Simulate the worker finishing planning: fill in design.md so the
-    // OpenSpec deriver moves the ticket into `awaiting-confirmation`
-    // on the next poll.
+    // Simulate the worker finishing planning: fill in design.md and write a
+    // tasks.md with no unchecked Planning items so `planningComplete()` passes
+    // and the OpenSpec deriver moves the ticket into `awaiting-confirmation`.
     await Bun.write(
       designPath,
       [
@@ -1119,6 +1119,17 @@ describe("agent characterization — Stage-0 regression net", () => {
         "## Approach",
         "",
         "We will add a light theme toggle to settings.",
+        "",
+      ].join("\n"),
+    );
+    await Bun.write(
+      tasksPath,
+      [
+        `# Tasks for ${changeName}`,
+        "",
+        "## Implementation",
+        "",
+        "- [ ] Implement the light mode toggle",
         "",
       ].join("\n"),
     );
