@@ -91,20 +91,24 @@ Each poll inspects Linear (and, when configured, GitHub PRs) and routes each iss
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **fresh**        | Issue matches `getTodo`                                                                                                          | Scaffold a new change, spawn worker, apply `setInProgress`                                        |
 | **resume**       | Issue matches `getInProgress` (typical: agent restart)                                                                           | Re-attach to existing change directory, skip re-scaffold                                          |
-| **conflict-fix** | Issue matches `getConflicted`, _or_ `setDone` issue's PR is detected as `CONFLICTING`                                            | Prepend a conflict-resolution task to `tasks.md`, reactivate state                                |
+| **conflict-fix** | A tracked PR (`setDone` candidate _or_ an in-progress ticket's PR) is detected as `CONFLICTING` via `gh pr view`                 | Interrupt resume if needed, prepend a conflict-resolution task to `tasks.md`, reactivate state    |
+| **ci-fix**       | A tracked PR's CI is red (`gh pr view --json statusCheckRollup`) and `fixCiOnFailure` is enabled                                 | Prepend a "Fix failing CI checks" task with gh-driven log inspection; reactivate state            |
 | **review**       | Done issue carries the `getReview` marker (label trigger), _or_ a `@ralphy` mention is detected on Linear / the linked GitHub PR | Prepend a review task with the relevant comments; remove the `clearReview` label after pickup     |
 | **code-review**  | Open tracked PR has unresolved review-thread comments newer than Ralph's last pickup ack                                         | Prepend a digest of unresolved comments with fix-or-reply instructions; repeats until PR approved |
+
+> `conflict-fix` and `ci-fix` are routed entirely from GitHub state — there is no Linear `getConflicted` / `getCiFailed` indicator anymore. The merge-state scan reads `gh pr view` directly and enqueues the matching fix trigger.
 
 ```mermaid
 flowchart TD
     POLL["Linear poll"] --> SCAN{trigger?}
     SCAN -- "getTodo" --> FRESH["mode: fresh\nscaffold change"]
     SCAN -- "getInProgress" --> RESUME["mode: resume"]
-    SCAN -- "getConflicted\nor setDone PR is CONFLICTING" --> CFX["mode: conflict-fix\nprepend fix task"]
+    SCAN -- "gh: PR CONFLICTING" --> CFX["mode: conflict-fix\nprepend fix task"]
+    SCAN -- "gh: PR CI red\n(fixCiOnFailure)" --> CIFX["mode: ci-fix\nprepend CI fix task"]
     SCAN -- "getReview\nor @ralphy mention\n(Linear / GitHub)" --> REV["mode: review\nprepend comments"]
     SCAN -- "open PR with new\nunresolved review comments" --> CR["mode: review (code-review)\nprepend thread digest"]
 
-    FRESH & RESUME & CFX & REV & CR --> IN_PROG["Linear: setInProgress\npost pickup comment"]
+    FRESH & RESUME & CFX & CIFX & REV & CR --> IN_PROG["Linear: setInProgress\npost pickup comment"]
     IN_PROG --> WT{useWorktree?}
     WT -- yes --> SCAFFOLD["create worktree + branch"] --> WORKER([worker loop])
     WT -- no --> WORKER
@@ -126,14 +130,12 @@ flowchart TD
     WATCH -- "gave up" --> ERR_FLOW
 
     subgraph DONE_FLOW["clean exit"]
-        D1["worktree cleanup\n(if configured)"] --> D2["teardown script"] --> D3{mode == conflict-fix?}
-        D3 -- yes --> D4["Linear: clearConflicted"]
-        D3 -- no --> D5["Linear: setDone\nclearInProgress"]
+        D1["worktree cleanup\n(if configured)"] --> D2["teardown script"] --> D5["Linear: setDone"]
     end
     subgraph ERR_FLOW["failure"]
         E1["worktree preserved"] --> E2["Linear: setError\nclearInProgress"]
     end
-    D4 & D5 & E2 --> POLL
+    D5 & E2 --> POLL
 ```
 
 The cycle repeats every poll. For code-review-iteration in particular, `setDone` re-applies between rounds so the next poll re-checks for new reviewer activity, until the PR is approved or merged.
@@ -142,21 +144,20 @@ The cycle repeats every poll. For code-review-iteration in particular, `setDone`
 
 Linear is the source of truth for which issues Ralph has touched. The `linear.indicators` map declares how Ralph queries and mutates Linear at each lifecycle event. All keys are optional; an unset key means "Ralph doesn't perform that action".
 
-| Key               | Type                   | Purpose                                                                         |
-| ----------------- | ---------------------- | ------------------------------------------------------------------------------- |
-| `getTodo`         | `{filter: Marker[]}`   | Issues to pick up (fresh)                                                       |
-| `getInProgress`   | `{filter: Marker[]}`   | Issues to resume after restart                                                  |
-| `getConflicted`   | `{filter: Marker[]}`   | Issues whose PR is conflicted (re-fix run)                                      |
-| `getReview`       | `{filter: Marker[]}`   | Done issues flagged for review follow-up                                        |
-| `getAutoMerge`    | `{filter: Marker[]}`   | Issues whose PR should be auto-merged once required checks pass                 |
-| `setInProgress`   | `Marker` or `Marker[]` | Applied when a worker spawns (any non-resume mode)                              |
-| `setDone`         | `Marker` or `Marker[]` | Applied on clean exit                                                           |
-| `setError`        | `Marker` or `Marker[]` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
-| `setConflicted`   | `Marker` or `Marker[]` | Applied when a done-PR is detected as conflicted                                |
-| `clearConflicted` | `Marker` or `Marker[]` | Label(s) removed when a conflict-fix succeeds (status removal is not supported) |
-| `clearReview`     | `Marker` or `Marker[]` | Label(s) removed when a review pickup happens (status removal is not supported) |
-| `getApproved`     | `{filter: Marker[]}`   | Approval signal that releases a confirmation-gated ticket into `implement`      |
-| `clearApproved`   | `Marker` or `Marker[]` | Label(s) removed once an approval is consumed (status removal is not supported) |
+| Key             | Type                   | Purpose                                                                         |
+| --------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| `getTodo`       | `{filter: Marker[]}`   | Issues to pick up (fresh)                                                       |
+| `getInProgress` | `{filter: Marker[]}`   | Issues to resume after restart                                                  |
+| `getReview`     | `{filter: Marker[]}`   | Done issues flagged for review follow-up                                        |
+| `getAutoMerge`  | `{filter: Marker[]}`   | Issues whose PR should be auto-merged once required checks pass                 |
+| `setInProgress` | `Marker` or `Marker[]` | Applied when a worker spawns (any non-resume mode)                              |
+| `setDone`       | `Marker` or `Marker[]` | Applied on clean exit                                                           |
+| `setError`      | `Marker` or `Marker[]` | Applied on non-zero exit (quarantine signal — issue is _not_ auto-resumed)      |
+| `clearReview`   | `Marker` or `Marker[]` | Label(s) removed when a review pickup happens (status removal is not supported) |
+| `getApproved`   | `{filter: Marker[]}`   | Approval signal that releases a confirmation-gated ticket into `implement`      |
+| `clearApproved` | `Marker` or `Marker[]` | Label(s) removed once an approval is consumed (status removal is not supported) |
+
+> Conflict and CI-failure routing no longer use Linear indicators — there's no `getConflicted` / `setConflicted` / `clearConflicted` (or `getCiFailed` / `setCiFailed` / `clearCiFailed`). GitHub is the source of truth: `gh pr view` produces the conflicted / ci-failed / mergeable counts and pushes `conflict-fix` / `ci-fix` queue entries directly.
 
 A `Marker` is one of three types:
 
@@ -196,9 +197,6 @@ Example `ralphy.config.json`:
       "getInProgress": {
         "filter": [{ "type": "status", "value": "In Progress" }],
       },
-      "getConflicted": {
-        "filter": [{ "type": "label", "value": "ralph:conflicted" }],
-      },
       "getReview": { "filter": [{ "type": "label", "value": "ralph:review" }] },
       "getAutoMerge": {
         "filter": [{ "type": "label", "value": "ralph:auto-merge" }],
@@ -209,8 +207,6 @@ Example `ralphy.config.json`:
         { "type": "label", "value": "ralphy-done" },
       ],
       "setError": { "type": "label", "value": "ralph:error" },
-      "setConflicted": { "type": "label", "value": "ralph:conflicted" },
-      "clearConflicted": { "type": "label", "value": "ralph:conflicted" },
       "clearReview": { "type": "label", "value": "ralph:review" },
     },
   },
@@ -228,6 +224,8 @@ Three signals release (or skip) the gate:
 | Apply the `getApproved` marker  | Ralphy strips it via `clearApproved`, records the approval, and advances the ticket into `implement`.                                                 |
 | Comment `@ralphy revise: <why>` | The reason is written into steering, the round counter bumps, the ticket loops back to `design`. Any in-flight worker is reaped immediately.          |
 | Apply `optOutLabel`             | (default `ralph:auto-approve`) Bypasses the gate entirely — the ticket flows straight through `tasks` → `implement` as if confirmation mode were off. |
+
+By default confirmation mode applies to every ticket. Set `linear.confirmationMode.optInLabel` (e.g. `ralph:needs-review`) to flip the polarity — only tickets carrying that label go through the gate; everything else implements straight through.
 
 After `timeoutHours` (default `48`) with no activity Ralphy posts a single nudge comment per round. Tickets that exceed `maxConfirmationRounds` (default `3`) are labelled `ralph:stuck` and skipped on future polls until a human intervenes.
 
@@ -257,6 +255,23 @@ Set `linear.codeReviewTrigger: true` (or pass `--code-review`) to watch open, un
 
 The loop exits; the next poll re-checks the PR. The cycle continues until the PR is **approved** or **merged**. If the reviewer is silent for more than `linear.codeReviewStaleHours` (default `24`, `0` disables) while Ralph is the last actor, one `@`-mention ping comment is posted on the GitHub PR.
 
+#### Self-review phase
+
+Once every task in `tasks.md` is checked off, the worker can spawn an in-process reviewer pass before exiting. The reviewer reads `proposal.md`, `design.md`, and the diff, and either appends new tasks back into `tasks.md` (looping the worker for another round) or signs off. Configure under `openspec.reviewPhase`:
+
+```jsonc
+"openspec": {
+  "reviewPhase": {
+    "enabled": true,
+    "maxRounds": 2,                   // hard cap on review iterations (default 1)
+    "reviewerModel": "claude-sonnet-4-6",  // override the reviewer's model (optional)
+    "reviewerContextStrategy": "fresh"     // "fresh" = clean context per round (default), "warm" = reuse worker context
+  }
+}
+```
+
+CLI equivalents: `--review-enabled`, `--review-max-rounds <N>`, `--review-model <id>`, `--review-context-strategy fresh|warm`. The worker passes these to itself when respawning, so the same review settings apply across `respawn` / `conflict-fix` / `ci-fix` lifecycles.
+
 #### Sync tasks into a Linear comment
 
 `linear.syncTasksToComment` (default `true`) mirrors the active change's
@@ -281,13 +296,20 @@ outside the markers is preserved verbatim. When both
 `syncTasksToComment` and `syncTasksToDescription` are true,
 comment-sync wins and a one-time warning is logged.
 
-#### Conflict re-fix
+#### Conflict re-fix / CI re-fix
 
-Done issues whose PR `gh pr view --json mergeable` reports as `CONFLICTING` get `setConflicted` applied and a conflict-fix task prepended. The scanner is resilient to:
+Every poll, the merge-state scanner reads `gh pr view --json state,mergeable,mergeStateStatus,statusCheckRollup` for each tracked PR:
+
+- **`mergeable === "CONFLICTING"`** (or `mergeStateStatus === "DIRTY"`) → enqueue a `conflict-fix` run that prepends a conflict-resolution task to `tasks.md` and re-activates the change. In-progress tickets are interrupted in favour of fixing the merge state.
+- **`statusCheckRollup` shows red CI** and `fixCiOnFailure` is enabled → enqueue a `ci-fix` run that prepends a "Fix failing CI checks" task with `gh run view --log-failed` steps so the worker can read the failure logs.
+
+No Linear labels are involved in either path — `gh` is the single source of truth, and the matching `conflict-fix` / `ci-fix` queue entries land directly. A one-line Linear comment is posted for visibility when a ticket is promoted into a fix flow.
+
+The scanner is resilient to:
 
 - Transient `gh` failures (failed PR-discovery is cached with a 10-minute TTL — not permanent).
 - Branch-name drift after a Linear title edit (falls back to `gh pr list --search "<ID> in:title state:open"`).
-- GitHub's async `UNKNOWN` mergeability response (retries up to 3× with 2s gaps; logs when UNKNOWN persists).
+- GitHub's async `UNKNOWN` mergeability response (fibonacci backoff up to ~31s total, also consults `mergeStateStatus` which often resolves before `mergeable` does).
 
 ### PR + CI integration
 
@@ -343,6 +365,17 @@ Both scripts receive `WORKSPACE_ROOT` in their environment — the absolute path
 
 Both scripts log failures but never block the loop. **`appendPrompt`** (or `--prompt` in agent mode) is appended to every scaffolded `proposal.md` under `## Additional instructions` — use it for cross-cutting guidance every task should see.
 
+### Running under tmux
+
+If `tmux` is on `$PATH`, `ralphy agent` re-execs itself inside a managed tmux session on first launch (per-workspace name). Detaching the terminal — closing the SSH session, the laptop lid, the `tmux detach` keybind — leaves the agent running. Re-running `ralphy agent` from the same workspace attaches to the existing session instead of starting a second copy.
+
+| Command                  | Behavior                                                                   |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `ralphy agent`           | Attach to the managed tmux session, or start one if absent                 |
+| `ralphy agent status`    | Report whether the managed session exists and is currently attached        |
+| `ralphy agent stop`      | Kill the managed session (workers exit cleanly)                            |
+| `ralphy agent --no-tmux` | Skip tmux entirely and run the agent in the foreground (CI, scripted runs) |
+
 ### Dashboard and logs
 
 The terminal dashboard shows three always-visible panels: **RALPH AGENT** (engine/model, concurrency, poll interval, active limits, feature flags, Linear filter), **POLL STATUS + WORKERS** (last-poll bucket breakdown — `todo · res · conf · rev · @` (each colored when non-zero) plus `↺ Ns` next-poll countdown, active/queued worker totals), and **TASKS tab bar** (numbered worker tabs — `Tab` / `← →` / `1-9` to switch).
@@ -351,11 +384,12 @@ Each worker card shows: priority badge + identifier + title + mode badge, `↗ L
 
 Log files (every line is `[ISO] [type] message`):
 
-| File                                     | Contains                                                     |
-| ---------------------------------------- | ------------------------------------------------------------ |
-| `~/.ralph/agent-mode.log`                | Global session log, appended each agent run                  |
-| `<projectRoot>/.ralph/logs/<change>.log` | Per-worker unified log: output + phases + coordinator events |
-| `<taskDir>/LOG.jsonl`                    | Structured JSON event log used by the web UI                 |
+| File                                     | Contains                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `~/.ralph/agent-mode.log`                | Global session log, appended each agent run                                               |
+| `<projectRoot>/.ralph/logs/<change>.log` | Per-worker unified log: output + phases + coordinator events                              |
+| `<taskDir>/LOG.jsonl`                    | Structured JSON event log used by the web UI                                              |
+| `<path from --json-log-file>`            | Mirror of the structured event stream (state changes, phases, polls) — file-tail friendly |
 
 Failed workers are not marked processed, so they retry on the next poll. SIGINT / SIGTERM cleanly stops polling and kills active workers. All Linear side effects are best-effort — failures log a warning but never block the loop.
 
@@ -383,20 +417,26 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 
 **Agent-mode flags**
 
-| Option                    | Behavior                                                                                     |
-| ------------------------- | -------------------------------------------------------------------------------------------- |
-| `--linear-team <key>`     | Linear team key (e.g. `ENG`)                                                                 |
-| `--linear-assignee <id>`  | Assignee filter (user id, email, or `me`)                                                    |
-| `--poll-interval <s>`     | Seconds between Linear polls (default `60`)                                                  |
-| `--concurrency <n>`       | Max concurrent task loops (default `1`)                                                      |
-| `--max-tickets <n>`       | Stop picking up new issues after N have been started this run (`0` = unlimited)              |
-| `--worktree`              | Run each task in its own git worktree                                                        |
-| `--indicator <k>:<t>:<v>` | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)              |
-| `--create-pr`             | Push worker branch + open a GitHub PR on success (needs `--worktree`)                        |
-| `--fix-ci`                | After PR opens, re-run task on CI failures until green (needs `--create-pr`)                 |
-| `--stack-prs`             | Open the PR against a blocker issue's open-PR head branch when present (needs `--create-pr`) |
-| `--code-review`           | Watch open tracked PRs for unresolved review comments and prepend a code-review task         |
-| `--json-output`           | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)                 |
+| Option                          | Behavior                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `--linear-team <key>`           | Linear team key (e.g. `ENG`)                                                                 |
+| `--linear-assignee <id>`        | Assignee filter (user id, email, or `me`)                                                    |
+| `--poll-interval <s>`           | Seconds between Linear polls (default `60`)                                                  |
+| `--concurrency <n>`             | Max concurrent task loops (default `1`)                                                      |
+| `--max-tickets <n>`             | Stop picking up new issues after N have been started this run (`0` = unlimited)              |
+| `--worktree`                    | Run each task in its own git worktree                                                        |
+| `--indicator <k>:<t>:<v>`       | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)              |
+| `--create-pr`                   | Push worker branch + open a GitHub PR on success (needs `--worktree`)                        |
+| `--fix-ci`                      | After PR opens, re-run task on CI failures until green (needs `--create-pr`)                 |
+| `--stack-prs`                   | Open the PR against a blocker issue's open-PR head branch when present (needs `--create-pr`) |
+| `--code-review`                 | Watch open tracked PRs for unresolved review comments and prepend a code-review task         |
+| `--json-output`                 | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)                 |
+| `--json-log-file <path>`        | Mirror the JSONL event stream to a file alongside the TUI or `--json-output`                 |
+| `--no-tmux`                     | Don't auto-reexec under tmux; run the agent in the foreground                                |
+| `--review-enabled`              | Enable the worker's self-review phase (see [Self-review phase](#self-review-phase))          |
+| `--review-max-rounds <N>`       | Hard cap on review rounds per task (default `1`)                                             |
+| `--review-model <id>`           | Override the reviewer's model (defaults to the worker's model)                               |
+| `--review-context-strategy <s>` | `fresh` (default) for a clean reviewer context per round, or `warm` to reuse the worker      |
 
 **List-mode flags**
 
@@ -404,7 +444,7 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--debug --name <id>` | Diagnose why a Linear ticket (e.g. `ENG-42`) is not being picked up — checks team, assignee, include / exclude markers, and blocked-by relations against every configured `get*` indicator. |
 
-`ralph list` reads `ralphy.config.json` and, when `LINEAR_API_KEY` is set, fetches every issue matching each configured `getTodo` / `getInProgress` / `getConflicted` / `getReview` / `getAutoMerge` indicator using the same include / exclude rules as `ralph agent`. For each ticket it also resolves the linked GitHub PR URL from Linear attachments.
+`ralph list` reads `ralphy.config.json` and, when `LINEAR_API_KEY` is set, fetches every issue matching each configured `getTodo` / `getInProgress` / `getReview` / `getAutoMerge` indicator using the same include / exclude rules as `ralph agent`. For each ticket it also resolves the linked GitHub PR URL from Linear attachments and prints its conflict / CI status from `gh pr view`.
 
 **`--max-tickets`.** Caps how many issues ralph picks up in a single agent run. Once the limit is hit the coordinator stops enqueuing new work; in-flight workers continue to completion, and the dashboard header shows `│ tickets ≤N`. The limit resets each restart.
 
