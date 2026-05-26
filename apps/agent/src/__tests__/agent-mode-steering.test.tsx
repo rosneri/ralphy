@@ -60,7 +60,15 @@ function makeFakeCoord(
     pollOnce: async () => ({
       found: 0,
       added: 0,
-      buckets: { todo: 0, inProgress: 0, conflicted: 0, ciFailed: 0, review: 0, mentions: 0, awaiting: 0 },
+      buckets: {
+        todo: 0,
+        inProgress: 0,
+        conflicted: 0,
+        ciFailed: 0,
+        review: 0,
+        mentions: 0,
+        awaiting: 0,
+      },
       prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0 },
       phase: {},
       flow: {},
