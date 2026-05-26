@@ -61,7 +61,7 @@ function TaskModeWrapper({ args, taskPhase, statesDir, tasksDir }: TaskModeWrapp
         statesDir,
         tasksDir,
         changeStore: new OpenSpecChangeStore(),
-        phase: taskPhase,
+        ...(taskPhase !== undefined ? { phase: taskPhase } : {}),
         ...(args.reviewPhase.enabled ? { reviewPhase: args.reviewPhase } : {}),
       }}
     />
@@ -111,7 +111,7 @@ export function App({ args, taskPhase, statesDir, tasksDir }: AppProps) {
       return (
         <TaskModeWrapper
           args={args}
-          taskPhase={taskPhase}
+          {...(taskPhase !== undefined ? { taskPhase } : {})}
           statesDir={statesDir}
           tasksDir={tasksDir}
         />
