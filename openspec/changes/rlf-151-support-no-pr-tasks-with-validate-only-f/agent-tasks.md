@@ -1,3 +1,28 @@
+## Resolve PR merge conflicts (2026-05-26T05:56:38.230Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+The PR for this change has merge conflicts with `main`.
+Steps:
+1. `git fetch origin main` then rebase or merge `main` into the current branch.
+2. Resolve conflicts in the files git lists.
+3. Stage and commit the resolution.
+4. Push the resolved branch with `git push --force-with-lease origin ralph/rlf-151`.
+   The post-task harness will NOT push for you in conflict-fix mode — you own the push.
+   If the push is rejected, inspect the rejection output and react inline before retrying:
+     - **stale lease / non-fast-forward** (`stale info`, someone else pushed to `ralph/rlf-151`):
+       `git fetch origin ralph/rlf-151` then rebase/merge their changes in, re-resolve any new
+       conflicts, and retry the push.
+     - **pre-push hook failure** (lint, typecheck, tests): fix the underlying problem locally,
+       `git add` + `git commit --amend` (or a new fixup commit), then retry the push.
+     - **ref-update policy rejection** (branch protection, required reviews): log the rejection
+       message and stop — this requires human intervention; do not force past it.
+   Only stop after exhausting the in-context fix. The push must succeed before this iteration ends.
+
+PR: https://github.com/NeriRos/ralphy/pull/261
+```
+
 ## Fix failing CI checks (2026-05-25T23:17:26.667Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
