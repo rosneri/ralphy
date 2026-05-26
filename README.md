@@ -9,6 +9,50 @@ An iterative AI task execution framework. Ralphy runs Claude or Codex in a check
 
 > 📘 Full reference — Linear indicators, lifecycle, PR/CI flow, CLI flags, MCP — lives in **[GUIDE.md](./GUIDE.md)**.
 
+## Features
+
+**Loop**
+
+- **Checklist-driven** — one unchecked task per iteration; state persists on disk so any run can be resumed.
+- **Engine choice** — Claude (haiku / sonnet / opus) or Codex, swappable per task.
+- **Safeguards** — `--max-iterations`, `--max-cost`, `--max-runtime`, `--max-failures` cap any runaway run.
+- **OpenSpec layout** — `proposal.md` (steering) + `design.md` + `tasks.md` + `specs/` per change.
+
+**Agent mode (Linear-driven)**
+
+- **Linear polling** — picks up Todo tickets, resumes In Progress, re-runs reviewer-flagged Done.
+- **Indicators** — declarative `WORKFLOW.md` map for "which labels/statuses to watch and apply" at each lifecycle event.
+- **Worktrees** — every task runs in its own `git worktree` so concurrent workers can't stomp on each other.
+- **Confirmation gate** — optional human approval step between `tasks` and `implement`; revise via `@ralphy revise: <why>`.
+- **Self-review phase** — once tasks are checked off, an in-process reviewer can append more work for another round.
+- **Tmux session management** — `ralphy agent` re-execs into a managed tmux session so detaching the terminal doesn't kill the loop.
+- **Pre-existing error check** — pauses pickups when the trunk is red so the agent doesn't chase failures it didn't cause.
+
+**PR + CI**
+
+- **Auto PR open** — push branch and `gh pr create` on clean exit; idempotent (surfaces existing PR if open).
+- **Auto-merge opt-in** — `getAutoMerge` triggers `gh pr merge --auto --squash|merge|rebase` right after PR creation.
+- **Stacked PRs** — `--stack-prs` opens against a blocker's head branch when a `blocked_by` Linear relation has exactly one open PR.
+- **CI fix loop** — on red CI, pulls failed logs, appends to steering, re-spawns until green or `maxCiFixAttempts` hit.
+- **Conflict re-fix** — `gh pr view`–driven; on `mergeable: CONFLICTING` enqueues a conflict-resolution task automatically.
+
+**Reviewer interaction**
+
+- **`@ralphy` mentions** — Linear comments _and_ GitHub PR comments trigger a fresh review run with the mention as the prompt.
+- **Code-review iteration** — unresolved review-thread comments queue a digest; Ralph agrees-and-fixes (resolving the thread) or disagrees-and-replies.
+- **Sticky task comment** — `tasks.md` mirrors into a single Linear comment that updates in place; a one-shot "📋 Plan" comment summarises proposal + design when planning completes.
+
+**Observability**
+
+- **Ink dashboard** — engine/model, poll-bucket breakdown, per-worker cards with live phase, command-in-flight, and stdout tail.
+- **Structured JSON event stream** — `--json-output` for CI; `--json-log-file` mirrors the same stream to disk.
+- **Per-worker logs** — `~/.ralph/agent-mode.log` (global) + `.ralph/logs/<change>.log` (per-task) + per-change `LOG.jsonl`.
+
+**Extensibility**
+
+- **MCP server** — exposes `ralph_list_changes` / `get_change` / `create_change` / `append_steering` / `stop` to Claude-side agents (auto-wired on per-project install).
+- **`WORKFLOW.md` template body** — Jinja-style prompt rendered per iteration, so project-specific rules / boundaries / labels flow into every task automatically.
+
 ## How it works
 
 ```mermaid
