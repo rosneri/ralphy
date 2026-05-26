@@ -1,3 +1,54 @@
+## Fix failing CI checks (2026-05-26T02:28:23.088Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26428720977 ---
+ci Test affected files + coverage ﻿2026-05-26T02:26:57.7853244Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-26T02:26:57.7853659Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-26T02:26:57.7888672Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-26T02:26:57.7888930Z env:
+ci Test affected files + coverage 2026-05-26T02:26:57.7889154Z NX_BASE: 4967312c25a8eb54cbce078ed970b077f27ef9b3
+ci Test affected files + coverage 2026-05-26T02:26:57.7889501Z NX_HEAD: 1d39e80196f7ad89404bfae18d5f34e44c2d2b34
+ci Test affected files + coverage 2026-05-26T02:26:57.7889782Z ##[endgroup]
+ci Test affected files + coverage 2026-05-26T02:26:57.7969573Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-26T02:26:57.8206101Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-26T02:26:57.8206612Z
+ci Test affected files + coverage 2026-05-26T02:27:08.7096665Z agent: 15 relevant test file(s)
+ci Test affected files + coverage 2026-05-26T02:27:08.7097458Z apps/agent/src/**tests**/agent-characterization.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7098062Z apps/agent/src/**tests**/agent-integration.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7098473Z apps/agent/src/**tests**/agent-mode-awaiting.test.tsx
+ci Test affected files + coverage 2026-05-26T02:27:08.7098891Z apps/agent/src/**tests**/agent-mode-chip.test.tsx
+ci Test affected files + coverage 2026-05-26T02:27:08.7099298Z apps/agent/src/**tests**/agent-mode-header.test.tsx
+ci Test affected files + coverage 2026-05-26T02:27:08.7099754Z apps/agent/src/**tests**/agent-mode-show-all.test.tsx
+ci Test affected files + coverage 2026-05-26T02:27:08.7100146Z apps/agent/src/**tests**/agent-mode-steering.test.tsx
+ci Test affected files + coverage 2026-05-26T02:27:08.7100489Z apps/agent/src/**tests**/cli.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7100884Z apps/agent/src/**tests**/code-review-trigger-dedupe.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7101322Z apps/agent/src/**tests**/code-review-watermark.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7101708Z apps/agent/src/**tests**/mention-reaction.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7102065Z apps/agent/src/**tests**/output-utils.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7102437Z apps/agent/src/**tests**/wire-normalize-tasks.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7102835Z apps/agent/src/**tests**/wire-setup-worktree.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7103237Z apps/agent/src/hooks/**tests**/useTerminalSize.test.ts
+ci Test affected files + coverage 2026-05-26T02:27:08.7103474Z
+ci Test affected files + coverage 2026-05-26T02:27:08.7112331Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-26T02:27:08.7303508Z
+ci Test affected files + coverage 2026-05-26T02:27:08.7304734Z ##[group]src/**tests**/awaiting-confirmation.test.ts:
+ci Test affected files + coverage 2026-05-26T02:27:08.7552114Z (pass) inspectAwaitingTicket — approval path > fires clearApproved + persists confirmedAt [0.99ms]
+ci Test affected files + coverage 2026-05-26T02:27:08.7555831Z (pass) inspectAwaitingTicket — revise path > appends steering, restarts design, bumps rounds, resets confirmedAt [0.41ms]
+ci Test affected files + coverage 2026-05-26T02:27:08.7558241Z (pass) inspectAwaitingTicket — revise path > ignores revise mention inside backticks (e.g. our own plan-ready template) [0.24ms]
+ci Test affected files + coverage 2026-05-26T02:27:08.7559858Z (pass) inspectAwaitingTicket — revise path > ignores revise comments at or before lastReviseConsumedAt watermark [0.16ms]
+ci Test affected files + coverage 2026-05-26T02:27:08.7562540Z (pass) inspectAwaitingTicket — revise wins over simultane
+…[truncated 368776 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T02:05:53.408Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
