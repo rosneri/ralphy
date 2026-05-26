@@ -1,3 +1,32 @@
+## Fix failing CI checks (2026-05-26T22:46:12.618Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26479412997 ---
+ci Unused dependency check ﻿2026-05-26T22:45:02.7038268Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-26T22:45:02.7038638Z [36;1mbun run check:unused:ci[0m
+ci Unused dependency check 2026-05-26T22:45:02.7074435Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-26T22:45:02.7074735Z env:
+ci Unused dependency check 2026-05-26T22:45:02.7075002Z NX_BASE: 2f73550977cc380d16fbb753495049ecfb4ef2f3
+ci Unused dependency check 2026-05-26T22:45:02.7075365Z NX_HEAD: 4081ec3d34a39b3aa4fe1d9ebbe279736995e63c
+ci Unused dependency check 2026-05-26T22:45:02.7075663Z ##[endgroup]
+ci Unused dependency check 2026-05-26T22:45:02.7158424Z $ knip
+ci Unused dependency check 2026-05-26T22:45:06.8800742Z [93m[4mUnused exported types[24m[39m (3)
+ci Unused dependency check 2026-05-26T22:45:06.8810396Z MergeabilityProbe interface apps/agent/src/shared/pr/wait-for-mergeability.ts:16:18
+ci Unused dependency check 2026-05-26T22:45:06.8811304Z MergeabilityOutcome type apps/agent/src/shared/pr/wait-for-mergeability.ts:28:13
+ci Unused dependency check 2026-05-26T22:45:06.8812089Z WaitForMergeabilityOptions interface apps/agent/src/shared/pr/wait-for-mergeability.ts:42:18
+ci Unused dependency check 2026-05-26T22:45:06.9122891Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-26T22:45:06.9134060Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T22:39:57.943Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
