@@ -1,4 +1,1 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
