@@ -1,9 +1,15 @@
 // Re-export shared loop utilities from @ralphy/core
 export {
+  type TaskPhase,
   type LoopOptions,
   type StopReason,
   type ReviewRoundResult,
   buildTaskPrompt,
+  buildExecutePrompt,
+  buildResearchPrompt,
+  buildPlanPrompt,
+  buildReviewPrompt,
+  buildPhasePrompt,
   checkStopCondition,
   checkStopSignal,
   updateStateIteration,

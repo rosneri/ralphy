@@ -48,6 +48,8 @@ export interface ReviewRoundResult {
   findingsContent: string | null;
 }
 
+export type TaskPhase = "research" | "plan" | "execute" | "review";
+
 export interface LoopOptions {
   name: string;
   prompt: string;
@@ -65,6 +67,8 @@ export interface LoopOptions {
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;
+  /** Which prompt-building phase to use. Defaults to "execute". */
+  phase?: TaskPhase;
   /** Review phase configuration. When provided and enabled, a fresh reviewer
    *  session is spawned after all tasks complete. */
   reviewPhase?: ReviewPhaseConfig & {
@@ -89,7 +93,7 @@ export interface ReviewPhaseConfig {
  * 3. Manual testing instruction if enabled and primary tasks complete
  * 4. Review phase instruction if enabled and all tasks are done
  */
-export function buildTaskPrompt(
+export function buildExecutePrompt(
   state: State,
   taskDir: string,
   reviewPhase?: ReviewPhaseConfig,
@@ -231,6 +235,111 @@ export function buildTaskPrompt(
   }
 
   return prompt;
+}
+
+/** Backward-compatible alias for buildExecutePrompt. */
+export const buildTaskPrompt = buildExecutePrompt;
+
+function buildSteeringBlock(taskDir: string): string {
+  const storage = getStorage();
+  const steeringContent = storage.read(join(taskDir, "steering.md"));
+  if (steeringContent === null) return "";
+  const steeringLines = steeringContent
+    .split("\n")
+    .filter((line) => !line.startsWith("#"))
+    .filter((line) => line.trim())
+    .slice(0, STEERING_MAX_LINES);
+  if (steeringLines.length === 0) return "";
+  return `---\n# User Steering (READ FIRST)\n\n${steeringLines.join("\n")}\n\n---\n\n`;
+}
+
+/** Build a research-phase prompt that instructs the agent to explore without changing code. */
+export function buildResearchPrompt(state: State, taskDir: string): string {
+  let prompt = buildSteeringBlock(taskDir);
+
+  prompt += "---\n\n## Research Phase\n\n";
+  prompt += `Change name: \`${state.name}\`\n\n`;
+
+  if (state.prompt) {
+    prompt += "## Task Description\n\n";
+    prompt += state.prompt + "\n\n";
+  }
+
+  prompt +=
+    "Your goal in this phase is to explore and understand the codebase. Do not implement any changes.\n\n";
+  prompt += `1. Read \`openspec/changes/${state.name}/proposal.md\` if it exists to understand the problem.\n`;
+  prompt += "2. Explore the codebase structure relevant to this change.\n";
+  prompt += "3. Identify all files that will need to be modified or created.\n";
+  prompt += `4. Write a research summary to \`${taskDir}/research.md\` with:\n`;
+  prompt += "   - Relevant files and their current state\n";
+  prompt += "   - Key patterns and conventions to follow\n";
+  prompt += "   - Potential risks or blockers\n\n";
+  prompt += "---\n\n";
+
+  return prompt;
+}
+
+/** Build a planning-phase prompt that instructs the agent to produce proposal/design/tasks artifacts. */
+export function buildPlanPrompt(state: State, taskDir: string): string {
+  let prompt = buildSteeringBlock(taskDir);
+
+  prompt += "---\n\n## Planning Phase\n\n";
+  prompt += `Change name: \`${state.name}\`\n\n`;
+
+  if (state.prompt) {
+    prompt += "## Task Description\n\n";
+    prompt += state.prompt + "\n\n";
+  }
+
+  prompt +=
+    "Your goal in this phase is to produce a complete technical plan. Do not implement any code yet.\n\n";
+  prompt += "Produce or update the following artifacts:\n\n";
+  prompt += `1. \`openspec/changes/${state.name}/proposal.md\` — Fill in \`## Why\`, \`## What Changes\`, and \`## Acceptance Criteria\` sections.\n`;
+  prompt += `2. \`openspec/changes/${state.name}/design.md\` — Technical design: files to touch, data flow, edge cases.\n`;
+  prompt += `3. \`${taskDir}/tasks.md\` — Implementation checklist with \`## Section\` headings and \`- [ ] task\` items.\n\n`;
+  prompt += `Run \`bunx openspec validate ${state.name}\` and fix any validation errors before finishing.\n\n`;
+  prompt += "---\n\n";
+
+  return prompt;
+}
+
+/** Build a review-phase prompt that instructs the agent to audit the implementation. */
+export function buildReviewPrompt(state: State, taskDir: string): string {
+  const reviewFindingsPath = join(taskDir, "review-findings.md");
+  let prompt = buildSteeringBlock(taskDir);
+
+  prompt += "---\n\n## Review Phase\n\n";
+  prompt += `You are reviewing change \`${state.name}\`. Audit the implementation against the spec.\n\n`;
+  prompt += `1. Read \`openspec/changes/${state.name}/proposal.md\` and \`openspec/changes/${state.name}/design.md\`.\n`;
+  prompt += "2. Run `git diff main` to review all changes in this branch.\n";
+  prompt += "3. Check the implementation against the acceptance criteria in `proposal.md`.\n";
+  prompt += `4. Write findings to \`${reviewFindingsPath}\`:\n`;
+  prompt += "   - If issues found: list them as `- [ ] <finding>` under `## Open`.\n";
+  prompt += "   - If no issues: write `(no findings — close round)` under `## Open`.\n\n";
+  prompt += "Do not implement any fixes in this phase. Only audit and document findings.\n\n";
+  prompt += "---\n\n";
+  prompt += `Change name: \`${state.name}\`\n\n`;
+
+  return prompt;
+}
+
+/** Route to the correct prompt builder based on the requested phase. */
+export function buildPhasePrompt(
+  phase: TaskPhase,
+  state: State,
+  taskDir: string,
+  reviewPhase?: ReviewPhaseConfig,
+): string {
+  switch (phase) {
+    case "research":
+      return buildResearchPrompt(state, taskDir);
+    case "plan":
+      return buildPlanPrompt(state, taskDir);
+    case "execute":
+      return buildExecutePrompt(state, taskDir, reviewPhase);
+    case "review":
+      return buildReviewPrompt(state, taskDir);
+  }
 }
 
 /**

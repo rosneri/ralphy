@@ -12,14 +12,14 @@
 
 ## Implementation
 
-- [ ] Add `TaskPhase` type and `buildPhasePrompt` router to `packages/core/src/loop.ts`: rename `buildTaskPrompt` → `buildExecutePrompt`, add `buildResearchPrompt`, `buildPlanPrompt`, `buildReviewPrompt`, add `buildPhasePrompt(phase, state, taskDir, reviewPhase?)`, keep `buildTaskPrompt` as alias
-- [ ] Add `phase?: TaskPhase` to `LoopOptions` in `packages/core/src/loop.ts` and update `useLoop.ts` to call `buildPhasePrompt(opts.phase ?? "execute", ...)` instead of `buildTaskPrompt`
-- [ ] Update `apps/loop/src/loop.ts` re-exports to include new exports: `TaskPhase`, `buildPhasePrompt`, `buildExecutePrompt`, `buildResearchPrompt`, `buildPlanPrompt`, `buildReviewPrompt`
-- [ ] Create `apps/loop/src/task-cli.ts` with `TaskParsedArgs`, `parseTaskArgs`, and `printTaskHelp`
-- [ ] Export `taskMain(argv)` from `apps/loop/src/index.ts` that parses args, creates state/tasks dirs, and renders the App with `taskPhase` set
-- [ ] Update `apps/loop/src/components/App.tsx` to accept and forward `taskPhase?: TaskPhase` through `AppProps` → `TaskModeWrapper` → `TaskLoop` → `LoopOptions`
-- [ ] Update `apps/shell/src/index.ts`: add `"task"` to `SUBCOMMANDS`, dispatch to `taskMain`, update `HELP` text
-- [ ] Write unit tests for `buildPhasePrompt` routing in `packages/core/src/__tests__/loop.test.ts` (or similar); verify each phase routes to the correct builder and `buildTaskPrompt` alias still works
-- [ ] Write unit tests for `parseTaskArgs` in `apps/loop/src/__tests__/task-cli.test.ts`: valid phases, missing phase error, unknown phase error, all common flags parsed correctly
-- [ ] Run `bun run lint` and fix any issues
-- [ ] Run `bun run test` and fix any failures
+- [x] Add `TaskPhase` type and `buildPhasePrompt` router to `packages/core/src/loop.ts`: rename `buildTaskPrompt` → `buildExecutePrompt`, add `buildResearchPrompt`, `buildPlanPrompt`, `buildReviewPrompt`, add `buildPhasePrompt(phase, state, taskDir, reviewPhase?)`, keep `buildTaskPrompt` as alias
+- [x] Add `phase?: TaskPhase` to `LoopOptions` in `packages/core/src/loop.ts` and update `useLoop.ts` to call `buildPhasePrompt(opts.phase ?? "execute", ...)` instead of `buildTaskPrompt`
+- [x] Update `apps/loop/src/loop.ts` re-exports to include new exports: `TaskPhase`, `buildPhasePrompt`, `buildExecutePrompt`, `buildResearchPrompt`, `buildPlanPrompt`, `buildReviewPrompt`
+- [x] Create `apps/loop/src/task-cli.ts` with `TaskParsedArgs`, `parseTaskArgs`, and `printTaskHelp`
+- [x] Export `taskMain(argv)` from `apps/loop/src/index.ts` that parses args, creates state/tasks dirs, and renders the App with `taskPhase` set
+- [x] Update `apps/loop/src/components/App.tsx` to accept and forward `taskPhase?: TaskPhase` through `AppProps` → `TaskModeWrapper` → `TaskLoop` → `LoopOptions`
+- [x] Update `apps/shell/src/index.ts`: add `"task"` to `SUBCOMMANDS`, dispatch to `taskMain`, update `HELP` text
+- [x] Write unit tests for `buildPhasePrompt` routing in `packages/core/src/__tests__/loop.test.ts` (or similar); verify each phase routes to the correct builder and `buildTaskPrompt` alias still works
+- [x] Write unit tests for `parseTaskArgs` in `apps/loop/src/__tests__/task-cli.test.ts`: valid phases, missing phase error, unknown phase error, all common flags parsed correctly
+- [x] Run `bun run lint` and fix any issues
+- [x] Run `bun run test` and fix any failures

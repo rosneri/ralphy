@@ -16,7 +16,7 @@ import { gitPush, commitTaskDir } from "@ralphy/core/git";
 import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
 import { getProcessBus } from "@ralphy/events";
 import {
-  buildTaskPrompt,
+  buildPhasePrompt,
   checkStopCondition,
   updateStateIteration,
   checkStopSignal,
@@ -350,7 +350,12 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         addIterationHeader(iter, time);
         addInfo(`Iteration ${iter} (total: ${currentState.iteration})`);
 
-        const prompt = buildTaskPrompt(currentState, tasksDir);
+        const prompt = buildPhasePrompt(
+          opts.phase ?? "execute",
+          currentState,
+          tasksDir,
+          opts.reviewPhase,
+        );
 
         const iterStart = new Date().toISOString();
         try {

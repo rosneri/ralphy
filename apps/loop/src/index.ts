@@ -7,6 +7,7 @@ import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot, worktreesDir } from "@ralphy/paths";
 import { resolveOpenspecBin } from "@ralphy/openspec";
 import { parseLoopArgs, printLoopHelp } from "./cli";
+import { parseTaskArgs, printTaskHelp } from "./task-cli";
 import { App } from "./components/App";
 import { runDebug } from "./debug";
 
@@ -141,6 +142,67 @@ export async function main(argv: string[]): Promise<number> {
   await runWithContext(createDefaultContext(), async () => {
     const { waitUntilExit } = render(
       createElement(App, { args, statesDir, tasksDir, projectRoot }),
+    );
+    await waitUntilExit();
+  });
+
+  return typeof process.exitCode === "number" ? process.exitCode : 0;
+}
+
+export async function taskMain(argv: string[]): Promise<number> {
+  if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
+    printTaskHelp();
+    return 0;
+  }
+
+  let args;
+  try {
+    args = await parseTaskArgs(argv);
+  } catch (err) {
+    process.stderr.write((err instanceof Error ? err.message : String(err)) + "\n\n");
+    printTaskHelp();
+    return 1;
+  }
+
+  const projectRoot = args.projectRoot ?? (await findProjectRoot());
+  const layout = projectLayout(projectRoot);
+  const statesDir = layout.statesDir;
+  const tasksDir = layout.tasksDir;
+
+  await mkdir(join(statesDir, args.name), { recursive: true });
+  await mkdir(join(tasksDir, args.name), { recursive: true });
+  await ensureRalphGitignore(projectRoot);
+
+  // Build a LoopParsedArgs-compatible object to reuse App rendering
+  const loopArgs = {
+    mode: "task" as const,
+    name: args.name,
+    prompt: args.prompt,
+    engine: args.engine,
+    model: args.model,
+    engineSet: args.engineSet,
+    maxIterations: args.maxIterations,
+    maxCostUsd: args.maxCostUsd,
+    maxRuntimeMinutes: args.maxRuntimeMinutes,
+    maxConsecutiveFailures: args.maxConsecutiveFailures,
+    delay: args.delay,
+    log: args.log,
+    verbose: args.verbose,
+    projectRoot: args.projectRoot,
+    manualTest: false,
+    fromAgent: args.fromAgent,
+    reviewPhase: { enabled: false, maxRounds: 1, reviewerContextStrategy: "fresh" as const },
+  };
+
+  await runWithContext(createDefaultContext(), async () => {
+    const { waitUntilExit } = render(
+      createElement(App, {
+        args: loopArgs,
+        statesDir,
+        tasksDir,
+        projectRoot,
+        taskPhase: args.phase,
+      }),
     );
     await waitUntilExit();
   });
