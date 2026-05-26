@@ -50,7 +50,7 @@ export function initialWorkerSnapshot(): WorkerSnapshot {
   };
 }
 
-export interface ReadWorkerStateInput {
+interface ReadWorkerStateInput {
   changeName: string;
   statesDir: string;
   changeDir: string;
