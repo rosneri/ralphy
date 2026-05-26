@@ -1,11 +1,6 @@
 import { describe, expect, test, mock } from "bun:test";
 import { parseAgentArgs } from "../cli";
-import {
-  AgentCoordinator,
-  type CoordinatorDeps,
-  type QueueTrigger,
-  type MentionTrigger,
-} from "../agent/coordinator";
+import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import { createNoopBus } from "@ralphy/events";
 
