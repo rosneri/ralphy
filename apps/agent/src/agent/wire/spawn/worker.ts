@@ -207,6 +207,30 @@ export function createSpawnWorker(
       : false;
     const wrapped = handle.exited.then(async (code) => {
       const workerLayout = projectLayout(cwd);
+
+      // Detect per-task validation indicator: worker AI creates specs/validate.md during design.
+      const validateSpecPath = join(workerLayout.changeDir(changeName), "specs", "validate.md");
+      const hasValidateSpec = await Bun.file(validateSpecPath).exists();
+      const wantValidateOnly = hasValidateSpec && !wantPrBase;
+      if (hasValidateSpec) {
+        try {
+          const stateFile = workerLayout.stateFile(changeName);
+          const sf = Bun.file(stateFile);
+          if (await sf.exists()) {
+            const stateData = JSON.parse(await sf.text()) as {
+              validateOnComplete?: boolean;
+              createPr?: boolean;
+            };
+            if (!stateData.validateOnComplete) {
+              stateData.validateOnComplete = true;
+              stateData.createPr = false;
+              await Bun.write(stateFile, JSON.stringify(stateData, null, 2));
+            }
+          }
+        } catch {
+          // ignore state update errors
+        }
+      }
       try {
         const prevTasks = await prevTasksPromise;
         const nextFile = Bun.file(missionTasksPath);
@@ -270,6 +294,7 @@ export function createSpawnWorker(
           wantPr,
           wantFixCi,
           wantAutoMerge,
+          wantValidateOnly,
           cfg: {
             teardownScript: cfg.teardownScript ?? null,
             prBaseBranch: cfg.prBaseBranch,
@@ -282,6 +307,9 @@ export function createSpawnWorker(
             neverTouch: cfg.boundaries.never_touch,
             metaOnlyFiles: cfg.boundaries.meta_only_files,
             manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
+            validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
+              (c): c is string => Boolean(c),
+            ),
           },
           respawnWorker: respawn,
         },

@@ -320,7 +320,8 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           writeState(stateDir, currentState);
           setState(currentState);
           try {
-            if (typeof opts.changeStore.getStatus === "function") {
+            const skipStatusCheck = currentState.validateOnComplete && !currentState.createPr;
+            if (!skipStatusCheck && typeof opts.changeStore.getStatus === "function") {
               const status = await opts.changeStore.getStatus(opts.name);
               if (!status.isComplete) {
                 const blocked = status.artifacts

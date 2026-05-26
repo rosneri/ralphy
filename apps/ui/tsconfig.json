@@ -4,7 +4,7 @@
     "outDir": "dist",
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "types": [],
+    "types": ["bun-types"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "composite": false,
     "declaration": false,
