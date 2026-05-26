@@ -8,11 +8,7 @@ import { parseClaudeLine } from "../formatters/claude-stream";
 import { streamLines } from "./stream";
 import type { Agent, AgentRequest, AgentRunResult } from "./protocol";
 
-const RATE_LIMIT_PATTERNS = [/you've hit your limit/i, /rate limit/i, /too many requests/i];
-
-function isRateLimitText(text: string): boolean {
-  return RATE_LIMIT_PATTERNS.some((re) => re.test(text));
-}
+import { isRateLimitText, isResultErrorLimitText } from "./rate-limit-detection";
 
 function buildClaudeArgs(
   model: string,
@@ -162,6 +158,9 @@ export const claudeAgent: Agent = {
 
       for (const event of parseClaudeLine(line, claudeState, parseOptions)) {
         if (event.type === "text" && isRateLimitText(event.text)) {
+          detectedRateLimit = true;
+        }
+        if (event.type === "result-error" && isResultErrorLimitText(event.message)) {
           detectedRateLimit = true;
         }
         req.onFeedEvent(event);

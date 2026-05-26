@@ -343,4 +343,60 @@ describe("runEngine (scripted agent)", () => {
       expect(result.rateLimited).toBe(true);
     }
   });
+
+  test("result-error with usage-limit message sets rateLimited via scripted agent", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), { type: "result-error", message: "out of session tokens" }],
+    });
+
+    const result = await runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.rateLimited).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("result-error with session limit phrase sets rateLimited via scripted agent", async () => {
+    const limitPhrases = [
+      "out of session",
+      "usage limit exceeded",
+      "over the limit",
+      "context window exceeded",
+      "context_window_exceeded",
+    ];
+    for (const phrase of limitPhrases) {
+      const agent = createScriptedAgent({
+        events: [sessionEvent(), { type: "result-error", message: phrase }],
+      });
+      const result = await runEngine({
+        engine: "claude",
+        model: "claude-test",
+        prompt: "ignored",
+        agent,
+        onFeedEvent: () => {},
+      });
+      expect(result.rateLimited).toBe(true);
+    }
+  });
+
+  test("result-error without limit phrase does not set rateLimited", async () => {
+    const agent = createScriptedAgent({
+      events: [sessionEvent(), { type: "result-error", message: "tool call failed" }],
+    });
+
+    const result = await runEngine({
+      engine: "claude",
+      model: "claude-test",
+      prompt: "ignored",
+      agent,
+      onFeedEvent: () => {},
+    });
+
+    expect(result.rateLimited).toBe(false);
+  });
 });

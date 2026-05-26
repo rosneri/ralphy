@@ -2,11 +2,7 @@ import type { Engine, IterationUsage } from "@ralphy/types";
 import type { FeedEvent } from "../feed-events";
 import type { Agent, AgentRequest, AgentRunResult } from "./protocol";
 
-const RATE_LIMIT_PATTERNS = [/you've hit your limit/i, /rate limit/i, /too many requests/i];
-
-function isRateLimitText(text: string): boolean {
-  return RATE_LIMIT_PATTERNS.some((re) => re.test(text));
-}
+import { isRateLimitText, isResultErrorLimitText } from "./rate-limit-detection";
 
 export interface ScriptedAgentOptions {
   /** Engine name this scripted agent impersonates. Controls result-based
@@ -77,6 +73,9 @@ export function createScriptedAgent(opts: ScriptedAgentOptions): ScriptedAgent {
         if (killed) break;
 
         if (event.type === "text" && isRateLimitText(event.text)) {
+          detectedRateLimit = true;
+        }
+        if (event.type === "result-error" && isResultErrorLimitText(event.message)) {
           detectedRateLimit = true;
         }
         req.onFeedEvent(event);

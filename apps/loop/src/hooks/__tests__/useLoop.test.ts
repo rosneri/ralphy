@@ -42,3 +42,14 @@ describe("useLoop — max-iterations respawn fix (RLF-156)", () => {
     expect(text.includes("startingIteration + iter")).toBe(true);
   });
 });
+
+describe("useLoop — out-of-session usage gate (RLF-150)", () => {
+  test("has a guard that stops the loop when rateLimited is true on exit 0", async () => {
+    const text = await Bun.file(SRC).text();
+    // The guard must be present: check rateLimited after the non-zero exit block
+    // so a clean exit (exit 0) from a usage-limit result-error still stops the loop.
+    expect(text.includes("engineResult.rateLimited")).toBe(true);
+    expect(text.includes("Usage limit reached")).toBe(true);
+    expect(text.includes("failed:rate-limited")).toBe(true);
+  });
+});
