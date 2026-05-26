@@ -6,7 +6,7 @@ import {
   postOrUpdateTasksComment,
   postPlanCommentOnce,
   postSteeringAndRefreshTasks,
-  planningComplete,
+  parsePlanningSection,
   isCommentNotFoundError,
   type CommentMutations,
 } from "../agent/linear-sync/comment-sync";
@@ -66,19 +66,19 @@ async function readState(): Promise<{ linearComments?: Record<string, unknown> }
   };
 }
 
-describe("planningComplete", () => {
+describe("parsePlanningSection", () => {
   test("returns allChecked when all Planning items are done", () => {
     const md = "## Planning\n\n- [x] a\n- [x] b\n\n## Implementation\n\n- [ ] x\n";
-    expect(planningComplete(md).allChecked).toBe(true);
+    expect(parsePlanningSection(md).allChecked).toBe(true);
   });
 
   test("returns false when any Planning item is unchecked", () => {
     const md = "## Planning\n\n- [x] a\n- [ ] b\n";
-    expect(planningComplete(md).allChecked).toBe(false);
+    expect(parsePlanningSection(md).allChecked).toBe(false);
   });
 
   test("returns false when no Planning section exists", () => {
-    expect(planningComplete("## Implementation\n\n- [x] z\n").allChecked).toBe(false);
+    expect(parsePlanningSection("## Implementation\n\n- [x] z\n").allChecked).toBe(false);
   });
 });
 

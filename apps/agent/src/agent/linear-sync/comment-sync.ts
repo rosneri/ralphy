@@ -187,9 +187,10 @@ interface SectionCheck {
   total: number;
 }
 
-/** Parse tasks.md and report whether the `## Planning` section contains
- *  unchecked `- [ ]` items. */
-export function planningComplete(tasksMd: string): SectionCheck {
+/** Parse tasks.md and return structured info about the `## Planning` section.
+ *  `allChecked` is true only when the section exists and all items are checked
+ *  (false when the section is absent or has unchecked items). */
+export function parsePlanningSection(tasksMd: string): SectionCheck {
   const lines = tasksMd.split(/\r?\n/);
   let inPlanning = false;
   let total = 0;
@@ -247,7 +248,7 @@ export async function postPlanCommentOnce(deps: BaseDeps): Promise<string | null
 
   const tasksMd = await readTasksMd(deps.changeDir, deps.log);
   if (!tasksMd) return null;
-  const check = planningComplete(tasksMd);
+  const check = parsePlanningSection(tasksMd);
   if (!check.allChecked) return null;
 
   const proposalPath = join(deps.changeDir, "proposal.md");
