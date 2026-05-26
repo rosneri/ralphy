@@ -8,7 +8,12 @@ import { git } from "../../shared/capabilities/git";
 import { runCapability } from "../../shared/capabilities/run-capability";
 import type { AgentParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
-import { baseBranchFromLabels, fetchIssueComments, type LinearIssue } from "../linear";
+import {
+  baseBranchFromLabels,
+  fetchIssueAttachments,
+  fetchIssueComments,
+  type LinearIssue,
+} from "../linear";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
 import { worktreeDirNameForIssue, type GitRunner } from "../worktree";
 import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
@@ -141,6 +146,16 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
           "yellow",
         );
       }
+      let attachments: Awaited<ReturnType<typeof fetchIssueAttachments>> = [];
+      try {
+        attachments = await fetchIssueAttachments(apiKey, issue.id);
+      } catch (err) {
+        diag(
+          "linear",
+          `! Linear attachment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
       let workflowPrompt = "";
       try {
         const workflow = await loadWorkflow(projectRoot);
@@ -167,6 +182,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
         issue,
         comments,
         appendPrompt,
+        attachments,
       );
     } else {
       changeName = derivedName;
