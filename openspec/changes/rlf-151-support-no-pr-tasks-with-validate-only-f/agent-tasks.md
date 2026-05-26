@@ -1,6 +1,6 @@
 ## Address GitHub @ralphy mention (2026-05-26T08:03:12.920Z)
 
-- [ ] Address GitHub @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Address GitHub @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 An @ralphy mention was left on GitHub PR (https://github.com/NeriRos/ralphy/pull/261#issuecomment-4541025435):
