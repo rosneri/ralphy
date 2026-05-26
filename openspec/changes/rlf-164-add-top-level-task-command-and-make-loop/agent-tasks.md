@@ -1,3 +1,56 @@
+## Fix failing CI checks (2026-05-26T21:49:05.725Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26477033066 ---
+ci Test affected files + coverage ﻿2026-05-26T21:47:43.8583560Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-26T21:47:43.8584502Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-26T21:47:43.8612557Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-26T21:47:43.8612834Z env:
+ci Test affected files + coverage 2026-05-26T21:47:43.8613084Z NX_BASE: 2f73550977cc380d16fbb753495049ecfb4ef2f3
+ci Test affected files + coverage 2026-05-26T21:47:43.8613439Z NX_HEAD: ac34f8106fa20d39db8f15f7ca26c99cf2cb54c7
+ci Test affected files + coverage 2026-05-26T21:47:43.8613972Z ##[endgroup]
+ci Test affected files + coverage 2026-05-26T21:47:43.8684914Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-26T21:47:43.8926347Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-26T21:47:43.8926745Z
+ci Test affected files + coverage 2026-05-26T21:47:46.6269366Z agent: no relevant test files
+ci Test affected files + coverage 2026-05-26T21:47:46.6269937Z loop: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-26T21:47:46.6270284Z apps/loop/src/**tests**/task-cli.test.ts
+ci Test affected files + coverage 2026-05-26T21:47:46.6270522Z
+ci Test affected files + coverage 2026-05-26T21:47:46.6287459Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-26T21:47:46.6380016Z
+ci Test affected files + coverage 2026-05-26T21:47:46.6380773Z ##[group]src/**tests**/StatusBar.test.tsx:
+ci Test affected files + coverage 2026-05-26T21:47:46.8154538Z (pass) StatusBar > renders iteration number [26.21ms]
+ci Test affected files + coverage 2026-05-26T21:47:46.8206379Z (pass) StatusBar > renders engine/model [5.24ms]
+ci Test affected files + coverage 2026-05-26T21:47:46.8246497Z (pass) StatusBar > renders cost when > 0 [4.02ms]
+ci Test affected files + coverage 2026-05-26T21:47:46.8272709Z (pass) StatusBar > does not render cost when 0 [2.58ms]
+ci Test affected files + coverage 2026-05-26T21:47:46.8297986Z (pass) StatusBar > renders check mark when not running [2.52ms]
+ci Test affected files + coverage 2026-05-26T21:47:46.8325643Z (pass) StatusBar > renders separator bars [2.80ms]
+ci Test affected files + coverage 2026-05-26T21:47:46.8351607Z (pass) StatusBar > formatElapsed handles seconds [2.56ms]
+ci Test affected files + coverage 2026-05-26T21:47:47.9386413Z (pass) StatusBar > formatElapsed handles minutes [1103.34ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0416061Z (pass) StatusBar > formatElapsed handles hours [1102.97ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0431923Z (pass) StatusBar > renders iteration label [1.66ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0466330Z (pass) StatusBar > bar width tracks terminal columns > columns=4 renders a rule of length 8 [3.40ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0486489Z (pass) StatusBar > bar width tracks terminal columns > columns=80 renders a rule of length 80 [2.02ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0515308Z (pass) StatusBar > bar width tracks terminal columns > columns=140 renders a rule of length 140 [2.86ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0516002Z
+ci Test affected files + coverage 2026-05-26T21:47:49.0516755Z ##[endgroup]
+ci Test affected files + coverage 2026-05-26T21:47:49.0516968Z
+ci Test affected files + coverage 2026-05-26T21:47:49.0517361Z ##[group]src/**tests**/loop.test.ts:
+ci Test affected files + coverage 2026-05-26T21:47:49.0734170Z (pass) buildTaskPrompt > includes steering content from steering.md [5.37ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0755676Z (pass) buildTaskPrompt > omits steering when steering.md does not exist [2.20ms]
+ci Test affected files + coverage 2026-05-26T21:47:49.0782731Z (pass) buildTaskPrompt > includes first unchecked section from tasks.md when pres
+…[truncated 162583 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-26T21:42:49.706Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

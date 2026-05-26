@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseTaskArgs } from "../task-cli";
+import { parseTaskArgs, printTaskHelp } from "../task-cli";
+
+describe("printTaskHelp", () => {
+  test("does not throw", () => {
+    expect(() => printTaskHelp()).not.toThrow();
+  });
+});
 
 describe("parseTaskArgs — valid phases", () => {
   test("parses 'execute' phase with --name", async () => {
@@ -105,6 +111,13 @@ describe("parseTaskArgs — common flags", () => {
   test("parses --prompt flag", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--prompt", "do the thing"]);
     expect(args.prompt).toBe("do the thing");
+  });
+
+  test("parses --prompt-file flag", async () => {
+    const tmpFile = "/tmp/test-prompt.txt";
+    await Bun.write(tmpFile, "prompt from file");
+    const args = await parseTaskArgs(["execute", "--name", "foo", "--prompt-file", tmpFile]);
+    expect(args.prompt).toBe("prompt from file");
   });
 
   test("defaults: fromAgent=false, engine=claude, model=opus", async () => {
