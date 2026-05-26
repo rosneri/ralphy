@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - "v*"
+  # Manual fallback for when a tag push doesn't trigger the workflow
+  # (GitHub has occasionally dropped tag-push events on this repo).
+  # Run from the Actions tab → "Publish to npm" → "Run workflow",
+  # picking the existing tag ref.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish (e.g. v3.8.7). Leave blank to use the ref selected above."
+        required: false
+        type: string
 
 jobs:
   publish:
@@ -14,14 +24,29 @@ jobs:
       id-token: write
 
     steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "Tag '$TAG' must start with 'v'." >&2; exit 1;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
 
       - uses: oven-sh/setup-bun@v2
 
       - name: Set version from tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          npm pkg set version="$VERSION"
+        run: npm pkg set version="${{ steps.tag.outputs.version }}"
 
       - run: bun install --frozen-lockfile
 
