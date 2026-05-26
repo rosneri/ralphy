@@ -12,7 +12,7 @@
 
 import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import { isRalphComment } from "../../agent/wire/task-bodies";
+import { isRalphComment } from "../utils/ralph-comment";
 
 export interface LinearIssue {
   id: string;
