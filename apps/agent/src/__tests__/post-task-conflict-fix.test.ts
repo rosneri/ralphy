@@ -172,7 +172,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
-      _mergeabilityUnknownRetryDelayMs: 0,
+      _mergeabilityBackoffsMs: [0, 0, 0],
     });
 
     expect(code).toBe(0);
@@ -201,7 +201,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
-      _mergeabilityUnknownRetryDelayMs: 0,
+      _mergeabilityBackoffsMs: [0, 0, 0],
     });
 
     expect(code).toBe(0);

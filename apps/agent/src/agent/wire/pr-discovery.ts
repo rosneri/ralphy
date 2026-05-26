@@ -6,6 +6,7 @@ import { changeNameForIssue } from "../scaffold";
 import type { CmdRunner } from "../pr";
 import type { PrStatusBucket as PrStatus } from "../coordinator";
 import { pickOpenPrUrlFromAttachments } from "./pr-helpers";
+import { waitForMergeability } from "../../shared/pr/wait-for-mergeability";
 
 const PR_UNAVAILABLE_TTL_MS = 10 * 60 * 1000;
 
@@ -117,39 +118,27 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
       prByChange.set(changeName, prUrl);
     }
 
-    let mergeable: string | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      let state: string | undefined;
-      let m: string | undefined;
-      try {
-        const parsed = (await getPollContext().fetchPrOnce(
+    const outcome = await waitForMergeability({
+      probe: async () =>
+        (await getPollContext().fetchPrOnce(
           prUrl,
-          ["state", "mergeable"],
+          ["state", "mergeable", "mergeStateStatus"],
           cmdRunner,
           projectRoot,
-        )) as { state?: string; mergeable?: string };
-        state = parsed.state;
-        m = parsed.mergeable;
-      } catch (err) {
+        )) as { state?: string; mergeable?: string; mergeStateStatus?: string },
+      onError: (err, attempt, total) =>
         diag(
           "pr",
-          `! gh pr view ${prUrl} failed (attempt ${attempt + 1}/3): ${(err as Error).message} — will retry`,
+          `! gh pr view ${prUrl} failed (attempt ${attempt + 1}/${total}): ${err.message} — will retry`,
           "yellow",
-        );
-        // m stays undefined → loop sleeps and retries rather than bailing immediately
-      }
-      if (state && state !== "OPEN") {
-        markPrUnavailable(changeName);
-        prUrlByIssue.invalidate(issue.id);
-        return null;
-      }
-      if (m && m !== "UNKNOWN") {
-        mergeable = m;
-        break;
-      }
-      await new Promise<void>((r) => setTimeout(r, 2000));
+        ),
+    });
+    if (outcome.kind === "closed") {
+      markPrUnavailable(changeName);
+      prUrlByIssue.invalidate(issue.id);
+      return null;
     }
-    if (mergeable === null) {
+    if (outcome.kind === "unknown") {
       diag(
         "pr",
         `  ${issue.identifier}: mergeability still UNKNOWN after retries (${prUrl}) — will recheck next poll`,
@@ -157,7 +146,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
       );
       return { url: prUrl, status: "unknown" };
     }
-    if (mergeable === "CONFLICTING") return { url: prUrl, status: "conflicted" };
+    if (outcome.kind === "conflicting") return { url: prUrl, status: "conflicted" };
 
     try {
       const ci = await getPrChecksStatus(prUrl, cmdRunner, projectRoot);

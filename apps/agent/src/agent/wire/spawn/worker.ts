@@ -15,6 +15,7 @@ import type { QueueTrigger } from "../../coordinator";
 import { defaultSpawn } from "./default";
 import { traceCmdRunner, type AgentRunners } from "../runners";
 import { resolveDependencyBaseBranchImpl } from "../pr-helpers";
+import { waitForMergeability } from "../../../shared/pr/wait-for-mergeability";
 import type { Indicators } from "@ralphy/types";
 
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
@@ -295,20 +296,21 @@ export function createSpawnWorker(
               onWorkerPhase(changeName, phase, detail),
           }),
           checkPrConflict: async (prUrl: string) => {
-            for (let attempt = 0; attempt < 5; attempt++) {
-              try {
+            const outcome = await waitForMergeability({
+              bailOnError: true,
+              probe: async () => {
                 const res = await tracedCmd.run(
-                  ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
+                  ["gh", "pr", "view", prUrl, "--json", "state,mergeable,mergeStateStatus"],
                   cwd,
                 );
-                const mergeable = res.stdout.trim();
-                if (mergeable !== "UNKNOWN") return mergeable === "CONFLICTING";
-              } catch {
-                return false;
-              }
-              await new Promise<void>((r) => setTimeout(r, 2000));
-            }
-            return false;
+                return JSON.parse(res.stdout || "{}") as {
+                  state?: string;
+                  mergeable?: string;
+                  mergeStateStatus?: string;
+                };
+              },
+            });
+            return outcome.kind === "conflicting";
           },
           resolveDependencyBaseBranch: (issue) =>
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),

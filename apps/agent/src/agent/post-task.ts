@@ -9,7 +9,8 @@ import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
-import { fetchPrStatus } from "../pr-status";
+import { fetchPrStatus, type PrStatus } from "../pr-status";
+import { waitForMergeability } from "../shared/pr/wait-for-mergeability";
 import { isWorktreeSafeToRemove } from "./worktree";
 import { registry as featureRegistry } from "../features/registry";
 import { runFeaturePostTask } from "../features/run-feature";
@@ -132,10 +133,12 @@ interface PostTaskDeps {
    *  phases still own the full post-task flow in that case. */
   buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
   /**
-   * Override the delay (ms) between UNKNOWN-mergeability retries in the
-   * conflict-fix verify path. Default 2000 ms. Tests pass 0 for speed.
+   * Override the backoff schedule (ms) for the conflict-fix verify path's
+   * UNKNOWN-mergeability polling. Default is the shared
+   * `DEFAULT_BACKOFFS_MS` (~31s total). Tests pass `[0, 0, 0]` to keep
+   * the historical 3-retry contract instant.
    */
-  _mergeabilityUnknownRetryDelayMs?: number;
+  _mergeabilityBackoffsMs?: number[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,15 +1112,34 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         "yellow",
       );
     } else {
-      const unknownDelayMs = deps._mergeabilityUnknownRetryDelayMs ?? 2000;
-      let status = await fetchPrStatus(prUrl, cmd, cwd);
-      for (
-        let attempt = 0;
-        attempt < 3 && status.kind === "ok" && status.mergeable === "UNKNOWN";
-        attempt++
-      ) {
-        await new Promise<void>((r) => setTimeout(r, unknownDelayMs));
-        status = await fetchPrStatus(prUrl, cmd, cwd);
+      // Widen to the union explicitly — TS narrows from the initial
+      // assignment and otherwise won't see closure mutations inside `probe`.
+      let status: PrStatus = { kind: "error", message: "no probe ran" } as PrStatus;
+      const outcome = await waitForMergeability({
+        ...(deps._mergeabilityBackoffsMs !== undefined
+          ? { backoffsMs: deps._mergeabilityBackoffsMs }
+          : {}),
+        bailOnError: true,
+        probe: async () => {
+          status = await fetchPrStatus(prUrl, cmd, cwd);
+          if (status.kind === "error") throw new Error(status.message);
+          return { state: status.state, mergeable: status.mergeable };
+        },
+      });
+      // Synthesize a `status` for the log decision below from the outcome.
+      // `status` closes over each probe attempt's result; `outcome` adds
+      // the post-loop decision (e.g. mergeStateStatus=CLEAN can flip
+      // mergeable=UNKNOWN to "mergeable"), so reconcile the two here.
+      if (outcome.kind === "error") {
+        status = { kind: "error", message: outcome.message };
+      } else if (status.kind === "ok") {
+        if (outcome.kind === "mergeable") {
+          status = { ...status, mergeable: "MERGEABLE" };
+        } else if (outcome.kind === "conflicting") {
+          status = { ...status, mergeable: "CONFLICTING" };
+        }
+        // outcome.kind === "closed" or "unknown" → leave mergeable as-is
+        // so the "still UNKNOWN" log fires.
       }
       if (status.kind === "ok" && status.mergeable === "MERGEABLE") {
         log(`  ${identifier}: PR ${prUrl} is MERGEABLE after rebase`, "green");
