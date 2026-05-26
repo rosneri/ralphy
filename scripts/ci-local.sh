@@ -37,6 +37,7 @@ run_step() {
 stage_static() {
   printf '\n%s━━━ Static Checks ━━━%s\n\n' "$YELLOW" "$NC"
 
+  run_step "No duplicate declarations"    bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
   run_step "No direct axios in apps/ui"   bun scripts/check-no-direct-http.ts
   run_step "No prop drilling in React components" bun scripts/check-prop-drilling.ts
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts

@@ -4,7 +4,6 @@ import { Link } from "react-router-dom";
 import { useTasks } from "../hooks/useTasks";
 import { useSidecar } from "../context/Sidecar.context";
 
-
 export function TaskListView() {
   const { connected, baseUrl } = useSidecar();
   const { tasks, loading, refresh } = useTasks();

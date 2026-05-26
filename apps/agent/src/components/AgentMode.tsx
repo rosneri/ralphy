@@ -271,7 +271,6 @@ function Link({ url, label, color }: { url: string; label: string; color: string
   );
 }
 
-
 function priorityBadge(p: number): { text: string; color: string; label: string } {
   switch (p) {
     case 1:

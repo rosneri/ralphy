@@ -3,14 +3,12 @@ import type { State } from "@ralphy/types";
 import type { ProgressCount } from "../hooks/useTaskStream";
 import { formatCost } from "../utils/format-cost";
 
-
 interface StatusBarProps {
   state: State;
   progress: ProgressCount | null;
   isRunning: boolean;
   stopReason: string | null;
 }
-
 
 function formatDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
