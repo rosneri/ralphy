@@ -151,8 +151,8 @@ linear:
   # optOutLabel: skip the gate for tickets that carry this label.
   confirmationMode:
     enabled: true
-    optInLabel: "ralph:confirm"
-    optOutLabel: "ralph:auto-approve"
+    optInLabel: "confirm"
+    optOutLabel: "auto-approve"
     timeoutHours: 48
     maxConfirmationRounds: 3
 
@@ -180,10 +180,10 @@ linear:
     getReview:
       filter:
         - type: label
-          value: "ralph:review"
+          value: "review"
     clearReview:
       type: label
-      value: "ralph:review"
+      value: "review"
 
     # Merge-state lifecycle (conflicted / ci-failed / mergeable) is
     # driven by GitHub directly via `gh pr view` — no Linear indicators
@@ -193,21 +193,21 @@ linear:
     getAutoMerge:
       filter:
         - type: label
-          value: "ralph:auto-merge"
+          value: "auto-merge"
 
     # Confirmation gate (paired with linear.confirmationMode above)
     getApproved:
       filter:
         - type: label
-          value: "ralph:approved"
+          value: "approved"
     clearApproved:
       type: label
-      value: "ralph:approved"
+      value: "approved"
 
     # Error quarantine
     setError:
       type: label
-      value: "ralph:error"
+      value: "error"
 ---
 
 You are working on {{ issue.identifier }}: {{ issue.title }}.
