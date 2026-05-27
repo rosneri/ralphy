@@ -4,8 +4,9 @@ import { emitCompleted, emitFailed } from "./events";
 /**
  * After each worker task, verify the PR still merges cleanly.
  *
- * Per RLF-82 the worker iteration owns conflict resolution (push + rebase
- * + fix happen inside the AI loop). This `postTask` is **verification
+ * Per RLF-82 the worker iteration owns conflict resolution (push + merge
+ * + fix happen inside the AI loop, never rebase or force-push). This
+ * `postTask` is **verification
  * only** — it asks the `getMergeability` capability for the PR's current
  * state and emits an event. It never spawns a re-fix task.
  *

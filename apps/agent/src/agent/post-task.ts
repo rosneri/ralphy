@@ -94,7 +94,7 @@ interface PostTaskInput {
 export type PostTaskPhase =
   | "pushing"
   | "push-retry"
-  | "rebasing"
+  | "merging"
   | "pr-create"
   | "pr-only-meta"
   | "auto-merge-enabled"
@@ -321,14 +321,15 @@ async function runWorkerWithFixTask(
 }
 
 /**
- * Push the branch to origin. If the push is rejected as non-fast-forward
- * (e.g. after a rebase rewrote history), fall back to --force-with-lease,
- * which still refuses if someone else pushed to the branch since our last
- * fetch.
+ * Push the branch to origin. Never force-pushes — work that exists on the
+ * remote is never overwritten. If the push is rejected as non-fast-forward
+ * (someone else pushed concurrently, or the worker rewrote history), fetch
+ * the remote and merge it in, then retry the push. If the merge has
+ * conflicts the caller must spawn a conflict-fix worker.
  *
  * Returns true on success, false on failure (failure is already logged).
  */
-async function pushWithLeases(ctx: PostTaskCtx): Promise<boolean> {
+async function pushBranchSafely(ctx: PostTaskCtx): Promise<boolean> {
   try {
     ctx.emit("pushing", "after conflict resolution");
     await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
@@ -340,11 +341,18 @@ async function pushWithLeases(ctx: PostTaskCtx): Promise<boolean> {
       ctx.log(`! push after conflict fix failed: ${pe.message}`, "red");
       return false;
     }
+    // Non-fast-forward: merge the remote in (never rebase, never force) and
+    // retry the push. Merge preserves any commits that exist on the remote.
     try {
-      await ctx.cmd.run(["git", "push", "--force-with-lease", "origin", ctx.branch], ctx.cwd);
+      await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
+      await ctx.cmd.run(["git", "merge", "--no-edit", `origin/${ctx.branch}`], ctx.cwd);
+      await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
       return true;
-    } catch (forceErr) {
-      ctx.log(`! force-push after conflict fix failed: ${(forceErr as Error).message}`, "red");
+    } catch (retryErr) {
+      ctx.log(
+        `! push after merging origin/${ctx.branch} failed: ${(retryErr as Error).message}`,
+        "red",
+      );
       return false;
     }
   }
@@ -397,36 +405,36 @@ async function createPrWithRetry(
 
       if (isNonFastForward && !nonFfRebaseAttempted) {
         nonFfRebaseAttempted = true;
-        ctx.emit("rebasing", `git pull --rebase origin ${ctx.branch}`);
+        ctx.emit("merging", `git pull --no-rebase origin ${ctx.branch}`);
         ctx.log(
-          `  non-fast-forward push for ${ctx.changeName} — rebasing onto origin/${ctx.branch}`,
+          `  non-fast-forward push for ${ctx.changeName} — merging origin/${ctx.branch} into the branch`,
           "yellow",
         );
         try {
           await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
           await ctx.cmd.run(
-            ["git", "pull", "--rebase", "--autostash", "origin", ctx.branch],
+            ["git", "pull", "--no-rebase", "--autostash", "--no-edit", "origin", ctx.branch],
             ctx.cwd,
           );
           continue;
-        } catch (rebaseErr) {
-          const re = rebaseErr as Error & { stderr?: string; stdout?: string };
+        } catch (mergeErr) {
+          const re = mergeErr as Error & { stderr?: string; stdout?: string };
           const reBlob = `${re.stdout ?? ""}\n${re.stderr ?? ""}`;
-          const isConflict = /CONFLICT|Merge conflict|could not apply|both modified/i.test(reBlob);
+          const isConflict = /CONFLICT|Merge conflict|both modified/i.test(reBlob);
           if (!isConflict) {
             ctx.log(
-              `! rebase failed for ${ctx.changeName}: ${(rebaseErr as Error).message} — giving up`,
+              `! merge failed for ${ctx.changeName}: ${(mergeErr as Error).message} — giving up`,
               "red",
             );
             return { pr: null, gaveUp: true };
           }
 
-          ctx.emit("rebasing", "conflicts detected — aborting + queueing fix task");
+          ctx.emit("merging", "conflicts detected — aborting + queueing fix task");
           try {
-            await ctx.cmd.run(["git", "rebase", "--abort"], ctx.cwd);
+            await ctx.cmd.run(["git", "merge", "--abort"], ctx.cwd);
           } catch (err) {
             ctx.log(
-              `! git rebase --abort failed (worktree may already be clean): ${(err as Error).message}`,
+              `! git merge --abort failed (worktree may already be clean): ${(err as Error).message}`,
               "yellow",
             );
           }
@@ -444,7 +452,7 @@ async function createPrWithRetry(
 
           if (hookFixAttempt >= maxAttempts) {
             ctx.log(
-              `! merge conflict on rebase of ${ctx.branch} after ${hookFixAttempt} attempts — worktree preserved at ${ctx.cwd}`,
+              `! merge conflict merging origin/${ctx.branch} after ${hookFixAttempt} attempts — worktree preserved at ${ctx.cwd}`,
               "red",
             );
             ctx.log(`    detail: ${reBlob.trim().split("\n").slice(0, 8).join("\n")}`, "red");
@@ -452,25 +460,26 @@ async function createPrWithRetry(
           }
 
           hookFixAttempt += 1;
-          ctx.emit("rebasing", `conflict-fix ${hookFixAttempt}/${maxAttempts}`);
+          ctx.emit("merging", `conflict-fix ${hookFixAttempt}/${maxAttempts}`);
           ctx.log(
-            `! merge conflict rebasing ${ctx.branch} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxAttempts})`,
+            `! merge conflict merging origin/${ctx.branch} — prepending fix task and re-running loop (attempt ${hookFixAttempt}/${maxAttempts})`,
             "yellow",
           );
 
           const retryCode = await runWorkerWithFixTask(
             ctx,
             "Resolve merge conflict with origin/" + ctx.branch,
-            `Push to origin/${ctx.branch} was rejected as non-fast-forward, and rebasing ` +
-              `onto origin/${ctx.branch} produced merge conflicts.\n\n` +
-              `Run \`git fetch origin ${ctx.branch}\` and \`git rebase origin/${ctx.branch}\`, ` +
+            `Push to origin/${ctx.branch} was rejected as non-fast-forward, and merging ` +
+              `origin/${ctx.branch} into the branch produced merge conflicts.\n\n` +
+              `Run \`git fetch origin ${ctx.branch}\` and \`git merge origin/${ctx.branch}\`, ` +
               `resolve every conflict, \`git add\` the resolved files, and finish with ` +
-              `\`git rebase --continue\`. The push will be retried after this loop ` +
-              `iteration finishes.\n\n` +
+              `\`git commit\` (or \`git merge --continue\`). Do NOT rebase and do NOT ` +
+              `amend existing commits — only add new commits. The push will be retried ` +
+              `after this loop iteration finishes.\n\n` +
               (conflictedFiles
                 ? `Files that differ between your branch and origin/${ctx.branch}:\n${conflictedFiles}\n\n`
                 : "") +
-              `Rebase output:\n${reBlob.trim()}`,
+              `Merge output:\n${reBlob.trim()}`,
           );
           if (retryCode !== 0) {
             ctx.log(
@@ -573,9 +582,9 @@ async function fixConflictsAndCiLoop(
             `The PR ${prUrl} has merge conflicts with \`${ctx.base}\`.`,
             "",
             "Steps:",
-            `1. \`git fetch origin ${ctx.base}\` then rebase or merge \`${ctx.base}\` into the current branch.`,
+            `1. \`git fetch origin ${ctx.base}\` then merge \`${ctx.base}\` into the current branch (\`git merge origin/${ctx.base}\`). Do NOT rebase and do NOT amend existing commits.`,
             "2. Resolve conflicts in the files git lists.",
-            "3. Stage and commit the resolution.",
+            "3. Stage and commit the resolution as a new merge commit.",
           ].join("\n"),
         );
         if (conflictCode !== 0) {
@@ -583,11 +592,10 @@ async function fixConflictsAndCiLoop(
           return PR_FAILED_EXIT;
         }
 
-        // Push the resolved branch. If the worker rebased (rewrote history),
-        // the regular push fails as non-fast-forward; pushWithLeases falls
-        // back to --force-with-lease which still refuses if someone else
-        // pushed to the branch concurrently.
-        const pushed = await pushWithLeases(ctx);
+        // Push the resolved branch. Plain push only; pushBranchSafely handles
+        // a non-fast-forward by merging origin/<branch> in and retrying —
+        // never by force-pushing.
+        const pushed = await pushBranchSafely(ctx);
         if (!pushed) return PR_FAILED_EXIT;
 
         continue; // re-enter loop to re-check conflicts before CI
@@ -1240,7 +1248,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
 
   // RLF-82: conflict-fix verify-only short-circuit. The worker iteration
   // owns the push (see `wire/prepare.ts::prepareTaskForTrigger`), so this
-  // branch never invokes `git push`, `createPrWithRetry`, `pushWithLeases`,
+  // branch never invokes `git push`, `createPrWithRetry`, `pushBranchSafely`,
   // or `fixConflictsAndCiLoop`. It only verifies the PR's current
   // mergeability via a single `fetchPrStatus` call and reacts to the
   // outcome (clearConflicted on MERGEABLE; leave label in place otherwise).

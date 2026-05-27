@@ -20,7 +20,8 @@ interface FeatureSummary {
 const FEATURE_SUMMARIES: Readonly<Record<string, string>> = {
   confirmation:
     "Gates work behind a plan-ready confirmation comment. Inspects approval/revise replies and unblocks the issue once confirmed.",
-  "conflict-fix": "Detects PRs with merge conflicts and dispatches a worker to rebase or resolve.",
+  "conflict-fix":
+    "Detects PRs with merge conflicts and dispatches a worker to merge base in and resolve.",
   "ci-fix": "Detects PRs whose CI checks have failed and dispatches a worker to fix the failures.",
   implement:
     "Drives the primary build-the-feature loop: spawns a worker for in-progress and todo issues, then records the PR URL.",
