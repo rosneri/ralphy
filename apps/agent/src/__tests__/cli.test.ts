@@ -146,6 +146,7 @@ describe("agent parseArgs", () => {
     const result = await parseArgs([
       "--fix-ci",
       "--stack-prs",
+      "--create-pr",
       "--code-review",
       "--json-output",
       "--manual-test",
