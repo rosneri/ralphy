@@ -1,0 +1,3 @@
+[mcp_servers.ralph]
+args = [".ralph/bin/mcp.js"]
+command = "bun"
