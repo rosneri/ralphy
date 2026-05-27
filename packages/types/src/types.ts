@@ -71,6 +71,7 @@ export const StateSchema = z.object({
   model: z.string().default("opus"),
   manualTest: z.boolean().default(false),
   createPr: z.boolean().default(false),
+  prDraft: z.boolean().default(false),
   validateOnComplete: z.boolean().default(false),
   usage: UsageSchema.default({}),
   history: z.array(HistoryEntrySchema).default([]),
