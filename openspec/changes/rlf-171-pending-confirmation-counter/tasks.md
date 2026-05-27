@@ -12,9 +12,9 @@
 
 ## Implementation
 
-- [ ] Export `pickLatestGatedTicket` helper from `apps/agent/src/components/AgentMode.tsx` — takes a `Map<string, { since: string | null }>` and returns `{ top: [string, T] | null; moreCount: number }` selecting the entry with the newest `since`
-- [ ] Update the gated-tickets render block in `AgentMode.tsx` to call `pickLatestGatedTicket` and render only the single latest `[GATE]` card instead of all entries
-- [ ] When `moreCount > 0`, render a dimmed `+{moreCount} more awaiting confirmation` line below the single `[GATE]` card
-- [ ] Add `describe("pickLatestGatedTicket", ...)` tests to `apps/agent/src/__tests__/pending-tasks.test.ts` covering: empty map, single ticket, multiple tickets (newest wins), null `since` treated as oldest
-- [ ] Run `bun run lint` and fix any issues
-- [ ] Run `bun run test` and ensure all tests pass
+- [x] Export `pickLatestGatedTicket` helper from `apps/agent/src/components/AgentMode.tsx` — takes a `Map<string, { since: string | null }>` and returns `{ top: [string, T] | null; moreCount: number }` selecting the entry with the newest `since`
+- [x] Update the gated-tickets render block in `AgentMode.tsx` to call `pickLatestGatedTicket` and render only the single latest `[GATE]` card instead of all entries
+- [x] When `moreCount > 0`, render a dimmed `+{moreCount} more awaiting confirmation` line below the single `[GATE]` card
+- [x] Add `describe("pickLatestGatedTicket", ...)` tests to `apps/agent/src/__tests__/pending-tasks.test.ts` covering: empty map, single ticket, multiple tickets (newest wins), null `since` treated as oldest
+- [x] Run `bun run lint` and fix any issues
+- [x] Run `bun run test` and ensure all tests pass
