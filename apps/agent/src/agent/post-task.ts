@@ -321,7 +321,51 @@ async function runWorkerWithFixTask(
     return 1;
   }
   await reactivateState(ctx.stateFilePath, ctx.log, ctx.changeName);
-  return ctx.respawnWorker();
+
+  // Append-only history guard: snapshot HEAD before respawn and require the
+  // post-respawn HEAD to be a descendant. This prevents a fix worker from
+  // "fixing" a failure by reverting/rebasing/amending its own commits — the
+  // failure mode that produced PRs whose diff silently lost work.
+  let preHead = "";
+  try {
+    const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
+    preHead = r.stdout.trim();
+  } catch (err) {
+    ctx.log(`! could not snapshot HEAD before fix task: ${(err as Error).message}`, "yellow");
+  }
+
+  const code = await ctx.respawnWorker();
+
+  if (preHead) {
+    try {
+      const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
+      const postHead = r.stdout.trim();
+      if (postHead !== preHead) {
+        let isAncestor = true;
+        try {
+          await ctx.cmd.run(["git", "merge-base", "--is-ancestor", preHead, postHead], ctx.cwd);
+        } catch {
+          isAncestor = false;
+        }
+        if (!isAncestor) {
+          ctx.log(
+            `! fix worker for "${heading}" rewrote history — pre=${preHead.slice(0, 8)} ` +
+              `is not an ancestor of post=${postHead.slice(0, 8)}. Aborting and preserving ` +
+              `worktree at ${ctx.cwd}.`,
+            "red",
+          );
+          return 1;
+        }
+      }
+    } catch (err) {
+      ctx.log(
+        `! could not verify append-only history after fix task: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+  }
+
+  return code;
 }
 
 /**
@@ -524,6 +568,10 @@ async function createPrWithRetry(
         "Fix push rejection",
         `Push to origin/${ctx.branch} was rejected. Fix the underlying problem ` +
           `(e.g. failing pre-push hook checks), then the push will be retried.\n\n` +
+          `Do NOT delete, revert, amend, rebase, reorder, or squash existing commits. ` +
+          `Only add new commits or edit working-tree files. If a pre-push check (test, ` +
+          `lint, typecheck, etc.) fails on the change you just made, fix the test or ` +
+          `the code under test — do not remove the change to silence the failure.\n\n` +
           combined.trim(),
       );
       if (retryCode !== 0) {
