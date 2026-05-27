@@ -330,3 +330,38 @@ describe("parseWorkflow — openspec.reviewPhase", () => {
     ).toThrow();
   });
 });
+
+describe("S12 — hostile-config negative tests", () => {
+  test("S12.1 — missing commands.test is accepted (optional field)", () => {
+    const { config } = parseWorkflow(`---\ncommands:\n  lint: "bun run lint"\n---\n`);
+    expect(config.commands.test).toBeUndefined();
+    expect(config.commands.lint).toBe("bun run lint");
+  });
+
+  test('S12.2 — bad indicator type "branch" in getTodo.filter is rejected with enum error', () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: branch\n          value: main\n---\n`,
+      ),
+    ).toThrow("invalid settings");
+  });
+
+  test("S12.8 — concurrency: -1 is rejected by positive() constraint", () => {
+    expect(() => parseWorkflow(`---\nconcurrency: -1\n---\n`)).toThrow("invalid settings");
+  });
+
+  test("S12.9 — pollIntervalSeconds: 0 is rejected by positive() constraint", () => {
+    expect(() => parseWorkflow(`---\npollIntervalSeconds: 0\n---\n`)).toThrow("invalid settings");
+  });
+
+  test("S12.10 — unknown top-level key is silently ignored (root not strict)", () => {
+    const { config } = parseWorkflow(`---\nfoo: bar\nconcurrency: 2\n---\n`);
+    expect(config.concurrency).toBe(2);
+  });
+
+  test("S12.12 — specAttachmentFormats: [] is rejected by nonempty() constraint", () => {
+    expect(() => parseWorkflow(`---\nlinear:\n  specAttachmentFormats: []\n---\n`)).toThrow(
+      "invalid settings",
+    );
+  });
+});
