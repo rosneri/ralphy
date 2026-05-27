@@ -88,9 +88,10 @@ describe("parseTaskArgs — common flags", () => {
     expect(args.model).toBe("sonnet");
   });
 
-  test("parses --codex engine", async () => {
-    const args = await parseTaskArgs(["execute", "--name", "foo", "--codex"]);
-    expect(args.engine).toBe("codex");
+  test("rejects --codex engine", async () => {
+    await expect(parseTaskArgs(["execute", "--name", "foo", "--codex"])).rejects.toThrow(
+      /--codex is not supported/,
+    );
   });
 
   test("parses --model flag", async () => {

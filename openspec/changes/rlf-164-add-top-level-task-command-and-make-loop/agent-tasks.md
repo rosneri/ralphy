@@ -1,3 +1,30 @@
+## Address Linear @ralphy mention (2026-05-27T14:35:42.019Z)
+
+- [x] Address Linear @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+Open code-review on https://github.com/NeriRos/ralphy/pull/278 has unresolved comments:
+
+_apps/loop/src/task-cli.ts:20_
+
+> **NeriRos** (2026-05-27T06:08:21Z)
+>
+> DO NOT ADD THIS.
+> And also do not have shell related stuff in the loop
+
+For every comment above, decide:
+- If you agree, fix the code, commit, and push. The push will surface
+  the new commit on the PR; the worker should then resolve the thread
+  via `gh api graphql` (`resolveReviewThread`) — see GitHub docs.
+- If you disagree, post a polite reply on the thread explaining your
+  reasoning via `gh api repos/{owner}/{repo}/pulls/{num}/comments/{id}/replies`,
+  and leave the thread unresolved.
+
+When this round is done the loop exits; the agent will re-poll the
+PR on the next cycle and pick up any new reviewer activity until the
+PR is approved or merged.
+```
+
 ## Fix failing CI checks (2026-05-26T21:49:05.725Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
