@@ -20,7 +20,19 @@ interface CreatePrInput {
   draft?: boolean;
 }
 
-type CreatePrBlockedReason = "only-meta";
+/**
+ * Why a PR was not opened.
+ *
+ * - `only-meta`: the net diff is meta-only, but the branch's history *did*
+ *   touch substantive files — they were created then lost (deleted mid-loop
+ *   or absorbed by a merge). The caller should respawn a fix task to restore
+ *   them.
+ * - `no-op`: the branch never touched a non-meta file across its entire
+ *   history. Nothing was lost — the requested work either already exists on
+ *   the base branch (done by another change) or was a genuine no-op. The
+ *   caller should finalize without a PR rather than respawn a doomed reapply.
+ */
+type CreatePrBlockedReason = "only-meta" | "no-op";
 
 interface CreatePrResult {
   /** URL of the created/existing PR; null when blocked. */
@@ -97,6 +109,52 @@ async function classifyDiffAgainstMeta(
   const metaSet = new Set(violations.map((v) => v.file));
   const onlyMeta = files.every((f) => metaSet.has(f.replace(/\\/g, "/")));
   return { files, onlyMeta };
+}
+
+/**
+ * Decide whether a meta-only *net diff* is a lost implementation or a genuine
+ * no-op, by inspecting the branch's full commit history rather than just the
+ * net diff.
+ *
+ * `git log --name-only base..HEAD` lists every file touched by any commit on
+ * the branch. If the branch ever added a substantive (non-meta) file — even
+ * one later removed — then real work existed and was lost, so the caller
+ * should try to reapply it. If the branch *only ever* touched meta files,
+ * nothing was lost: the requested change is already on `base` (landed by a
+ * different change) or was a no-op, and reapplying is futile.
+ *
+ * Returns true ⇒ history is meta-only ⇒ treat as `no-op`. Best-effort: on any
+ * git failure it returns false so the caller falls back to the existing
+ * "only-meta / reapply" path (the conservative, pre-existing behavior).
+ */
+async function branchHistoryTouchedOnlyMeta(
+  runner: CmdRunner,
+  cwd: string,
+  base: string,
+  metaOnlyFiles: readonly string[],
+): Promise<boolean> {
+  if (metaOnlyFiles.length === 0) return false;
+  let raw = "";
+  try {
+    const r = await runner.run(
+      ["git", "log", "--name-only", "--pretty=format:", `${base}..HEAD`],
+      cwd,
+    );
+    raw = r.stdout;
+  } catch {
+    return false;
+  }
+  const touched = Array.from(
+    new Set(
+      raw
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  );
+  if (touched.length === 0) return false;
+  const metaSet = new Set(findBoundaryViolations(touched, metaOnlyFiles).map((v) => v.file));
+  return touched.every((f) => metaSet.has(f.replace(/\\/g, "/")));
 }
 
 /**
@@ -201,10 +259,20 @@ export async function createPullRequest(
       if (await branchAlreadyMerged(runner, input.cwd, input.branch, base)) {
         return null;
       }
+      // Distinguish "lost implementation" (history had real code) from a
+      // genuine no-op (branch only ever touched meta files — the work is
+      // already on base or was never needed). The latter must not trigger a
+      // doomed reapply loop.
+      const historyOnlyMeta = await branchHistoryTouchedOnlyMeta(
+        runner,
+        input.cwd,
+        base,
+        metaOnlyFiles,
+      );
       return {
         url: null,
         created: false,
-        blocked: "only-meta",
+        blocked: historyOnlyMeta ? "no-op" : "only-meta",
         blockedFiles: classification.files,
       };
     }
