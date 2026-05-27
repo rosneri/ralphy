@@ -140,6 +140,24 @@ export function orderSubtasksForCappedDisplay<T extends { done: boolean }>(
   return [...pending, ...done];
 }
 
+/**
+ * Select the single most-recently-gated ticket from the gated-tickets map
+ * (the entry with the largest `since` timestamp) and compute how many more
+ * tickets are gated beyond the top one. `null` `since` is treated as epoch 0
+ * (oldest), so a ticket without a posted plan-ready comment sorts last.
+ */
+export function pickLatestGatedTicket<T extends { since: string | null }>(
+  tickets: Map<string, T>,
+): { top: [string, T] | null; moreCount: number } {
+  if (tickets.size === 0) return { top: null, moreCount: 0 };
+  const sorted = Array.from(tickets.entries()).sort(([, a], [, b]) => {
+    const aTime = a.since ? new Date(a.since).getTime() : 0;
+    const bTime = b.since ? new Date(b.since).getTime() : 0;
+    return bTime - aTime;
+  });
+  return { top: sorted[0]!, moreCount: sorted.length - 1 };
+}
+
 function fmtCmd(argv: string[]): string {
   const joined = argv.join(" ");
   return joined.length > CMD_DISPLAY_MAX ? joined.slice(0, CMD_DISPLAY_MAX - 1) + "…" : joined;
@@ -1052,7 +1070,10 @@ export function AgentMode({
         )}
 
         {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
-        {Array.from(gatedTicketsRef.current.entries()).map(([changeName, g]) => {
+        {(() => {
+          const { top, moreCount } = pickLatestGatedTicket(gatedTicketsRef.current);
+          if (!top) return null;
+          const [changeName, g] = top;
           const askedAgo = g.since ? fmtElapsed(now - Date.parse(g.since)) : "just now";
           const cardLabelWidth = g.issueIdentifier.length + 2;
           const cardLabelNode = (
@@ -1063,33 +1084,38 @@ export function AgentMode({
             </>
           );
           return (
-            <LabeledBox
-              key={`gated-${changeName}`}
-              labelNode={cardLabelNode}
-              labelVisualWidth={cardLabelWidth}
-              borderColor="yellow"
-              paddingX={1}
-              gap={2}
-              width={termWidth}
-            >
-              <Text color="yellow" bold>
-                [GATE]
-              </Text>
-              <Text color="yellow">Awaiting confirmation</Text>
-              <Text dimColor>·</Text>
-              <Text dimColor>round</Text>
-              <Text color="white" bold>
-                {g.round}
-              </Text>
-              <Text dimColor>·</Text>
-              <Text dimColor>asked</Text>
-              <Text color="white">{askedAgo}</Text>
-              <Text dimColor>ago</Text>
-              <Text dimColor>│</Text>
-              <Text dimColor>{trunc(g.issueTitle, Math.max(20, termWidth - 70))}</Text>
-            </LabeledBox>
+            <>
+              <LabeledBox
+                key={`gated-${changeName}`}
+                labelNode={cardLabelNode}
+                labelVisualWidth={cardLabelWidth}
+                borderColor="yellow"
+                paddingX={1}
+                gap={2}
+                width={termWidth}
+              >
+                <Text color="yellow" bold>
+                  [GATE]
+                </Text>
+                <Text color="yellow">Awaiting confirmation</Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>round</Text>
+                <Text color="white" bold>
+                  {g.round}
+                </Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>asked</Text>
+                <Text color="white">{askedAgo}</Text>
+                <Text dimColor>ago</Text>
+                <Text dimColor>│</Text>
+                <Text dimColor>{trunc(g.issueTitle, Math.max(20, termWidth - 70))}</Text>
+              </LabeledBox>
+              {moreCount > 0 && (
+                <Text dimColor>{`  +${moreCount} more awaiting confirmation`}</Text>
+              )}
+            </>
           );
-        })}
+        })()}
 
         {/* ── Active worker cards ─────────────────────────────── */}
         {coord?.activeWorkers.map((w, idx) => {
