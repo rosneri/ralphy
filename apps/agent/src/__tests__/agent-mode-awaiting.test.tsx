@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import React from "react";
 import { render } from "ink-testing-library";
 import { initialCommonArgs } from "@ralphy/cli-args";
@@ -129,7 +130,10 @@ describe("AgentMode awaiting-confirmation", () => {
       }),
     );
     await flush();
-    const frame = lastFrame() ?? "";
+    // Strip ANSI styling: when color is enabled (e.g. FORCE_COLOR in CI) ink
+    // injects escape codes between the bucket label and its count, which would
+    // break the `\s+` regexes below even though the visible text is unchanged.
+    const frame = stripVTControlCharacters(lastFrame() ?? "");
     // Ink wraps long lines inside the POLL STATUS box on narrow widths and
     // splits words across rows. The bucket label fragments ("await" + "ing")
     // and the count appear in the same row, so we just look for both parts.
@@ -161,7 +165,7 @@ describe("AgentMode awaiting-confirmation", () => {
       }),
     );
     await flush();
-    const frame = lastFrame() ?? "";
+    const frame = stripVTControlCharacters(lastFrame() ?? "");
     // Ink wraps "[GATE]" across rows on narrow widths. Look for the visible
     // pieces (RLF-78 label + GATE prefix + round/asked indicators).
     expect(frame).toContain("RLF-78");

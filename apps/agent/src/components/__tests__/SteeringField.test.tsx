@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { stripVTControlCharacters } from "node:util";
 import React from "react";
 import { render } from "ink-testing-library";
 import { SteeringField } from "../SteeringField";
+
+// When color is enabled (e.g. FORCE_COLOR in CI) ink renders the character
+// under the cursor with an inverse-video escape, which splits the typed buffer
+// (e.g. "a\x1b[7mc\x1b[27md") and breaks substring assertions. Strip styling
+// before asserting so the tests check the visible text only.
+const strip = (f: string | undefined) => stripVTControlCharacters(f ?? "");
 
 const CTRL_S = "\x13"; // Ctrl+S = SOH (0x13)
 const ESC = "\x1b";
@@ -23,7 +30,7 @@ describe("SteeringField", () => {
         onSubmit: () => {},
       }),
     );
-    expect(lastFrame()).toContain("CTRL+S to steer");
+    expect(strip(lastFrame())).toContain("CTRL+S to steer");
     unmount();
   });
 
@@ -35,7 +42,7 @@ describe("SteeringField", () => {
         onSubmit: () => {},
       }),
     );
-    expect(lastFrame() ?? "").not.toContain("CTRL+S to steer");
+    expect(strip(lastFrame())).not.toContain("CTRL+S to steer");
     unmount();
   });
 
@@ -52,7 +59,7 @@ describe("SteeringField", () => {
     await flush();
     stdin.write("hello");
     await flush();
-    const frame = lastFrame() ?? "";
+    const frame = strip(lastFrame());
     expect(frame).toContain("hello");
     expect(frame).not.toContain("CTRL+S to steer");
     unmount();
@@ -73,7 +80,7 @@ describe("SteeringField", () => {
     await flush();
     stdin.write(ESC);
     await flush();
-    const frame = lastFrame() ?? "";
+    const frame = strip(lastFrame());
     expect(frame).toContain("CTRL+S to steer");
     expect(frame).not.toContain("draft");
     unmount();
@@ -98,7 +105,7 @@ describe("SteeringField", () => {
     stdin.write(ENTER);
     await flush();
     expect(calls).toEqual(["please prefer Bun APIs"]);
-    const frame = lastFrame() ?? "";
+    const frame = strip(lastFrame());
     expect(frame).not.toContain("please prefer Bun APIs");
     unmount();
   });
@@ -144,13 +151,13 @@ describe("SteeringField", () => {
     await flush();
     stdin.write(BACKSPACE);
     await flush();
-    let frame = lastFrame() ?? "";
+    let frame = strip(lastFrame());
     expect(frame).toContain("acd");
     stdin.write(RIGHT_ARROW);
     await flush();
     stdin.write("X");
     await flush();
-    frame = lastFrame() ?? "";
+    frame = strip(lastFrame());
     expect(frame).toContain("acXd");
     unmount();
   });
@@ -170,7 +177,7 @@ describe("SteeringField", () => {
     await flush();
     stdin.write(ENTER);
     await flush();
-    const frame = lastFrame() ?? "";
+    const frame = strip(lastFrame());
     expect(frame).toContain("send failed");
     unmount();
   });
@@ -190,7 +197,7 @@ describe("SteeringField", () => {
     await flush();
     stdin.write(BACKSPACE);
     await flush();
-    const frame = lastFrame() ?? "";
+    const frame = strip(lastFrame());
     expect(frame).toContain("abc");
     expect(frame).not.toMatch(/abcd[^e]/);
     unmount();
