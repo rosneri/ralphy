@@ -9,6 +9,7 @@ export interface ScriptedPr {
   mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
   mergeStateStatus?: string;
   checks?: { name: string; conclusion: string; status: string }[];
+  draft?: boolean;
 }
 
 export interface FakeGh {
@@ -61,7 +62,10 @@ export function createFakeGh(): FakeGh {
         if (!pr) {
           throw new Error(`scripted shim: no rule for \`gh pr view ${target}\``);
         }
-        return { stdout: JSON.stringify(pr), stderr: "" };
+        return {
+          stdout: JSON.stringify({ ...pr, isDraft: Boolean(pr.draft ?? false) }),
+          stderr: "",
+        };
       }
       if (sub === "pr" && sub2 === "edit") {
         const target = argv[3];
