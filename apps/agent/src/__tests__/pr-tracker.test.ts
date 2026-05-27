@@ -103,6 +103,27 @@ describe("PrTracker — state machine", () => {
     const state = await readState(freshRoot());
     expect(state).toEqual({});
   });
+
+  test("corrupt JSON in state file resolves to empty (no throw)", async () => {
+    const r = freshRoot();
+    await Bun.write(join(r, PR_TRACKER_STATE_RELPATH), "{ this is not json");
+    const state = await readState(r);
+    expect(state).toEqual({});
+  });
+
+  test("non-object JSON (e.g. an array) in state file resolves to empty", async () => {
+    const r = freshRoot();
+    await Bun.write(join(r, PR_TRACKER_STATE_RELPATH), "[1,2,3]");
+    const state = await readState(r);
+    expect(state).toEqual({});
+  });
+
+  test("JSON null in state file resolves to empty", async () => {
+    const r = freshRoot();
+    await Bun.write(join(r, PR_TRACKER_STATE_RELPATH), "null");
+    const state = await readState(r);
+    expect(state).toEqual({});
+  });
 });
 
 /* -------------------------------------------------------------------------- *

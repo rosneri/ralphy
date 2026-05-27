@@ -1,16 +1,16 @@
 import { readState, writeState, type PrTrackerState, type PrTrackerEntry } from "./state";
 
-export interface PrTrackerOptions {
+interface PrTrackerOptions {
   projectRoot: string;
   maxRecoveryAttempts: number;
   /** Injected clock for tests. */
   now?: () => Date;
 }
 
-export type FailureReason = "conflicting" | "ci_failed";
+type FailureReason = "conflicting" | "ci_failed";
 
 /** Outcome of recording a failure detection. */
-export type FailureDecision =
+type FailureDecision =
   | { kind: "demote"; attempts: number }
   | { kind: "bail"; attempts: number; firstBail: boolean };
 

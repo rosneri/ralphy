@@ -7,13 +7,11 @@
  * `ralph:error` after N attempts instead of bouncing forever.
  *
  * See `RLF-173` and `WORKFLOW.md` (`prTracker:` block) for the contract.
+ *
+ * Only the externally-consumed surface is re-exported here. Internal
+ * types (`FailureReason`, `FailureDecision`, `PrTrackerOptions`,
+ * `PrTrackerEntry`, `PrTrackerState`) stay module-private so knip
+ * doesn't flag them as unused public surface.
  */
 export { PrTracker } from "./tracker";
-export type { FailureReason, FailureDecision, PrTrackerOptions } from "./tracker";
-export {
-  readState,
-  writeState,
-  PR_TRACKER_STATE_RELPATH,
-  type PrTrackerEntry,
-  type PrTrackerState,
-} from "./state";
+export { readState, PR_TRACKER_STATE_RELPATH } from "./state";
