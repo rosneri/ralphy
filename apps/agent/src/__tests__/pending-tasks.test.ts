@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { orderSubtasksForCappedDisplay } from "../components/AgentMode";
+import { orderSubtasksForCappedDisplay, pickLatestGatedTicket } from "../components/AgentMode";
 import { parseSubtasks } from "../agent/state/worker-state-poll";
 
 describe("parseSubtasks", () => {
@@ -200,5 +200,53 @@ describe("orderSubtasksForCappedDisplay", () => {
     // never displaced by completed items even though done items dominate
     // the file by count.
     expect(ordered.slice(2).every((s) => s.done)).toBe(true);
+  });
+});
+
+describe("pickLatestGatedTicket", () => {
+  type Ticket = { since: string | null };
+
+  it("returns null top and moreCount 0 for an empty map", () => {
+    const result = pickLatestGatedTicket(new Map<string, Ticket>());
+    expect(result).toEqual({ top: null, moreCount: 0 });
+  });
+
+  it("returns the single entry with moreCount 0", () => {
+    const map = new Map<string, Ticket>([["change-a", { since: "2026-05-01T00:00:00.000Z" }]]);
+    const { top, moreCount } = pickLatestGatedTicket(map);
+    expect(moreCount).toBe(0);
+    expect(top).not.toBeNull();
+    expect(top![0]).toBe("change-a");
+  });
+
+  it("returns the entry with the newest since when multiple entries exist", () => {
+    const map = new Map<string, Ticket>([
+      ["change-a", { since: "2026-01-01T00:00:00.000Z" }],
+      ["change-b", { since: "2026-03-01T00:00:00.000Z" }],
+      ["change-c", { since: "2026-02-01T00:00:00.000Z" }],
+    ]);
+    const { top, moreCount } = pickLatestGatedTicket(map);
+    expect(top![0]).toBe("change-b");
+    expect(moreCount).toBe(2);
+  });
+
+  it("treats null since as epoch 0 (oldest)", () => {
+    const map = new Map<string, Ticket>([
+      ["change-a", { since: null }],
+      ["change-b", { since: "2026-01-01T00:00:00.000Z" }],
+    ]);
+    const { top, moreCount } = pickLatestGatedTicket(map);
+    expect(top![0]).toBe("change-b");
+    expect(moreCount).toBe(1);
+  });
+
+  it("treats two null since entries as tied (map insertion order preserved)", () => {
+    const map = new Map<string, Ticket>([
+      ["change-a", { since: null }],
+      ["change-b", { since: null }],
+    ]);
+    const { top, moreCount } = pickLatestGatedTicket(map);
+    expect(moreCount).toBe(1);
+    expect(top).not.toBeNull();
   });
 });
