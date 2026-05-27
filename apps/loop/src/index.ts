@@ -173,31 +173,11 @@ export async function taskMain(argv: string[]): Promise<number> {
   await mkdir(join(tasksDir, args.name), { recursive: true });
   await ensureRalphGitignore(projectRoot);
 
-  // Build a LoopParsedArgs-compatible object to reuse App rendering
-  const loopArgs = {
-    mode: "task" as const,
-    name: args.name,
-    prompt: args.prompt,
-    engine: args.engine,
-    model: args.model,
-    engineSet: args.engineSet,
-    maxIterations: args.maxIterations,
-    maxCostUsd: args.maxCostUsd,
-    maxRuntimeMinutes: args.maxRuntimeMinutes,
-    maxConsecutiveFailures: args.maxConsecutiveFailures,
-    delay: args.delay,
-    log: args.log,
-    verbose: args.verbose,
-    projectRoot: args.projectRoot,
-    manualTest: false,
-    fromAgent: args.fromAgent,
-    reviewPhase: { enabled: false, maxRounds: 1, reviewerContextStrategy: "fresh" as const },
-  };
-
+  // parseTaskArgs returns a LoopParsedArgs superset, so App consumes it directly.
   await runWithContext(createDefaultContext(), async () => {
     const { waitUntilExit } = render(
       createElement(App, {
-        args: loopArgs,
+        args,
         statesDir,
         tasksDir,
         projectRoot,

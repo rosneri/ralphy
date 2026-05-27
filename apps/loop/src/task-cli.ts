@@ -4,15 +4,18 @@ import {
   initialCommonArgs,
   parseCommonArg,
   emptyParseState,
-  type CommonArgs,
+  resolvePromptFile,
 } from "@ralphy/cli-args";
+import type { LoopParsedArgs } from "./cli";
 import type { TaskPhase } from "./loop";
 
-interface TaskParsedArgs extends CommonArgs {
+/**
+ * Task args are a superset of loop args: a single phase plus everything the
+ * loop runner needs. Extending `LoopParsedArgs` lets `taskMain` hand the parsed
+ * result straight to `App` without rebuilding a loop-args object by hand.
+ */
+interface TaskParsedArgs extends LoopParsedArgs {
   phase: TaskPhase;
-  name: string;
-  prompt: string;
-  fromAgent: boolean;
 }
 
 const VALID_PHASES = new Set<string>(["research", "plan", "execute", "review"]);
@@ -58,62 +61,29 @@ export async function parseTaskArgs(argv: string[]): Promise<TaskParsedArgs> {
   const common = initialCommonArgs();
   const result: TaskParsedArgs = {
     ...common,
+    mode: "task",
     phase: "execute",
-    name: "",
-    prompt: "",
-    fromAgent: false,
+    manualTest: false,
+    reviewPhase: { enabled: false, maxRounds: 1, reviewerContextStrategy: "fresh" },
   };
 
   const state = emptyParseState();
-  let expectName = false;
-  let expectPrompt = false;
-  let expectPromptFile = false;
   let phaseSet = false;
 
   for (const arg of argv) {
-    if (expectName) {
-      result.name = arg;
-      expectName = false;
-      continue;
-    }
-    if (expectPrompt) {
-      result.prompt = arg;
-      expectPrompt = false;
-      continue;
-    }
-    if (expectPromptFile) {
-      result.prompt = await Bun.file(arg).text();
-      expectPromptFile = false;
-      continue;
-    }
-
     if (parseCommonArg(arg, result, state)) continue;
 
-    switch (arg) {
-      case "--name":
-        expectName = true;
-        break;
-      case "--prompt":
-        expectPrompt = true;
-        break;
-      case "--prompt-file":
-        expectPromptFile = true;
-        break;
-      case "--from-agent":
-        result.fromAgent = true;
-        break;
-      default:
-        if (VALID_PHASES.has(arg)) {
-          result.phase = arg as TaskPhase;
-          phaseSet = true;
-        } else {
-          throw new Error(
-            `Unknown argument: '${arg}'. Run 'ralphy task --help' for usage information.`,
-          );
-        }
-        break;
+    if (VALID_PHASES.has(arg)) {
+      result.phase = arg as TaskPhase;
+      phaseSet = true;
+    } else {
+      throw new Error(
+        `Unknown argument: '${arg}'. Run 'ralphy task --help' for usage information.`,
+      );
     }
   }
+
+  await resolvePromptFile(result, state);
 
   if (!phaseSet) {
     throw new Error(

@@ -4,6 +4,7 @@ import {
   initialCommonArgs,
   parseCommonArg,
   emptyParseState,
+  resolvePromptFile,
   type CommonArgs,
 } from "@ralphy/cli-args";
 
@@ -20,11 +21,7 @@ export interface ReviewPhaseArgs {
 
 export interface LoopParsedArgs extends CommonArgs {
   mode: LoopMode;
-  name: string;
-  prompt: string;
   manualTest: boolean;
-  /** Set when spawned by the agent app — flips on PR creation for the task. */
-  fromAgent: boolean;
   /** Review phase configuration forwarded from the workflow config. */
   reviewPhase: ReviewPhaseArgs;
 }
@@ -84,10 +81,7 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
   const result: LoopParsedArgs = {
     ...common,
     mode: "task",
-    name: "",
-    prompt: "",
     manualTest: false,
-    fromAgent: false,
     reviewPhase: {
       enabled: false,
       maxRounds: 1,
@@ -96,29 +90,11 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
   };
 
   const state = emptyParseState();
-  let expectName = false;
-  let expectPrompt = false;
-  let expectPromptFile = false;
   let expectReviewModel = false;
   let expectReviewMaxRounds = false;
   let expectReviewContextStrategy = false;
 
   for (const arg of argv) {
-    if (expectName) {
-      result.name = arg;
-      expectName = false;
-      continue;
-    }
-    if (expectPrompt) {
-      result.prompt = arg;
-      expectPrompt = false;
-      continue;
-    }
-    if (expectPromptFile) {
-      result.prompt = await Bun.file(arg).text();
-      expectPromptFile = false;
-      continue;
-    }
     if (expectReviewModel) {
       result.reviewPhase.reviewerModel = arg;
       result.reviewPhase.enabled = true;
@@ -142,20 +118,8 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
     if (parseCommonArg(arg, result, state)) continue;
 
     switch (arg) {
-      case "--name":
-        expectName = true;
-        break;
-      case "--prompt":
-        expectPrompt = true;
-        break;
-      case "--prompt-file":
-        expectPromptFile = true;
-        break;
       case "--manual-test":
         result.manualTest = true;
-        break;
-      case "--from-agent":
-        result.fromAgent = true;
         break;
       case "--review-enabled":
         result.reviewPhase.enabled = true;
@@ -178,6 +142,8 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
         break;
     }
   }
+
+  await resolvePromptFile(result, state);
 
   return result;
 }
