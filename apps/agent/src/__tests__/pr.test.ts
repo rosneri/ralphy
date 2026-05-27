@@ -233,6 +233,36 @@ describe("createPullRequest", () => {
     expect(result?.blockedFiles).toEqual(["docs/notes.md"]);
   });
 
+  test("passes --draft to gh pr create when draft: true", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/99\n" },
+    });
+    const result = await createPullRequest(
+      { cwd: "/wt", branch: "ralph/eng-7", issue, draft: true },
+      runner,
+    );
+    expect(result).toEqual({ url: "https://github.com/foo/bar/pull/99", created: true });
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall).toBeDefined();
+    expect(createCall).toContain("--draft");
+  });
+
+  test("does not pass --draft to gh pr create when draft: false", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/100\n" },
+    });
+    await createPullRequest({ cwd: "/wt", branch: "ralph/eng-7", issue, draft: false }, runner);
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall).toBeDefined();
+    expect(createCall).not.toContain("--draft");
+  });
+
   test("propagates push failure", async () => {
     const { runner } = makeRunner({
       "git log --oneline main..HEAD": { stdout: "abc x\n" },

@@ -92,6 +92,13 @@ export function createFakeGh(): FakeGh {
         pr.state = "MERGED";
         return { stdout: "", stderr: "" };
       }
+      if (sub === "pr" && sub2 === "ready") {
+        const target = argv[3];
+        const pr = byUrl.get(target ?? "");
+        if (!pr) throw new Error(`scripted shim: no rule for \`gh pr ready ${target ?? ""}\``);
+        pr.draft = false;
+        return { stdout: "", stderr: "" };
+      }
       if (sub === "api") {
         throw new Error(`scripted shim: no rule for \`gh api ${argv.slice(2).join(" ")}\``);
       }

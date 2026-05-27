@@ -16,6 +16,8 @@ interface CreatePrInput {
    *  When every file in the base..HEAD diff matches one of these, the PR is
    *  blocked instead of opened — the substantive change has been lost. */
   metaOnlyFiles?: string[];
+  /** When true, creates the PR as a draft (`--draft`). */
+  draft?: boolean;
 }
 
 type CreatePrBlockedReason = "only-meta";
@@ -233,10 +235,9 @@ export async function createPullRequest(
 
   const title = defaultTitle(input.issue);
   const body = defaultBody(input.issue, input.branch);
-  const created = await runner.run(
-    ["gh", "pr", "create", "--base", base, "--title", title, "--body", body],
-    input.cwd,
-  );
+  const createArgs = ["gh", "pr", "create", "--base", base, "--title", title, "--body", body];
+  if (input.draft) createArgs.push("--draft");
+  const created = await runner.run(createArgs, input.cwd);
   const url = created.stdout.trim().split("\n").pop() ?? "";
   return { url, created: true };
 }

@@ -62,6 +62,7 @@ export interface LoopOptions {
   verbose: boolean;
   manualTest: boolean;
   createPr?: boolean;
+  prDraft?: boolean;
   statesDir: string;
   tasksDir: string;
   changeStore: LoopChangeStore;
@@ -226,7 +227,8 @@ export function buildTaskPrompt(
   if (state.createPr) {
     prompt += `\nWhen all tasks are complete and all files are committed, push your branch and open a pull request:\n`;
     prompt += `  git push -u origin HEAD\n`;
-    prompt += `  gh pr create --title "${state.name}" --body "Summary of changes for ${state.name}"\n`;
+    const draftFlag = state.prDraft ? " --draft" : "";
+    prompt += `  gh pr create${draftFlag} --title "${state.name}" --body "Summary of changes for ${state.name}"\n`;
     prompt += `Use the change name as the PR title and write a concise summary of the implementation in the body.\n`;
   }
 

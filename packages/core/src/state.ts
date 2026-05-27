@@ -68,6 +68,7 @@ export interface BuildInitialStateOptions {
   model?: string;
   manualTest?: boolean;
   createPr?: boolean;
+  prDraft?: boolean;
 }
 
 /**
@@ -98,6 +99,7 @@ export function buildInitialState(options: BuildInitialStateOptions): State {
     model: options.model ?? "opus",
     manualTest: options.manualTest ?? false,
     createPr: options.createPr ?? false,
+    prDraft: options.prDraft ?? false,
     createdAt: now,
     lastModified: now,
     metadata: { branch },

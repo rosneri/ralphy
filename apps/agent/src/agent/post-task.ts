@@ -73,6 +73,9 @@ interface PostTaskInput {
      *  passes and merge it via plain `gh pr merge` instead of silently
      *  giving up on the requested auto-merge. Defaults to true. */
     manualMergeWhenAutoMergeDisabled?: boolean;
+    /** When true, create the PR as a draft and call `gh pr ready` after CI
+     *  passes before enabling auto-merge. */
+    prDraft?: boolean;
     /** Shell commands to run when `wantValidateOnly` is true. Each command
      *  is run in order; the first failure triggers a fix task. */
     validateCommands?: string[];
@@ -102,6 +105,7 @@ export type PostTaskPhase =
   | "conflict-fix-inner"
   | "ci-poll"
   | "ci-fix"
+  | "pr-ready"
   | "validate"
   | "validate-fix"
   | "cleanup"
@@ -379,6 +383,7 @@ async function createPrWithRetry(
           issue,
           base,
           metaOnlyFiles: ctx.cfg.metaOnlyFiles ?? [],
+          draft: ctx.cfg.prDraft ?? false,
         },
         ctx.cmd,
       );
@@ -896,7 +901,9 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   registerPr?.(changeName, prUrl);
 
   let manualMergePending = false;
-  if (wantAutoMerge) {
+  const prReadyNeeded = cfg.prDraft === true;
+
+  if (!prReadyNeeded && wantAutoMerge) {
     const fallbackEnabled = cfg.manualMergeWhenAutoMergeDisabled !== false;
     const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
 
@@ -921,10 +928,25 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
         }
       }
     }
+  } else if (prReadyNeeded && wantAutoMerge) {
+    // Defer merge: draft PRs can't use --auto; we'll merge after gh pr ready.
+    manualMergePending = true;
   }
 
   const ciResult = await fixConflictsAndCiLoop(ctx, prUrl, wantFixCi, checkPrConflict);
   if (ciResult !== 0) return ciResult;
+
+  if (prReadyNeeded) {
+    emit("pr-ready");
+    try {
+      await cmd.run(["gh", "pr", "ready", prUrl], cwd);
+      log(`  converted ${prUrl} from draft to ready`, "green");
+    } catch (err) {
+      const e = err as Error & { stderr?: string };
+      log(`! gh pr ready failed for ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
+      manualMergePending = false;
+    }
+  }
 
   if (manualMergePending) {
     try {
