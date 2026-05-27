@@ -9,7 +9,7 @@ import { join } from "node:path";
  * when the PR transitions to mergeable / merged, or when a human clears
  * the `ralph:error` label out-of-band.
  */
-interface PrTrackerEntry {
+export interface PrTrackerEntry {
   attempts: number;
   firstFailedAt: string;
   lastDemotedAt: string;
@@ -18,7 +18,7 @@ interface PrTrackerEntry {
   lastReason?: "conflicting" | "ci_failed";
 }
 
-type PrTrackerState = Record<string, PrTrackerEntry>;
+export type PrTrackerState = Record<string, PrTrackerEntry>;
 
 export const PR_TRACKER_STATE_RELPATH = ".ralph/pr-tracker-state.json";
 
