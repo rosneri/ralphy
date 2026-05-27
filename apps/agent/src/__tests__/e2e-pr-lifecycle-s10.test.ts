@@ -883,7 +883,6 @@ describe("S10 — PR lifecycle", () => {
 
     // Stage-2-correct: only the correct PR URL was used for gh pr view
     // Wrong PR URL should NOT appear in ghCalls
-    const viewCalls = runners.cmd ? [] : [];
     // We'll check spawnCalls is empty (issue is Done, no conflict detected)
     // and that if gh pr view was called, it used the correct URL
     expect(spawnCalls.length).toBe(0); // Done issue, no work to do
