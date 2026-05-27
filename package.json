@@ -1,6 +1,6 @@
 {
   "name": "@neriros/ralphy",
-  "version": "3.8.12",
+  "version": "3.8.13",
   "description": "An iterative AI task execution framework. Orchestrates multi-phase autonomous work using Claude or Codex engines.",
   "keywords": [
     "agent",
@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/NeriRos/ralphy.git"
+    "url": "https://github.com/rosneri/ralphy.git"
   },
   "bin": {
     "ralphy": "./dist/shell/index.js",
