@@ -101,7 +101,6 @@ export class OpenSpecChangeStore implements ChangeStore {
     }
 
     const changesDir = join("openspec", "changes");
-    if (!(await Bun.file(changesDir).exists())) return [];
     try {
       const entries = await readdir(changesDir, { withFileTypes: true });
       return entries
