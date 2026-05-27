@@ -8,6 +8,7 @@ import { createNoopBus } from "@ralphy/events";
 import { registry as featureRegistry } from "../features/registry";
 import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
 import type { FeatureCtx, FeatureId } from "../features/types";
+import type { PrTracker } from "../features/pr-tracker";
 
 /**
  * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
@@ -222,6 +223,12 @@ interface CoordinatorOptions {
   /** When set, conflict-fix items whose issue matches this indicator are
    *  promoted to the head of the queue, ahead of Linear priority. */
   getAutoMerge?: GetIndicator | undefined;
+  /** Optional pr-tracker (RLF-173). When provided, the merge-state scan
+   *  records every CONFLICTING / CI-failed detection and bails to
+   *  `setError` once `maxRecoveryAttempts` is exceeded. Healthy
+   *  (mergeable) PRs clear their counter. Absence preserves the legacy
+   *  "demote forever" behavior. */
+  prTracker?: PrTracker | undefined;
 }
 
 export interface ActiveWorker {
@@ -764,8 +771,22 @@ export class AgentCoordinator {
       else if (pr.status === "conflicted") counts.conflicted += 1;
       else if (pr.status === "ci_failed") counts.ciFailed += 1;
 
+      // pr-tracker (RLF-173): mergeable PR clears any prior recovery
+      // counter so a future regression starts fresh.
+      if (pr.status === "mergeable" && this.opts.prTracker) {
+        try {
+          await this.opts.prTracker.clear(issue.identifier);
+        } catch (err) {
+          this.deps.onLog(
+            `! pr-tracker clear failed for ${issue.identifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
+
       if (pr.status === "conflicted") {
         if (this.conflictNotified.has(issue.id)) continue;
+        if (await this.prTrackerBail(issue, pr.url, "conflicting")) continue;
         emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
         this.conflictNotified.add(issue.id);
         this.deps.onLog(
@@ -795,6 +816,7 @@ export class AgentCoordinator {
 
       if (pr.status === "ci_failed") {
         if (this.ciFailedNotified.has(issue.id)) continue;
+        if (await this.prTrackerBail(issue, pr.url, "ci_failed")) continue;
         emitCapture(this.bus, "agent_ci_failed_detected", { issue_identifier: issue.identifier });
         this.ciFailedNotified.add(issue.id);
         this.deps.onLog(
@@ -823,6 +845,75 @@ export class AgentCoordinator {
     }
 
     return counts;
+  }
+
+  /**
+   * pr-tracker gate (RLF-173). Returns `true` when the caller should
+   * SKIP queueing the recovery worker — either because the issue is
+   * already bailed, or because this detection just tipped it over the
+   * `maxRecoveryAttempts` threshold (in which case `setError` is applied
+   * and a Linear comment is posted exactly once). Returns `false` when
+   * the caller should proceed with its normal demote-to-queue path.
+   *
+   * Falls back to "proceed" (returns false) when no tracker is wired or
+   * when the tracker itself throws — the legacy behavior should never
+   * regress on tracker failures.
+   */
+  private async prTrackerBail(
+    issue: LinearIssue,
+    prUrl: string,
+    reason: "conflicting" | "ci_failed",
+  ): Promise<boolean> {
+    const tracker = this.opts.prTracker;
+    if (!tracker) return false;
+    let decision: Awaited<ReturnType<typeof tracker.recordFailure>>;
+    try {
+      decision = await tracker.recordFailure(issue.identifier, reason);
+    } catch (err) {
+      this.deps.onLog(
+        `! pr-tracker record failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+      return false;
+    }
+    if (decision.kind === "demote") return false;
+
+    if (decision.firstBail) {
+      this.deps.onLog(
+        `  ${issue.identifier}: pr-tracker bailing after ${decision.attempts} recovery attempts (${reason}) — applying setError`,
+        "red",
+      );
+      emitCapture(this.bus, "agent_pr_tracker_bailed", {
+        issue_identifier: issue.identifier,
+        reason,
+        attempts: decision.attempts,
+      });
+      if (this.opts.setError) {
+        try {
+          await this.deps.applyIndicator(issue, this.opts.setError);
+        } catch (err) {
+          this.deps.onLog(
+            `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
+      if (this.opts.postComments !== false) {
+        const human = reason === "conflicting" ? "merge conflicts" : "failing CI";
+        try {
+          await this.deps.postComment(
+            issue,
+            `❌ Ralph gave up auto-recovering this PR (${prUrl}) after ${decision.attempts} attempts — last failure: ${human}. The \`ralph:error\` label has been applied; clear it (or merge the PR) once a human has looked at it.`,
+          );
+        } catch (err) {
+          this.deps.onLog(
+            `! Linear bail comment failed for ${issue.identifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+      }
+    }
+    return true;
   }
 
   spawnNext(): void {

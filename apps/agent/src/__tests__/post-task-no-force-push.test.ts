@@ -68,11 +68,8 @@ function assertNoForceOrRebase(calls: string[][]): void {
   for (const c of calls) {
     expect(c).not.toContain("--force");
     expect(c).not.toContain("--force-with-lease");
-    for (const a of c) {
-      if (a === "rebase" || a === "--rebase") {
-        throw new Error(`Unexpected rebase in: ${c.join(" ")}`);
-      }
-    }
+    expect(c).not.toContain("rebase");
+    expect(c).not.toContain("--rebase");
   }
 }
 

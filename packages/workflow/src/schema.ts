@@ -251,6 +251,22 @@ export const WorkflowConfigSchema = z.object({
       label: "ralph:pre-existing-error",
       outputCharLimit: 4000,
     }),
+  /** RLF-173: scheduler-tier watcher that auto-recovers In-Review PRs
+   *  whose merge state goes red. Bails to `ralph:error` after
+   *  `maxRecoveryAttempts` failed recovery attempts so a stubbornly
+   *  broken PR can't bounce forever. */
+  prTracker: z
+    .object({
+      enabled: z.boolean().default(true),
+      maxRecoveryAttempts: z.number().int().positive().default(3),
+      advanceMergedToDone: z.boolean().default(false),
+    })
+    .strict()
+    .default({
+      enabled: true,
+      maxRecoveryAttempts: 3,
+      advanceMergedToDone: false,
+    }),
   openspec: z
     .object({
       reviewPhase: z
