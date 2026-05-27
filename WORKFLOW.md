@@ -94,6 +94,24 @@ stackPrsOnDependencies: true
 # Seconds between CI status polls.
 ciPollIntervalSeconds: 60
 
+# RLF-173: scheduler-tier watcher for In-Review PRs whose merge state goes
+# red (CONFLICTING or CI-failed). When enabled, each scheduler tick rolls
+# the existing gh-driven merge-state scan through a persistent attempt
+# counter stored at `.ralph/pr-tracker-state.json` (keyed by Linear issue
+# identifier). Each detected failure increments the counter and demotes
+# the issue back to In Progress so the conflict-fix / ci-fix worker picks
+# it up. Once the counter exceeds `maxRecoveryAttempts`, ralphy stops
+# auto-demoting that issue, applies the `ralph:error` (`setError`) label,
+# and posts a Linear comment explaining why — preventing a stubbornly
+# broken PR from bouncing forever. The counter resets when the PR returns
+# to a mergeable state, or when a human clears `ralph:error` and removes
+# the state file entry. Pass `--no-pr-tracker` to disable for a single
+# run without editing WORKFLOW.md.
+prTracker:
+  enabled: true
+  maxRecoveryAttempts: 3
+  advanceMergedToDone: false
+
 # Underlying engine: "claude" or "codex".
 engine: claude
 

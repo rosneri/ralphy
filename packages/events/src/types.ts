@@ -142,6 +142,13 @@ export type RalphEvent =
       issue_identifier: string;
     }
   | {
+      type: "agent_pr_tracker_bailed";
+      ts: number;
+      issue_identifier: string;
+      reason: "conflicting" | "ci_failed";
+      attempts: number;
+    }
+  | {
       type: "agent_prepare_failed";
       ts: number;
       [k: string]: unknown;

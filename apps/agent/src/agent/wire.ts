@@ -23,6 +23,7 @@ import { createMentionScanner, isChangeArchivedForIssue } from "./wire/mention-s
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
+import { PrTracker } from "../features/pr-tracker";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -279,6 +280,19 @@ export function buildAgentCoordinator(
     };
   }
 
+  // pr-tracker (RLF-173): persistent recovery counter for In-Review PRs.
+  // Disabled when the user passes `--no-pr-tracker` or sets
+  // `prTracker.enabled: false` in WORKFLOW.md. Lazily-loaded state file
+  // means the first `recordFailure` call materializes `.ralph/pr-tracker-state.json`.
+  const prTrackerEnabled =
+    args.prTrackerEnabled === undefined ? cfg.prTracker.enabled : args.prTrackerEnabled;
+  const prTracker = prTrackerEnabled
+    ? new PrTracker({
+        projectRoot,
+        maxRecoveryAttempts: cfg.prTracker.maxRecoveryAttempts,
+      })
+    : null;
+
   const commentSync = createCommentSyncHooks({
     apiKey,
     cfg,
@@ -341,6 +355,7 @@ export function buildAgentCoordinator(
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
+      ...(prTracker ? { prTracker } : {}),
     },
   );
 

@@ -68,13 +68,8 @@ function assertNoForceOrRebase(calls: string[][]): void {
   for (const c of calls) {
     expect(c).not.toContain("--force");
     expect(c).not.toContain("--force-with-lease");
-    for (const a of c) {
-      if (a === "rebase" || a === "--rebase") {
-        const err = new Error("Unexpected rebase in git invocation");
-        (err as Error & { command?: string[] }).command = c;
-        throw err;
-      }
-    }
+    expect(c).not.toContain("rebase");
+    expect(c).not.toContain("--rebase");
   }
 }
 
