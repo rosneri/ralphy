@@ -864,6 +864,202 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
   });
 });
 
+describe("runPrPhase — prDraft behavior", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-prdraft-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+    _resetRepoAutoMergeCache();
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const baseCfg = {
+    teardownScript: null,
+    prBaseBranch: "main",
+    autoMergeStrategy: "squash" as const,
+    maxCiFixAttempts: 3,
+    ciPollIntervalSeconds: 0,
+    cleanupWorktreeOnSuccess: false,
+    ignoreCiChecks: [],
+    stackPrsOnDependencies: false,
+    neverTouch: [],
+  };
+
+  test("prDraft=true calls gh pr ready after CI passes", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/200";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      "gh pr ready": { stdout: "" },
+    });
+
+    const phases: string[] = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: true,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, prDraft: true },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: (p) => phases.push(p),
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall).toBeDefined();
+    expect(createCall).toContain("--draft");
+    const readyCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "ready");
+    expect(readyCall).toBeDefined();
+    expect(readyCall).toContain(prUrl);
+    expect(phases).toContain("pr-ready");
+  });
+
+  test("prDraft=true + wantAutoMerge defers merge until after gh pr ready", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/201";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      "gh pr ready": { stdout: "" },
+      "gh pr merge": { stdout: "" },
+    });
+
+    const phases: string[] = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: true,
+        wantAutoMerge: true,
+        cfg: { ...baseCfg, prDraft: true },
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: (p, d) => phases.push(d ? `${p}:${d}` : p),
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+    // gh pr merge --auto must NOT have been called (deferred).
+    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
+    expect(mergeCalls.some((c) => c.includes("--auto"))).toBe(false);
+    // gh pr ready must come before gh pr merge.
+    const readyIdx = calls.findIndex((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "ready");
+    const mergeIdx = calls.findIndex((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
+    expect(readyIdx).toBeGreaterThan(-1);
+    expect(mergeIdx).toBeGreaterThan(readyIdx);
+    expect(phases).toContain("auto-merge-enabled:manual:squash");
+  });
+
+  test("prDraft=false has no gh pr ready call", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/202";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+    });
+
+    await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: { ...baseCfg, prDraft: false },
+      },
+      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+    );
+
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "ready")).toBeUndefined();
+    const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
+    expect(createCall).not.toContain("--draft");
+  });
+
+  test("gh pr ready failure logs warning and skips auto-merge", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/203";
+    const { cmd, calls } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "abc work" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: prUrl },
+      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      "gh pr ready": { throw: true, stderr: "pr ready failed" },
+    });
+
+    const logged: Array<{ text: string; color?: string | undefined }> = [];
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: true,
+        wantAutoMerge: true,
+        cfg: { ...baseCfg, prDraft: true },
+      },
+      {
+        cmd,
+        log: (text, color) => logged.push({ text, color }),
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+    const warnLine = logged.find(
+      (l) => l.color === "yellow" && l.text.includes("gh pr ready failed"),
+    );
+    expect(warnLine).toBeDefined();
+    // auto-merge should be skipped after pr ready failure.
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
+  });
+});
+
 describe("runPrPhase — only-meta diff guard", () => {
   let tmpDir: string;
   let changeDir: string;
