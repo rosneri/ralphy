@@ -2,7 +2,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@neriros/ralphy.svg)](https://www.npmjs.com/package/@neriros/ralphy)
 [![npm downloads](https://img.shields.io/npm/dm/@neriros/ralphy.svg)](https://www.npmjs.com/package/@neriros/ralphy)
-[![license](https://img.shields.io/npm/l/@neriros/ralphy.svg)](https://github.com/NeriRos/ralphy/blob/main/LICENSE)
+[![license](https://img.shields.io/npm/l/@neriros/ralphy.svg)](https://github.com/rosneri/ralphy/blob/main/LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
 
 An iterative AI task execution framework. Ralphy runs Claude or Codex in a checklist-driven loop with state on disk, cost safeguards, and a long-lived **agent** that polls Linear, opens PRs, and iterates with reviewers.
