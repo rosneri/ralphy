@@ -140,6 +140,11 @@ export const WorkflowConfigSchema = z.object({
   stackPrsOnDependencies: z.boolean().default(false),
   autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
   manualMergeWhenAutoMergeDisabled: z.boolean().default(true),
+  /** When a branch's entire history touched only meta files (openspec, tasks.md,
+   *  etc.), the requested work is already on the base branch or was a no-op.
+   *  When true (default), finalize the ticket as done with a "no changes needed"
+   *  comment instead of respawning a doomed reapply loop and quarantining it. */
+  finalizeNoOpAsDone: z.boolean().default(true),
   fixCiOnFailure: z.boolean().default(false),
   maxCiFixAttempts: z.number().int().positive().default(5),
   ciPollIntervalSeconds: z.number().int().positive().default(30),

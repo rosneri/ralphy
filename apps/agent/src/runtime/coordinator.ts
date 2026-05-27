@@ -1,5 +1,6 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "../agent/linear";
+import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { compareQueueEntries, defaultPriorityFor, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
@@ -25,6 +26,41 @@ function emitCapture<T extends RalphEvent["type"]>(
 }
 
 export type { QueueTrigger, MentionTrigger } from "../queue/queue-order";
+
+/** Build the Linear completion comment for a finished worker. Split out to
+ *  keep the three outcomes (no-op done / success / quarantined failure) as a
+ *  flat branch rather than nested ternaries. */
+function completionCommentBody(args: {
+  noChanges: boolean;
+  ok: boolean;
+  trigger: QueueTrigger;
+  changeName: string;
+  code: number;
+}): string {
+  const { noChanges, ok, trigger, changeName, code } = args;
+  if (noChanges) {
+    return (
+      `ℹ️ Ralph completed all tasks for this issue but produced no code changes — ` +
+      `the requested work appears to already be present on the base branch (or was a ` +
+      `no-op). No PR was opened. Change: \`${changeName}\`\n\n` +
+      `Marking this done; please verify the work is genuinely in place. If it is not, ` +
+      `reopen the issue with more specifics.`
+    );
+  }
+  if (!ok) {
+    return (
+      `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
+      `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
+      `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the ` +
+      `underlying failure, then remove the error marker on this Linear issue (or run ` +
+      `\`ralph clean --name ${changeName}\`) to clear the quarantine.`
+    );
+  }
+  if (trigger === "conflict-fix") {
+    return `✅ Ralph resolved merge conflicts on this issue. Change: \`${changeName}\``;
+  }
+  return `✅ Ralph completed work on this issue. Change: \`${changeName}\``;
+}
 
 /** Spawn shape — same as before. */
 interface WorkerHandle {
@@ -1141,7 +1177,7 @@ export class AgentCoordinator {
         this.spawnNext();
         return;
       }
-      const ok = code === 0;
+      const ok = code === 0 || code === NO_CHANGES_EXIT;
       this.deps.onLog(
         `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
         ok ? "green" : "red",
@@ -1229,7 +1265,11 @@ export class AgentCoordinator {
     code: number,
     trigger: QueueTrigger,
   ): Promise<void> {
-    const ok = code === 0;
+    // NO_CHANGES_EXIT (no-op: branch only ever touched meta files, work already
+    // on base) is finalized as a success — done with an honest comment — not a
+    // quarantined failure. Treat it like `ok` for task sync and finalization.
+    const noChanges = code === NO_CHANGES_EXIT;
+    const ok = code === 0 || noChanges;
     if (this.deps.syncTasks && ok) {
       const synthetic: ActiveWorker = {
         changeName,
@@ -1261,15 +1301,7 @@ export class AgentCoordinator {
       }
     }
     if (this.opts.postComments !== false) {
-      const body = ok
-        ? trigger === "conflict-fix"
-          ? `✅ Ralph resolved merge conflicts on this issue. Change: \`${changeName}\``
-          : `✅ Ralph completed work on this issue. Change: \`${changeName}\``
-        : `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
-          `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
-          `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the ` +
-          `underlying failure, then remove the error marker on this Linear issue (or run ` +
-          `\`ralph clean --name ${changeName}\`) to clear the quarantine.`;
+      const body = completionCommentBody({ noChanges, ok, trigger, changeName, code });
       try {
         await this.deps.postComment(issue, body);
         this.deps.onLog(`  ${issue.identifier}: posted completion comment`, "gray");

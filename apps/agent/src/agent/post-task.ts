@@ -20,6 +20,16 @@ import type { FeatureCtx } from "../features/types";
 const CI_FAILED_EXIT = 70;
 /** Worker exited 0 but the residual-commit / push / PR-create path failed. */
 const PR_FAILED_EXIT = 71;
+/**
+ * Worker exited 0 and finished its tasks, but the branch never touched a
+ * non-meta file across its whole history — the requested work is already on
+ * the base branch (or was a no-op). Distinct from success-with-PR (0) and
+ * failure (70/71): no PR is opened and the ticket is finalized as done with
+ * an honest "no changes needed" comment rather than quarantined. See
+ * `runPrPhase`'s `blocked: "no-op"` handling and the coordinator's
+ * `notifyExited`.
+ */
+export const NO_CHANGES_EXIT = 72;
 
 /**
  * Spawn trigger the worker ran under. Threaded through from the coordinator
@@ -69,6 +79,11 @@ interface PostTaskInput {
      *  contains only meta files, the PR is blocked and a fix task is
      *  prepended so the worker restores the substantive change. */
     metaOnlyFiles?: string[];
+    /** When true (default), a branch whose entire history touched only meta
+     *  files is finalized as done with a "no changes needed" comment instead
+     *  of being quarantined as a lost implementation. Set false to restore the
+     *  legacy reapply-then-quarantine behavior. */
+    finalizeNoOpAsDone?: boolean;
     /** When the repo has `allow_auto_merge: false`, poll the PR after CI
      *  passes and merge it via plain `gh pr merge` instead of silently
      *  giving up on the requested auto-merge. Defaults to true. */
@@ -100,6 +115,7 @@ export type PostTaskPhase =
   | "merging"
   | "pr-create"
   | "pr-only-meta"
+  | "pr-skipped-noop"
   | "auto-merge-enabled"
   | "conflict-check"
   | "conflict-fix-inner"
@@ -894,10 +910,25 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   const maxOuterAttempts = cfg.maxCiFixAttempts;
   let onlyMetaAttempts = 0;
   let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
+  const finalizeNoOpAsDone = cfg.finalizeNoOpAsDone !== false;
   while (true) {
     const attempt = await createPrWithRetry(ctx, issue);
     if (attempt.gaveUp) return PR_FAILED_EXIT;
-    if (attempt.pr?.blocked === "only-meta") {
+    if (attempt.pr?.blocked === "no-op" && finalizeNoOpAsDone) {
+      const files = attempt.pr.blockedFiles ?? [];
+      emit("pr-skipped-noop", `${files.length} meta file(s)`);
+      log(
+        `  ${changeName}: branch touched only meta files across its whole history — ` +
+          `the requested work appears already present on ${base} (or was a no-op). ` +
+          `Finalizing as done without a PR.`,
+        "yellow",
+      );
+      for (const f of files) log(`    ${f}`, "gray");
+      return NO_CHANGES_EXIT;
+    }
+    // When finalizeNoOpAsDone is disabled, a "no-op" branch falls through to
+    // the legacy reapply-then-quarantine path below alongside "only-meta".
+    if (attempt.pr?.blocked === "only-meta" || attempt.pr?.blocked === "no-op") {
       onlyMetaAttempts += 1;
       const files = attempt.pr.blockedFiles ?? [];
       emit("pr-only-meta", `${files.length} meta file(s)`);
@@ -1415,10 +1446,10 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     );
   }
 
-  emit(
-    effectiveCode === 0 ? "done" : "gave-up",
-    effectiveCode !== 0 ? `exit ${effectiveCode}` : undefined,
-  );
+  // NO_CHANGES_EXIT is a successful "nothing to ship" outcome, not a failure:
+  // surface it as done on the dashboard, not "gave-up".
+  const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
+  emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
 
   // Phase 2: worktree cleanup
   await runWorktreeCleanupPhase(

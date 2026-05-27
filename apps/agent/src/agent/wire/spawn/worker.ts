@@ -306,6 +306,7 @@ export function createSpawnWorker(
             stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
             neverTouch: cfg.boundaries.never_touch,
             metaOnlyFiles: cfg.boundaries.meta_only_files,
+            finalizeNoOpAsDone: cfg.finalizeNoOpAsDone,
             manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
             prDraft: cfg.prDraft,
             validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
