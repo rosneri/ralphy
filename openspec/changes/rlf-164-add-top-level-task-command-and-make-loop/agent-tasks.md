@@ -1,3 +1,39 @@
+## Fix failing CI checks (2026-05-27T14:42:02.973Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26518212924 ---
+ci Security audit ﻿2026-05-27T14:41:41.1048337Z ##[group]Run bun audit --audit-level=high
+ci Security audit 2026-05-27T14:41:41.1048695Z [36;1mbun audit --audit-level=high[0m
+ci Security audit 2026-05-27T14:41:41.1082340Z shell: /usr/bin/bash -e {0}
+ci Security audit 2026-05-27T14:41:41.1082597Z env:
+ci Security audit 2026-05-27T14:41:41.1082833Z NX_BASE: 7c8226dbfc65036ed5af44776f2f33de9df0f211
+ci Security audit 2026-05-27T14:41:41.1083181Z NX_HEAD: bf76b38fabe035f956ec2be8ff8bca20a32e5e42
+ci Security audit 2026-05-27T14:41:41.1083880Z ##[endgroup]
+ci Security audit 2026-05-27T14:41:41.1164083Z [0m[1mbun audit [0m[2mv1.3.14 (0d9b296a)[0m
+ci Security audit 2026-05-27T14:41:41.2325099Z tmp <0.2.6
+ci Security audit 2026-05-27T14:41:41.2326389Z nx › tmp
+ci Security audit 2026-05-27T14:41:41.2328960Z high: tmp has Path Traversal via unsanitized prefix/postfix that enables directory escape - https://github.com/advisories/GHSA-ph9p-34f9-6g65
+ci Security audit 2026-05-27T14:41:41.2330908Z
+ci Security audit 2026-05-27T14:41:41.2331296Z 1 vulnerabilities (1 high)
+ci Security audit 2026-05-27T14:41:41.2331592Z
+ci Security audit 2026-05-27T14:41:41.2332010Z To update all dependencies to the latest compatible versions:
+ci Security audit 2026-05-27T14:41:41.2332576Z bun update
+ci Security audit 2026-05-27T14:41:41.2332763Z
+ci Security audit 2026-05-27T14:41:41.2333665Z To update all dependencies to the latest versions (including breaking changes):
+ci Security audit 2026-05-27T14:41:41.2334368Z bun update --latest
+ci Security audit 2026-05-27T14:41:41.2334605Z
+ci Security audit 2026-05-27T14:41:41.2350337Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Address Linear @ralphy mention (2026-05-27T14:35:42.019Z)
 
 - [x] Address Linear @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
