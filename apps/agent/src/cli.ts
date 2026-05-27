@@ -47,6 +47,9 @@ export interface AgentParsedArgs extends CommonArgs {
   preExistingErrorCheck?: boolean;
   /** Disable tmux session management; run agent in the foreground directly. */
   noTmux: boolean;
+  /** RLF-173 override: when defined, force pr-tracker on/off regardless of
+   *  the `prTracker.enabled` workflow config. `--no-pr-tracker` sets false. */
+  prTrackerEnabled?: boolean;
 }
 
 // allow-duplicate
@@ -114,6 +117,7 @@ const HELP_TEXT = [
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --no-tmux               Disable tmux session management; run agent in the foreground directly",
+  "  --no-pr-tracker         Disable RLF-173 pr-tracker bail / recovery counter for this run",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
   "                          (auto-enabled when stdin is not a TTY, e.g. pipes / nohup / CI)",
   "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
@@ -335,6 +339,12 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--no-tmux":
         result.noTmux = true;
+        break;
+      case "--no-pr-tracker":
+        result.prTrackerEnabled = false;
+        break;
+      case "--pr-tracker":
+        result.prTrackerEnabled = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {

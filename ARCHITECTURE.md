@@ -17,7 +17,7 @@ This document is generated from the static feature registry
 
 - **id**: `conflict-fix`
 - **ownedSlot**: `(none)`
-- **summary**: Detects PRs with merge conflicts and dispatches a worker to rebase or resolve.
+- **summary**: Detects PRs with merge conflicts and dispatches a worker to merge base in and resolve.
 
 ### ci-fix
 
