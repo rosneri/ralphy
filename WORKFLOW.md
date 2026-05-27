@@ -152,7 +152,7 @@ linear:
   confirmationMode:
     enabled: true
     optInLabel: "confirm"
-    optOutLabel: "auto-approve"
+    optOutLabel: "auto-merge"
     timeoutHours: 48
     maxConfirmationRounds: 3
 
