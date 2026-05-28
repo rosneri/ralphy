@@ -26,7 +26,7 @@ Use the change name as the PR title and write a concise summary of the implement
 
 ## Implementation
 
-- [ ] In `apps/agent/src/components/AgentMode.tsx`, modify the gated-tickets IIFE (currently lines 1072-1118): when `gatedTicketsRef.current.size >= 2`, render a single `LabeledBox` whose label is a horizontal list of all ticket identifiers as `<Link>` nodes separated by `·`, and whose body shows `[GATE] Awaiting confirmation · N tickets`; remove the "+N more awaiting confirmation" text entirely.
-- [ ] Add a test in `apps/agent/src/__tests__/pending-tasks.test.ts` (or a new test file) that verifies the label visual-width calculation for the multi-ticket case: `sum of identifier lengths + (count - 1) * 3 + 2`.
-- [ ] Run `bun run lint` and fix any issues.
-- [ ] Run `bun run test` and confirm all tests pass.
+- [x] In `apps/agent/src/components/AgentMode.tsx`, modify the gated-tickets IIFE (currently lines 1072-1118): when `gatedTicketsRef.current.size >= 2`, render a single `LabeledBox` whose label is a horizontal list of all ticket identifiers as `<Link>` nodes separated by `·`, and whose body shows `[GATE] Awaiting confirmation · N tickets`; remove the "+N more awaiting confirmation" text entirely.
+- [x] Add a test in `apps/agent/src/__tests__/pending-tasks.test.ts` (or a new test file) that verifies the label visual-width calculation for the multi-ticket case: `sum of identifier lengths + (count - 1) * 3 + 2`.
+- [x] Run `bun run lint` and fix any issues.
+- [x] Run `bun run test` and confirm all tests pass.
