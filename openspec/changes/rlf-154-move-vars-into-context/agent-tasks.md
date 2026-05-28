@@ -1,3 +1,56 @@
+## Fix failing CI checks (2026-05-28T11:28:00.365Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26571788025 ---
+ci Test affected files + coverage ﻿2026-05-28T11:26:50.4083588Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-28T11:26:50.4083996Z [36;1mbun run test:affected-files:coverage:ci[0m
+ci Test affected files + coverage 2026-05-28T11:26:50.4105004Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-28T11:26:50.4105436Z env:
+ci Test affected files + coverage 2026-05-28T11:26:50.4105743Z NX_BASE: 3109143db5d5456a63c3795dcee51e6c63773cee
+ci Test affected files + coverage 2026-05-28T11:26:50.4106077Z NX_HEAD: f60e7772fa2701351ff3a7cf889ed697b510c046
+ci Test affected files + coverage 2026-05-28T11:26:50.4106367Z ##[endgroup]
+ci Test affected files + coverage 2026-05-28T11:26:50.4163348Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-28T11:26:50.4382106Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-28T11:26:50.4382521Z
+ci Test affected files + coverage 2026-05-28T11:26:55.1733162Z agent: no relevant test files
+ci Test affected files + coverage 2026-05-28T11:26:55.1733798Z loop: 6 relevant test file(s)
+ci Test affected files + coverage 2026-05-28T11:26:55.1734289Z apps/loop/src/**tests**/App-misc.test.tsx
+ci Test affected files + coverage 2026-05-28T11:26:55.1734671Z apps/loop/src/**tests**/App-task.test.tsx
+ci Test affected files + coverage 2026-05-28T11:26:55.1734997Z apps/loop/src/**tests**/TaskLoop.test.tsx
+ci Test affected files + coverage 2026-05-28T11:26:55.1735525Z apps/loop/src/**tests**/components.test.tsx
+ci Test affected files + coverage 2026-05-28T11:26:55.1735994Z apps/loop/src/**tests**/loop.test.ts
+ci Test affected files + coverage 2026-05-28T11:26:55.1736416Z apps/loop/src/**tests**/useLoop-coverage.test.tsx
+ci Test affected files + coverage 2026-05-28T11:26:55.1736644Z
+ci Test affected files + coverage 2026-05-28T11:26:55.1746258Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-28T11:26:55.1827113Z
+ci Test affected files + coverage 2026-05-28T11:26:55.1828177Z ##[group]src/**tests**/FeedLine.test.tsx:
+ci Test affected files + coverage 2026-05-28T11:26:55.3261374Z (pass) FeedLine > renders session event [20.22ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3295133Z (pass) FeedLine > renders session-unknown event [3.38ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3314556Z (pass) FeedLine > renders agent event [1.95ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3331485Z (pass) FeedLine > renders thinking event with preview [1.67ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3349951Z (pass) FeedLine > renders thinking event without preview [1.86ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3361990Z (pass) FeedLine > renders text event [1.20ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3377138Z (pass) FeedLine > renders tool-start event without summary [1.51ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3392331Z (pass) FeedLine > renders tool-start event with file summary [1.48ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3407800Z (pass) FeedLine > renders tool-start event with command summary [1.55ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3423474Z (pass) FeedLine > renders tool-start event with search summary (with path) [1.55ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3436657Z (pass) FeedLine > renders tool-start event with search summary (without path) [1.31ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3448941Z (pass) FeedLine > renders tool-start event with url summary [1.24ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3459796Z (pass) FeedLine > renders tool-start event with prompt summary [1.05ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3469372Z (pass) FeedLine > renders tool-start event with edit summary [0.95ms]
+ci Test affected files + coverage 2026-05-28T11:26:55.3483542Z (pass)
+…[truncated 327211 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-28T11:20:55.258Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.

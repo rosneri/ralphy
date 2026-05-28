@@ -118,6 +118,10 @@ export function TaskLoop({ opts }: TaskLoopProps) {
   const { isRawModeSupported } = useStdin();
   const { resizeKey } = useTerminalSize();
   const bannerItem = useRef<FeedItem>({ id: "__banner__", kind: "banner" });
+  // Capture stateDir once at mount — getLayout() uses AsyncLocalStorage which
+  // is only set during the initial render (inside runWithContext). Re-renders
+  // triggered by React state updates run outside that scope.
+  const [stateDir] = useState(() => getLayout().taskStateDir(opts.name));
 
   const feedItems: FeedItem[] = useMemo(
     () => [
@@ -134,8 +138,6 @@ export function TaskLoop({ opts }: TaskLoopProps) {
   }, [loop.isRunning, exit]);
 
   if (!loop.state) return null;
-
-  const stateDir = getLayout().taskStateDir(opts.name);
 
   return (
     <Box key={resizeKey} flexDirection="column">
