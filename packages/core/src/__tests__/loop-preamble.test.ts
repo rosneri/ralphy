@@ -255,6 +255,7 @@ describe("buildLoopLevelPrompt", () => {
       design: { attachmentId: null, sha256: null },
       proposalPdf: { attachmentId: null, sha256: null },
       designPdf: { attachmentId: null, sha256: null },
+      legacyProposalPurged: false,
     },
     confirmation: {
       askedAt: null,
