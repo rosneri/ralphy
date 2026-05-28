@@ -24,6 +24,8 @@ mock.module("@ralphy/core/git", () => ({
   getCurrentBranch: mock(() => "test-branch"),
   gitAdd: mock(() => {}),
   gitCommit: mock(() => {}),
+  // Default to a clean worktree so the LIT-303 archive guard doesn't trip.
+  getUncommittedFiles: mock(() => []),
 }));
 
 mock.module("@ralphy/openspec", () => ({

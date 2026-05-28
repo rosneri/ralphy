@@ -12,7 +12,7 @@ import {
 } from "@ralphy/core/state";
 import { countOpenFindings } from "@ralphy/core/openspec-phase";
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
-import { gitPush, commitTaskDir } from "@ralphy/core/git";
+import { gitPush, commitTaskDir, getUncommittedFiles } from "@ralphy/core/git";
 import { getStorage, getLayout, runWithContext, createDefaultContext } from "@ralphy/context";
 import { getProcessBus } from "@ralphy/events";
 import {
@@ -327,6 +327,24 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
               }
             }
           }
+          // --- Archive guard: refuse to archive on a dirty worktree ---
+          // LIT-303 incident: when a resumed run found `tasks.md` fully
+          // checked off but the worker had exited with uncommitted edits,
+          // the loop archived the change and the work was stranded with
+          // no PR. Refuse archiving and stop the loop so a human can either
+          // commit the work or reset tasks.md to re-trigger iteration.
+          const uncommitted = getUncommittedFiles();
+          if (uncommitted.length > 0) {
+            const preview = uncommitted.slice(0, 10).join("\n  ");
+            const more =
+              uncommitted.length > 10 ? `\n  ... and ${uncommitted.length - 10} more` : "";
+            addInfo(
+              `All tasks checked off but worktree has ${uncommitted.length} uncommitted file(s) — refusing to archive. Commit or reset to resume.\n  ${preview}${more}`,
+            );
+            finalStopReason = "stopped";
+            break;
+          }
+
           // --- Archive ---
           addInfo("All tasks completed — archiving change.");
           currentState = {
