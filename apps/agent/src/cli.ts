@@ -55,19 +55,12 @@ const VALID_MODES = new Set<string>(["agent", "list", "stop", "status"]);
 const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getTodo",
   "getInProgress",
-  "getReview",
   "getAutoMerge",
   "setInProgress",
   "setDone",
   "setError",
-  "clearReview",
 ]);
-const GET_KEYS = new Set<keyof Indicators>([
-  "getTodo",
-  "getInProgress",
-  "getReview",
-  "getAutoMerge",
-]);
+const GET_KEYS = new Set<keyof Indicators>(["getTodo", "getInProgress", "getAutoMerge"]);
 
 // allow-duplicate
 const HELP_TEXT = [
@@ -103,8 +96,8 @@ const HELP_TEXT = [
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
   "  --worktree              Run each task in its own git worktree",
   "  --indicator <k>:<t>:<v> Override an indicator (repeatable).",
-  "                          Keys: getTodo, getInProgress, getReview, getAutoMerge,",
-  "                                setInProgress, setDone, setError, clearReview",
+  "                          Keys: getTodo, getInProgress, getAutoMerge,",
+  "                                setInProgress, setDone, setError",
   "                          Types: label, status, attachment, project, comment",
   "                          --indicator setInProgress:attachment:In Progress",
   "                          (attachment upserts a single 'Ralphy' entry; value = subtitle)",

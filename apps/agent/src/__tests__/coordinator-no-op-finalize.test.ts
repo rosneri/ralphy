@@ -40,7 +40,6 @@ function makeCtx() {
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => []),
-    fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({

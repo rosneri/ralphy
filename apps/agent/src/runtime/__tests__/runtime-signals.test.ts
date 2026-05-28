@@ -90,7 +90,6 @@ function makeCoord(
     {
       fetchTodo: async () => todo,
       fetchInProgress: async () => [],
-      fetchReview: async () => [],
       fetchMentions: async () => [],
       fetchDoneCandidates: async () => [],
       fetchComments: async () => [],
@@ -221,7 +220,6 @@ describe("S6.7 — no new workers spawned after stop()", () => {
           return [makeIssue("q")];
         },
         fetchInProgress: async () => [],
-        fetchReview: async () => [],
         fetchMentions: async () => [],
         fetchDoneCandidates: async () => [],
         fetchComments: async () => [],
@@ -256,7 +254,6 @@ describe("S6.7 — no new workers spawned after stop()", () => {
       {
         fetchTodo: () => fetchPromise,
         fetchInProgress: async () => [],
-        fetchReview: async () => [],
         fetchMentions: async () => [],
         fetchDoneCandidates: async () => [],
         fetchComments: async () => [],
@@ -297,7 +294,6 @@ describe("S6.8 — stopped coordinator never invokes Linear fetchers", () => {
           return [];
         },
         fetchInProgress: async () => [],
-        fetchReview: async () => [],
         fetchMentions: async () => [],
         fetchDoneCandidates: async () => [],
         fetchComments: async () => [],

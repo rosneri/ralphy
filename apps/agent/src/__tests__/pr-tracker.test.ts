@@ -165,7 +165,6 @@ function makePrDeps(doneCandidates: LinearIssue[]): PrCtx {
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => []),
-    fetchReview: mock(async () => []),
     fetchMentions: mock(async () => [] as { issue: LinearIssue; trigger: MentionTrigger }[]),
     fetchDoneCandidates: mock(async () => doneCandidates),
     prepare: mock(async (i: LinearIssue) => ({

@@ -82,7 +82,6 @@ interface DepsResult {
   /** Update what fetchTodo returns on the next call. */
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
-  setReview: (issues: LinearIssue[]) => void;
   setMentions: (mentions: { issue: LinearIssue; trigger: MentionTrigger }[]) => void;
   setDoneCandidates: (issues: LinearIssue[]) => void;
 }
@@ -102,14 +101,12 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
 
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
-  let review: LinearIssue[] = [];
   let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
   let doneCandidates: LinearIssue[] = [];
 
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => inProgress),
-    fetchReview: mock(async () => review),
     fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
     prepare: mock(async (i: LinearIssue) => ({
@@ -169,9 +166,6 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     setInProgress: (xs) => {
       inProgress = xs;
-    },
-    setReview: (xs) => {
-      review = xs;
     },
     setMentions: (xs) => {
       mentions = xs;
@@ -331,7 +325,6 @@ describe("AgentCoordinator — todo polling", () => {
   test("pollOnce returns per-bucket counts for the dashboard", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1"), issue("b", "ENG-2")] });
     ctx.setInProgress([issue("c", "ENG-3")]);
-    ctx.setReview([issue("e", "ENG-5")]);
     ctx.setMentions([
       {
         issue: issue("f", "ENG-6"),
@@ -351,11 +344,11 @@ describe("AgentCoordinator — todo polling", () => {
       inProgress: 1,
       conflicted: 0,
       ciFailed: 0,
-      review: 1,
+      review: 0,
       mentions: 1,
       awaiting: 0,
     });
-    expect(r.found).toBe(5);
+    expect(r.found).toBe(4);
   });
 
   test("awaiting-confirmation in-progress tickets are diverted into buckets.awaiting and never enqueued", async () => {
@@ -603,34 +596,6 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     expect(observed).toContain("conflict-fix");
   });
 
-  test("getReview issues route through prepare(review) and clearReview is applied", async () => {
-    const reviewIssue = issue("a", "ENG-1");
-    const ctx = makeDeps();
-    ctx.setReview([reviewIssue]);
-    const observed: QueueTrigger[] = [];
-    ctx.deps.prepare = async (i) => ({ changeName: `change-${i.identifier.toLowerCase()}` });
-    ctx.deps.prepareTaskForTrigger = async (_i, _name, trigger) => {
-      observed.push(trigger);
-    };
-    const clearReview: SetIndicator = { type: "label", value: "ralph:review" };
-    const setInProgress: SetIndicator = { type: "status", value: "In Progress" };
-    const coord = new AgentCoordinator(ctx.deps, {
-      concurrency: 1,
-      setInProgress,
-      clearReview,
-    });
-    await coord.init();
-    await coord.pollOnce();
-    await tick();
-    expect(observed).toContain("review");
-    // setInProgress applied (review pulls a done issue back into progress)
-    expect(ctx.applies).toContainEqual({ id: "a", ind: setInProgress });
-    // clearReview removed so the same trigger doesn't re-fire next poll
-    expect(ctx.removes).toContainEqual({ id: "a", ind: clearReview });
-    // review pickup comment posted
-    expect(ctx.comments.some((c) => c.body.includes("review comments"))).toBe(true);
-  });
-
   test("@ralphy mention queues review with the trigger forwarded to prepare", async () => {
     const issueA = issue("a", "ENG-1");
     const ctx = makeDeps();
@@ -699,10 +664,19 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     expect(ctx.comments.some((c) => c.body.includes("Linear @mention"))).toBe(true);
   });
 
-  test("review success re-applies setDone (treated like fresh-mode completion)", async () => {
+  test("review (mention) success re-applies setDone (treated like fresh-mode completion)", async () => {
     const reviewIssue = issue("a", "ENG-1");
     const ctx = makeDeps();
-    ctx.setReview([reviewIssue]);
+    ctx.setMentions([
+      {
+        issue: reviewIssue,
+        trigger: {
+          source: "linear",
+          body: "@ralphy please review",
+          createdAt: "2026-05-12T00:00:00Z",
+        },
+      },
+    ]);
     const setDone: SetIndicator = { type: "status", value: "Done" };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone });
     await coord.init();

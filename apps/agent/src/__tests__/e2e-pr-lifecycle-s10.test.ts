@@ -754,18 +754,7 @@ describe("S10 — PR lifecycle", () => {
       linear.add(issue);
       setupFetch(linear);
 
-      const reviewWorkflow = {
-        ...baseWorkflow,
-        linear: {
-          ...baseWorkflow.linear,
-          indicators: {
-            ...baseWorkflow.linear.indicators,
-            getReview: { filter: [{ type: "label", value: "ralph:review" }] },
-            clearReview: { type: "label", value: "ralph:review" },
-          },
-        },
-      };
-      await writeWorkflow(tempDir, reviewWorkflow);
+      await writeWorkflow(tempDir, baseWorkflow);
       const cfg = await loadRalphyConfig(tempDir);
       const args = await parseArgs([]);
 
@@ -800,7 +789,6 @@ describe("S10 — PR lifecycle", () => {
 
       // PR flips to ready (draft=false)
       setIsDraft(changeName, false);
-      // Re-add the review label (clearReview may have removed it if it ran)
       issue.labels.add("ralph:review");
 
       // Poll 2: PR is ready → review eligible

@@ -53,10 +53,5 @@ export function describeIndicators(
       `inProgress=[${indicators.getInProgress.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
     );
   }
-  if (indicators.getReview) {
-    parts.push(
-      `review=[${indicators.getReview.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`,
-    );
-  }
   return parts.join(", ");
 }

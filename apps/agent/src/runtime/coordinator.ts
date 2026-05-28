@@ -153,9 +153,6 @@ export interface CoordinatorDeps {
   fetchTodo: () => Promise<LinearIssue[]>;
   /** Issues to resume after restart. Empty array if `getInProgress` isn't configured. */
   fetchInProgress: () => Promise<LinearIssue[]>;
-  /** Done issues flagged for review follow-up (new reviewer comments).
-   *  Empty array if `getReview` isn't configured. */
-  fetchReview: () => Promise<LinearIssue[]>;
   /** Done issues with new `@ralphy` mentions on Linear or their tracked
    *  GitHub PR. Empty array if mention scanning is disabled. */
   fetchMentions: () => Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
@@ -174,7 +171,7 @@ export interface CoordinatorDeps {
    * Optional second-stage prep: prepend a directive task to `tasks.md`
    * and reactivate the loop's state file. Called after `prepare` succeeds
    * and only when the queued trigger semantically requires it
-   * (`conflict-fix` or `review`). Coordinator invokes it as a courtesy
+   * (`conflict-fix`). Coordinator invokes it as a courtesy
    * dep so the prepend stays observable; absence is treated as a no-op.
    */
   prepareTaskForTrigger?: (
@@ -251,7 +248,6 @@ interface CoordinatorOptions {
   setInProgress?: SetIndicator | undefined;
   setDone?: SetIndicator | undefined;
   setError?: SetIndicator | undefined;
-  clearReview?: SetIndicator | undefined;
   postComments?: boolean | undefined;
   commentEveryIterations?: number | undefined;
   /** Stop picking up new issues once this many have been started this run (0 = unlimited). */
@@ -385,13 +381,11 @@ export class AgentCoordinator {
 
     let todo: LinearIssue[] = [];
     let inProgress: LinearIssue[] = [];
-    let review: LinearIssue[] = [];
     let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
     try {
-      [todo, inProgress, review, mentions] = await Promise.all([
+      [todo, inProgress, mentions] = await Promise.all([
         this.deps.fetchTodo(),
         this.deps.fetchInProgress(),
-        this.deps.fetchReview(),
         this.deps.fetchMentions(),
       ]);
     } catch (err) {
@@ -414,9 +408,9 @@ export class AgentCoordinator {
     const awaitingCount = awaitingClaimed.size;
     const resumableCount = inProgress.length - awaitingCount;
 
-    if (todo.length + resumableCount + review.length + mentions.length + awaitingCount > 0) {
+    if (todo.length + resumableCount + mentions.length + awaitingCount > 0) {
       this.deps.onFileLog?.(
-        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${review.length} review, ${mentions.length} mention, ${awaitingCount} awaiting`,
+        `  poll: ${todo.length} todo, ${resumableCount} in-progress, ${mentions.length} mention, ${awaitingCount} awaiting`,
       );
     }
 
@@ -435,12 +429,11 @@ export class AgentCoordinator {
         inProgress: resumableCount,
         conflicted: 0,
         ciFailed: 0,
-        review: review.length,
+        review: 0,
         mentions: mentions.length,
         awaiting: awaitingCount,
       };
-      const found =
-        buckets.todo + buckets.inProgress + buckets.review + buckets.mentions + buckets.awaiting;
+      const found = buckets.todo + buckets.inProgress + buckets.mentions + buckets.awaiting;
       return { found, added: 0, buckets, prStatus: emptyPrStatus(), phase: {}, flow: {} };
     }
 
@@ -478,21 +471,7 @@ export class AgentCoordinator {
     // Conflicted + CI-failed enqueueing happens inside `scanPrMergeStates`
     // below — gh is the single source of truth for those states.
 
-    // 3. Review follow-up: done issues with new reviewer comments.
-    for (const issue of review) {
-      if (atTicketLimit()) break;
-      if (!eligible(issue.id)) continue;
-      this.queue.push({
-        issue,
-        trigger: "review",
-        priority: defaultPriorityFor("review"),
-      });
-      queuedIds.add(issue.id);
-      added += 1;
-      this.deps.onLog(`  ↳ ${issue.identifier} queued (review)`, "gray");
-    }
-
-    // 3b. @ralphy mention triggers — Linear / GitHub comments newer than
+    // 3. @ralphy mention triggers — Linear / GitHub comments newer than
     //     Ralph's last review-pickup ack. The trigger body becomes the task.
     for (const { issue, trigger: mention } of mentions) {
       if (atTicketLimit()) break;
@@ -544,7 +523,7 @@ export class AgentCoordinator {
       inProgress: resumableCount,
       conflicted: prStatus.conflicted,
       ciFailed: prStatus.ciFailed,
-      review: review.length,
+      review: 0,
       mentions: mentions.length,
       awaiting: awaitingCount,
     };
@@ -553,7 +532,6 @@ export class AgentCoordinator {
       buckets.inProgress +
       buckets.conflicted +
       buckets.ciFailed +
-      buckets.review +
       buckets.mentions +
       buckets.awaiting;
     const flow: Record<string, Flow> = {};
@@ -1028,25 +1006,6 @@ export class AgentCoordinator {
         );
         emitCapture(this.bus, "agent_indicator_failed", {
           indicator: "setInProgress",
-          issue_identifier: issue.identifier,
-          error: (err as Error).message,
-        });
-      }
-    }
-
-    // Review mode: remove the trigger label so the same comments don't
-    // re-fire on the next poll. Best-effort.
-    if (trigger === "review" && this.opts.clearReview) {
-      try {
-        await this.deps.removeIndicator(issue, this.opts.clearReview);
-        this.deps.onLog(`  ${issue.identifier}: clearReview applied`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear clearReview failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-        emitCapture(this.bus, "agent_indicator_failed", {
-          indicator: "clearReview",
           issue_identifier: issue.identifier,
           error: (err as Error).message,
         });

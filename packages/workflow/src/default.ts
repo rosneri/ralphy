@@ -189,17 +189,10 @@ linear:
     #   type: status
     #   value: In Progress
     #
-    # ── Done → Review hand-off ───────────
+    # ── Done ─────────────────────────────
     # setDone:
     #   type: status
     #   value: In Review
-    # getReview:
-    #   filter:
-    #     - type: label
-    #       value: "ralph:review"
-    # clearReview:
-    #   type: label
-    #   value: "ralph:review"
     #
     # ── Merge state (conflicted / ci-failed / mergeable) ─
     # Driven by GitHub directly via \`gh pr view\` — no Linear

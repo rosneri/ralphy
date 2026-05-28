@@ -11,10 +11,8 @@ import { runReviewFollowup } from "./run";
  * the watermark that `scanCodeReview` (`wire.ts`) consults so a stable
  * reviewer-comment list does not re-fire the review trigger every poll.
  *
- * The coordinator's `fetchReview` arm and the mention-scan path in
- * `wire.ts` still own the queueing logic until the stage-final cleanup
- * deletes them; both paths coexist safely because this slice is, for
- * now, just the state-ownership shell.
+ * The mention-scan path in `wire.ts` owns the queueing logic. This slice
+ * is, for now, just the state-ownership shell.
  */
 export const reviewFollowupFeature: Feature = {
   id: "review-followup",
