@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import type { ProjectLayout } from "@ralphy/types";
 import { buildInitialState, writeState } from "@ralphy/core/state";
 import type { State } from "@ralphy/types";
 import type { BuildInitialStateOptions } from "@ralphy/core/state";
@@ -65,8 +66,20 @@ const { TaskLoop } = await import("../components/TaskLoop");
 
 let tempDir: string;
 
-function withStorage<T>(fn: () => T): T {
-  return runWithContext(createDefaultContext(), fn);
+function makeTestLayout(dir: string): ProjectLayout {
+  return {
+    root: dir,
+    statesDir: dir,
+    tasksDir: dir,
+    agentStateFile: join(dir, "agent-state.json"),
+    changeDir: (name) => join(dir, name),
+    taskStateDir: (name) => join(dir, name),
+    stateFile: (name) => join(dir, name, ".ralph-state.json"),
+  };
+}
+
+function withLayout<T>(fn: () => T): T {
+  return runWithContext(createDefaultContext({ layout: makeTestLayout(tempDir) }), fn);
 }
 
 beforeEach(() => {
@@ -97,7 +110,7 @@ function makeState(overrides: Partial<BuildInitialStateOptions> = {}): State {
 
 describe("TaskLoop", () => {
   test("renders banner and exits after loop completes (maxIterations=1)", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "test-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "test-task" });
@@ -117,8 +130,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -134,7 +145,7 @@ describe("TaskLoop", () => {
   });
 
   test("renders with PROGRESS.md present", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "prog-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "prog-task" });
@@ -159,8 +170,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -180,7 +189,7 @@ describe("TaskLoop", () => {
       rateLimited: false,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "fail-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "fail-task" });
@@ -200,8 +209,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -214,7 +221,7 @@ describe("TaskLoop", () => {
   });
 
   test("resumes existing task", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "resume-task");
       mkdirSync(taskDir, { recursive: true });
       // Create a state that has already run some iterations
@@ -238,8 +245,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -252,7 +257,7 @@ describe("TaskLoop", () => {
   });
 
   test("stops on terminal phase", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "done-task");
       mkdirSync(taskDir, { recursive: true });
       const state = {
@@ -275,8 +280,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -302,7 +305,7 @@ describe("TaskLoop", () => {
       return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
     });
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "verbose-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "verbose-task" });
@@ -322,8 +325,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: true,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -336,7 +337,7 @@ describe("TaskLoop", () => {
   });
 
   test("engine updates model on resume with different engine/model", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "reconfig-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "reconfig-task", engine: "claude", model: "sonnet" });
@@ -356,8 +357,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -374,7 +373,7 @@ describe("TaskLoop", () => {
       throw new Error("Engine crashed");
     });
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "crash-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "crash-task" });
@@ -394,8 +393,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -416,7 +413,7 @@ describe("TaskLoop", () => {
       rateLimited: false,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "stop-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "stop-task" });
@@ -437,8 +434,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -466,7 +461,7 @@ describe("TaskLoop", () => {
       rateLimited: false,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "usage-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "usage-task" });
@@ -486,8 +481,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -500,7 +493,7 @@ describe("TaskLoop", () => {
   });
 
   test("creates new state when no state.json exists (else branch)", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "new-task");
       mkdirSync(taskDir, { recursive: true });
       // Deliberately do NOT write state.json — triggers the else branch (lines 91-97)
@@ -519,8 +512,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -548,7 +539,7 @@ describe("TaskLoop", () => {
         rateLimited: false,
       }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "confail-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "confail-task" });
@@ -568,8 +559,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -609,7 +598,7 @@ describe("TaskLoop", () => {
       },
     );
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "steer-live-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "steer-live-task" });
@@ -633,8 +622,6 @@ describe("TaskLoop", () => {
           log: false,
           verbose: false,
           manualTest: false,
-          statesDir: tempDir,
-          tasksDir: tempDir,
           changeStore: stubChangeStore,
         });
         steerFn = loop.steer;
@@ -757,7 +744,7 @@ describe("TaskLoop", () => {
   });
 
   test("steer input is rendered while task is running", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "steer-vis-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "steer-vis-task" });
@@ -777,8 +764,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -804,7 +789,7 @@ describe("TaskLoop", () => {
         }),
     );
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "running-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "running-task" });
@@ -823,8 +808,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -856,7 +839,7 @@ describe("TaskLoop", () => {
         rateLimited: false,
       }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "delay-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "delay-task" });
@@ -876,8 +859,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -890,7 +871,7 @@ describe("TaskLoop", () => {
   });
 
   test("reports task counts when tasks.md and agent-tasks.md are present", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "tasks-count-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "tasks-count-task" });
@@ -911,8 +892,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -934,7 +913,7 @@ describe("TaskLoop", () => {
       },
     };
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "all-done-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "all-done-task" });
@@ -954,8 +933,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: archivingStore,
       };
 
@@ -969,7 +946,7 @@ describe("TaskLoop", () => {
   });
 
   test("recovers from a partial-write .ralph-state.json (linear-sync race)", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "partial-state");
       mkdirSync(taskDir, { recursive: true });
       // Simulate the linear-sync race: a state file exists but only carries
@@ -1002,8 +979,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -1040,7 +1015,7 @@ describe("TaskLoop", () => {
       listChanges: () => Promise.resolve([] as string[]),
     };
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "missing-tasks");
       mkdirSync(taskDir, { recursive: true });
       // iteration > 0 marks this as a resume — the change ran before and was
@@ -1062,8 +1037,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: externallyArchivedStore,
       };
 
@@ -1092,7 +1065,7 @@ describe("TaskLoop", () => {
         }),
     };
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "incomplete-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "incomplete-task" });
@@ -1112,8 +1085,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: incompleteStore,
       };
 
@@ -1132,7 +1103,7 @@ describe("TaskLoop", () => {
       archiveChange: (_name: string) => Promise.reject(new Error("archive boom")),
     };
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "archive-fail-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "archive-fail-task" });
@@ -1152,8 +1123,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: failingStore,
       };
 
@@ -1173,7 +1142,7 @@ describe("TaskLoop", () => {
       rateLimited: true,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "rate-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "rate-task" });
@@ -1192,8 +1161,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -1208,7 +1175,7 @@ describe("TaskLoop", () => {
   });
 
   test("recovers specAttachments from partial-write state (malformed + specAttachments)", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "spec-attach-task");
       mkdirSync(taskDir, { recursive: true });
       // Write a malformed state (missing required fields) that has a valid specAttachments entry
@@ -1242,8 +1209,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -1269,7 +1234,7 @@ describe("TaskLoop", () => {
       rateLimited: false,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "review-phase-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "review-phase-task" });
@@ -1290,8 +1255,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
         reviewPhase: { enabled: true, maxRounds: 1, reviewerModel: "opus" },
         onReviewRound: async (result: import("../loop").ReviewRoundResult) => {
@@ -1308,7 +1271,7 @@ describe("TaskLoop", () => {
   });
 
   test("review phase skips when cap already reached", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "review-cap-task");
       mkdirSync(taskDir, { recursive: true });
       const state = {
@@ -1331,8 +1294,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
         reviewPhase: { enabled: true, maxRounds: 2 },
       };
@@ -1368,7 +1329,7 @@ describe("TaskLoop", () => {
         return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
       });
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "review-loop-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "review-loop-task" });
@@ -1390,8 +1351,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
         reviewPhase: { enabled: true, maxRounds: 3 },
       };
@@ -1414,7 +1373,7 @@ describe("TaskLoop", () => {
       rateLimited: false,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "review-cap-msg-task");
       mkdirSync(taskDir, { recursive: true });
       const state = {
@@ -1439,8 +1398,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
         reviewPhase: { enabled: true, maxRounds: 2 },
       };
@@ -1461,7 +1418,7 @@ describe("TaskLoop", () => {
       rateLimited: true,
     }));
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "session-usage-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "session-usage-task" });
@@ -1480,8 +1437,6 @@ describe("TaskLoop", () => {
         log: false,
         verbose: false,
         manualTest: false,
-        statesDir: tempDir,
-        tasksDir: tempDir,
         changeStore: stubChangeStore,
       };
 
@@ -1524,7 +1479,7 @@ describe("TaskLoop", () => {
       },
     );
 
-    await withStorage(async () => {
+    await withLayout(async () => {
       const taskDir = join(tempDir, "steer-filter-task");
       mkdirSync(taskDir, { recursive: true });
       const state = makeState({ name: "steer-filter-task" });
@@ -1546,8 +1501,6 @@ describe("TaskLoop", () => {
           log: false,
           verbose: false,
           manualTest: false,
-          statesDir: tempDir,
-          tasksDir: tempDir,
           changeStore: stubChangeStore,
         });
         steerFn = loop.steer;
@@ -1574,7 +1527,7 @@ describe("TaskLoop", () => {
 
   describe("review phase", () => {
     test("self-review passes when engine writes no open findings", async () => {
-      await withStorage(async () => {
+      await withLayout(async () => {
         const taskDir = join(tempDir, "review-pass-task");
         mkdirSync(taskDir, { recursive: true });
         const state = makeState({ name: "review-pass-task" });
@@ -1596,8 +1549,6 @@ describe("TaskLoop", () => {
           log: false,
           verbose: false,
           manualTest: false,
-          statesDir: tempDir,
-          tasksDir: tempDir,
           changeStore: stubChangeStore,
           reviewPhase: { enabled: true, maxRounds: 1 },
           onReviewRound: async (r: { openFindings: number; capReached: boolean }) => {
@@ -1625,7 +1576,7 @@ describe("TaskLoop", () => {
         return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
       });
 
-      await withStorage(async () => {
+      await withLayout(async () => {
         const taskDir = join(tempDir, "review-cap-task");
         mkdirSync(taskDir, { recursive: true });
         const state = makeState({ name: "review-cap-task" });
@@ -1647,8 +1598,6 @@ describe("TaskLoop", () => {
           log: false,
           verbose: false,
           manualTest: false,
-          statesDir: tempDir,
-          tasksDir: tempDir,
           changeStore: stubChangeStore,
           reviewPhase: { enabled: true, maxRounds: 1 },
           onReviewRound: async (r: { openFindings: number; capReached: boolean }) => {
@@ -1680,7 +1629,7 @@ describe("TaskLoop", () => {
         return { exitCode: 0, usage: null, sessionId: null, rateLimited: false };
       });
 
-      await withStorage(async () => {
+      await withLayout(async () => {
         const taskDir = join(tempDir, "review-loop-task");
         mkdirSync(taskDir, { recursive: true });
         const state = makeState({ name: "review-loop-task" });
@@ -1700,8 +1649,6 @@ describe("TaskLoop", () => {
           log: false,
           verbose: false,
           manualTest: false,
-          statesDir: tempDir,
-          tasksDir: tempDir,
           changeStore: stubChangeStore,
           reviewPhase: { enabled: true, maxRounds: 2 },
         };

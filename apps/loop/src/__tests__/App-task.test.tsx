@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import type { ProjectLayout } from "@ralphy/types";
 import { buildInitialState, writeState } from "@ralphy/core/state";
 import type { State } from "@ralphy/types";
 import type { BuildInitialStateOptions } from "@ralphy/core/state";
@@ -60,8 +61,20 @@ const { App } = await import("../components/App");
 
 let tempDir: string;
 
-function withStorage<T>(fn: () => T): T {
-  return runWithContext(createDefaultContext(), fn);
+function makeTestLayout(dir: string): ProjectLayout {
+  return {
+    root: dir,
+    statesDir: dir,
+    tasksDir: dir,
+    agentStateFile: join(dir, "agent-state.json"),
+    changeDir: (name) => join(dir, name),
+    taskStateDir: (name) => join(dir, name),
+    stateFile: (name) => join(dir, name, ".ralph-state.json"),
+  };
+}
+
+function withLayout<T>(fn: () => T): T {
+  return runWithContext(createDefaultContext({ layout: makeTestLayout(tempDir) }), fn);
 }
 
 beforeEach(() => {
@@ -104,7 +117,7 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
 
 describe("App task mode", () => {
   test("task mode with valid name renders TaskLoop", async () => {
-    await withStorage(async () => {
+    await withLayout(async () => {
       const stateDir = join(tempDir, "my-task");
       mkdirSync(stateDir, { recursive: true });
       const state = makeState({ name: "my-task" });
@@ -117,9 +130,7 @@ describe("App task mode", () => {
         maxIterations: 1,
       });
 
-      const { frames } = render(
-        <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
-      );
+      const { frames } = render(<App args={args} />);
       await new Promise((r) => setTimeout(r, 500));
 
       const allText = frames.join("\n");

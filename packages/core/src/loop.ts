@@ -98,8 +98,6 @@ export interface LoopOptions {
   manualTest: boolean;
   createPr?: boolean;
   prDraft?: boolean;
-  statesDir: string;
-  tasksDir: string;
   changeStore: LoopChangeStore;
   /** Which prompt-building phase to use. Defaults to "execute". */
   phase?: TaskPhase;

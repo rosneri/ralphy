@@ -139,10 +139,8 @@ export async function main(argv: string[]): Promise<number> {
     await ensureRalphGitignore(projectRoot);
   }
 
-  await runWithContext(createDefaultContext(), async () => {
-    const { waitUntilExit } = render(
-      createElement(App, { args, statesDir, tasksDir, projectRoot }),
-    );
+  await runWithContext(createDefaultContext({ layout, args }), async () => {
+    const { waitUntilExit } = render(createElement(App, { args }));
     await waitUntilExit();
   });
 
@@ -174,13 +172,10 @@ export async function taskMain(argv: string[]): Promise<number> {
   await ensureRalphGitignore(projectRoot);
 
   // parseTaskArgs returns a LoopParsedArgs superset, so App consumes it directly.
-  await runWithContext(createDefaultContext(), async () => {
+  await runWithContext(createDefaultContext({ layout, args }), async () => {
     const { waitUntilExit } = render(
       createElement(App, {
         args,
-        statesDir,
-        tasksDir,
-        projectRoot,
         taskPhase: args.phase,
       }),
     );

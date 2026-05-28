@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import type { ProjectLayout } from "@ralphy/types";
 import type { LoopParsedArgs as ParsedArgs } from "../cli";
 
 mock.module("@ralphy/openspec", () => ({
@@ -12,8 +13,20 @@ mock.module("@ralphy/openspec", () => ({
 
 const { App } = await import("../components/App");
 
-function withStorage<T>(fn: () => T): T {
-  return runWithContext(createDefaultContext(), fn);
+function makeTestLayout(dir: string): ProjectLayout {
+  return {
+    root: dir,
+    statesDir: dir,
+    tasksDir: dir,
+    agentStateFile: join(dir, "agent-state.json"),
+    changeDir: (name) => join(dir, name),
+    taskStateDir: (name) => join(dir, name),
+    stateFile: (name) => join(dir, name, ".ralph-state.json"),
+  };
+}
+
+function withLayout<T>(dir: string, fn: () => T): T {
+  return runWithContext(createDefaultContext({ layout: makeTestLayout(dir) }), fn);
 }
 
 function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
@@ -42,11 +55,9 @@ describe("App misc modes", () => {
   test("init mode renders the initialized message", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "app-init-"));
     try {
-      await withStorage(async () => {
+      await withLayout(tempDir, async () => {
         const args = makeArgs({ mode: "init" });
-        const { frames } = render(
-          <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
-        );
+        const { frames } = render(<App args={args} />);
         await new Promise((r) => setTimeout(r, 50));
         expect(frames.join("\n")).toContain("Initialized openspec directory");
       });
@@ -58,11 +69,9 @@ describe("App misc modes", () => {
   test("clean mode renders an empty placeholder (handled before render)", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "app-clean-"));
     try {
-      await withStorage(async () => {
+      await withLayout(tempDir, async () => {
         const args = makeArgs({ mode: "clean", name: "some-change" });
-        const { frames, lastFrame } = render(
-          <App args={args} statesDir={tempDir} tasksDir={tempDir} projectRoot={tempDir} />,
-        );
+        const { frames, lastFrame } = render(<App args={args} />);
         await new Promise((r) => setTimeout(r, 50));
         expect(frames.length).toBeGreaterThan(0);
         // Clean's render path is a no-op placeholder.

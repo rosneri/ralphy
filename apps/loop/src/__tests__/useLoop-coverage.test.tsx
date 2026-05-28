@@ -9,6 +9,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import type { ProjectLayout } from "@ralphy/types";
 import { buildInitialState, writeState } from "@ralphy/core/state";
 
 mock.module("@ralphy/engine/engine", () => ({
@@ -54,8 +55,16 @@ const { TaskLoop } = await import("../components/TaskLoop");
 
 let tempDir: string;
 
-function withStorage<T>(fn: () => T): T {
-  return runWithContext(createDefaultContext(), fn);
+function makeLayout(statesDir: string, tasksDir: string): ProjectLayout {
+  return {
+    root: statesDir,
+    statesDir,
+    tasksDir,
+    agentStateFile: join(statesDir, "agent-state.json"),
+    changeDir: (name) => join(tasksDir, name),
+    taskStateDir: (name) => join(statesDir, name),
+    stateFile: (name) => join(statesDir, name, ".ralph-state.json"),
+  };
 }
 
 beforeEach(() => {
@@ -83,88 +92,90 @@ const baseOpts = {
 
 describe("useLoop — reviewPhase block (coverage)", () => {
   test("runs review pass when all tasks done and reviewPhase.enabled", async () => {
-    await withStorage(async () => {
-      const name = "review-coverage";
-      const statesDir = join(tempDir, "states");
-      const tasksDir = join(tempDir, "tasks");
-      const stateDir = join(statesDir, name);
-      const changeTaskDir = join(tasksDir, name);
-      mkdirSync(stateDir, { recursive: true });
-      mkdirSync(changeTaskDir, { recursive: true });
+    const name = "review-coverage";
+    const statesDir = join(tempDir, "states");
+    const tasksDir = join(tempDir, "tasks");
+    const stateDir = join(statesDir, name);
+    const changeTaskDir = join(tasksDir, name);
+    mkdirSync(stateDir, { recursive: true });
+    mkdirSync(changeTaskDir, { recursive: true });
 
-      writeState(stateDir, buildInitialState({ name, prompt: "Test" }));
+    const archiveChange = mock(async (_n: string) => {});
+    const onReviewRound = mock(async () => {});
 
-      // All mission tasks completed → triggers review phase
-      await Bun.write(join(changeTaskDir, "tasks.md"), "- [x] done\n");
+    const changeStore = {
+      archiveChange,
+      getStatus: async (_n: string) => ({
+        changeName: _n,
+        isComplete: true,
+        artifacts: [],
+        applyRequires: [],
+      }),
+      listChanges: async () => [name],
+    };
 
-      const archiveChange = mock(async (_n: string) => {});
-      const onReviewRound = mock(async () => {});
+    await runWithContext(
+      createDefaultContext({ layout: makeLayout(statesDir, tasksDir) }),
+      async () => {
+        writeState(stateDir, buildInitialState({ name, prompt: "Test" }));
 
-      const changeStore = {
-        archiveChange,
-        getStatus: async (_n: string) => ({
-          changeName: _n,
-          isComplete: true,
-          artifacts: [],
-          applyRequires: [],
-        }),
-        listChanges: async () => [name],
-      };
+        // All mission tasks completed → triggers review phase
+        await Bun.write(join(changeTaskDir, "tasks.md"), "- [x] done\n");
 
-      render(
-        <TaskLoop
-          opts={{
-            ...baseOpts,
-            name,
-            statesDir,
-            tasksDir,
-            changeStore,
-            reviewPhase: { enabled: true, maxRounds: 1 },
-            onReviewRound,
-          }}
-        />,
-      );
+        render(
+          <TaskLoop
+            opts={{
+              ...baseOpts,
+              name,
+              changeStore,
+              reviewPhase: { enabled: true, maxRounds: 1 },
+              onReviewRound,
+            }}
+          />,
+        );
 
-      // Allow time for async review phase to execute
-      await new Promise((r) => setTimeout(r, 2000));
+        // Allow time for async review phase to execute
+        await new Promise((r) => setTimeout(r, 2000));
 
-      expect(archiveChange.mock.calls.length).toBe(1);
-    });
+        expect(archiveChange.mock.calls.length).toBe(1);
+      },
+    );
   });
 });
 
 describe("useLoop — specAttachments carry-over (line 140 coverage)", () => {
   test("carries over specAttachments when state file is malformed", async () => {
-    await withStorage(async () => {
-      const name = "malformed-state";
-      const statesDir = join(tempDir, "states");
-      const tasksDir = join(tempDir, "tasks");
-      const stateDir = join(statesDir, name);
-      mkdirSync(stateDir, { recursive: true });
-      mkdirSync(join(tasksDir, name), { recursive: true });
+    const name = "malformed-state";
+    const statesDir = join(tempDir, "states");
+    const tasksDir = join(tempDir, "tasks");
+    const stateDir = join(statesDir, name);
+    mkdirSync(stateDir, { recursive: true });
+    mkdirSync(join(tasksDir, name), { recursive: true });
 
-      // Write malformed state (valid JSON but fails StateSchema) with specAttachments
-      await Bun.write(
-        join(stateDir, ".ralph-state.json"),
-        JSON.stringify({ name, specAttachments: { "spec.md": "attachment-123" } }),
-      );
+    const archiveChange = mock(async (_n: string) => {});
 
-      const archiveChange = mock(async (_n: string) => {});
+    await runWithContext(
+      createDefaultContext({ layout: makeLayout(statesDir, tasksDir) }),
+      async () => {
+        // Write malformed state (valid JSON but fails StateSchema) with specAttachments
+        await Bun.write(
+          join(stateDir, ".ralph-state.json"),
+          JSON.stringify({ name, specAttachments: { "spec.md": "attachment-123" } }),
+        );
 
-      render(
-        <TaskLoop
-          opts={{
-            ...baseOpts,
-            name,
-            maxIterations: 1,
-            statesDir,
-            tasksDir,
-            changeStore: { archiveChange },
-          }}
-        />,
-      );
+        render(
+          <TaskLoop
+            opts={{
+              ...baseOpts,
+              name,
+              maxIterations: 1,
+              changeStore: { archiveChange },
+            }}
+          />,
+        );
 
-      await new Promise((r) => setTimeout(r, 1000));
-    });
+        await new Promise((r) => setTimeout(r, 1000));
+      },
+    );
   });
 });

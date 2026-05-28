@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { getStorage } from "@ralphy/context";
+import { getStorage, getLayout } from "@ralphy/context";
 import { worktreesDir } from "@ralphy/paths";
 
 /**
@@ -13,10 +13,7 @@ function countLoopTaskItems(content: string): { checked: number; unchecked: numb
   return { checked, unchecked };
 }
 
-interface TaskListProps {
-  statesDir: string;
-  projectRoot?: string;
-}
+interface TaskListProps {}
 
 interface TaskRow {
   name: string;
@@ -29,22 +26,23 @@ interface TaskRow {
   source: string;
 }
 
-function buildRows(statesDir: string, projectRoot?: string): TaskRow[] {
+function buildRows(): TaskRow[] {
   const storage = getStorage();
+  const layout = getLayout();
+  const statesDir = layout.statesDir;
+  const projectRoot = layout.root;
   const rows: TaskRow[] = [];
   const seenNames = new Set<string>();
 
   // Sources: main statesDir + per-worktree .ralph/tasks (when --worktree
   // was used in agent mode, per-task state lives inside the worktree).
   const sources: { dir: string; label: string }[] = [{ dir: statesDir, label: "main" }];
-  if (projectRoot) {
-    const worktreesRoot = worktreesDir(projectRoot);
-    for (const wt of storage.list(worktreesRoot)) {
-      sources.push({
-        dir: join(worktreesRoot, wt, ".ralph", "tasks"),
-        label: `wt:${wt}`,
-      });
-    }
+  const worktreesRoot = worktreesDir(projectRoot);
+  for (const wt of storage.list(worktreesRoot)) {
+    sources.push({
+      dir: join(worktreesRoot, wt, ".ralph", "tasks"),
+      label: `wt:${wt}`,
+    });
   }
 
   for (const { dir, label } of sources) {
@@ -97,14 +95,14 @@ function buildRows(statesDir: string, projectRoot?: string): TaskRow[] {
   return rows;
 }
 
-export function TaskList({ statesDir, projectRoot }: TaskListProps) {
+export function TaskList({}: TaskListProps) {
   const { exit } = useApp();
 
   useEffect(() => {
     exit();
   }, [exit]);
 
-  const rows = buildRows(statesDir, projectRoot);
+  const rows = buildRows();
 
   if (rows.length === 0) {
     return (

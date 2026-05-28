@@ -1,7 +1,8 @@
 import { join } from "node:path";
 import { logJsonEvent, initWorkerLog } from "@ralphy/log";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
-import { runWithContext, createDefaultContext, getStorage } from "@ralphy/context";
+import { runWithContext, createDefaultContext, getStorage, getLayout } from "@ralphy/context";
+import { projectLayout } from "@ralphy/core/layout";
 import { readState, writeState, buildInitialState } from "@ralphy/core/state";
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
@@ -115,8 +116,6 @@ export async function loopRoutes(
       log: body.log ?? false,
       verbose: body.verbose ?? false,
       manualTest: body.manualTest ?? false,
-      statesDir: ctx.statesDir,
-      tasksDir: ctx.tasksDir,
       changeStore: new OpenSpecChangeStore(),
     };
 
@@ -131,7 +130,7 @@ export async function loopRoutes(
     runningLoops.set(taskName, { cancel });
 
     // Run loop in background
-    runLoopAsync(taskName, taskDir, opts, () => cancelled, ctx.projectRoot, ctx.statesDir)
+    runLoopAsync(taskName, taskDir, opts, () => cancelled, ctx.projectRoot)
       .catch((err) => {
         broadcast(taskName, { type: "error", message: String(err) });
       })
@@ -152,9 +151,8 @@ async function runLoopAsync(
   opts: LoopOptions,
   isCancelled: () => boolean,
   projectRoot: string,
-  statesDir: string,
 ): Promise<void> {
-  await runWithContext(createDefaultContext(), async () => {
+  await runWithContext(createDefaultContext({ layout: projectLayout(projectRoot) }), async () => {
     const storage = getStorage();
 
     // Initialize log file for this run
@@ -315,7 +313,7 @@ async function runLoopAsync(
           // Non-fatal
         }
 
-        const stopSignal = checkStopSignal(taskDir, join(statesDir, taskName));
+        const stopSignal = checkStopSignal(taskDir, getLayout().taskStateDir(taskName));
         if (stopSignal) {
           broadcast(taskName, { type: "stopped", reason: "signal" });
           break;

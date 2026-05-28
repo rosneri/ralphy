@@ -1,5 +1,24 @@
 import { z } from "zod";
 
+// --- Project layout ---
+
+export interface ProjectLayout {
+  /** The directory all relative paths derive from. */
+  root: string;
+  /** `<root>/.ralph/tasks` — parent of all per-change loop-state dirs. */
+  statesDir: string;
+  /** `<root>/openspec/changes` — parent of all per-change spec dirs. */
+  tasksDir: string;
+  /** `<root>/.ralph/agent-state.json` — orchestrator state file. */
+  agentStateFile: string;
+  /** `<root>/openspec/changes/<name>` — per-change spec dir. */
+  changeDir(name: string): string;
+  /** `<root>/.ralph/tasks/<name>` — per-change loop-state dir. */
+  taskStateDir(name: string): string;
+  /** `<root>/.ralph/tasks/<name>/.ralph-state.json` — per-change loop state file. */
+  stateFile(name: string): string;
+}
+
 // --- Storage ---
 
 export interface StorageProvider {

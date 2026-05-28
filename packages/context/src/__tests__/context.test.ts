@@ -7,9 +7,13 @@ import {
   createFileSystemProvider,
   getContext,
   getStorage,
+  getLayout,
+  getArgs,
   runWithContext,
   createDefaultContext,
 } from "../context";
+import type { ProjectLayout } from "../context";
+import type { CommonArgs } from "../context";
 
 let tempDir: string;
 
@@ -143,5 +147,86 @@ describe("createFileSystemProvider", () => {
     expect(provider.read(join(tempDir, "fsp-test.txt"))).toBeNull();
 
     expect(provider.list(join(tempDir, "nonexistent-dir"))).toEqual([]);
+  });
+});
+
+describe("getLayout", () => {
+  test("throws when no layout is in context", () => {
+    const ctx = createDefaultContext();
+    runWithContext(ctx, () => {
+      expect(() => getLayout()).toThrow("No layout in context");
+    });
+  });
+
+  test("returns the layout when present in context", () => {
+    const layout: ProjectLayout = {
+      root: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      agentStateFile: join(tempDir, ".ralph", "agent-state.json"),
+      changeDir: (name) => join(tempDir, "openspec", "changes", name),
+      taskStateDir: (name) => join(tempDir, ".ralph", "tasks", name),
+      stateFile: (name) => join(tempDir, ".ralph", "tasks", name, ".ralph-state.json"),
+    };
+    const ctx = createDefaultContext({ layout });
+    runWithContext(ctx, () => {
+      expect(getLayout()).toBe(layout);
+    });
+  });
+});
+
+describe("getArgs", () => {
+  test("throws when no args are in context", () => {
+    const ctx = createDefaultContext();
+    runWithContext(ctx, () => {
+      expect(() => getArgs()).toThrow("No args in context");
+    });
+  });
+
+  test("returns the args when present in context", () => {
+    const args: CommonArgs = {
+      engine: "claude",
+      model: "opus",
+      engineSet: false,
+      maxIterations: 0,
+      maxCostUsd: 0,
+      maxRuntimeMinutes: 0,
+      maxConsecutiveFailures: 5,
+      delay: 0,
+      log: false,
+      verbose: false,
+      projectRoot: undefined,
+      name: "test-change",
+      prompt: "do something",
+      fromAgent: false,
+    };
+    const ctx = createDefaultContext({ args });
+    runWithContext(ctx, () => {
+      expect(getArgs()).toBe(args);
+    });
+  });
+});
+
+describe("createDefaultContext with overrides", () => {
+  test("creates context with layout override", () => {
+    const layout: ProjectLayout = {
+      root: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      agentStateFile: join(tempDir, ".ralph", "agent-state.json"),
+      changeDir: (name) => join(tempDir, "openspec", "changes", name),
+      taskStateDir: (name) => join(tempDir, ".ralph", "tasks", name),
+      stateFile: (name) => join(tempDir, ".ralph", "tasks", name, ".ralph-state.json"),
+    };
+    const ctx = createDefaultContext({ layout });
+    expect(ctx.layout).toBe(layout);
+    expect(ctx.storage).toBeDefined();
+  });
+
+  test("creates context without overrides when called with no arguments", () => {
+    const ctx = createDefaultContext();
+    expect(ctx.layout).toBeUndefined();
+    expect(ctx.args).toBeUndefined();
+    expect(ctx.storage).toBeDefined();
   });
 });

@@ -4,7 +4,7 @@ import { Text, useApp } from "ink";
 import type { LoopParsedArgs } from "../cli";
 import type { TaskPhase } from "../loop";
 import { readState } from "@ralphy/core/state";
-import { getStorage } from "@ralphy/context";
+import { getLayout, getStorage } from "@ralphy/context";
 import { TaskStatus } from "./TaskStatus";
 import { TaskLoop } from "./TaskLoop";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
@@ -12,9 +12,6 @@ import { OpenSpecChangeStore } from "@ralphy/openspec";
 interface AppProps {
   args: LoopParsedArgs;
   taskPhase?: TaskPhase;
-  statesDir: string;
-  tasksDir: string;
-  projectRoot: string;
 }
 
 function ExitAfterRender({ children }: { children: ReactNode }) {
@@ -37,11 +34,9 @@ function ErrorMessage({ message }: { message: string }) {
 interface TaskModeWrapperProps {
   args: LoopParsedArgs;
   taskPhase?: TaskPhase;
-  statesDir: string;
-  tasksDir: string;
 }
 
-function TaskModeWrapper({ args, taskPhase, statesDir, tasksDir }: TaskModeWrapperProps) {
+function TaskModeWrapper({ args, taskPhase }: TaskModeWrapperProps) {
   return (
     <TaskLoop
       opts={{
@@ -58,8 +53,6 @@ function TaskModeWrapper({ args, taskPhase, statesDir, tasksDir }: TaskModeWrapp
         verbose: args.verbose,
         manualTest: args.manualTest,
         createPr: args.fromAgent,
-        statesDir,
-        tasksDir,
         changeStore: new OpenSpecChangeStore(),
         ...(taskPhase !== undefined ? { phase: taskPhase } : {}),
         ...(args.reviewPhase.enabled ? { reviewPhase: args.reviewPhase } : {}),
@@ -68,13 +61,14 @@ function TaskModeWrapper({ args, taskPhase, statesDir, tasksDir }: TaskModeWrapp
   );
 }
 
-export function App({ args, taskPhase, statesDir, tasksDir }: AppProps) {
+export function App({ args, taskPhase }: AppProps) {
   switch (args.mode) {
     case "status": {
       if (!args.name) {
         return <ErrorMessage message="Error: --name is required for status mode" />;
       }
-      const stateDir = join(statesDir, args.name);
+      const layout = getLayout();
+      const stateDir = layout.taskStateDir(args.name);
       if (getStorage().read(join(stateDir, ".ralph-state.json")) === null) {
         return <ErrorMessage message={`Error: change '${args.name}' not found`} />;
       }
@@ -112,8 +106,6 @@ export function App({ args, taskPhase, statesDir, tasksDir }: AppProps) {
         <TaskModeWrapper
           args={args}
           {...(taskPhase !== undefined ? { taskPhase } : {})}
-          statesDir={statesDir}
-          tasksDir={tasksDir}
         />
       );
     }

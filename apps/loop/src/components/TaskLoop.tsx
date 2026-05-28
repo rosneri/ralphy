@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { join } from "node:path";
 import { Box, Static, Text, useApp, useInput, useStdin } from "ink";
 import { TextInput } from "@inkjs/ui";
 import { Banner } from "./Banner";
@@ -9,6 +8,7 @@ import { StatusBar } from "./StatusBar";
 import { StopMessage } from "./StopMessage";
 import { useLoop, type LogEntry } from "../hooks/useLoop";
 import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
+import { getLayout } from "@ralphy/context";
 import type { LoopOptions } from "../loop";
 
 interface TaskLoopProps {
@@ -135,7 +135,7 @@ export function TaskLoop({ opts }: TaskLoopProps) {
 
   if (!loop.state) return null;
 
-  const stateDir = join(opts.statesDir, opts.name);
+  const stateDir = getLayout().taskStateDir(opts.name);
 
   return (
     <Box key={resizeKey} flexDirection="column">

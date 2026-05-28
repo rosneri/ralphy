@@ -42,10 +42,8 @@ export async function main(argv: string[]): Promise<number> {
 
   if (args.mode === "list") {
     const { runList } = await import("./list");
-    await runWithContext(createDefaultContext(), async () => {
+    await runWithContext(createDefaultContext({ layout, args }), async () => {
       await runList({
-        statesDir,
-        projectRoot,
         linearTeamOverride: args.linearTeam,
         linearAssigneeOverride: args.linearAssignee,
         debug: args.debug,
@@ -82,7 +80,9 @@ export async function main(argv: string[]): Promise<number> {
 
   if (args.jsonOutput) {
     const { runAgentJson } = await import("./agent/json-runner");
-    await runAgentJson({ args, projectRoot, statesDir, tasksDir });
+    await runWithContext(createDefaultContext({ layout, args }), () =>
+      runAgentJson({ args, projectRoot, statesDir, tasksDir }),
+    );
     return typeof process.exitCode === "number" ? process.exitCode : 0;
   }
 
@@ -105,7 +105,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  await runWithContext(createDefaultContext(), async () => {
+  await runWithContext(createDefaultContext({ layout, args }), async () => {
     const { waitUntilExit } = render(
       createElement(AgentMode, { args, projectRoot, statesDir, tasksDir }),
     );
