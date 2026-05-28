@@ -2,6 +2,15 @@
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
+## Manual Testing
+
+- [x] Run `bun run test --filter meta-prompt` in packages/core and verify all 27 unit tests pass
+- [x] Run `bunx openspec validate rlf-162-add-task-level-meta-prompt-layer-in-ralp` and verify no validation errors
+- [x] Verify `buildMetaPrompt` output format by running a quick Bun script: import the function, call it with a sample state and each phase, and confirm the preamble contains the change name, engine/model, phase, and iteration number
+- [x] Verify opt-out: call `buildMetaPrompt` with `{ enabled: false }` and confirm the result is exactly `""`
+- [x] Verify `buildPhasePrompt` integration by running the loop tests: `bun run test --filter loop` in packages/core — confirm meta-prompt prepend and opt-out scenarios pass
+- [x] Run `bun run typecheck` across all affected packages (core, loop, workflow) and confirm no type errors
+
 ```
 CI is failing on this PR. Investigate and fix:
 
