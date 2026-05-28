@@ -147,12 +147,10 @@ linear:
   # Confirmation mode — human gate between the OpenSpec `tasks` and
   # `implement` phases. Approve via `getApproved`, revise via
   # `@ralphy revise: <reason>`.
-  # optInLabel: only gate tickets that carry this label (opt-in mode).
-  # optOutLabel: skip the gate for tickets that carry this label.
+  # Use getConfirmGate indicator (opt-in mode) and getAutoApprove indicator
+  # (opt-out/bypass mode) in the indicators section below.
   confirmationMode:
     enabled: true
-    optInLabel: "confirm"
-    optOutLabel: "auto-merge"
     timeoutHours: 48
     maxConfirmationRounds: 3
 
@@ -199,6 +197,18 @@ linear:
           group: "Ralphy"
 
     # Confirmation gate (paired with linear.confirmationMode above)
+    # getConfirmGate: when set, only gate tickets that match this indicator (opt-in mode).
+    getConfirmGate:
+      filter:
+        - type: label
+          value: "confirm"
+          group: "Ralphy"
+    # getAutoApprove: when set, bypass the gate for tickets that match (opt-out mode).
+    getAutoApprove:
+      filter:
+        - type: label
+          value: "auto-merge"
+          group: "Ralphy"
     getApproved:
       filter:
         - type: label

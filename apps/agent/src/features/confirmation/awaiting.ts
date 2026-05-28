@@ -237,7 +237,10 @@ export async function processAwaitingForIssue(
       state: issue.state,
       project: issue.project,
     };
-    const { approved: approvalMatches } = computeConfirmationFlags(cfg, ticketView);
+    const { approved: approvalMatches, confirmationGated } = computeConfirmationFlags(
+      cfg,
+      ticketView,
+    );
     const { stateObj, confirmation } = await readConfirmationState(statePath);
     if (approvalMatches && confirmation.confirmedAt === null) {
       confirmation.confirmedAt = new Date().toISOString();
@@ -250,11 +253,14 @@ export async function processAwaitingForIssue(
         );
       }
     }
-    const active = gateActive({
-      config: { confirmationMode: cfg.linear.confirmationMode },
-      ticket: { labels: [...issue.labels] },
-      persistedConfirmation: confirmation,
-    });
+    // Gate is inactive when: indicators bypass it (getAutoApprove/getConfirmGate), or
+    // confirmedAt was persisted (approval watermark), or confirmationMode was disabled.
+    const active =
+      confirmationGated &&
+      gateActive({
+        config: { confirmationMode: cfg.linear.confirmationMode },
+        persistedConfirmation: confirmation,
+      });
     if (!active) {
       deps.awaitingChangeSet.delete(changeName);
       await releaseAwaitingMarker(issue, statePath, {

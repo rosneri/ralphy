@@ -100,7 +100,7 @@ function partition(markers: Marker[]): Partitioned {
 
 const RALPHY_ATTACHMENT_TITLE_FILTER = "Ralphy";
 
-function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
+export function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   if (spec.team) where.team = { key: { eq: spec.team } };
   if (spec.assignee) {
@@ -187,7 +187,7 @@ function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   return where;
 }
 
-function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | null {
+export function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | null {
   if (markers.length === 0) return null;
   const { statuses, labels, attachmentSubtitles, projects } = partition(markers);
   const parts: Record<string, unknown> = {};

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import * as nodeOs from "node:os";
@@ -10,23 +10,36 @@ mock.module("node:os", () => ({
   ...nodeOs,
   homedir: () => FAKE_HOME,
 }));
-const commentBodies: string[] = [];
-const reactedComments: Array<{ id: string; emoji: string }> = [];
-mock.module("../../../agent/linear", () => ({
-  addIssueComment: async (_apiKey: string, _id: string, body: string) => {
-    commentBodies.push(body);
-  },
-  addReactionToComment: async (_apiKey: string, id: string, emoji: string) => {
-    reactedComments.push({ id, emoji });
-  },
-  fetchIssueComments: async () => [],
-}));
 import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
 import type { LinearIssue } from "../../../agent/linear";
+import * as linear from "../../../agent/linear";
 import type { RalphyConfig } from "../../../agent/config";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
 import type { Indicators, SetIndicator } from "@ralphy/types";
+
+const commentBodies: string[] = [];
+const reactedComments: Array<{ id: string; emoji: string }> = [];
+
+// Use spyOn (restorable) instead of mock.module so these stubs don't leak
+// into other test files that run in the same Bun worker process.
+beforeAll(() => {
+  spyOn(linear, "addIssueComment").mockImplementation(
+    async (_apiKey: string, _id: string, body: string) => {
+      commentBodies.push(body);
+    },
+  );
+  spyOn(linear, "addReactionToComment").mockImplementation(
+    async (_apiKey: string, id: string, emoji: string) => {
+      reactedComments.push({ id, emoji });
+    },
+  );
+  spyOn(linear, "fetchIssueComments").mockImplementation(async () => []);
+});
+
+afterAll(() => {
+  mock.restore();
+});
 
 function makeIssue(): LinearIssue {
   return {
@@ -52,7 +65,6 @@ function makeConfig(): RalphyConfig {
       postComments: false,
       confirmationMode: {
         enabled: true,
-        optOutLabel: "ralph:auto-approve",
         timeoutHours: 48,
         maxConfirmationRounds: 3,
       },
@@ -127,6 +139,13 @@ function makeDeps(
     onLog: (msg: string) => captured.logs.push(msg),
   };
 }
+
+// Restore module mocks after all tests so they don't leak into other test
+// files running in the same worker (mock.module on agent/linear resolves to
+// linear-client through Bun's re-export deduplication).
+afterAll(() => {
+  mock.restore();
+});
 
 describe("processAwaitingForIssue", () => {
   test("second-poll resume preserves the claim", async () => {
@@ -242,8 +261,10 @@ describe("processAwaitingForIssue", () => {
 
       // Poll 1 — gate active, marker applied.
       await processAwaitingForIssue(issue, deps);
-      // Disable confirmation mode → gate clears next poll.
-      deps.cfg.linear.confirmationMode.optOutLabel = "ralph:auto-approve";
+      // Bypass gate via getAutoApprove indicator → gate clears next poll.
+      deps.cfg.linear.indicators.getAutoApprove = {
+        filter: [{ type: "label", value: "ralph:auto-approve" }],
+      };
       issue.labels = ["ralph:auto-approve"];
       await processAwaitingForIssue(issue, deps);
       expect(applied.length).toBe(2);

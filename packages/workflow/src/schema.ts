@@ -34,6 +34,8 @@ const IndicatorsSchema = z.preprocess(
       getInProgress: GetIndicatorSchema.optional(),
       getAutoMerge: GetIndicatorSchema.optional(),
       getApproved: GetIndicatorSchema.optional(),
+      getConfirmGate: GetIndicatorSchema.optional(),
+      getAutoApprove: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
@@ -177,15 +179,12 @@ export const WorkflowConfigSchema = z.object({
       confirmationMode: z
         .object({
           enabled: z.boolean().default(false),
-          optOutLabel: z.string().default("ralph:auto-approve"),
-          optInLabel: z.string().optional(),
           timeoutHours: z.number().positive().default(48),
           maxConfirmationRounds: z.number().int().positive().default(3),
         })
         .strict()
         .default({
           enabled: false,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           maxConfirmationRounds: 3,
         }),
@@ -204,7 +203,6 @@ export const WorkflowConfigSchema = z.object({
       specAttachmentFormats: ["md"],
       confirmationMode: {
         enabled: false,
-        optOutLabel: "ralph:auto-approve",
         timeoutHours: 48,
         maxConfirmationRounds: 3,
       },

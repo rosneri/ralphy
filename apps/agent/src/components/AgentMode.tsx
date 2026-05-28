@@ -1071,7 +1071,65 @@ export function AgentMode({
 
         {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
         {(() => {
-          const { top, moreCount } = pickLatestGatedTicket(gatedTicketsRef.current);
+          const gated = gatedTicketsRef.current;
+          if (gated.size === 0) return null;
+
+          if (gated.size >= 2) {
+            const entries = Array.from(gated.entries()).sort(([, a], [, b]) => {
+              const aTime = a.since ? new Date(a.since).getTime() : 0;
+              const bTime = b.since ? new Date(b.since).getTime() : 0;
+              return bTime - aTime;
+            });
+            const idLen = entries.reduce((sum, [, g]) => sum + g.issueIdentifier.length, 0);
+            const multiLabelWidth = idLen + (entries.length - 1) * 3 + 2;
+            const labelParts: React.ReactNode[] = [];
+            entries.forEach(([, g], i) => {
+              labelParts.push(
+                <Link
+                  key={g.issueIdentifier}
+                  url={g.issueUrl}
+                  label={g.issueIdentifier}
+                  color="yellow"
+                />,
+              );
+              if (i < entries.length - 1) {
+                labelParts.push(
+                  <Text key={`sep-${i}`} color="yellow">
+                    {" · "}
+                  </Text>,
+                );
+              }
+            });
+            const multiLabelNode = (
+              <>
+                <Text color="yellow"> </Text>
+                {labelParts}
+                <Text color="yellow"> </Text>
+              </>
+            );
+            return (
+              <LabeledBox
+                labelNode={multiLabelNode}
+                labelVisualWidth={multiLabelWidth}
+                borderColor="yellow"
+                paddingX={1}
+                gap={2}
+                width={termWidth}
+              >
+                <Text color="yellow" bold>
+                  [GATE]
+                </Text>
+                <Text color="yellow">Awaiting confirmation</Text>
+                <Text dimColor>·</Text>
+                <Text color="white" bold>
+                  {gated.size}
+                </Text>
+                <Text dimColor>tickets</Text>
+              </LabeledBox>
+            );
+          }
+
+          const { top } = pickLatestGatedTicket(gated);
           if (!top) return null;
           const [changeName, g] = top;
           const askedAgo = g.since ? fmtElapsed(now - Date.parse(g.since)) : "just now";
@@ -1084,36 +1142,31 @@ export function AgentMode({
             </>
           );
           return (
-            <>
-              <LabeledBox
-                key={`gated-${changeName}`}
-                labelNode={cardLabelNode}
-                labelVisualWidth={cardLabelWidth}
-                borderColor="yellow"
-                paddingX={1}
-                gap={2}
-                width={termWidth}
-              >
-                <Text color="yellow" bold>
-                  [GATE]
-                </Text>
-                <Text color="yellow">Awaiting confirmation</Text>
-                <Text dimColor>·</Text>
-                <Text dimColor>round</Text>
-                <Text color="white" bold>
-                  {g.round}
-                </Text>
-                <Text dimColor>·</Text>
-                <Text dimColor>asked</Text>
-                <Text color="white">{askedAgo}</Text>
-                <Text dimColor>ago</Text>
-                <Text dimColor>│</Text>
-                <Text dimColor>{trunc(g.issueTitle, Math.max(20, termWidth - 70))}</Text>
-              </LabeledBox>
-              {moreCount > 0 && (
-                <Text dimColor>{`  +${moreCount} more awaiting confirmation`}</Text>
-              )}
-            </>
+            <LabeledBox
+              key={`gated-${changeName}`}
+              labelNode={cardLabelNode}
+              labelVisualWidth={cardLabelWidth}
+              borderColor="yellow"
+              paddingX={1}
+              gap={2}
+              width={termWidth}
+            >
+              <Text color="yellow" bold>
+                [GATE]
+              </Text>
+              <Text color="yellow">Awaiting confirmation</Text>
+              <Text dimColor>·</Text>
+              <Text dimColor>round</Text>
+              <Text color="white" bold>
+                {g.round}
+              </Text>
+              <Text dimColor>·</Text>
+              <Text dimColor>asked</Text>
+              <Text color="white">{askedAgo}</Text>
+              <Text dimColor>ago</Text>
+              <Text dimColor>│</Text>
+              <Text dimColor>{trunc(g.issueTitle, Math.max(20, termWidth - 70))}</Text>
+            </LabeledBox>
           );
         })()}
 

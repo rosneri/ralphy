@@ -95,6 +95,18 @@ describe("worker-spawner capability", () => {
     expect(await handle.exited).toBe(0);
   });
 
+  test("default spawner kill() terminates a running subprocess", async () => {
+    const handle = await runCapability(spawnWorker, {
+      cmd: ["bun", "-e", "await new Promise(() => {})"],
+      cwd: root,
+      changeName: "eng-1",
+    });
+    expect(typeof handle.pid).toBe("number");
+    handle.kill();
+    const code = await handle.exited;
+    expect(typeof code).toBe("number");
+  });
+
   test("emits worker.spawn.failed and rethrows when the spawner throws", async () => {
     const bus = createBus();
     const events: string[] = [];

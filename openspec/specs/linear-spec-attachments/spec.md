@@ -30,110 +30,122 @@ every `syncTasks` poll for every active worker.
 - **Given** `linear.syncSpecsAsAttachments: false` in WORKFLOW.md
 - **When** the coordinator's `syncTasks` hook fires for an active worker
 - **Then** no Linear `fileUpload` or `attachmentCreate` mutation is
-  invoked for `proposal.md` or `design.md`
+  invoked for `design.md`
 
-### Requirement: Sync MUST upload `proposal.md` and `design.md` on first run
+### Requirement: Sync MUST upload `design.md` (with `tasks.md` embedded) only — never `proposal.md`
 
-The agent MUST mirror `proposal.md` and `design.md` from
-`openspec/changes/<changeName>/` to the parent Linear issue as native
-attachments, in place, with the following behavior. The orchestrator
-lives in a new module
+The agent MUST mirror only the `design` slot to the parent Linear issue
+as a native attachment. The orchestrator lives in a new module
 `apps/agent/src/agent/linear-sync/spec-attachments.ts` exporting
 `syncSpecAttachments(deps)` which, when enabled and given an active
 worker, MUST:
 
-1. Locate `proposal.md` and `design.md` inside
-   `openspec/changes/<changeName>/`.
-2. For each file that exists, read its bytes via `Bun.file(...).bytes()`
-   and compute a SHA-256 hash via `Bun.CryptoHasher`.
-3. Read `.ralph-state.json` for the change and look up
-   `specAttachments.<slot>` where `slot` is `proposal` or `design`.
-4. When no persisted record exists for a slot, call
-   `uploadFileToLinear` to obtain a signed asset URL, then
-   `attachmentCreate` with `title: "Ralphy: <slot>"` and `subtitle:
-"<slot>.md (iteration N)"`. Persist the new attachment id and the
-   SHA-256 hash under `specAttachments.<slot>` in `.ralph-state.json`.
-5. When a persisted record exists and the hash matches, the sync MUST
-   skip the upload (no Linear network calls) and MUST log a gray line
-   noting the skip.
-6. When a persisted record exists and the hash differs, the sync MUST
-   upload the new bytes via `uploadFileToLinear` and call
-   `attachmentUpdate` against the persisted attachment id to point at
-   the new asset URL. The persisted hash MUST be replaced on success.
+1. Locate `design.md` inside `openspec/changes/<changeName>/`.
+2. Build the upload bytes by combining `design.md` content with the
+   contents of `tasks.md` (if present) appended as a trailing section.
+   If `tasks.md` is missing, upload `design.md` bytes alone.
+3. Compute a SHA-256 hash of the combined bytes via `Bun.CryptoHasher`.
+4. Purge any legacy `proposal` attachment: if `.ralph-state.json`
+   records a `specAttachments.proposal` entry, call `deleteAttachment`
+   for that id and clear the state entry.
+5. Read `.ralph-state.json` and look up `specAttachments.design`.
+6. When no persisted `design` record exists, check whether Linear
+   already has an attachment titled `"Ralph design"` via
+   `findIssueAttachmentByTitle`. If one is found, delete it and
+   re-create to take ownership (adoption flow). Then call
+   `uploadFileToLinear` to obtain a signed asset URL and call
+   `createAttachmentForUrl` with `title: "Ralph design"` and
+   `subtitle: "iteration N"`. Persist the new attachment id and the
+   SHA-256 hash under `specAttachments.design` in `.ralph-state.json`.
+7. When a persisted record exists and the hash matches, the sync MUST
+   skip the upload (no Linear network calls).
+8. When a persisted record exists and the hash differs, the sync MUST
+   delete the old attachment via `deleteAttachment`, upload the new
+   bytes via `uploadFileToLinear`, and create a new attachment via
+   `createAttachmentForUrl`. The persisted id and hash MUST be replaced
+   on success.
 
-#### Scenario: first-time sync uploads both files
+`proposal.md` MUST NOT be uploaded, created, or attached to the Linear
+issue under any circumstances.
 
-- **Given** `proposal.md` and `design.md` exist for the change and
+#### Scenario: first-time sync uploads design.md with tasks embedded
+
+- **Given** `design.md` and `tasks.md` exist for the change and
   `.ralph-state.json` has no `specAttachments` block
 - **When** `syncSpecAttachments` runs
-- **Then** `fileUpload` is called twice and `attachmentCreate` is called
-  twice
-- **And** `.ralph-state.json` now contains `specAttachments.proposal.id`,
-  `specAttachments.proposal.sha256`, `specAttachments.design.id`, and
-  `specAttachments.design.sha256`
+- **Then** `uploadFileToLinear` is called once with `filename: "design.md"`
+  and the upload bytes contain both the design content and the tasks content
+- **And** `createAttachmentForUrl` is called once with `title: "Ralph design"`
+- **And** `.ralph-state.json` now contains `specAttachments.design.attachmentId`
+  and `specAttachments.design.sha256`
+- **And** `uploadFileToLinear` is never called with `filename: "proposal.md"`
 
 #### Scenario: unchanged content skips upload
 
-- **Given** persisted `specAttachments.proposal.sha256` matches the
-  current `proposal.md` hash
+- **Given** persisted `specAttachments.design.sha256` matches the
+  current combined `design.md` + `tasks.md` hash
 - **When** `syncSpecAttachments` runs
-- **Then** `fileUpload` and `attachmentCreate` are NOT called for the
-  proposal slot
-- **And** a gray `spec-attachments: proposal unchanged` line is logged
+- **Then** `uploadFileToLinear` and `createAttachmentForUrl` are NOT called
 
-#### Scenario: changed content updates attachment in place
+#### Scenario: changed content deletes old attachment and creates a new one
 
 - **Given** persisted `specAttachments.design.sha256` differs from the
-  current `design.md` hash, and `specAttachments.design.id` is a known
+  current combined hash, and `specAttachments.design.attachmentId` is a known
   attachment id
 - **When** `syncSpecAttachments` runs
-- **Then** `fileUpload` is called once for the design slot
-- **And** `attachmentUpdate` is called with the persisted attachment id
-  and the new asset URL
-- **And** the persisted `sha256` is replaced with the new hash
-- **And** the persisted `id` is NOT changed
+- **Then** `deleteAttachment` is called with the persisted attachment id
+- **And** `uploadFileToLinear` is called once for the design slot
+- **And** `createAttachmentForUrl` is called once with `title: "Ralph design"`
+- **And** the persisted `attachmentId` and `sha256` are replaced with the new values
+
+#### Scenario: legacy proposal attachment is purged
+
+- **Given** `.ralph-state.json` records `specAttachments.proposal.attachmentId`
+  from a previous run
+- **When** `syncSpecAttachments` runs
+- **Then** `deleteAttachment` is called for the legacy proposal attachment id
+- **And** no `proposal.md` upload or create occurs
 
 ### Requirement: Sync MUST be resilient to missing files and API errors
 
-- A missing `proposal.md` or `design.md` MUST be logged as a gray line
-  (`spec-attachments: <slot>.md missing, skipping`) and MUST NOT
-  prevent the other slot from syncing.
+- A missing `design.md` MUST be logged as a gray line
+  (`spec-attachments: design.md missing, skipping`) and MUST NOT
+  cause any upload or attachment calls.
 - A missing or empty Linear API key MUST short-circuit the orchestrator
   without making any network calls.
-- A `fileUpload`, `attachmentCreate`, or `attachmentUpdate` failure
+- A `fileUpload`, `createAttachmentForUrl`, or `deleteAttachment` failure
   MUST be logged at yellow level with the message from
-  `formatLinearError` and MUST NOT update `.ralph-state.json` for that
-  slot, so the next iteration retries.
-- An `attachmentUpdate` that returns a "not found" / "could not find"
-  error (manually deleted attachment) MUST fall through to a fresh
-  `attachmentCreate` and persist the replacement id under the same slot,
-  mirroring the recreate behavior already used by the tasks comment.
+  `formatLinearError` and MUST NOT update `.ralph-state.json` for the
+  design slot, so the next iteration retries.
+- A `deleteAttachment` that returns a "not found" / "could not find"
+  error (manually deleted attachment) MUST be treated as already gone
+  and fall through to a fresh `createAttachmentForUrl`, persisting the
+  replacement id under `specAttachments.design`.
 
-#### Scenario: design.md missing skips only that slot
+#### Scenario: design.md missing skips all upload calls
 
-- **Given** `proposal.md` exists and `design.md` does not
+- **Given** `design.md` does not exist for the change
 - **When** `syncSpecAttachments` runs
-- **Then** the proposal slot uploads as normal
-- **And** the design slot is skipped with a gray
-  `spec-attachments: design.md missing, skipping` log line
+- **Then** `uploadFileToLinear` is NOT called
+- **And** a gray `spec-attachments: design.md missing, skipping` log line
+  is emitted
 
 #### Scenario: upload error leaves state untouched
 
-- **Given** no persisted `specAttachments.proposal` and
+- **Given** no persisted `specAttachments.design` and
   `uploadFileToLinear` throws
 - **When** `syncSpecAttachments` runs
-- **Then** a yellow `! spec-attachments: proposal upload failed` line is
-  logged
-- **And** `.ralph-state.json` still has no `specAttachments.proposal`
+- **Then** a yellow error line is logged
+- **And** `.ralph-state.json` still has no `specAttachments.design`
   block
 
 #### Scenario: stale attachment id recreates
 
-- **Given** persisted `specAttachments.design.id = "att_old"` and
-  Linear's `attachmentUpdate` for that id returns a not-found error
+- **Given** persisted `specAttachments.design.attachmentId = "att_old"` and
+  Linear's `deleteAttachment` for that id returns a not-found error
 - **When** `syncSpecAttachments` runs against changed `design.md`
-- **Then** `attachmentCreate` is called for the design slot
-- **And** `specAttachments.design.id` is replaced with the new
+- **Then** `createAttachmentForUrl` is called for the design slot
+- **And** `specAttachments.design.attachmentId` is replaced with the new
   attachment id in `.ralph-state.json`
 
 ### Requirement: Sync MUST skip uploads when the source file has no meaningful content
@@ -178,11 +190,11 @@ skipping` line is logged
 
 #### Scenario: empty placeholder later becomes meaningful
 
-- **Given** the previous run skipped `proposal.md` because it contained
+- **Given** the previous run skipped `design.md` because it contained
   only scaffold noise
-- **When** the agent appends a real `## Why` body paragraph and
-  `syncSpecAttachments` runs again
-- **Then** the proposal slot uploads as normal via `uploadFileToLinear`
+- **When** real content is added to `design.md` and `syncSpecAttachments`
+  runs again
+- **Then** the design slot uploads as normal via `uploadFileToLinear`
   and `createAttachmentForUrl`
-- **And** `specAttachments.proposal.sha256` is now persisted in
+- **And** `specAttachments.design.sha256` is now persisted in
   `.ralph-state.json`

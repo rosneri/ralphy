@@ -119,4 +119,19 @@ describe("runCapability", () => {
     const cap = makeCap({ run: async () => 1 });
     expect(await runCapability(cap, undefined)).toBe(1);
   });
+
+  test("sleeps between retries when delayMs returns positive value", async () => {
+    let attempts = 0;
+    const cap = makeCap({
+      retryPolicy: { maxAttempts: 2, isRetryable: () => true, delayMs: () => 1 },
+      run: async () => {
+        attempts += 1;
+        if (attempts < 2) throw new Error("transient");
+        return "done";
+      },
+    });
+    const out = await runCapability(cap, undefined);
+    expect(out).toBe("done");
+    expect(attempts).toBe(2);
+  });
 });
