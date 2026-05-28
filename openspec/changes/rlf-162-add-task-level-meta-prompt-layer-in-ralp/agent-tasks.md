@@ -1,3 +1,16 @@
+## Resolve PR merge conflicts (2026-05-28T07:58:42.296Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+The PR https://github.com/rosneri/ralphy/pull/293 has merge conflicts with `main`.
+
+Steps:
+1. `git fetch origin main` then merge `main` into the current branch (`git merge origin/main`). Do NOT rebase and do NOT amend existing commits.
+2. Resolve conflicts in the files git lists.
+3. Stage and commit the resolution as a new merge commit.
+```
+
 ## Resolve PR merge conflicts (2026-05-28T07:49:05.825Z)
 
 - [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
