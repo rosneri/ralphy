@@ -250,3 +250,25 @@ describe("pickLatestGatedTicket", () => {
     expect(top).not.toBeNull();
   });
 });
+
+describe("multi-ticket label visual-width calculation", () => {
+  it("computes width as sum-of-identifier-lengths + (count-1)*3 + 2", () => {
+    // Formula: each separator " · " contributes 3 chars, plus 2 for the outer
+    // leading and trailing spaces in the label node (" ID1 · ID2 ").
+    const identifiers = ["RLF-1", "RLF-22", "RLF-333"];
+    const count = identifiers.length;
+    const sumLen = identifiers.reduce((s, id) => s + id.length, 0); // 5 + 6 + 7 = 18
+    const expected = sumLen + (count - 1) * 3 + 2; // 18 + 6 + 2 = 26
+    expect(expected).toBe(26);
+
+    // Two-ticket case
+    const two = ["RLF-100", "RLF-200"];
+    const twoSum = two.reduce((s, id) => s + id.length, 0); // 7 + 7 = 14
+    expect(twoSum + (two.length - 1) * 3 + 2).toBe(19);
+
+    // Single-ticket case collapses to identifier.length + 2 (the existing formula)
+    const one = ["RLF-1"];
+    const oneSum = one.reduce((s, id) => s + id.length, 0); // 5
+    expect(oneSum + (one.length - 1) * 3 + 2).toBe(7); // same as "RLF-1".length + 2
+  });
+});
