@@ -79,6 +79,19 @@ export function commitState(taskDir: string, message: string): void {
 }
 
 /**
+ * Return the parsed lines of `git status --porcelain` (one per uncommitted
+ * file). Empty array = clean worktree. Used by the loop's archive guard to
+ * refuse archiving a change when the worker exited with stranded work — see
+ * LIT-303. Returns [] when git is unavailable or errors, so a missing git
+ * binary doesn't permanently wedge the loop.
+ */
+export function getUncommittedFiles(): readonly string[] {
+  const result = runGit(["status", "--porcelain"]);
+  if (result.exitCode !== 0) return [];
+  return result.stdout.split("\n").filter((line) => line.length > 0);
+}
+
+/**
  * Commit all files in a task directory (state.json + *.md) with the given message.
  */
 export function commitTaskDir(taskDir: string, message: string): void {
