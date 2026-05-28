@@ -975,6 +975,25 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     break;
   }
   if (!pr) {
+    // If the worktree still has uncommitted edits, the worker exited with
+    // stranded work and there is nothing to PR because nothing was committed —
+    // NOT because the change is a legitimate no-op. Returning 0 here would
+    // cause the caller to post a Linear completion comment and flip the issue
+    // to a done state with no PR (see LIT-303 incident).
+    let dirtyAfterWorker = false;
+    try {
+      const status = await cmd.run(["git", "status", "--porcelain"], cwd);
+      dirtyAfterWorker = summarizeUncommittedStatus(status.stdout).count > 0;
+    } catch {
+      // If we can't check, fall back to the legacy benign behavior.
+    }
+    if (dirtyAfterWorker) {
+      log(
+        `! ${changeName}: worker exited with uncommitted changes and no commits ahead of ${base} — refusing to mark done`,
+        "red",
+      );
+      return PR_FAILED_EXIT;
+    }
     log(`  no commits ahead of ${base} — skipping PR`, "gray");
     return 0;
   }
