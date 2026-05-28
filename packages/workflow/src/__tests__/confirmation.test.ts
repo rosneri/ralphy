@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseWorkflow } from "../workflow";
 import {
   computeConfirmationFlags,
+  describeApprovalMarker,
   matchesIndicator,
   type ConfirmationTicketView,
 } from "../confirmation";
@@ -128,6 +129,30 @@ describe("matchesIndicator", () => {
       matchesIndicator(ind, ticket({ labels: ["b"], state: { name: "Todo", type: "unstarted" } })),
     ).toBe(false);
   });
+
+  test("project marker matches when ticket is in that project", () => {
+    const ind = { filter: [{ type: "project" as const, value: "Platform" }] };
+    expect(matchesIndicator(ind, ticket({ project: { id: "1", name: "Platform" } }))).toBe(true);
+    expect(matchesIndicator(ind, ticket({ project: { id: "2", name: "Other" } }))).toBe(false);
+    expect(matchesIndicator(ind, ticket({ project: null }))).toBe(false);
+  });
+
+  test("attachment marker matches when ticket has that attachment source type", () => {
+    const ind = { filter: [{ type: "attachment" as const, value: "github" }] };
+    expect(matchesIndicator(ind, ticket({ attachmentSourceTypes: ["github", "other"] }))).toBe(
+      true,
+    );
+    expect(matchesIndicator(ind, ticket({ attachmentSourceTypes: ["other"] }))).toBe(false);
+    expect(matchesIndicator(ind, ticket({ attachmentSourceTypes: [] }))).toBe(false);
+  });
+
+  test("comment marker matches when any non-Ralph comment body contains the text", () => {
+    const ind = { filter: [{ type: "comment" as const, value: "approve" }] };
+    expect(matchesIndicator(ind, ticket({ commentBodies: ["LGTM, I Approve this"] }))).toBe(true);
+    expect(matchesIndicator(ind, ticket({ commentBodies: ["looks good"] }))).toBe(false);
+    expect(matchesIndicator(ind, ticket({ commentBodies: [] }))).toBe(false);
+    expect(matchesIndicator(ind, ticket())).toBe(false);
+  });
 });
 
 describe("computeConfirmationFlags", () => {
@@ -201,5 +226,65 @@ describe("computeConfirmationFlags", () => {
     );
     expect(computeConfirmationFlags(c, ticket({ labels: ["ralph:approved"] })).approved).toBe(true);
     expect(computeConfirmationFlags(c, ticket()).approved).toBe(false);
+  });
+});
+
+describe("describeApprovalMarker", () => {
+  test("returns generic fallback when indicator is undefined or empty", () => {
+    expect(describeApprovalMarker(undefined)).toBe("ask your operator to approve this plan");
+    expect(describeApprovalMarker({ filter: [] })).toBe("ask your operator to approve this plan");
+  });
+
+  test("single label marker returns label phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "label", value: "ralph:approved" }] })).toBe(
+      "apply the `ralph:approved` label",
+    );
+  });
+
+  test("single status marker returns status phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "status", value: "Approved" }] })).toBe(
+      "move the issue to status `Approved`",
+    );
+  });
+
+  test("single project marker returns project phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "project", value: "Platform" }] })).toBe(
+      "move the issue into project `Platform`",
+    );
+  });
+
+  test("single attachment marker returns attachment phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "attachment", value: "github" }] })).toBe(
+      "attach a `github`",
+    );
+  });
+
+  test("single comment marker returns comment phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "comment", value: "approve" }] })).toBe(
+      "post a comment containing `approve`",
+    );
+  });
+
+  test("two markers joined with 'or'", () => {
+    expect(
+      describeApprovalMarker({
+        filter: [
+          { type: "label", value: "ralph:approved" },
+          { type: "status", value: "Approved" },
+        ],
+      }),
+    ).toBe("apply the `ralph:approved` label or move the issue to status `Approved`");
+  });
+
+  test("three or more markers joined with commas and trailing 'or'", () => {
+    expect(
+      describeApprovalMarker({
+        filter: [
+          { type: "label", value: "a" },
+          { type: "label", value: "b" },
+          { type: "status", value: "Done" },
+        ],
+      }),
+    ).toBe("apply the `a` label, apply the `b` label, or move the issue to status `Done`");
   });
 });
