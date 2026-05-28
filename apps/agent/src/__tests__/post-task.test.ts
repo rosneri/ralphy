@@ -1369,3 +1369,152 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
     expect(yellowLine!.text).toContain("?? scratch.log");
   });
 });
+
+// Regression: LIT-303 incident. Worker exited with edits still uncommitted,
+// so `git log <base>..HEAD` showed no commits ahead and `createPullRequest`
+// returned null. The phase silently returned 0, the parent loop posted a
+// Linear completion comment and flipped the issue to "In Review", and the
+// real diff was stranded in the worktree with no PR.
+describe("runPrPhase — dirty worktree with no commits ahead must not return success", () => {
+  let tmpDir: string;
+  let changeDir: string;
+  let stateFilePath: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "post-task-stranded-"));
+    changeDir = join(tmpDir, "changes", "my-change");
+    await mkdir(changeDir, { recursive: true });
+    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
+    stateFilePath = join(tmpDir, ".ralph-state.json");
+    await Bun.write(
+      stateFilePath,
+      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const baseCfg = {
+    teardownScript: null,
+    prBaseBranch: "main",
+    autoMergeStrategy: "squash" as const,
+    maxCiFixAttempts: 3,
+    ciPollIntervalSeconds: 0,
+    cleanupWorktreeOnSuccess: false,
+    ignoreCiChecks: [],
+    stackPrsOnDependencies: false,
+    neverTouch: [],
+  };
+
+  // bug_case (post-fix): regression guard. Before the fix, runPrPhase returned 0
+  // here, which caused the caller to post a Linear completion comment and mark
+  // the issue done with no PR. The phase must now refuse to report success.
+  test("bug_case (regression guard): never returns 0 when worktree is dirty and no commits ahead", async () => {
+    const { cmd } = makeCmd({
+      "git status --porcelain": {
+        stdout:
+          " M apps/game-astro/src/components/character/post-json.ts\n" +
+          " M libs/jobs/src/types.ts\n",
+      },
+      "git log --oneline main..HEAD": { stdout: "" },
+      "gh pr list": { stdout: "" },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
+    );
+
+    // Post-fix: phase must never silently succeed when work is stranded.
+    expect(code).not.toBe(0);
+  });
+
+  // fix_case: asserts the CORRECT post-fix behavior. Reproduces LIT-303.
+  test("fix_case: returns PR_FAILED_EXIT (71) when worktree is dirty and no commits ahead of base", async () => {
+    const { cmd } = makeCmd({
+      // 50+ uncommitted files left behind by the worker.
+      "git status --porcelain": {
+        stdout:
+          " M apps/game-astro/src/components/character/post-json.ts\n" +
+          " M libs/game-persistence/src/character/character-loader-types.ts\n" +
+          " M libs/jobs/src/types.ts\n",
+      },
+      // No commits ahead of base — createPullRequest will return null.
+      "git log --oneline main..HEAD": { stdout: "" },
+      // No existing PR for this branch.
+      "gh pr list": { stdout: "" },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
+    );
+
+    // Must NOT report success — the caller would otherwise post the Linear
+    // completion comment and mark the issue done without a PR.
+    expect(code).toBe(71); // PR_FAILED_EXIT
+  });
+
+  // Confirms the legitimate clean+no-commits path still returns 0.
+  test("clean worktree with no commits ahead is still a benign 0 (no-op task)", async () => {
+    const { cmd } = makeCmd({
+      "git status --porcelain": { stdout: "" },
+      "git log --oneline main..HEAD": { stdout: "" },
+      "gh pr list": { stdout: "" },
+    });
+
+    const code = await runPrPhase(
+      {
+        changeName: "my-change",
+        cwd: tmpDir,
+        branch: "ralph/my-change",
+        changeDir,
+        stateFilePath,
+        issue: FAKE_ISSUE,
+        wantFixCi: false,
+        wantAutoMerge: false,
+        cfg: baseCfg,
+      },
+      {
+        cmd,
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
+    );
+
+    expect(code).toBe(0);
+  });
+});
