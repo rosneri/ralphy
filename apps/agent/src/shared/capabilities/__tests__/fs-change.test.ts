@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBus } from "@ralphy/events";
+import { formatError } from "../format-error";
 import { runCapability } from "../run-capability";
 import { fsChange } from "../fs-change";
 
@@ -72,6 +73,61 @@ describe("fsChange.prependTask", () => {
     expect(idxNew).toBeGreaterThanOrEqual(0);
     expect(idxOld).toBeGreaterThan(idxNew);
     expect(out).toContain("```\nboom\n```");
+  });
+
+  test("emits started + fetched lifecycle events on the bus", async () => {
+    const tasksPath = join(root, "tasks.md");
+    await Bun.write(tasksPath, "# Tasks\n\n- [ ] existing task\n");
+
+    const bus = createBus();
+    const seen: string[] = [];
+    bus.on("*", (e) => seen.push(e.type));
+
+    await runCapability(
+      fsChange.prependTask,
+      { tasksPath, heading: "New task heading", failureOutput: "output" },
+      { bus },
+    );
+
+    expect(seen).toEqual(["fs.change.task.prepend.started", "fs.change.task.prepend.fetched"]);
+  });
+});
+
+describe("fsChange.scaffold error path", () => {
+  test("non-required capability rethrows on failure (e.g. invalid path)", async () => {
+    // Passing a path under a non-existent root that cannot be created will
+    // cause mkdir to fail, exercising the non-required rethrow path.
+    const invalidDir = join(root, "\0invalid");
+    await expect(
+      runCapability(fsChange.scaffold, {
+        changeDir: invalidDir,
+        stateDir: join(root, "states", "bad"),
+        proposal: "p",
+        tasks: "t",
+        design: "d",
+      }),
+    ).rejects.toBeDefined();
+  });
+});
+
+describe("formatError", () => {
+  test("returns error message for Error instances", () => {
+    expect(formatError(new Error("oops"))).toBe("oops");
+  });
+
+  test("stringifies non-Error values", () => {
+    expect(formatError(42)).toBe("42");
+    expect(formatError("raw string")).toBe("raw string");
+    expect(formatError(null)).toBe("null");
+  });
+
+  test("returns 'unknown error' when String() throws", () => {
+    const unStringifiable = {
+      toString: () => {
+        throw new Error("no string");
+      },
+    };
+    expect(formatError(unStringifiable)).toBe("unknown error");
   });
 });
 
