@@ -1,5 +1,5 @@
 import type { State } from "@ralphy/types";
-import type { TaskPhase } from "./loop";
+import type { TaskPhase } from "../loop";
 
 export interface MetaPromptOptions {
   /** Set to false to opt out of the meta-prompt entirely. Defaults to true. */
