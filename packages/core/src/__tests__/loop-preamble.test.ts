@@ -151,7 +151,7 @@ describe("buildDynamicLoopBlock", () => {
   });
 
   test("omits issue premise when issueIdentifier is absent", () => {
-    const result = buildDynamicLoopBlock(makeCtx({ issueIdentifier: undefined }));
+    const result = buildDynamicLoopBlock(makeCtx());
     expect(result).not.toContain("anchored to issue");
   });
 
@@ -168,7 +168,7 @@ describe("buildDynamicLoopBlock", () => {
   });
 
   test("omits worktree premise when worktreePath is absent even if useWorktree is true", () => {
-    const result = buildDynamicLoopBlock(makeCtx({ useWorktree: true, worktreePath: undefined }));
+    const result = buildDynamicLoopBlock(makeCtx({ useWorktree: true }));
     expect(result).not.toContain("worktree root");
   });
 
@@ -203,9 +203,6 @@ describe("buildDynamicLoopBlock", () => {
       stackPrsOnDependencies: false,
       syncTasksToComment: false,
       useWorktree: false,
-      worktreePath: undefined,
-      issueIdentifier: undefined,
-      issueUrl: undefined,
       pass: "normal",
     });
     // pass=normal still adds a paragraph
@@ -220,19 +217,22 @@ describe("buildDynamicLoopBlock", () => {
 
 describe("buildLoopLevelPrompt", () => {
   const mockState = {
+    version: "2" as const,
     name: "test-change",
+    prompt: "",
+    phase: "specify",
+    phaseIteration: 0,
     iteration: 1,
     status: "active" as const,
-    prompt: "",
+    createdAt: new Date().toISOString(),
+    lastModified: new Date().toISOString(),
+    engine: "claude" as const,
+    model: "claude-sonnet",
     manualTest: false,
     createPr: false,
     prDraft: false,
     validateOnComplete: false,
     reviewRounds: 0,
-    engine: "claude" as const,
-    model: "claude-sonnet",
-    lastModified: new Date().toISOString(),
-    history: [],
     usage: {
       total_cost_usd: 0,
       total_duration_ms: 0,
@@ -242,6 +242,27 @@ describe("buildLoopLevelPrompt", () => {
       total_cache_read_input_tokens: 0,
       total_cache_creation_input_tokens: 0,
     },
+    history: [],
+    metadata: {},
+    linearComments: {
+      planCommentId: null,
+      tasksCommentId: null,
+      planPostedAt: null,
+      tasksCommentSha256: null,
+    },
+    specAttachments: {
+      proposal: { attachmentId: null, sha256: null },
+      design: { attachmentId: null, sha256: null },
+      proposalPdf: { attachmentId: null, sha256: null },
+      designPdf: { attachmentId: null, sha256: null },
+    },
+    confirmation: {
+      askedAt: null,
+      lastReminderAt: null,
+      confirmedAt: null,
+      rounds: 0,
+    },
+    review: { lastConsumedCommentAt: null },
   };
 
   test("preamble appears before stage block", () => {
