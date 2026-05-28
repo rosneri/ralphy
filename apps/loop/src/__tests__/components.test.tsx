@@ -377,9 +377,7 @@ describe("App", () => {
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
   test("status mode without name shows error", async () => {
-    const { frames } = withStorage(() =>
-      render(<App args={makeArgs({ mode: "status" })} />),
-    );
+    const { frames } = withStorage(() => render(<App args={makeArgs({ mode: "status" })} />));
     await tick();
     const frame = findFrame(frames, "--name is required");
     expect(frame).toContain("--name is required");
@@ -402,17 +400,13 @@ describe("App", () => {
       const state = makeState({ name: "my-change" });
       writeFileSync(join(stateDir, ".ralph-state.json"), JSON.stringify(state), "utf-8");
 
-      const { lastFrame } = render(
-        <App args={makeArgs({ mode: "status", name: "my-change" })} />,
-      );
+      const { lastFrame } = render(<App args={makeArgs({ mode: "status", name: "my-change" })} />);
       const frame = lastFrame()!;
       expect(frame).toContain("my-change");
     }));
 
   test("task mode without name shows error", async () => {
-    const { frames } = withStorage(() =>
-      render(<App args={makeArgs({ mode: "task" })} />),
-    );
+    const { frames } = withStorage(() => render(<App args={makeArgs({ mode: "task" })} />));
     await tick();
     const frame = findFrame(frames, "--name is required");
     expect(frame).toContain("--name is required");

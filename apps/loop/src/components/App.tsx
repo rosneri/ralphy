@@ -102,12 +102,7 @@ export function App({ args, taskPhase }: AppProps) {
       }
       // Directory creation is handled up front in index.ts / the sidecar; the
       // storage provider will create parents lazily on first write as well.
-      return (
-        <TaskModeWrapper
-          args={args}
-          {...(taskPhase !== undefined ? { taskPhase } : {})}
-        />
-      );
+      return <TaskModeWrapper args={args} {...(taskPhase !== undefined ? { taskPhase } : {})} />;
     }
   }
 }
