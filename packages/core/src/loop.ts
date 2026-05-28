@@ -5,9 +5,9 @@ import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
 import { countOpenFindings as countOpenFindingsInContent } from "./openspec/phase";
-import { buildMetaPrompt, type MetaPromptOptions } from "./prompt/meta-prompt";
+import { buildMetaPrompt, type MetaPromptOptions, type TaskPhase } from "./prompt/meta-prompt";
 
-export type { MetaPromptOptions } from "./prompt/meta-prompt";
+export type { MetaPromptOptions, TaskPhase } from "./prompt/meta-prompt";
 
 // Re-export task utilities with standardized names for use in loop context
 export {
@@ -50,8 +50,6 @@ export interface ReviewRoundResult {
   /** Contents of review-findings.md (for attachment when cap reached). */
   findingsContent: string | null;
 }
-
-export type TaskPhase = "research" | "plan" | "execute" | "review";
 
 export interface LoopOptions {
   name: string;
