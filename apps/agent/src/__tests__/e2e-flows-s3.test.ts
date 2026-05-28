@@ -476,7 +476,6 @@ describe("S3 — coordinator flow routing", () => {
         ...baseWorkflow.linear,
         confirmationMode: {
           enabled: true,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           maxConfirmationRounds: 3,
         },
@@ -654,7 +653,6 @@ describe("S3 — coordinator flow routing", () => {
         ...baseWorkflow.linear,
         confirmationMode: {
           enabled: true,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           maxConfirmationRounds: 1,
         },
@@ -993,7 +991,6 @@ describe("S3 — coordinator flow routing", () => {
         ...baseWorkflow.linear,
         confirmationMode: {
           enabled: true,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           maxConfirmationRounds: 1,
         },

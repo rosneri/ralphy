@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseWorkflow } from "../workflow";
 import {
   computeConfirmationFlags,
+  describeApprovalMarker,
   matchesIndicator,
   type ConfirmationTicketView,
 } from "../confirmation";
@@ -21,11 +22,10 @@ function cfg(yaml: string) {
 }
 
 describe("schema defaults — confirmationMode", () => {
-  test("defaults: disabled, sensible opt-out, sensible timeout/round cap", () => {
+  test("defaults: disabled, sensible timeout/round cap", () => {
     const c = cfg("");
     expect(c.linear.confirmationMode).toEqual({
       enabled: false,
-      optOutLabel: "ralph:auto-approve",
       timeoutHours: 48,
       maxConfirmationRounds: 3,
     });
@@ -39,6 +39,18 @@ describe("schema defaults — confirmationMode", () => {
       filter: [{ type: "label", value: "ralph:approved" }],
     });
     expect(c.linear.indicators.clearApproved).toEqual([{ type: "label", value: "ralph:approved" }]);
+  });
+
+  test("optional getConfirmGate / getAutoApprove indicators parse", () => {
+    const c = cfg(
+      `linear:\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n    getAutoApprove:\n      filter:\n        - type: label\n          value: ralph:auto-approve\n`,
+    );
+    expect(c.linear.indicators.getConfirmGate).toEqual({
+      filter: [{ type: "label", value: "ralph:needs-review" }],
+    });
+    expect(c.linear.indicators.getAutoApprove).toEqual({
+      filter: [{ type: "label", value: "ralph:auto-approve" }],
+    });
   });
 
   test("setAwaitingConfirmation accepts marker and marker[]", () => {
@@ -117,6 +129,30 @@ describe("matchesIndicator", () => {
       matchesIndicator(ind, ticket({ labels: ["b"], state: { name: "Todo", type: "unstarted" } })),
     ).toBe(false);
   });
+
+  test("project marker matches when ticket is in that project", () => {
+    const ind = { filter: [{ type: "project" as const, value: "Platform" }] };
+    expect(matchesIndicator(ind, ticket({ project: { id: "1", name: "Platform" } }))).toBe(true);
+    expect(matchesIndicator(ind, ticket({ project: { id: "2", name: "Other" } }))).toBe(false);
+    expect(matchesIndicator(ind, ticket({ project: null }))).toBe(false);
+  });
+
+  test("attachment marker matches when ticket has that attachment source type", () => {
+    const ind = { filter: [{ type: "attachment" as const, value: "github" }] };
+    expect(matchesIndicator(ind, ticket({ attachmentSourceTypes: ["github", "other"] }))).toBe(
+      true,
+    );
+    expect(matchesIndicator(ind, ticket({ attachmentSourceTypes: ["other"] }))).toBe(false);
+    expect(matchesIndicator(ind, ticket({ attachmentSourceTypes: [] }))).toBe(false);
+  });
+
+  test("comment marker matches when any non-Ralph comment body contains the text", () => {
+    const ind = { filter: [{ type: "comment" as const, value: "approve" }] };
+    expect(matchesIndicator(ind, ticket({ commentBodies: ["LGTM, I Approve this"] }))).toBe(true);
+    expect(matchesIndicator(ind, ticket({ commentBodies: ["looks good"] }))).toBe(false);
+    expect(matchesIndicator(ind, ticket({ commentBodies: [] }))).toBe(false);
+    expect(matchesIndicator(ind, ticket())).toBe(false);
+  });
 });
 
 describe("computeConfirmationFlags", () => {
@@ -128,41 +164,59 @@ describe("computeConfirmationFlags", () => {
     });
   });
 
-  test("gated when enabled and opt-out label absent", () => {
+  test("gated when enabled and no getAutoApprove match", () => {
     const c = cfg(`linear:\n  confirmationMode:\n    enabled: true\n`);
     expect(computeConfirmationFlags(c, ticket()).confirmationGated).toBe(true);
   });
 
-  test("opt-out label bypasses the gate", () => {
-    const c = cfg(`linear:\n  confirmationMode:\n    enabled: true\n`);
+  test("getAutoApprove indicator bypasses the gate when it matches", () => {
+    const c = cfg(
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getAutoApprove:\n      filter:\n        - type: label\n          value: ralph:auto-approve\n`,
+    );
     expect(
       computeConfirmationFlags(c, ticket({ labels: ["ralph:auto-approve"] })).confirmationGated,
     ).toBe(false);
+    expect(computeConfirmationFlags(c, ticket()).confirmationGated).toBe(true);
   });
 
-  test("optInLabel set but ticket lacks it → ungated", () => {
+  test("getAutoApprove does not bypass gate when indicator does not match", () => {
     const c = cfg(
-      `linear:\n  confirmationMode:\n    enabled: true\n    optInLabel: ralph:needs-review\n`,
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getAutoApprove:\n      filter:\n        - type: label\n          value: skip-gate\n`,
+    );
+    expect(
+      computeConfirmationFlags(c, ticket({ labels: ["ralph:auto-approve"] })).confirmationGated,
+    ).toBe(true);
+    expect(computeConfirmationFlags(c, ticket({ labels: ["skip-gate"] })).confirmationGated).toBe(
+      false,
+    );
+  });
+
+  test("getConfirmGate set but ticket lacks it → ungated (opt-in mode)", () => {
+    const c = cfg(
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n`,
     );
     expect(computeConfirmationFlags(c, ticket()).confirmationGated).toBe(false);
   });
 
-  test("optInLabel set and ticket has it → gated", () => {
+  test("getConfirmGate set and ticket matches → gated", () => {
     const c = cfg(
-      `linear:\n  confirmationMode:\n    enabled: true\n    optInLabel: ralph:needs-review\n`,
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n`,
     );
     expect(
       computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review"] })).confirmationGated,
     ).toBe(true);
   });
 
-  test("custom optOutLabel honoured", () => {
-    const c = cfg(`linear:\n  confirmationMode:\n    enabled: true\n    optOutLabel: skip-gate\n`);
-    expect(computeConfirmationFlags(c, ticket({ labels: ["skip-gate"] })).confirmationGated).toBe(
-      false,
+  test("getConfirmGate + getAutoApprove: opt-in present but auto-approve bypasses", () => {
+    const c = cfg(
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n    getAutoApprove:\n      filter:\n        - type: label\n          value: ralph:auto-approve\n`,
     );
     expect(
-      computeConfirmationFlags(c, ticket({ labels: ["ralph:auto-approve"] })).confirmationGated,
+      computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review", "ralph:auto-approve"] }))
+        .confirmationGated,
+    ).toBe(false);
+    expect(
+      computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review"] })).confirmationGated,
     ).toBe(true);
   });
 
@@ -172,5 +226,65 @@ describe("computeConfirmationFlags", () => {
     );
     expect(computeConfirmationFlags(c, ticket({ labels: ["ralph:approved"] })).approved).toBe(true);
     expect(computeConfirmationFlags(c, ticket()).approved).toBe(false);
+  });
+});
+
+describe("describeApprovalMarker", () => {
+  test("returns generic fallback when indicator is undefined or empty", () => {
+    expect(describeApprovalMarker(undefined)).toBe("ask your operator to approve this plan");
+    expect(describeApprovalMarker({ filter: [] })).toBe("ask your operator to approve this plan");
+  });
+
+  test("single label marker returns label phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "label", value: "ralph:approved" }] })).toBe(
+      "apply the `ralph:approved` label",
+    );
+  });
+
+  test("single status marker returns status phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "status", value: "Approved" }] })).toBe(
+      "move the issue to status `Approved`",
+    );
+  });
+
+  test("single project marker returns project phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "project", value: "Platform" }] })).toBe(
+      "move the issue into project `Platform`",
+    );
+  });
+
+  test("single attachment marker returns attachment phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "attachment", value: "github" }] })).toBe(
+      "attach a `github`",
+    );
+  });
+
+  test("single comment marker returns comment phrase", () => {
+    expect(describeApprovalMarker({ filter: [{ type: "comment", value: "approve" }] })).toBe(
+      "post a comment containing `approve`",
+    );
+  });
+
+  test("two markers joined with 'or'", () => {
+    expect(
+      describeApprovalMarker({
+        filter: [
+          { type: "label", value: "ralph:approved" },
+          { type: "status", value: "Approved" },
+        ],
+      }),
+    ).toBe("apply the `ralph:approved` label or move the issue to status `Approved`");
+  });
+
+  test("three or more markers joined with commas and trailing 'or'", () => {
+    expect(
+      describeApprovalMarker({
+        filter: [
+          { type: "label", value: "a" },
+          { type: "label", value: "b" },
+          { type: "status", value: "Done" },
+        ],
+      }),
+    ).toBe("apply the `a` label, apply the `b` label, or move the issue to status `Done`");
   });
 });

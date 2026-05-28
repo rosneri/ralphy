@@ -153,11 +153,10 @@ linear:
   #   • Revise   → leave a \`@ralphy revise: <reason>\` comment. Ralphy
   #                writes the reason into steering, bumps the round
   #                counter, and loops back to \`design\`.
-  #   • Skip     → label the ticket with \`optOutLabel\` (default
-  #                \`ralph:auto-approve\`) to bypass the gate entirely.
+  #   • Skip     → match the ticket with \`getAutoApprove\` indicator
+  #                to bypass the gate entirely.
   # confirmationMode:
   #   enabled: true
-  #   optOutLabel: "ralph:auto-approve"
   #   timeoutHours: 48
   #   maxConfirmationRounds: 3
 
@@ -203,6 +202,17 @@ linear:
     # Pairs with linear.confirmationMode above. The agent parks gated
     # tickets in \`awaiting-confirmation\` until \`getApproved\` matches,
     # then strips the marker via \`clearApproved\` and proceeds.
+    #
+    # getConfirmGate: when set, only gate tickets that match (opt-in mode).
+    # getConfirmGate:
+    #   filter:
+    #     - type: label
+    #       value: "ralph:needs-review"
+    # getAutoApprove: when set, bypass the gate for matching tickets (opt-out mode).
+    # getAutoApprove:
+    #   filter:
+    #     - type: label
+    #       value: "ralph:auto-approve"
     # getApproved:
     #   filter:
     #     - type: label
