@@ -115,3 +115,13 @@ When any notable runtime flag is active (`useWorktree`, `createPr`, `confirmatio
 - **Given** a WORKFLOW.md with `metaPrompt:\n  enabled: false`
 - **When** the config is parsed
 - **Then** `config.metaPrompt.enabled` is `false`
+
+### Requirement: Meta prompt MUST be generated at task level
+
+The system MUST generate meta prompt information when executing a task to improve prompt structure and context at the task level.
+
+#### Scenario: Meta prompt is generated for task execution
+
+- **Given** a task is being executed
+- **When** the meta prompt layer is invoked
+- **Then** task-level meta prompt information is generated
