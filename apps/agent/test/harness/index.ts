@@ -72,7 +72,6 @@ export async function createHarness(opts: CreateHarnessOptions): Promise<Extende
   const coordDeps: CoordinatorDeps = {
     fetchTodo: () => linear.client.fetchTodo(),
     fetchInProgress: () => linear.client.fetchInProgress(),
-    fetchReview: () => linear.client.fetchReview(),
     fetchMentions: () => linear.client.fetchMentions(),
     fetchDoneCandidates: () => linear.client.fetchDoneCandidates(),
     fetchComments: (issueId) => linear.client.fetchComments(issueId),
