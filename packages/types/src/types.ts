@@ -129,12 +129,17 @@ export const StateSchema = z.object({
           sha256: z.string().nullable().default(null),
         })
         .default({ attachmentId: null, sha256: null }),
+      /** One-shot marker set after the legacy proposal/proposalPdf
+       *  attachments have been purged from Linear. Without this flag
+       *  the syncer would issue a "Ralph proposal" lookup every sync. */
+      legacyProposalPurged: z.boolean().default(false),
     })
     .default({
       proposal: { attachmentId: null, sha256: null },
       design: { attachmentId: null, sha256: null },
       proposalPdf: { attachmentId: null, sha256: null },
       designPdf: { attachmentId: null, sha256: null },
+      legacyProposalPurged: false,
     }),
   /** Per-change confirmation-gate state used by the `awaiting-confirmation`
    *  phase. `askedAt` is set when Ralphy posts the "plan ready" comment;
@@ -188,7 +193,15 @@ export type State = z.infer<typeof StateSchema>;
 // markers; `setX` indicators apply one or more markers.
 
 export type Marker =
-  | { type: "label"; value: string }
+  | {
+      type: "label";
+      value: string;
+      /** Optional Linear parent label group. When present, resolution looks
+       *  the label up as `${group}:${value}` so nested labels (e.g.
+       *  `Ralphy:error`) can be referenced by their bare child name. Only
+       *  valid on the `label` variant. */
+      group?: string;
+    }
   | { type: "status"; value: string }
   /** Upserts a single "Ralphy" attachment on the issue; `value` becomes the
    *  attachment subtitle so each lifecycle transition updates the same entry. */

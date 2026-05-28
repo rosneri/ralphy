@@ -110,17 +110,17 @@ async function readState(): Promise<{ specAttachments?: Record<string, unknown> 
   };
 }
 
-function writeProposal(text = "# proposal\n\nbody\n"): void {
-  writeFileSync(join(changeDir, "proposal.md"), text);
-}
-function writeDesign(text = "# design\n\nbody\n"): void {
+function writeDesign(text = "# design\n\ndesign body content here.\n"): void {
   writeFileSync(join(changeDir, "design.md"), text);
+}
+function writeTasks(text = "- [ ] task one\n- [ ] task two\n"): void {
+  writeFileSync(join(changeDir, "tasks.md"), text);
 }
 
 describe("syncSpecAttachments", () => {
-  test("first run uploads both files and persists ids + hashes", async () => {
-    writeProposal();
+  test("first run uploads design.md (with tasks.md embedded) and persists ids + hashes", async () => {
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -132,24 +132,25 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    expect(m.uploads.map((u) => u.filename)).toEqual(["proposal.md", "design.md"]);
-    expect(m.creates).toHaveLength(2);
+    expect(m.uploads.map((u) => u.filename)).toEqual(["design.md"]);
+    const designText = new TextDecoder().decode(m.uploads[0]!.bytes);
+    expect(designText).toContain("design body content");
+    expect(designText).toContain("task one");
+    expect(m.creates).toHaveLength(1);
     expect(m.deletes).toHaveLength(0);
     const state = await readState();
     const sa = state.specAttachments as {
-      proposal: { attachmentId: string; sha256: string };
       design: { attachmentId: string; sha256: string };
     };
-    expect(sa.proposal.attachmentId).toMatch(/^att-/);
     expect(sa.design.attachmentId).toMatch(/^att-/);
-    expect(sa.proposal.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(sa.design.sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(m.creates[0]!.subtitle).toBe("iteration 4");
+    expect(m.creates[0]!.title).toBe("Ralph design");
   });
 
   test("unchanged content skips uploads on second run", async () => {
-    writeProposal();
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     const deps = {
@@ -171,8 +172,8 @@ describe("syncSpecAttachments", () => {
   });
 
   test("changed content deletes the old attachment and creates a new one (refresh = delete + create)", async () => {
-    writeProposal("# proposal\n\nv1\n");
     writeDesign("# design\n\nv1\n");
+    writeTasks("- [ ] task v1\n");
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -185,9 +186,9 @@ describe("syncSpecAttachments", () => {
       mutations: m,
     });
     const before = (await readState()).specAttachments as {
-      proposal: { attachmentId: string };
+      design: { attachmentId: string };
     };
-    writeProposal("# proposal\n\nv2 — changed\n");
+    writeDesign("# design\n\nv2 — changed\n");
     await syncSpecAttachments({
       apiKey: "k",
       issueId: "iss",
@@ -197,19 +198,18 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    // The old proposal attachment is deleted and a fresh one is created.
     expect(m.deletes).toHaveLength(1);
-    expect(m.deletes[0]!.attachmentId).toBe(before.proposal.attachmentId);
-    expect(m.creates).toHaveLength(3); // initial proposal + design, then new proposal
-    expect(m.uploads.map((u) => u.filename)).toEqual(["proposal.md", "design.md", "proposal.md"]);
+    expect(m.deletes[0]!.attachmentId).toBe(before.design.attachmentId);
+    expect(m.creates).toHaveLength(2);
+    expect(m.uploads.map((u) => u.filename)).toEqual(["design.md", "design.md"]);
     const after = (await readState()).specAttachments as {
-      proposal: { attachmentId: string };
+      design: { attachmentId: string };
     };
-    expect(after.proposal.attachmentId).not.toBe(before.proposal.attachmentId);
+    expect(after.design.attachmentId).not.toBe(before.design.attachmentId);
   });
 
-  test("missing design.md only uploads the proposal slot", async () => {
-    writeProposal();
+  test("missing design.md skips the design slot entirely", async () => {
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -221,14 +221,33 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    expect(m.uploads.map((u) => u.filename)).toEqual(["proposal.md"]);
-    expect(m.creates).toHaveLength(1);
+    expect(m.uploads).toHaveLength(0);
+    expect(m.creates).toHaveLength(0);
     expect(log.entries.some((e) => e.includes("design.md missing"))).toBe(true);
   });
 
+  test("missing tasks.md still uploads design.md alone (tasks are optional trailing content)", async () => {
+    writeDesign("# design\n\nbody only, no tasks present.\n");
+    const m = makeMutations();
+    const log = makeLog();
+    await syncSpecAttachments({
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      mutations: m,
+    });
+    expect(m.uploads.map((u) => u.filename)).toEqual(["design.md"]);
+    const text = new TextDecoder().decode(m.uploads[0]!.bytes);
+    expect(text).toContain("body only");
+    expect(text).not.toContain("# tasks.md");
+  });
+
   test("upload error logs yellow and leaves .ralph-state.json untouched", async () => {
-    writeProposal();
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     m.failUploadWith = new Error("boom");
     const log = makeLog();
@@ -243,11 +262,17 @@ describe("syncSpecAttachments", () => {
     });
     expect(m.creates).toHaveLength(0);
     expect(log.entries.some((e) => e.startsWith("yellow|") && e.includes("upload"))).toBe(true);
-    expect(await Bun.file(statePath).exists()).toBe(false);
+    // State file may exist (purge-marker), but no attachment id is recorded.
+    if (await Bun.file(statePath).exists()) {
+      const sa = (await readState()).specAttachments as
+        | { design?: { attachmentId: string | null } }
+        | undefined;
+      expect(sa?.design?.attachmentId ?? null).toBeNull();
+    }
   });
 
   test("stale attachment (delete returns not found) still recreates cleanly", async () => {
-    writeProposal("# proposal\n\nv1\n");
+    writeDesign("# design\n\nv1\n");
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -260,10 +285,10 @@ describe("syncSpecAttachments", () => {
       mutations: m,
     });
     const initial = (await readState()).specAttachments as {
-      proposal: { attachmentId: string };
+      design: { attachmentId: string };
     };
-    const oldId = initial.proposal.attachmentId;
-    writeProposal("# proposal\n\nv2\n");
+    const oldId = initial.design.attachmentId;
+    writeDesign("# design\n\nv2\n");
     m.failNextDeleteWithNotFound = true;
     await syncSpecAttachments({
       apiKey: "k",
@@ -275,15 +300,15 @@ describe("syncSpecAttachments", () => {
       mutations: m,
     });
     const after = (await readState()).specAttachments as {
-      proposal: { attachmentId: string };
+      design: { attachmentId: string };
     };
-    expect(after.proposal.attachmentId).not.toBe(oldId);
+    expect(after.design.attachmentId).not.toBe(oldId);
     expect(m.creates.length).toBe(2);
     expect(log.entries.some((e) => e.includes("already gone — recreating"))).toBe(true);
   });
 
   test("deleteAttachment generic failure is non-fatal — the new attachment is still created", async () => {
-    writeProposal("# proposal\n\nv1\n");
+    writeDesign("# design\n\nv1\n");
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -296,9 +321,9 @@ describe("syncSpecAttachments", () => {
       mutations: m,
     });
     const before = (await readState()).specAttachments as {
-      proposal: { attachmentId: string };
+      design: { attachmentId: string };
     };
-    writeProposal("# proposal\n\nv2\n");
+    writeDesign("# design\n\nv2\n");
     m.failDeleteWith = new Error("boom-delete");
     await syncSpecAttachments({
       apiKey: "k",
@@ -310,11 +335,9 @@ describe("syncSpecAttachments", () => {
       mutations: m,
     });
     const after = (await readState()).specAttachments as {
-      proposal: { attachmentId: string; sha256: string };
+      design: { attachmentId: string; sha256: string };
     };
-    // State advances to the new attachment id even when delete failed —
-    // we'd rather leak a stale Linear attachment than block refresh.
-    expect(after.proposal.attachmentId).not.toBe(before.proposal.attachmentId);
+    expect(after.design.attachmentId).not.toBe(before.design.attachmentId);
     expect(m.creates.length).toBe(2);
     expect(log.entries.some((e) => e.startsWith("yellow|") && e.includes("deleteAttachment"))).toBe(
       true,
@@ -322,7 +345,7 @@ describe("syncSpecAttachments", () => {
   });
 
   test("createAttachmentForUrl failure on first run logs yellow and leaves state empty", async () => {
-    writeProposal();
+    writeDesign();
     const m = makeMutations();
     m.failCreateWith = new Error("boom-create");
     const log = makeLog();
@@ -339,12 +362,17 @@ describe("syncSpecAttachments", () => {
     expect(
       log.entries.some((e) => e.startsWith("yellow|") && e.includes("createAttachmentForUrl")),
     ).toBe(true);
-    expect(await Bun.file(statePath).exists()).toBe(false);
+    if (await Bun.file(statePath).exists()) {
+      const sa = (await readState()).specAttachments as
+        | { design?: { attachmentId: string | null } }
+        | undefined;
+      expect(sa?.design?.attachmentId ?? null).toBeNull();
+    }
   });
 
-  test("formats: ['md','pdf'] uploads both .md and .pdf peer slots with a PDF byte stream", async () => {
-    writeProposal();
+  test("formats: ['md','pdf'] uploads design.md and design.pdf peer slots", async () => {
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -357,37 +385,22 @@ describe("syncSpecAttachments", () => {
       mutations: m,
       formats: ["md", "pdf"],
     });
-    // 4 uploads: proposal.md, design.md, proposal.pdf, design.pdf
-    expect(m.uploads.map((u) => u.filename)).toEqual([
-      "proposal.md",
-      "design.md",
-      "proposal.pdf",
-      "design.pdf",
-    ]);
-    // PDF uploads must actually be PDF bytes (magic %PDF prefix), not raw markdown.
+    expect(m.uploads.map((u) => u.filename)).toEqual(["design.md", "design.pdf"]);
     const pdfUploads = m.uploads.filter((u) => u.filename.endsWith(".pdf"));
-    expect(pdfUploads).toHaveLength(2);
-    for (const u of pdfUploads) {
-      expect(new TextDecoder().decode(u.bytes.slice(0, 4))).toBe("%PDF");
-    }
+    expect(pdfUploads).toHaveLength(1);
+    expect(new TextDecoder().decode(pdfUploads[0]!.bytes.slice(0, 4))).toBe("%PDF");
     const state = await readState();
     const sa = state.specAttachments as {
-      proposal: { attachmentId: string; sha256: string };
       design: { attachmentId: string; sha256: string };
-      proposalPdf: { attachmentId: string; sha256: string };
       designPdf: { attachmentId: string; sha256: string };
     };
-    expect(sa.proposalPdf.attachmentId).toMatch(/^att-/);
     expect(sa.designPdf.attachmentId).toMatch(/^att-/);
-    // PDF slot hash mirrors the source-md hash so a re-render is skipped
-    // when the underlying markdown is unchanged.
-    expect(sa.proposalPdf.sha256).toBe(sa.proposal.sha256);
     expect(sa.designPdf.sha256).toBe(sa.design.sha256);
   });
 
-  test("formats: ['md','pdf'] hash-skips PDF when proposal.md is unchanged", async () => {
-    writeProposal();
+  test("formats: ['md','pdf'] hash-skips PDF when design.md + tasks.md are unchanged", async () => {
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     const deps = {
@@ -406,10 +419,10 @@ describe("syncSpecAttachments", () => {
     expect(m.uploads.length).toBe(baseline);
   });
 
-  test("empty state + pre-seeded Linear attachment is adopted without creating a duplicate", async () => {
-    writeProposal();
+  test("empty state + pre-seeded Linear design attachment is adopted without creating a duplicate", async () => {
+    writeDesign();
     const m = makeMutations();
-    m.attachmentsByTitle.set("Ralph proposal", "att-existing-1");
+    m.attachmentsByTitle.set("Ralph design", "att-existing-1");
     const log = makeLog();
     await syncSpecAttachments({
       apiKey: "k",
@@ -420,20 +433,17 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    // Adoption path: delete the stale attachment, then create a fresh one
-    // so the hash skip on the next run works. No second attachment is
-    // accumulated in Linear because the old id is deleted before create.
     expect(m.deletes.map((d) => d.attachmentId)).toEqual(["att-existing-1"]);
     expect(m.creates).toHaveLength(1);
-    expect(log.entries.some((e) => e.includes("adopted existing proposal.md"))).toBe(true);
+    expect(log.entries.some((e) => e.includes("adopted existing design.md"))).toBe(true);
     const state = await readState();
-    const sa = state.specAttachments as { proposal: { attachmentId: string; sha256: string } };
-    expect(sa.proposal.attachmentId).toMatch(/^att-/);
-    expect(sa.proposal.sha256).toMatch(/^[0-9a-f]{64}$/);
+    const sa = state.specAttachments as { design: { attachmentId: string; sha256: string } };
+    expect(sa.design.attachmentId).toMatch(/^att-/);
+    expect(sa.design.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("empty state + no seeded match behaves like first-run create", async () => {
-    writeProposal();
+    writeDesign();
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -445,14 +455,16 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    expect(m.findCalls).toBe(1);
+    // findIssueAttachmentByTitle is consulted twice: once by the legacy
+    // purge (looking for "Ralph proposal") and once by the design adopt.
+    expect(m.findCalls).toBeGreaterThanOrEqual(1);
     expect(m.deletes).toHaveLength(0);
     expect(m.creates).toHaveLength(1);
   });
 
   test("populated state skips the adoption query (fast path)", async () => {
-    writeProposal();
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     const deps = {
@@ -470,9 +482,9 @@ describe("syncSpecAttachments", () => {
     expect(m.findCalls).toBe(findCallsAfterFirst);
   });
 
-  test("idempotent two-run sequence on wiped state yields one attachment per slot", async () => {
-    writeProposal();
+  test("idempotent two-run sequence on wiped state yields one design attachment", async () => {
     writeDesign();
+    writeTasks();
     const m = makeMutations();
     const log = makeLog();
     await syncSpecAttachments({
@@ -484,8 +496,7 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    expect(m.attachmentsByTitle.size).toBe(2);
-    // Simulate `.ralph-state.json` being wiped (fresh worktree).
+    expect(m.attachmentsByTitle.size).toBe(1);
     rmSync(statePath, { force: true });
     await syncSpecAttachments({
       apiKey: "k",
@@ -496,15 +507,12 @@ describe("syncSpecAttachments", () => {
       log: log.fn,
       mutations: m,
     });
-    // Linear still has exactly one attachment per title — adoption + the
-    // refresh path (delete-then-create) preserves the one-per-slot invariant.
-    expect(m.attachmentsByTitle.size).toBe(2);
-    expect(m.attachmentsByTitle.has("Ralph proposal")).toBe(true);
+    expect(m.attachmentsByTitle.size).toBe(1);
     expect(m.attachmentsByTitle.has("Ralph design")).toBe(true);
   });
 
   test("malformed .ralph-state.json is treated as empty state (first-run path)", async () => {
-    writeProposal();
+    writeDesign();
     mkdirSync(join(tempDir, ".ralph", "tasks", "demo"), { recursive: true });
     writeFileSync(statePath, "{not json");
     const m = makeMutations();
@@ -520,32 +528,11 @@ describe("syncSpecAttachments", () => {
     });
     expect(m.creates).toHaveLength(1);
     const state = await readState();
-    const sa = state.specAttachments as { proposal: { attachmentId: string } };
-    expect(sa.proposal.attachmentId).toMatch(/^att-/);
+    const sa = state.specAttachments as { design: { attachmentId: string } };
+    expect(sa.design.attachmentId).toMatch(/^att-/);
   });
 
-  test("skips upload when source file has only scaffold placeholders (RLF-147)", async () => {
-    writeProposal(
-      [
-        "# RLF-1: title",
-        "Source: [RLF-1](https://example/issue)",
-        "Status: Todo",
-        "Labels: Bug",
-        "",
-        "## Why",
-        "",
-        "_No description provided in Linear._",
-        "",
-        "## What Changes",
-        "",
-        "_Describe the concrete changes this proposal introduces (one bullet per change)._",
-        "",
-        "## Steering",
-        "",
-        "_Add steering notes here as the loop runs._",
-        "",
-      ].join("\n"),
-    );
+  test("skips upload when design.md has only scaffold placeholders (RLF-147)", async () => {
     writeDesign(
       "# Design for RLF-1\n\n_Fill in the technical design as you work through the issue._\n",
     );
@@ -563,14 +550,16 @@ describe("syncSpecAttachments", () => {
     expect(m.uploads).toHaveLength(0);
     expect(m.creates).toHaveLength(0);
     expect(m.deletes).toHaveLength(0);
-    expect(m.findCalls).toBe(0);
     expect(log.entries.some((e) => e.includes("has no content yet, skipping"))).toBe(true);
-    // No state file written for an all-placeholder run.
-    expect(await Bun.file(statePath).exists()).toBe(false);
+    if (await Bun.file(statePath).exists()) {
+      const sa = (await readState()).specAttachments as
+        | { design?: { attachmentId: string | null } }
+        | undefined;
+      expect(sa?.design?.attachmentId ?? null).toBeNull();
+    }
   });
 
-  test("uploads once placeholder content is replaced with real content (RLF-147)", async () => {
-    writeProposal("# Design for RLF-1\n\n_Fill in…_\n");
+  test("uploads once placeholder design.md is replaced with real content (RLF-147)", async () => {
     writeDesign("# Design for RLF-1\n\n_Fill in…_\n");
     const m = makeMutations();
     const log = makeLog();
@@ -586,14 +575,14 @@ describe("syncSpecAttachments", () => {
     await syncSpecAttachments(deps);
     expect(m.uploads).toHaveLength(0);
 
-    writeProposal("# proposal\n\nActual prose body that explains why.\n");
+    writeDesign("# design\n\nActual prose body that explains the design.\n");
     await syncSpecAttachments({ ...deps, iteration: 2 });
-    expect(m.uploads.map((u) => u.filename)).toEqual(["proposal.md"]);
+    expect(m.uploads.map((u) => u.filename)).toEqual(["design.md"]);
     expect(m.creates).toHaveLength(1);
     const state = await readState();
     const sa = state.specAttachments as {
-      proposal: { attachmentId: string; sha256: string };
+      design: { attachmentId: string; sha256: string };
     };
-    expect(sa.proposal.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(sa.design.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });

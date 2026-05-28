@@ -71,21 +71,40 @@ Write `TASK_DIR/PLAN.md` with:
 
 ### 4. Create PROGRESS.md
 
-Write `TASK_DIR/PROGRESS.md` as a detailed execution checklist. Structure:
+Write `TASK_DIR/PROGRESS.md` as a detailed execution checklist using the **atomic decomposition algorithm**:
+
+**Step 4a — Inventory**: List every logical unit of work derived from the research and spec. One unit = one function, type, schema, route, or file. Do not group; do not summarize.
+
+**Step 4b — Atomic expansion**: For each unit, write one checklist item per discrete change. A discrete change touches exactly one concern (add a field, rename a function, update a call-site). If an item requires explaining two separate things, split it.
+
+**Step 4c — Caller enumeration**: For each modified signature or contract, add one item per call-site that must be updated. Reference the exact file path and function name from RESEARCH.md.
+
+**Step 4d — TDD pairing**: For every implementation item, add a paired test item immediately after it: `- [ ] test: <what the test asserts> (path/to/test.ts)`. Tests live beside the code they verify, not in a separate section.
+
+**Step 4e — Dependency ordering**: Sequence all items so that no item depends on an unchecked item above it. Types and schemas before implementations; implementations before call-site updates; call-site updates before integration tests.
+
+**Step 4f — Completeness audit**: Before finalizing, verify against the task-completeness checklist (see `mcp__ralph__ralph_list_checklists`): every type/schema, every implementation unit, every caller, every test, and every static-analysis gate is represented.
+
+Structure rules:
 
 - Each `## Section N — Title` = one iteration (one agent invocation)
 - Items within a section should be completable together in one iteration
 - Later sections can depend on earlier sections
 - Items within a section should be as independent as possible
-
-Rules:
-
-- **Each item must be specific and implementable** — include file paths, function names, what changes
+- **Each item must include** a file path and function/symbol name — no bare descriptions
 - **No vague items** like "improve performance" or "clean up code"
-- **Include test items** alongside implementation items (not in a separate section)
 - **Include a final section** for integration testing, verification, and cleanup
-- **Order by dependency** — critical-path items first within each section
-- **Keep sections reasonably sized** — 3-8 items per section is ideal
+- Section size is a consequence of the work, not a target — avoid merging unrelated items just to hit a count
+
+---
+
+### Anti-patterns to avoid
+
+- **Bundling**: "Update all call-sites" is one item that hides N units of work — enumerate each call-site separately.
+- **Orphan tests**: A test section at the bottom means tests are skipped when time runs short — pair each test with its implementation item.
+- **Missing callers**: If a function signature changes, every caller is a separate item. Check RESEARCH.md's dependency graph.
+- **Schema drift**: If a type changes, every consumer of that type (imports, validators, serializers) must appear in the checklist.
+- **Implicit validation**: "It should work" is not a test item — write the assertion: `test: resolveConfig returns null when key is absent (src/config.test.ts)`.
 
 ### 5. Append verification checklists
 

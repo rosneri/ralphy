@@ -4,7 +4,10 @@ import type { ChangeStatus } from "@ralphy/change-store";
 import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
-import { countOpenFindings as countOpenFindingsInContent } from "./openspec/phase";
+import {
+  countOpenFindings as countOpenFindingsInContent,
+  deriveOpenSpecPhase,
+} from "./openspec/phase";
 import { buildMetaPrompt, type MetaPromptOptions, type TaskPhase } from "./prompt/meta-prompt";
 
 export type { MetaPromptOptions, TaskPhase } from "./prompt/meta-prompt";
@@ -323,6 +326,39 @@ export function buildReviewPrompt(state: State, taskDir: string): string {
   prompt += `Change name: \`${state.name}\`\n\n`;
 
   return prompt;
+}
+
+export interface TaskPhaseArtifacts {
+  /** Contents of `proposal.md`, or `null` if the file does not exist. */
+  proposal: string | null;
+  /** Contents of `design.md`, or `null` if the file does not exist. */
+  design: string | null;
+  /** Contents of `tasks.md`, or `null` if the file does not exist. */
+  tasks: string | null;
+}
+
+/**
+ * Pick the `TaskPhase` prompt to run for the next iteration. When the caller
+ * pins `optsPhase`, honor it. Otherwise inspect mission artifacts and route
+ * proposal/design states back to `plan` so the worker authors the missing
+ * artifacts instead of falling through to `execute` and chewing on
+ * `agent-tasks.md` flow items forever.
+ */
+export function routeTaskPhase(
+  optsPhase: TaskPhase | undefined,
+  artifacts: TaskPhaseArtifacts,
+): TaskPhase {
+  if (optsPhase !== undefined) return optsPhase;
+  const ospPhase = deriveOpenSpecPhase({
+    proposal: artifacts.proposal,
+    design: artifacts.design,
+    tasks: artifacts.tasks,
+    reviewFindings: null,
+    reviewRounds: 0,
+    maxReviewRounds: 0,
+  });
+  if (ospPhase === "proposal" || ospPhase === "design") return "plan";
+  return "execute";
 }
 
 /** Route to the correct prompt builder based on the requested phase. */

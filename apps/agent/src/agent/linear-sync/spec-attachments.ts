@@ -40,11 +40,20 @@ function describeLinearError(err: unknown): string {
 
 type AttachmentFormat = "md" | "pdf";
 
-type Slot = "proposal" | "design" | "proposalPdf" | "designPdf";
+type Slot = "design" | "designPdf";
+/** Legacy slot names retained only for purge-on-upgrade. Past versions
+ *  uploaded proposal.md / proposal.pdf as their own attachments; we now
+ *  publish only design (with tasks.md content embedded), so any state
+ *  carrying these slot ids must be cleared and the Linear attachments
+ *  deleted on next sync. */
+type LegacySlot = "proposal" | "proposalPdf";
 
 interface SlotSpec {
-  /** Source file (always a .md) on disk to read. */
-  sourceFile: string;
+  /** Source files (always .md) on disk to read, in order. The first file
+   *  is required; subsequent files are appended to form the upload
+   *  payload, separated by a markdown rule. Missing trailing files are
+   *  skipped silently. */
+  sourceFiles: string[];
   /** Filename to give Linear at upload time. */
   uploadFilename: string;
   /** MIME type Linear should record. */
@@ -53,7 +62,7 @@ interface SlotSpec {
   title: string;
   /** Which format flag this slot belongs to. */
   format: AttachmentFormat;
-  /** Transform the source bytes into the bytes to upload. md is
+  /** Transform the composed source bytes into the bytes to upload. md is
    *  identity; pdf renders via pdfkit. */
   renderBytes: (sourceBytes: Uint8Array) => Promise<Uint8Array>;
 }
@@ -65,32 +74,16 @@ const pdfRender =
     renderMarkdownToPdf(new TextDecoder().decode(b), title);
 
 const SLOT_SPECS: Record<Slot, SlotSpec> = {
-  proposal: {
-    sourceFile: "proposal.md",
-    uploadFilename: "proposal.md",
-    contentType: "text/markdown",
-    title: "Ralph proposal",
-    format: "md",
-    renderBytes: identityRender,
-  },
   design: {
-    sourceFile: "design.md",
+    sourceFiles: ["design.md", "tasks.md"],
     uploadFilename: "design.md",
     contentType: "text/markdown",
     title: "Ralph design",
     format: "md",
     renderBytes: identityRender,
   },
-  proposalPdf: {
-    sourceFile: "proposal.md",
-    uploadFilename: "proposal.pdf",
-    contentType: "application/pdf",
-    title: "Ralph proposal (PDF)",
-    format: "pdf",
-    renderBytes: pdfRender("Ralph proposal"),
-  },
   designPdf: {
-    sourceFile: "design.md",
+    sourceFiles: ["design.md", "tasks.md"],
     uploadFilename: "design.pdf",
     contentType: "application/pdf",
     title: "Ralph design (PDF)",
@@ -99,16 +92,22 @@ const SLOT_SPECS: Record<Slot, SlotSpec> = {
   },
 };
 
+const LEGACY_SLOT_TITLES: Record<LegacySlot, string> = {
+  proposal: "Ralph proposal",
+  proposalPdf: "Ralph proposal (PDF)",
+};
+
 interface SpecAttachmentSlot {
   attachmentId: string | null;
   sha256: string | null;
 }
 
 interface SpecAttachmentsState {
-  proposal: SpecAttachmentSlot;
   design: SpecAttachmentSlot;
-  proposalPdf: SpecAttachmentSlot;
   designPdf: SpecAttachmentSlot;
+  /** Carried only for purge-on-upgrade — never re-uploaded. */
+  proposal: SpecAttachmentSlot;
+  proposalPdf: SpecAttachmentSlot;
 }
 
 export interface SpecAttachmentMutations {
@@ -255,31 +254,58 @@ function hasMeaningfulContent(bytes: Uint8Array): boolean {
 
 async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   const spec = SLOT_SPECS[slot];
-  const sourcePath = join(deps.changeDir, spec.sourceFile);
-  const file = Bun.file(sourcePath);
-  if (!(await file.exists())) {
-    deps.log(`  spec-attachments: ${spec.sourceFile} missing, skipping`, "gray");
+  const [primaryName, ...trailingNames] = spec.sourceFiles;
+  if (!primaryName) return;
+  const primary = Bun.file(join(deps.changeDir, primaryName));
+  if (!(await primary.exists())) {
+    deps.log(`  spec-attachments: ${primaryName} missing, skipping`, "gray");
     return;
   }
 
-  let sourceBytes: Uint8Array;
+  let primaryBytes: Uint8Array;
   try {
-    sourceBytes = await file.bytes();
+    primaryBytes = await primary.bytes();
   } catch (err) {
-    deps.log(
-      `! spec-attachments: read ${spec.sourceFile} failed: ${(err as Error).message}`,
-      "yellow",
-    );
+    deps.log(`! spec-attachments: read ${primaryName} failed: ${(err as Error).message}`, "yellow");
     return;
   }
 
-  if (!hasMeaningfulContent(sourceBytes)) {
-    deps.log(`  spec-attachments: ${spec.sourceFile} has no content yet, skipping`, "gray");
+  if (!hasMeaningfulContent(primaryBytes)) {
+    deps.log(`  spec-attachments: ${primaryName} has no content yet, skipping`, "gray");
     return;
   }
 
-  // Hash the *source* so the md and pdf slots track the same content
-  // signal. A change to proposal.md invalidates both proposal/proposalPdf.
+  // Compose the upload payload by appending any present trailing source
+  // files (e.g. tasks.md after design.md), separated by a markdown rule
+  // so reviewers can tell the sections apart inside one attachment.
+  const parts: Uint8Array[] = [primaryBytes];
+  const enc = new TextEncoder();
+  for (const name of trailingNames) {
+    const f = Bun.file(join(deps.changeDir, name));
+    if (!(await f.exists())) continue;
+    try {
+      const bytes = await f.bytes();
+      if (bytes.length === 0) continue;
+      parts.push(enc.encode(`\n\n---\n\n# ${name}\n\n`));
+      parts.push(bytes);
+    } catch (err) {
+      deps.log(
+        `! spec-attachments: read ${name} failed (continuing without it): ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+  }
+  const totalLen = parts.reduce((n, p) => n + p.length, 0);
+  const sourceBytes = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const p of parts) {
+    sourceBytes.set(p, offset);
+    offset += p.length;
+  }
+
+  // Hash the *composed* source so the md and pdf slots track the same
+  // content signal. A change to either design.md or tasks.md invalidates
+  // both the design and designPdf slots.
   const hash = sha256Hex(sourceBytes);
   let current = (await readSpecAttachments(deps.statePath))[slot] ?? EMPTY_SLOT;
 
@@ -371,12 +397,74 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   deps.log(`  spec-attachments: created ${spec.uploadFilename} attachment`, "gray");
 }
 
-/** Sync proposal.md / design.md (and, optionally, their pdfkit-rendered
- *  PDF mirrors) as Linear attachments. Slots are independent — a missing
- *  or failing slot does not affect the others. */
+/** Delete any pre-existing proposal / proposalPdf attachments left over
+ *  from before we consolidated everything into the design slot. Runs once
+ *  per change: persists `legacyProposalPurged: true` in state so the
+ *  Linear lookup is not repeated every sync. */
+async function purgeLegacyProposalSlots(deps: SpecAttachmentsDeps): Promise<void> {
+  const raw = await readRawState(deps.statePath);
+  const sa = (raw.specAttachments as Record<string, unknown> | undefined) ?? {};
+  if (sa.legacyProposalPurged === true) return;
+  const state = await readSpecAttachments(deps.statePath);
+  for (const slot of ["proposal", "proposalPdf"] as LegacySlot[]) {
+    const recordedId = state[slot]?.attachmentId ?? null;
+    let idToDelete = recordedId;
+    if (!idToDelete) {
+      try {
+        idToDelete = await deps.mutations.findIssueAttachmentByTitle(
+          deps.apiKey,
+          deps.issueId,
+          LEGACY_SLOT_TITLES[slot],
+        );
+      } catch (err) {
+        deps.log(
+          `! spec-attachments: legacy lookup for ${LEGACY_SLOT_TITLES[slot]} failed (skipping): ${describeLinearError(err)}`,
+          "yellow",
+        );
+        idToDelete = null;
+      }
+    }
+    if (!idToDelete) continue;
+    try {
+      await deps.mutations.deleteAttachment(deps.apiKey, idToDelete);
+      deps.log(
+        `  spec-attachments: removed legacy ${LEGACY_SLOT_TITLES[slot]} attachment ${idToDelete}`,
+        "gray",
+      );
+    } catch (err) {
+      if (isCommentNotFoundError(err)) {
+        deps.log(
+          `  spec-attachments: legacy ${LEGACY_SLOT_TITLES[slot]} attachment already gone`,
+          "gray",
+        );
+      } else {
+        deps.log(
+          `! spec-attachments: delete legacy ${LEGACY_SLOT_TITLES[slot]} failed (continuing): ${describeLinearError(err)}`,
+          "yellow",
+        );
+      }
+    }
+    if (recordedId) {
+      await persistSlot(deps.statePath, slot, EMPTY_SLOT);
+    }
+  }
+  await writeField(
+    stateDirOf(deps.statePath),
+    "linear-attachments",
+    "specAttachments.legacyProposalPurged",
+    true,
+  );
+}
+
+/** Sync the design attachment (design.md with tasks.md appended) and,
+ *  optionally, its pdfkit-rendered PDF mirror, to Linear. Any pre-existing
+ *  proposal attachments from before this slot consolidation are deleted
+ *  on first run. Slots are independent — a missing or failing slot does
+ *  not affect the others. */
 export async function syncSpecAttachments(deps: SpecAttachmentsDeps): Promise<void> {
+  await purgeLegacyProposalSlots(deps);
   const enabled = new Set<AttachmentFormat>(deps.formats ?? ["md"]);
-  const order: Slot[] = ["proposal", "design", "proposalPdf", "designPdf"];
+  const order: Slot[] = ["design", "designPdf"];
   for (const slot of order) {
     if (!enabled.has(SLOT_SPECS[slot].format)) continue;
     await syncSlot(deps, slot);

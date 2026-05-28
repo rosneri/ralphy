@@ -14,6 +14,7 @@ import {
   appendSteeringMessage,
   buildSteeringPrompt,
   mergeUsage,
+  routeTaskPhase,
 } from "../loop";
 import {
   firstUnchecked as extractFirstUncheckedSection,
@@ -643,4 +644,59 @@ describe("buildPhasePrompt router", () => {
       const prompt = buildPhasePrompt("execute", state, tempDir, { enabled: true, maxRounds: 1 });
       expect(prompt).toContain("Self-Review Phase");
     }));
+});
+
+describe("routeTaskPhase — OpenSpec phase drives prompt selection", () => {
+  // RLF-162 stuck-on-design bug. When mission artifacts (`design.md` /
+  // `tasks.md`) are missing, the loop used to run the `execute` prompt
+  // every iteration and chew on `agent-tasks.md` flow items forever
+  // instead of routing back to `plan` to author the missing artifacts.
+
+  test("regression: routeTaskPhase no longer falls through to 'execute' when design.md is missing", () => {
+    // Pre-fix this returned "execute" (the inline `opts.phase ?? "execute"`
+    // expression at apps/loop/src/hooks/useLoop.ts:353). That left the loop
+    // chewing on `agent-tasks.md` flow items forever. Guard the regression.
+    const phase = routeTaskPhase(undefined, {
+      proposal: "## Why\n\nReal proposal body.\n",
+      design: null,
+      tasks: null,
+    });
+    expect(phase).not.toBe("execute");
+  });
+
+  test("fix_case: routeTaskPhase returns 'plan' when design.md is missing", () => {
+    const phase = routeTaskPhase(undefined, {
+      proposal: "## Why\n\nReal proposal body.\n",
+      design: null,
+      tasks: null,
+    });
+    expect(phase).toBe("plan");
+  });
+
+  test("routeTaskPhase returns 'plan' when proposal.md is also stub", () => {
+    const phase = routeTaskPhase(undefined, {
+      proposal: null,
+      design: null,
+      tasks: null,
+    });
+    expect(phase).toBe("plan");
+  });
+
+  test("routeTaskPhase returns 'execute' once tasks.md exists with unchecked items", () => {
+    const phase = routeTaskPhase(undefined, {
+      proposal: "## Why\n\nReal proposal body.\n",
+      design: "## Design\n\nReal design body.\n",
+      tasks: "## Section\n- [ ] item\n",
+    });
+    expect(phase).toBe("execute");
+  });
+
+  test("routeTaskPhase honors explicit opts.phase override regardless of artifacts", () => {
+    const phase = routeTaskPhase("research", {
+      proposal: null,
+      design: null,
+      tasks: null,
+    });
+    expect(phase).toBe("research");
+  });
 });
