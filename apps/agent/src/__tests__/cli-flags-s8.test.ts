@@ -33,7 +33,6 @@ function makeDeps(todo: LinearIssue[] = []): {
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => []),
-    fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({

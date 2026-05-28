@@ -39,14 +39,6 @@ describe("parseWorkflow", () => {
     expect(() => parseWorkflow("no frontmatter")).toThrow("frontmatter");
   });
 
-  test("rejects status-typed clearReview", () => {
-    expect(() =>
-      parseWorkflow(
-        `---\nlinear:\n  indicators:\n    clearReview:\n      type: status\n      value: Done\n---\n`,
-      ),
-    ).toThrow("invalid settings");
-  });
-
   test("project marker in getTodo.filter round-trips", () => {
     const { config } = parseWorkflow(
       `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: project\n          value: "Ralph Queue"\n---\n`,
@@ -116,14 +108,6 @@ describe("parseWorkflow", () => {
     ).toThrow("invalid settings");
   });
 
-  test("project marker in clearReview is rejected with label-only message", () => {
-    expect(() =>
-      parseWorkflow(
-        `---\nlinear:\n  indicators:\n    clearReview:\n      type: project\n      value: "Ralph Queue"\n---\n`,
-      ),
-    ).toThrow("markers must be label-typed");
-  });
-
   test("default workflow parses cleanly", () => {
     const { config } = parseWorkflow(DEFAULT_WORKFLOW_MD);
     expect(config.boundaries.never_touch).toContain("dist/**");
@@ -177,14 +161,6 @@ describe("parseWorkflow", () => {
     expect(config.linear.indicators.getTodo?.filter).toEqual([
       { type: "project", value: "Ralph Queue" },
     ]);
-  });
-
-  test("rejects project-typed clearReview with label-only message", () => {
-    expect(() =>
-      parseWorkflow(
-        `---\nlinear:\n  indicators:\n    clearReview:\n      type: project\n      value: "Ralph In Progress"\n---\n`,
-      ),
-    ).toThrow("markers must be label-typed");
   });
 
   test("rejects inline JSON-array indicator filter", () => {

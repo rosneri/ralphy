@@ -120,7 +120,6 @@ export function buildAgentCoordinator(
   const assignee = args.linearAssignee || cfg.linear.assignee;
 
   const excludeFromTodo = unionMarkers(indicators.setDone, indicators.setError);
-  const excludeFromReview = unionMarkers(indicators.setInProgress, indicators.setError);
 
   const gitRunner = input.runners?.git ?? bunGitRunner;
   const cmdRunner = input.runners?.cmd ?? bunCmdRunner;
@@ -311,7 +310,6 @@ export function buildAgentCoordinator(
       fetchTodo: () => resolvers.fetchByGet(indicators.getTodo, excludeFromTodo),
       fetchInProgress: () =>
         resolvers.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
-      fetchReview: () => resolvers.fetchByGet(indicators.getReview, excludeFromReview),
       fetchMentions,
       fetchDoneCandidates: () => fetchDoneCandidatesWith(apiKey, team, assignee, indicators),
       prepare: prep.prepare,
@@ -350,7 +348,6 @@ export function buildAgentCoordinator(
         : {}),
       ...(indicators.setDone !== undefined ? { setDone: indicators.setDone } : {}),
       ...(indicators.setError !== undefined ? { setError: indicators.setError } : {}),
-      ...(indicators.clearReview !== undefined ? { clearReview: indicators.clearReview } : {}),
       ...(indicators.getAutoMerge !== undefined ? { getAutoMerge: indicators.getAutoMerge } : {}),
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,

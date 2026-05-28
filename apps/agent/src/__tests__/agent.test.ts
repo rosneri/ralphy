@@ -102,18 +102,6 @@ describe("agent/config", () => {
     await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
-  test("loadRalphyConfig rejects status-typed clearReview with pretty error", async () => {
-    await writeWorkflow(tempDir, {
-      linear: {
-        indicators: {
-          clearReview: { type: "status", value: "Done" },
-        },
-      },
-    });
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
-  });
-
   test("loadRalphyConfig loads project / rules / boundaries blocks", async () => {
     await writeWorkflow(tempDir, {
       project: { name: "demo", language: "TypeScript" },

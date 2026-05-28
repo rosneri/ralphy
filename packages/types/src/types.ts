@@ -232,8 +232,6 @@ export interface Indicators {
   getTodo?: GetIndicator;
   /** Issues to resume after restart (already in flight). */
   getInProgress?: GetIndicator;
-  /** Done issues with new reviewer comments that need a follow-up run. */
-  getReview?: GetIndicator;
   /** Issues opted in for auto-merge: when matched, the agent enables
    *  GitHub auto-merge on the PR immediately after creation. */
   getAutoMerge?: GetIndicator;
@@ -243,8 +241,6 @@ export interface Indicators {
   setDone?: SetIndicator;
   /** Marker(s) applied on non-zero exit (quarantine signal). */
   setError?: SetIndicator;
-  /** Label-only marker(s) removed when the review indicator is picked up. */
-  clearReview?: SetIndicator;
   /** Issues that the human has explicitly approved (confirmation gate). */
   getApproved?: GetIndicator;
   /** Label-only marker(s) removed when the approval is consumed. */

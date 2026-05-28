@@ -24,7 +24,6 @@ function makeCoordinator(): AgentCoordinator {
   const deps: CoordinatorDeps = {
     fetchTodo: async () => [],
     fetchInProgress: async () => [],
-    fetchReview: async () => [],
     fetchMentions: async () => [],
     fetchDoneCandidates: async () => [],
     prepare: async () => ({ changeName: "x" }),

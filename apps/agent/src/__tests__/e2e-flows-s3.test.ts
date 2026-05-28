@@ -435,81 +435,6 @@ const baseWorkflow = {
 // ─── S3 tests ────────────────────────────────────────────────────────────────
 
 describe("S3 — coordinator flow routing", () => {
-  // S3.1: conflict beats review
-  // test.failing: review is queued first; scanPrMergeStates skips the issue
-  // because it's already in the queue, so conflict-fix never fires. Fix:
-  // conflict-fix discovery must be allowed to pre-empt a queued review entry.
-  test.failing("S3.1 — conflict beats review (test.failing)", async () => {
-    const linear = new FakeLinear();
-    linear.stateIds.set("Todo", "state-todo");
-    linear.stateIds.set("In Progress", "state-inprogress");
-    linear.stateIds.set("Done", "state-done");
-    linear.labelIds.set("ralph:review", "label-review");
-    linear.labelIds.set("ralph:error", "label-err");
-    linear.labelIds.set("ralph:conflicted", "label-conf");
-
-    const issue: FakeIssue = {
-      id: "uuid-s31-1",
-      identifier: "ENG-31",
-      title: "Add search",
-      description: null,
-      state: { name: "Done", type: "completed" },
-      labels: new Set(["ralph:review"]),
-      priority: 3,
-    };
-    linear.add(issue);
-    setupFetch(linear);
-
-    const workflow = {
-      ...baseWorkflow,
-      linear: {
-        ...baseWorkflow.linear,
-        indicators: {
-          ...baseWorkflow.linear.indicators,
-          getReview: { filter: [{ type: "label", value: "ralph:review" }] },
-          clearReview: { type: "label", value: "ralph:review" },
-        },
-      },
-    };
-    await writeWorkflow(tempDir, workflow);
-    const cfg = await loadRalphyConfig(tempDir);
-    const args = await parseArgs([]);
-
-    const { runners, workers, spawnCalls, setMergeable } = makeRunners();
-    setMergeable("eng-31-add-search", "CONFLICTING");
-
-    const { coord } = buildAgentCoordinator({
-      args,
-      cfg,
-      projectRoot: tempDir,
-      statesDir: join(tempDir, ".ralph", "tasks"),
-      tasksDir: join(tempDir, "openspec", "changes"),
-      apiKey: "fake-key",
-      onLog: () => {},
-      onWorkersChanged: () => {},
-      onWorkerStarted: () => {},
-      onWorkerExited: () => {},
-      runners,
-    });
-    await coord.init();
-
-    await coord.pollOnce();
-    await tick();
-
-    // Stage-2-correct: conflict-fix spawn is issued, not review
-    const spawn = spawnCalls.find((c) => c.includes("eng-31-add-search"));
-    expect(spawn).toBeDefined();
-    const nameIdx = spawn!.indexOf("--name");
-    expect(spawn![nameIdx + 1]).toBe("eng-31-add-search");
-    // The worker should be spawned with conflict-fix trigger, not review.
-    // The coord should NOT have applied clearReview (that's a review-trigger effect).
-    expect(
-      linear.labelMutations.some((m) => m.op === "remove" && m.labelName === "ralph:review"),
-    ).toBe(false);
-    // Workers map has a running conflict-fix worker, not a review worker.
-    expect(workers.has("eng-31-add-search")).toBe(true);
-  });
-
   // S3.2: confirmation gate + new-ticket coexistence (GREEN)
   // The confirmation feature claims the awaiting ticket (gate fires) while
   // the fresh-mode path picks up the new Todo ticket in the same poll.
@@ -932,85 +857,13 @@ describe("S3 — coordinator flow routing", () => {
     expect(poll.buckets.awaiting ?? 0).toBe(0);
   });
 
-  // S3.8: review-followup no-ops when no PR (GREEN)
-  // clearReview is applied before the worker spawns, so even with no PR
-  // the label is removed without error.
-  test("S3.8 — review-followup no-ops + clearReview when no PR (green)", async () => {
-    const linear = new FakeLinear();
-    linear.stateIds.set("Done", "state-done");
-    linear.labelIds.set("ralph:review", "label-review");
-    linear.labelIds.set("ralph:error", "label-err");
-
-    const issue: FakeIssue = {
-      id: "uuid-s38-1",
-      identifier: "ENG-38",
-      title: "Add pagination",
-      description: null,
-      state: { name: "Done", type: "completed" },
-      labels: new Set(["ralph:review"]),
-      priority: 3,
-    };
-    linear.add(issue);
-    setupFetch(linear);
-
-    const workflow = {
-      ...baseWorkflow,
-      linear: {
-        ...baseWorkflow.linear,
-        indicators: {
-          ...baseWorkflow.linear.indicators,
-          getReview: { filter: [{ type: "label", value: "ralph:review" }] },
-          clearReview: { type: "label", value: "ralph:review" },
-        },
-      },
-    };
-    await writeWorkflow(tempDir, workflow);
-    const cfg = await loadRalphyConfig(tempDir);
-    const args = await parseArgs([]);
-
-    const { runners, workers, removePr } = makeRunners();
-    const changeName = "eng-38-add-pagination";
-    // Ensure no PR is discoverable for this change
-    removePr(changeName);
-
-    const { coord } = buildAgentCoordinator({
-      args,
-      cfg,
-      projectRoot: tempDir,
-      statesDir: join(tempDir, ".ralph", "tasks"),
-      tasksDir: join(tempDir, "openspec", "changes"),
-      apiKey: "fake-key",
-      onLog: () => {},
-      onWorkersChanged: () => {},
-      onWorkerStarted: () => {},
-      onWorkerExited: () => {},
-      runners,
-    });
-    await coord.init();
-
-    const poll = await coord.pollOnce();
-    await tick();
-
-    // review issue picked up
-    expect(poll.buckets.review).toBe(1);
-    // clearReview applied (ralph:review label removed)
-    expect(
-      linear.labelMutations.some(
-        (m) => m.issueId === "uuid-s38-1" && m.op === "remove" && m.labelName === "ralph:review",
-      ),
-    ).toBe(true);
-    // No crash — worker was spawned even without a PR
-    expect(workers.has(changeName)).toBe(true);
-  });
-
-  // S3.9: consecutive flows — new-ticket → implement → conflict-fix → review-followup (GREEN)
+  // S3.9: consecutive flows — new-ticket → implement → conflict-fix (GREEN)
   // Each flow transition preserves state fields written by the previous flow.
   test("S3.9 — consecutive flows: no orphan state (green)", async () => {
     const linear = new FakeLinear();
     linear.stateIds.set("Todo", "state-todo");
     linear.stateIds.set("In Progress", "state-inprogress");
     linear.stateIds.set("Done", "state-done");
-    linear.labelIds.set("ralph:review", "label-review");
     linear.labelIds.set("ralph:error", "label-err");
 
     const issue: FakeIssue = {
@@ -1025,18 +878,7 @@ describe("S3 — coordinator flow routing", () => {
     linear.add(issue);
     setupFetch(linear);
 
-    const workflow = {
-      ...baseWorkflow,
-      linear: {
-        ...baseWorkflow.linear,
-        indicators: {
-          ...baseWorkflow.linear.indicators,
-          getReview: { filter: [{ type: "label", value: "ralph:review" }] },
-          clearReview: { type: "label", value: "ralph:review" },
-        },
-      },
-    };
-    await writeWorkflow(tempDir, workflow);
+    await writeWorkflow(tempDir, baseWorkflow);
     const cfg = await loadRalphyConfig(tempDir);
     const args = await parseArgs([]);
 
@@ -1081,25 +923,9 @@ describe("S3 — coordinator flow routing", () => {
     expect(linear.comments.some((c) => c.body.includes("merge conflicts"))).toBe(true);
     workers.get(changeName)!.resolve(0);
     await tick();
-    // Conflict-fix trigger does not apply setDone on exit, so reset the issue
-    // state to Done manually so fetchReview can pick it up in Phase 3.
-    issue.state = { name: "Done", type: "completed" };
-
-    // Phase 3: review-followup (issue gets ralph:review label)
-    issue.labels.add("ralph:review");
-    setMergeable(changeName, "MERGEABLE");
-    await coord.pollOnce();
-    await tick();
-
-    // clearReview applied
-    expect(
-      linear.labelMutations.some((m) => m.op === "remove" && m.labelName === "ralph:review"),
-    ).toBe(true);
-    // Worker spawned for review
-    expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBeGreaterThanOrEqual(3);
 
     // State preservation: setDone was applied exactly once (from implement phase),
-    // not re-applied during conflict-fix or review.
+    // not re-applied during conflict-fix.
     const doneCount = linear.statusMutations.filter((s) => s.statusName === "Done").length;
     expect(doneCount).toBe(1);
   });

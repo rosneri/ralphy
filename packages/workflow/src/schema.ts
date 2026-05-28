@@ -16,13 +16,7 @@ const MarkerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("comment"), value: z.string().min(1) }).strict(),
 ]);
 
-const SET_INDICATOR_KEYS = [
-  "setInProgress",
-  "setDone",
-  "setError",
-  "clearReview",
-  "clearApproved",
-] as const;
+const SET_INDICATOR_KEYS = ["setInProgress", "setDone", "setError", "clearApproved"] as const;
 
 const GetIndicatorSchema = z.object({
   filter: z.array(MarkerSchema).default([]),
@@ -38,19 +32,17 @@ const IndicatorsSchema = z.preprocess(
     .object({
       getTodo: GetIndicatorSchema.optional(),
       getInProgress: GetIndicatorSchema.optional(),
-      getReview: GetIndicatorSchema.optional(),
       getAutoMerge: GetIndicatorSchema.optional(),
       getApproved: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setAwaitingConfirmation: SetIndicatorSchema.optional(),
-      clearReview: SetIndicatorSchema.optional(),
       clearApproved: SetIndicatorSchema.optional(),
       clearAwaitingConfirmation: SetIndicatorSchema.optional(),
     })
     .superRefine((value, ctx) => {
-      for (const key of ["clearReview", "clearApproved", "clearAwaitingConfirmation"] as const) {
+      for (const key of ["clearApproved", "clearAwaitingConfirmation"] as const) {
         const clear = value[key];
         if (!clear) continue;
         const markers = Array.isArray(clear) ? clear : [clear];

@@ -31,7 +31,6 @@ function baseDeps(opts: {
   return {
     fetchTodo: mock(async () => opts.todo),
     fetchInProgress: mock(async () => opts.inProgress),
-    fetchReview: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({
