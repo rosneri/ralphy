@@ -15,6 +15,7 @@ import {
   initialWorkerSnapshot,
   type WorkerSnapshot,
 } from "./state/worker-state-poll";
+import { writeAgentRunState } from "./state/agent-run-state";
 
 function makeEmit(fileSink: {
   emit(event: Record<string, unknown>): void;
@@ -82,6 +83,19 @@ export async function runAgentJson({
 
   const cfgPath = await ensureRalphyConfig(projectRoot);
   const cfg = await loadRalphyConfig(projectRoot);
+
+  // Persist the JSONL log path + project metadata to
+  // `~/.ralph/<basename(projectRoot)>/agent-state.json` so external tools
+  // (and humans inspecting after the fact) can find the live event stream
+  // without grepping the filesystem.
+  await writeAgentRunState({
+    projectRoot,
+    configPath: cfgPath,
+    team: cfg.linear.team,
+    jsonLogFile: args.jsonLogFile ?? null,
+    startedAt: new Date().toISOString(),
+    version: VERSION,
+  });
 
   const apiKey = process.env["LINEAR_API_KEY"];
   if (!apiKey) {
