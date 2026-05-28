@@ -75,6 +75,23 @@ describe("fsChange.prependTask", () => {
   });
 });
 
+describe("fsChange.scaffold error path", () => {
+  test("non-required capability rethrows on failure (e.g. invalid path)", async () => {
+    // Passing a path under a non-existent root that cannot be created will
+    // cause mkdir to fail, exercising the non-required rethrow path.
+    const invalidDir = join(root, "\0invalid");
+    await expect(
+      runCapability(fsChange.scaffold, {
+        changeDir: invalidDir,
+        stateDir: join(root, "states", "bad"),
+        proposal: "p",
+        tasks: "t",
+        design: "d",
+      }),
+    ).rejects.toBeDefined();
+  });
+});
+
 describe("fsChange.appendSteering", () => {
   test("creates steering.md with a trailing newline when missing", async () => {
     const changeDir = join(root, "change");

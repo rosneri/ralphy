@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBus } from "@ralphy/events";
@@ -77,5 +77,56 @@ describe("git capability", () => {
       runner,
     });
     expect(calls[0]).toEqual(["worktree", "remove", "--force", join(root, "wt")]);
+  });
+
+  test("removeWorktree emits started + failed and rethrows on runner error", async () => {
+    const bus = createBus();
+    const events: string[] = [];
+    bus.on("*", (e) => events.push(e.type as string));
+    const runner: GitRunner = {
+      run: async () => {
+        throw new Error("remove failed");
+      },
+    };
+    await expect(
+      runCapability(
+        git.removeWorktree,
+        { projectRoot: root, cwd: join(root, "wt"), runner },
+        { bus },
+      ),
+    ).rejects.toThrow("remove failed");
+    expect(events).toContain("git.worktree.remove.started");
+    expect(events).toContain("git.worktree.remove.failed");
+    expect(events).not.toContain("git.worktree.remove.fetched");
+  });
+
+  test("seedWorktreeMcpConfig copies .mcp.json rewriting .ralph/ args to absolute paths", async () => {
+    const worktreeDir = join(root, "worktree");
+    await mkdir(worktreeDir, { recursive: true });
+    const mcpJson = {
+      mcpServers: { myserver: { args: [".ralph/config.json", "--other"] } },
+    };
+    await Bun.write(join(root, ".mcp.json"), JSON.stringify(mcpJson));
+
+    await runCapability(git.seedWorktreeMcpConfig, {
+      projectRoot: root,
+      worktreeCwd: worktreeDir,
+    });
+
+    const written = await Bun.file(join(worktreeDir, ".mcp.json")).json();
+    expect(written.mcpServers.myserver.args[0]).toBe(join(root, ".ralph/config.json"));
+    expect(written.mcpServers.myserver.args[1]).toBe("--other");
+  });
+
+  test("seedWorktreeMcpConfig is a no-op when no .mcp.json exists", async () => {
+    const worktreeDir = join(root, "worktree");
+    await mkdir(worktreeDir, { recursive: true });
+
+    await runCapability(git.seedWorktreeMcpConfig, {
+      projectRoot: root,
+      worktreeCwd: worktreeDir,
+    });
+
+    expect(await Bun.file(join(worktreeDir, ".mcp.json")).exists()).toBe(false);
   });
 });

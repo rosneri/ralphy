@@ -28,4 +28,13 @@ describe("gateActive", () => {
       }),
     ).toBe(true);
   });
+
+  test("enabled + confirmedAt empty string → false (non-null counts as confirmed)", () => {
+    expect(
+      gateActive({
+        config: { confirmationMode: { enabled: true } },
+        persistedConfirmation: { confirmedAt: "" },
+      }),
+    ).toBe(false);
+  });
 });

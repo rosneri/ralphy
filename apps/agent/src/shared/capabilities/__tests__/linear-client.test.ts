@@ -178,6 +178,24 @@ describe("issueMatchesGetIndicator with comment markers", () => {
       ),
     ).toBe(true);
   });
+
+  test("status-type indicator matches issue state name (case-insensitive)", () => {
+    expect(
+      issueMatchesGetIndicator(
+        { ...baseIssue, state: { name: "In Progress", type: "started" } },
+        { filter: [{ type: "status", value: "in progress" }] },
+      ),
+    ).toBe(true);
+  });
+
+  test("status-type indicator returns false when state name does not match", () => {
+    expect(
+      issueMatchesGetIndicator(
+        { ...baseIssue, state: { name: "Todo", type: "unstarted" } },
+        { filter: [{ type: "status", value: "done" }] },
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("formatLinearError (capability variant)", () => {
