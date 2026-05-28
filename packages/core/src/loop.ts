@@ -640,7 +640,11 @@ export type StopReason =
   | "costCap"
   | "runtimeLimit"
   | "consecutiveFailures"
-  | "rateLimited";
+  | "rateLimited"
+  /** All tasks were checked off but the worktree still has uncommitted
+   *  edits. The loop refuses to archive a change with stranded work — a
+   *  human (or a follow-up reset of `tasks.md`) decides next. See LIT-303. */
+  | "stranded";
 
 /**
  * Determine whether the loop should continue.

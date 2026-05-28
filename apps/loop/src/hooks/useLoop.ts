@@ -341,7 +341,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             addInfo(
               `All tasks checked off but worktree has ${uncommitted.length} uncommitted file(s) — refusing to archive. Commit or reset to resume.\n  ${preview}${more}`,
             );
-            finalStopReason = "stopped";
+            finalStopReason = "stranded";
             break;
           }
 
