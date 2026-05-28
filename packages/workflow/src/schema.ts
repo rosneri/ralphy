@@ -1,9 +1,20 @@
 import { z } from "zod";
 
-const MarkerSchema = z.object({
-  type: z.enum(["label", "status", "attachment", "project", "comment"]),
-  value: z.string().min(1),
-});
+// Discriminated marker union: `group` is only valid on the `label` variant
+// (resolves nested labels as `${group}:${value}` — see Marker type docs).
+// Non-label variants are `.strict()` so that a stray `group` on a non-label
+// marker raises a config error instead of being silently dropped.
+const MarkerSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("label"),
+    value: z.string().min(1),
+    group: z.string().min(1).optional(),
+  }),
+  z.object({ type: z.literal("status"), value: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("attachment"), value: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("project"), value: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("comment"), value: z.string().min(1) }).strict(),
+]);
 
 const SET_INDICATOR_KEYS = [
   "setInProgress",

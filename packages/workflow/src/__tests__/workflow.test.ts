@@ -81,6 +81,41 @@ describe("parseWorkflow", () => {
     ).toThrow("invalid settings");
   });
 
+  // RLF-162 follow-up: nested label support via optional `group` on the
+  // label marker variant. The resolver looks the label up as
+  // `${group}:${value}` so labels living under a Linear parent label group
+  // (e.g. `Ralphy:error`) can be referenced by their bare child name + group
+  // — and the resolver never tries to create a duplicate.
+
+  test("label marker with group field round-trips", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    setError:\n      type: label\n      value: error\n      group: Ralphy\n---\n`,
+    );
+    expect(config.linear.indicators.setError).toEqual({
+      type: "label",
+      value: "error",
+      group: "Ralphy",
+    });
+  });
+
+  test("label marker without group still parses (group is optional)", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    setError:\n      type: label\n      value: ralph:error\n---\n`,
+    );
+    expect(config.linear.indicators.setError).toEqual({
+      type: "label",
+      value: "ralph:error",
+    });
+  });
+
+  test("non-label marker with group is rejected (group is label-only)", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    setInProgress:\n      type: status\n      value: In Progress\n      group: Ralphy\n---\n`,
+      ),
+    ).toThrow("invalid settings");
+  });
+
   test("project marker in clearReview is rejected with label-only message", () => {
     expect(() =>
       parseWorkflow(

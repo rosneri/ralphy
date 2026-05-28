@@ -181,9 +181,11 @@ linear:
       filter:
         - type: label
           value: "review"
+          group: "Ralphy"
     clearReview:
       type: label
       value: "review"
+      group: "Ralphy"
 
     # Merge-state lifecycle (conflicted / ci-failed / mergeable) is
     # driven by GitHub directly via `gh pr view` — no Linear indicators
@@ -194,20 +196,24 @@ linear:
       filter:
         - type: label
           value: "auto-merge"
+          group: "Ralphy"
 
     # Confirmation gate (paired with linear.confirmationMode above)
     getApproved:
       filter:
         - type: label
           value: "approved"
+          group: "Ralphy"
     clearApproved:
       type: label
       value: "approved"
+      group: "Ralphy"
 
     # Error quarantine
     setError:
       type: label
       value: "error"
+      group: "Ralphy"
 ---
 
 You are working on {{ issue.identifier }}: {{ issue.title }}.

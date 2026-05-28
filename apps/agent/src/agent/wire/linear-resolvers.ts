@@ -28,13 +28,17 @@ interface LinearResolvers {
   applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   removeIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;
-  resolveLabelId: (issue: LinearIssue, name: string) => Promise<string | null>;
+  resolveLabelId: (issue: LinearIssue, name: string, group?: string) => Promise<string | null>;
   fetchByGet: (
     inc: SetIndicator | { filter: Marker[] } | undefined,
     excl: Marker[],
   ) => Promise<LinearIssue[]>;
   /** For use by callers needing label resolution with a raw team key. */
-  resolveLabelIdForTeam: (teamKey: string, labelName: string) => Promise<string | null>;
+  resolveLabelIdForTeam: (
+    teamKey: string,
+    labelName: string,
+    group?: string,
+  ) => Promise<string | null>;
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
@@ -56,7 +60,11 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     return map.get(name.toLowerCase()) ?? null;
   }
 
-  async function resolveLabelId(issue: LinearIssue, name: string): Promise<string | null> {
+  async function resolveLabelId(
+    issue: LinearIssue,
+    name: string,
+    group?: string,
+  ): Promise<string | null> {
     const t = teamKeyOf(issue);
     let map = labelCache.get(t);
     if (!map) {
@@ -64,7 +72,11 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
       map = new Map(labels.map((l) => [l.name.toLowerCase(), l.id]));
       labelCache.set(t, map);
     }
-    const existing = map.get(name.toLowerCase());
+    // When the marker carries a group, look the label up as
+    // `${group}:${value}` — matching the `Parent:Child` key that
+    // `fetchIssueLabels` produces for nested labels.
+    const lookupKey = group ? `${group}:${name}`.toLowerCase() : name.toLowerCase();
+    const existing = map.get(lookupKey);
     if (existing) return existing;
     try {
       let teamId = teamIdCache.get(t);
@@ -122,20 +134,23 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
       }
       await setIssueProject(apiKey, issue.id, projectId);
       diag("linear-marker", `  → ${issue.identifier} project='${m.value}'`, "gray");
-    } else {
-      const id = await resolveLabelId(issue, m.value);
+    } else if (m.type === "label") {
+      const id = await resolveLabelId(issue, m.value, m.group);
+      const display = m.group ? `${m.group}:${m.value}` : m.value;
       if (!id) {
         const err = new Error("Linear label could not be resolved") as Error & {
           label?: string;
           issue?: string;
         };
-        err.label = m.value;
+        err.label = display;
         err.issue = issue.identifier;
         throw err;
       }
       await addLabelToIssue(apiKey, issue.id, id);
-      diag("linear-marker", `  → ${issue.identifier} +label='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} +label='${display}'`, "gray");
     }
+    // `comment` markers are read-only and rejected for setX at schema-load
+    // time, so they never reach applyMarker in practice — fall through.
   }
 
   async function applyIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
@@ -145,17 +160,18 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
   async function removeIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
     for (const m of markersOf(ind)) {
       if (m.type !== "label") continue;
-      const id = await resolveLabelId(issue, m.value);
+      const id = await resolveLabelId(issue, m.value, m.group);
+      const display = m.group ? `${m.group}:${m.value}` : m.value;
       if (!id) {
         diag(
           "linear-marker",
-          `! Linear label '${m.value}' not found for ${issue.identifier}`,
+          `! Linear label '${display}' not found for ${issue.identifier}`,
           "yellow",
         );
         continue;
       }
       await removeLabelFromIssue(apiKey, issue.id, id);
-      diag("linear-marker", `  → ${issue.identifier} -label='${m.value}'`, "gray");
+      diag("linear-marker", `  → ${issue.identifier} -label='${display}'`, "gray");
     }
   }
 
@@ -180,9 +196,13 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     return fetched.filter((i) => issueMatchesGetIndicator(i, { filter: include }));
   }
 
-  async function resolveLabelIdForTeam(teamKey: string, labelName: string): Promise<string | null> {
+  async function resolveLabelIdForTeam(
+    teamKey: string,
+    labelName: string,
+    group?: string,
+  ): Promise<string | null> {
     const fakeIssue = { identifier: `${teamKey}-0` } as LinearIssue;
-    return resolveLabelId(fakeIssue, labelName);
+    return resolveLabelId(fakeIssue, labelName, group);
   }
 
   return {
