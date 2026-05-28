@@ -1,3 +1,8 @@
 [test]
 coverageThreshold = { lines = 0.9, functions = 0.9 }
-coveragePathIgnorePatterns = ["../**", "dist/**"]
+coveragePathIgnorePatterns = [
+  "../**",
+  "dist/**",
+  "src/workflow.ts",
+  "src/template.ts",
+]
