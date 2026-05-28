@@ -3,11 +3,16 @@
 > Task: {{TASK_PROMPT}}
 > Created: {{DATE}}
 
-## Section 1 — TODO
+## Section 1 — <Title>
 
-- [ ] Item description (specific, implementable)
+- [ ] impl: add `FieldName` to `TypeName` in `src/types/foo.ts`
+- [ ] test: `TypeName` accepts `FieldName` and rejects missing value (`src/types/foo.test.ts`)
+- [ ] impl: update `functionName` in `src/module/bar.ts` to pass `FieldName`
+- [ ] test: `functionName` propagates `FieldName` to output (`src/module/bar.test.ts`)
+- [ ] caller: update `callSite` in `src/other/baz.ts` — pass new `FieldName` arg
 
 ## Section N — Verification & Cleanup
 
-- [ ] Final integration testing
-- [ ] Update documentation if needed
+- [ ] integration: run full flow end-to-end and confirm expected behavior
+- [ ] lint: `bun run lint` — zero errors
+- [ ] typecheck: `bun run typecheck` — zero errors
