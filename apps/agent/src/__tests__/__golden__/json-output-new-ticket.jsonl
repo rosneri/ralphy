@@ -9,13 +9,11 @@
 {"ts":"<TIMESTAMP>","type":"worker_started","changeName":"eng-1-add-dark-mode","statesDir":"<TMPDIR>/.ralph/tasks","logFile":"<TMPDIR>/.ralph/logs/eng-1-add-dark-mode.log","changeDir":"<TMPDIR>/openspec/changes/eng-1-add-dark-mode"}
 {"ts":"<TIMESTAMP>","type":"worker_phase","changeName":"eng-1-add-dark-mode","phase":"working"}
 {"ts":"<TIMESTAMP>","type":"log","text":"! comment-sync: createIssueComment failed: commentCreate returned no comment id","color":"yellow"}
-{"ts":"<TIMESTAMP>","type":"log","text":"! spec-attachments: upload proposal.md failed: fileUpload returned no uploadFile payload","color":"yellow"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  spec-attachments: design.md has no content yet, skipping","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"worker_phase","changeName":"eng-1-add-dark-mode","phase":"done"}
 {"ts":"<TIMESTAMP>","type":"worker_exited","changeName":"eng-1-add-dark-mode"}
 {"ts":"<TIMESTAMP>","type":"log","text":"✓ ENG-1 → eng-1-add-dark-mode exited (code 0)","color":"green"}
 {"ts":"<TIMESTAMP>","type":"log","text":"! comment-sync: createIssueComment failed: commentCreate returned no comment id","color":"yellow"}
-{"ts":"<TIMESTAMP>","type":"log","text":"! spec-attachments: upload proposal.md failed: fileUpload returned no uploadFile payload","color":"yellow"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  spec-attachments: design.md has no content yet, skipping","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  ENG-1: posted completion comment","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  → ENG-1 status='Done'","color":"gray"}
