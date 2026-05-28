@@ -12,9 +12,9 @@
 
 ## Implementation
 
-- [ ] Update `packages/content/phases/plan.md`: replace Step 4 (Create PROGRESS.md) with the 6-step atomic decomposition algorithm (inventory → atomic expansion → caller enumeration → TDD pairing → dependency ordering → completeness audit); add anti-patterns section; remove "3-8 items" as primary sizing heuristic
-- [ ] Create `packages/content/checklists/task-completeness.md` with a completeness audit checklist covering: types/schemas, implementation, callers, test coverage, and static analysis
-- [ ] Update `packages/content/scaffolds/PROGRESS.md` to show atomic item format with TDD pairs and explicit file-path references
-- [ ] Update `packages/content/scaffolds/PLAN.md` to add a `## Traceability` section
-- [ ] Run `bun run lint` and confirm zero errors
-- [ ] Run `bun run test` and confirm all tests pass
+- [x] Update `packages/content/phases/plan.md`: replace Step 4 (Create PROGRESS.md) with the 6-step atomic decomposition algorithm (inventory → atomic expansion → caller enumeration → TDD pairing → dependency ordering → completeness audit); add anti-patterns section; remove "3-8 items" as primary sizing heuristic
+- [x] Create `packages/content/checklists/task-completeness.md` with a completeness audit checklist covering: types/schemas, implementation, callers, test coverage, and static analysis
+- [x] Update `packages/content/scaffolds/PROGRESS.md` to show atomic item format with TDD pairs and explicit file-path references
+- [x] Update `packages/content/scaffolds/PLAN.md` to add a `## Traceability` section
+- [x] Run `bun run lint` and confirm zero errors
+- [x] Run `bun run test` and confirm all tests pass
