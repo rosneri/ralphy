@@ -1054,7 +1054,6 @@ describe("agent characterization — Stage-0 regression net", () => {
         ...baseWorkflow.linear,
         confirmationMode: {
           enabled: true,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           maxConfirmationRounds: 3,
         },
@@ -1286,7 +1285,6 @@ describe("agent characterization — Stage-0 regression net", () => {
           ...baseWorkflow.linear,
           confirmationMode: {
             enabled: true,
-            optOutLabel: "ralph:auto-approve",
             timeoutHours: 48,
             maxConfirmationRounds: 3,
           },
@@ -1427,7 +1425,6 @@ describe("agent characterization — Stage-0 regression net", () => {
         ...baseWorkflow.linear,
         confirmationMode: {
           enabled: true,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           maxConfirmationRounds: 3,
         },
@@ -1572,7 +1569,6 @@ describe("agent characterization — Stage-0 regression net", () => {
           ...baseWorkflow.linear,
           confirmationMode: {
             enabled: true,
-            optOutLabel: "ralph:auto-approve",
             timeoutHours: 48,
             maxConfirmationRounds: 3,
           },
@@ -1742,7 +1738,6 @@ describe("agent characterization — Stage-0 regression net", () => {
         ...baseWorkflow.linear,
         confirmationMode: {
           enabled: true,
-          optOutLabel: "ralph:auto-approve",
           timeoutHours: 48,
           // Small cap so two revise rounds are enough to exhaust it.
           maxConfirmationRounds: 2,

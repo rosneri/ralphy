@@ -52,7 +52,6 @@ function makeConfig(): RalphyConfig {
       postComments: false,
       confirmationMode: {
         enabled: true,
-        optOutLabel: "ralph:auto-approve",
         timeoutHours: 48,
         maxConfirmationRounds: 3,
       },
@@ -242,8 +241,10 @@ describe("processAwaitingForIssue", () => {
 
       // Poll 1 — gate active, marker applied.
       await processAwaitingForIssue(issue, deps);
-      // Disable confirmation mode → gate clears next poll.
-      deps.cfg.linear.confirmationMode.optOutLabel = "ralph:auto-approve";
+      // Bypass gate via getAutoApprove indicator → gate clears next poll.
+      deps.cfg.linear.indicators.getAutoApprove = {
+        filter: [{ type: "label", value: "ralph:auto-approve" }],
+      };
       issue.labels = ["ralph:auto-approve"];
       await processAwaitingForIssue(issue, deps);
       expect(applied.length).toBe(2);

@@ -6,57 +6,24 @@ describe("gateActive", () => {
     expect(
       gateActive({
         config: { confirmationMode: { enabled: false } },
-        ticket: { labels: [] },
         persistedConfirmation: { confirmedAt: null },
       }),
     ).toBe(false);
   });
 
-  test("opt-out label present → false", () => {
+  test("persisted confirmedAt non-null → false", () => {
     expect(
       gateActive({
-        config: { confirmationMode: { enabled: true, optOutLabel: "ralph:auto-approve" } },
-        ticket: { labels: ["ralph:auto-approve"] },
-        persistedConfirmation: { confirmedAt: null },
-      }),
-    ).toBe(false);
-  });
-
-  test("persisted confirmedAt non-null → false even with label gone", () => {
-    expect(
-      gateActive({
-        config: { confirmationMode: { enabled: true, optOutLabel: "ralph:auto-approve" } },
-        ticket: { labels: [] },
+        config: { confirmationMode: { enabled: true } },
         persistedConfirmation: { confirmedAt: "2026-01-01T00:00:00Z" },
       }),
     ).toBe(false);
   });
 
-  test("enabled + no opt-out + no persisted approval → true", () => {
+  test("enabled + no persisted approval → true", () => {
     expect(
       gateActive({
-        config: { confirmationMode: { enabled: true, optOutLabel: "ralph:auto-approve" } },
-        ticket: { labels: ["some-other-label"] },
-        persistedConfirmation: { confirmedAt: null },
-      }),
-    ).toBe(true);
-  });
-
-  test("optInLabel set but ticket lacks it → false", () => {
-    expect(
-      gateActive({
-        config: { confirmationMode: { enabled: true, optInLabel: "ralph:needs-review" } },
-        ticket: { labels: [] },
-        persistedConfirmation: { confirmedAt: null },
-      }),
-    ).toBe(false);
-  });
-
-  test("optInLabel set and ticket has it → true", () => {
-    expect(
-      gateActive({
-        config: { confirmationMode: { enabled: true, optInLabel: "ralph:needs-review" } },
-        ticket: { labels: ["ralph:needs-review"] },
+        config: { confirmationMode: { enabled: true } },
         persistedConfirmation: { confirmedAt: null },
       }),
     ).toBe(true);

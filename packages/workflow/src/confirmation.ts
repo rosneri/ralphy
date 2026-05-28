@@ -84,9 +84,11 @@ export function computeConfirmationFlags(
   ticket: ConfirmationTicketView,
 ): { confirmationGated: boolean; approved: boolean } {
   const cm = config.linear.confirmationMode;
-  const optInSatisfied = !cm.optInLabel || ticket.labels.includes(cm.optInLabel);
-  const confirmationGated = cm.enabled && optInSatisfied && !ticket.labels.includes(cm.optOutLabel);
-  const approved = matchesIndicator(config.linear.indicators.getApproved, ticket);
+  const { getConfirmGate, getAutoApprove, getApproved } = config.linear.indicators;
+  const optInSatisfied = !getConfirmGate || matchesIndicator(getConfirmGate, ticket);
+  const confirmationGated =
+    cm.enabled && optInSatisfied && !matchesIndicator(getAutoApprove, ticket);
+  const approved = matchesIndicator(getApproved, ticket);
   return { confirmationGated, approved };
 }
 
