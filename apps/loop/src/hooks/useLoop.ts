@@ -364,7 +364,13 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           tasks: tasksContent,
         });
 
-        const prompt = buildPhasePrompt(routedPhase, currentState, tasksDir, opts.reviewPhase);
+        const prompt = buildPhasePrompt(
+          routedPhase,
+          currentState,
+          tasksDir,
+          opts.reviewPhase,
+          opts.metaPrompt,
+        );
 
         const iterStart = new Date().toISOString();
         try {

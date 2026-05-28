@@ -9,6 +9,9 @@ import {
   deriveOpenSpecPhase,
   type OpenSpecPhase,
 } from "./openspec/phase";
+import { buildMetaPrompt, type MetaPromptOptions, type TaskPhase } from "./prompt/meta-prompt";
+
+export type { MetaPromptOptions, TaskPhase } from "./prompt/meta-prompt";
 
 export type LoopPassType = "normal" | "confirmation" | "ci-fix" | "conflict-resolution";
 
@@ -80,8 +83,6 @@ export interface ReviewRoundResult {
   findingsContent: string | null;
 }
 
-export type TaskPhase = "research" | "plan" | "execute" | "review";
-
 export interface LoopOptions {
   name: string;
   prompt: string;
@@ -110,6 +111,8 @@ export interface LoopOptions {
   };
   /** Called after each review round completes. Use to emit Linear comments. */
   onReviewRound?: (result: ReviewRoundResult) => Promise<void>;
+  /** Options for the task-level meta-prompt layer. Pass enabled:false to opt out. */
+  metaPrompt?: MetaPromptOptions;
   /** When present, buildLoopLevelPrompt prepends loop/stage/dynamic blocks before the phase prompt. */
   preambleContext?: LoopPreambleContext;
 }
@@ -395,17 +398,25 @@ export function buildPhasePrompt(
   state: State,
   taskDir: string,
   reviewPhase?: ReviewPhaseConfig,
+  metaPromptOptions?: MetaPromptOptions,
 ): string {
+  const meta = buildMetaPrompt(state, phase, metaPromptOptions);
+  let phasePrompt: string;
   switch (phase) {
     case "research":
-      return buildResearchPrompt(state, taskDir);
+      phasePrompt = buildResearchPrompt(state, taskDir);
+      break;
     case "plan":
-      return buildPlanPrompt(state, taskDir);
+      phasePrompt = buildPlanPrompt(state, taskDir);
+      break;
     case "execute":
-      return buildTaskPrompt(state, taskDir, reviewPhase);
+      phasePrompt = buildTaskPrompt(state, taskDir, reviewPhase);
+      break;
     case "review":
-      return buildReviewPrompt(state, taskDir);
+      phasePrompt = buildReviewPrompt(state, taskDir);
+      break;
   }
+  return meta + phasePrompt;
 }
 
 /**
