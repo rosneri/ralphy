@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBus } from "@ralphy/events";
+import { formatError } from "../format-error";
 import { runCapability } from "../run-capability";
 import { fsChange } from "../fs-change";
 
@@ -89,6 +90,27 @@ describe("fsChange.scaffold error path", () => {
         design: "d",
       }),
     ).rejects.toBeDefined();
+  });
+});
+
+describe("formatError", () => {
+  test("returns error message for Error instances", () => {
+    expect(formatError(new Error("oops"))).toBe("oops");
+  });
+
+  test("stringifies non-Error values", () => {
+    expect(formatError(42)).toBe("42");
+    expect(formatError("raw string")).toBe("raw string");
+    expect(formatError(null)).toBe("null");
+  });
+
+  test("returns 'unknown error' when String() throws", () => {
+    const unStringifiable = {
+      toString: () => {
+        throw new Error("no string");
+      },
+    };
+    expect(formatError(unStringifiable)).toBe("unknown error");
   });
 });
 

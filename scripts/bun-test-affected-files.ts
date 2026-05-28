@@ -19,7 +19,8 @@
  */
 
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { readdir } from "node:fs/promises";
+import { resolve, join } from "node:path";
 
 const TEST_EXTENSIONS = [".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"];
 const SOURCE_EXTENSIONS = [".ts", ".tsx"];
@@ -95,6 +96,23 @@ async function getAffectedProjects(workspaceRoot: string): Promise<ProjectInfo[]
   return projects;
 }
 
+/** Returns top-level directories inside projectRoot that contain test files. */
+async function collectTestDirs(projectRoot: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(projectRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const dirs: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "node_modules" || entry.name === "dist") continue;
+    dirs.push(join(projectRoot, entry.name));
+  }
+  return dirs;
+}
+
 function collectTestFiles(changedFiles: string[], projectSrcRoot: string): string[] {
   const projectFiles = changedFiles.filter((f) => f.startsWith(projectSrcRoot));
   const testFiles = new Set<string>();
@@ -144,7 +162,12 @@ async function main(): Promise<void> {
     // With --coverage, run ALL project tests — coverage thresholds are only
     // meaningful across the full suite; passing a subset under-reports and
     // trips per-file thresholds for untouched source files.
-    const args = coverage ? ["test", "--coverage"] : ["test", ...testFiles];
+    // Pass top-level source directories explicitly to avoid a bun 1.3.14 bug
+    // where `bun test --coverage` without paths exits 1 despite 0 failures.
+    const allTestDirs = coverage
+      ? await collectTestDirs(resolve(workspaceRoot, project.root))
+      : null;
+    const args = coverage ? ["test", "--coverage", ...allTestDirs!] : ["test", ...testFiles];
     const proc = Bun.spawn(["bun", ...args], {
       cwd: resolve(workspaceRoot, project.root),
       stdout: "inherit",

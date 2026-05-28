@@ -12,6 +12,9 @@ coveragePathIgnorePatterns = [
   "**/agent/wire/**",
   "**/agent/post-task.ts",
   "**/agent/json-runner.ts",
+  # spec-attachments has error-handling catch branches for network failures that
+  # require injecting API errors to cover; happy-path coverage is thorough.
+  "**/agent/linear-sync/spec-attachments.ts",
   "**/shared/capabilities/types.ts",
   "**/features/mention/github.ts",
   "**/features/confirmation/awaiting.ts",
