@@ -12,7 +12,7 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, writeFile } from "node:fs/promises";
 
-export interface AgentRunState {
+interface AgentRunState {
   /** Project root the agent is polling against. */
   projectRoot: string;
   /** Path to WORKFLOW.md (`ensureRalphyConfig` return value). */
