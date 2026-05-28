@@ -1,3 +1,18 @@
+## Address GitHub @ralphy mention (2026-05-28T14:38:10.691Z)
+
+- [x] Address GitHub @ralphy mention. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+An @ralphy mention was left on GitHub PR (https://github.com/rosneri/ralphy/pull/298#issuecomment-4565172061):
+
+**rosneri — 2026-05-28T14:37:59Z (GitHub PR)**
+
+@Ralphy-read update with main and check if recent changes need more work here
+
+Treat this comment as the next concrete request. If it's ambiguous,
+note your interpretation in proposal.md `## Steering` before acting.
+```
+
 ## Fix failing CI checks (2026-05-28T11:28:00.365Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
