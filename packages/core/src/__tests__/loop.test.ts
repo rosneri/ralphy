@@ -175,8 +175,6 @@ describe("checkStopCondition", () => {
     log: false,
     verbose: false,
     manualTest: false,
-    statesDir: "",
-    tasksDir: "",
     changeStore: { archiveChange: async () => {} },
   };
 

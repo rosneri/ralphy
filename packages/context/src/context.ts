@@ -8,9 +8,12 @@ import {
   readdirSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import type { StorageProvider } from "@ralphy/types";
+import type { StorageProvider, ProjectLayout } from "@ralphy/types";
+import type { CommonArgs } from "@ralphy/cli-args";
 
 export type { StorageProvider } from "@ralphy/types";
+export type { ProjectLayout } from "@ralphy/types";
+export type { CommonArgs } from "@ralphy/cli-args";
 
 class FileSystemProvider implements StorageProvider {
   read(path: string): string | null {
@@ -37,6 +40,8 @@ export function createFileSystemProvider(): StorageProvider {
 
 export interface AppContext {
   storage: StorageProvider;
+  layout?: ProjectLayout;
+  args?: CommonArgs;
 }
 
 const contextStore = new AsyncLocalStorage<AppContext>();
@@ -53,12 +58,29 @@ export function getStorage(): StorageProvider {
   return getContext().storage;
 }
 
+/** Get the current ProjectLayout from context. Throws if not set. */
+export function getLayout(): ProjectLayout {
+  const ctx = getContext();
+  if (!ctx.layout)
+    throw new Error("No layout in context. Set layout when calling runWithContext().");
+  return ctx.layout;
+}
+
+/** Get the current CommonArgs from context. Throws if not set. */
+export function getArgs(): CommonArgs {
+  const ctx = getContext();
+  if (!ctx.args) throw new Error("No args in context. Set args when calling runWithContext().");
+  return ctx.args;
+}
+
 /** Run a function with the given AppContext in scope. */
 export function runWithContext<T>(ctx: AppContext, fn: () => T): T {
   return contextStore.run(ctx, fn);
 }
 
-/** Create a default AppContext with FileSystemProvider. */
-export function createDefaultContext(): AppContext {
-  return { storage: createFileSystemProvider() };
+/** Create a default AppContext with FileSystemProvider and optional overrides. */
+export function createDefaultContext(
+  overrides: Partial<Pick<AppContext, "layout" | "args">> = {},
+): AppContext {
+  return { storage: createFileSystemProvider(), ...overrides };
 }

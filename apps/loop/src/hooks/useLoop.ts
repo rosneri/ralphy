@@ -13,7 +13,7 @@ import {
 import { countOpenFindings } from "@ralphy/core/openspec-phase";
 import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir } from "@ralphy/core/git";
-import { getStorage, runWithContext, createDefaultContext } from "@ralphy/context";
+import { getStorage, getLayout, runWithContext, createDefaultContext } from "@ralphy/context";
 import { getProcessBus } from "@ralphy/events";
 import {
   buildPhasePrompt,
@@ -56,6 +56,18 @@ function sleep(seconds: number): Promise<void> {
 }
 
 export function useLoop(opts: LoopOptions): UseLoopResult {
+  // Capture layout from the outer runWithContext scope at synchronous render
+  // time. The useEffect callback runs after React commits, when ALS context
+  // may no longer be active, so we save the reference here for later use.
+  const outerLayoutRef = useRef<ReturnType<typeof getLayout> | null>(null);
+  if (outerLayoutRef.current === null) {
+    try {
+      outerLayoutRef.current = getLayout();
+    } catch {
+      // outer context has no layout; tests may inject layout via opts
+    }
+  }
+
   const [state, setState] = useState<State | null>(null);
   const [iteration, setIteration] = useState(0);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
@@ -94,9 +106,13 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       setLogLines((prev) => [...prev, { id: nextId(), kind: "feed", event }]);
     };
 
-    runWithContext(createDefaultContext(), async () => {
-      const stateDir = join(opts.statesDir, opts.name);
-      const tasksDir = join(opts.tasksDir, opts.name);
+    const innerCtx = createDefaultContext(
+      outerLayoutRef.current ? { layout: outerLayoutRef.current } : {},
+    );
+    runWithContext(innerCtx, async () => {
+      const layout = getLayout();
+      const stateDir = layout.taskStateDir(opts.name);
+      const tasksDir = layout.changeDir(opts.name);
       const storage = getStorage();
 
       // Init or resume state. External writers (e.g. linear-sync) may have

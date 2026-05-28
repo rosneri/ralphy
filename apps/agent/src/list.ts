@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getStorage } from "@ralphy/context";
+import { getStorage, getLayout } from "@ralphy/context";
 import type { GetIndicator, Indicators, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
@@ -31,8 +31,11 @@ function countTaskItems(content: string): { checked: number; unchecked: number }
   return { checked, unchecked };
 }
 
-function buildLocalRows(statesDir: string, projectRoot: string): LocalRow[] {
+function buildLocalRows(): LocalRow[] {
   const storage = getStorage();
+  const layout = getLayout();
+  const statesDir = layout.statesDir;
+  const projectRoot = layout.root;
   const rows: LocalRow[] = [];
   const seen = new Set<string>();
 
@@ -303,8 +306,6 @@ async function fetchAndPrintLinear(
 }
 
 interface RunListInput {
-  statesDir: string;
-  projectRoot: string;
   linearTeamOverride: string;
   linearAssigneeOverride: string;
   debug: boolean;
@@ -312,7 +313,8 @@ interface RunListInput {
 }
 
 export async function runList(input: RunListInput): Promise<void> {
-  const { statesDir, projectRoot, debug, name } = input;
+  const { debug, name } = input;
+  const projectRoot = getLayout().root;
 
   if (debug) {
     if (!name) {
@@ -329,7 +331,7 @@ export async function runList(input: RunListInput): Promise<void> {
     return;
   }
 
-  const rows = buildLocalRows(statesDir, projectRoot);
+  const rows = buildLocalRows();
   printLocalRows(rows);
 
   const cfg = await loadRalphyConfig(projectRoot);

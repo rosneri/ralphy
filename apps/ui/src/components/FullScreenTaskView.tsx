@@ -20,9 +20,9 @@ export function getAdjacentTask(
   const idx = tasks.findIndex((t) => t.name === current);
   if (idx === -1) return null;
   if (direction === "prev") {
-    return tasks[(idx - 1 + tasks.length) % tasks.length].name;
+    return tasks[(idx - 1 + tasks.length) % tasks.length]!.name;
   }
-  return tasks[(idx + 1) % tasks.length].name;
+  return tasks[(idx + 1) % tasks.length]!.name;
 }
 
 interface FullScreenTaskViewProps {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { projectLayout } from "../layout";
+import { projectLayout, layoutFromContext } from "../layout";
+import { runWithContext, createFileSystemProvider } from "@ralphy/context";
 
 describe("projectLayout", () => {
   test("derives all paths from a single root", () => {
@@ -21,5 +22,16 @@ describe("projectLayout", () => {
     expect(l.stateFile("eng-1")).toBe(
       "/Users/me/.ralph/proj/worktrees/eng-1/.ralph/tasks/eng-1/.ralph-state.json",
     );
+  });
+});
+
+describe("layoutFromContext", () => {
+  test("returns layout from context", () => {
+    const layout = projectLayout("/tmp/ctx-proj");
+    runWithContext({ storage: createFileSystemProvider(), layout }, () => {
+      const result = layoutFromContext();
+      expect(result.root).toBe("/tmp/ctx-proj");
+      expect(result.statesDir).toBe("/tmp/ctx-proj/.ralph/tasks");
+    });
   });
 });

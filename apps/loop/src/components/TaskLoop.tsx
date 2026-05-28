@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { join } from "node:path";
 import { Box, Static, Text, useApp, useInput, useStdin } from "ink";
 import { TextInput } from "@inkjs/ui";
 import { Banner } from "./Banner";
@@ -9,6 +8,7 @@ import { StatusBar } from "./StatusBar";
 import { StopMessage } from "./StopMessage";
 import { useLoop, type LogEntry } from "../hooks/useLoop";
 import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
+import { getLayout } from "@ralphy/context";
 import type { LoopOptions } from "../loop";
 
 interface TaskLoopProps {
@@ -118,6 +118,10 @@ export function TaskLoop({ opts }: TaskLoopProps) {
   const { isRawModeSupported } = useStdin();
   const { resizeKey } = useTerminalSize();
   const bannerItem = useRef<FeedItem>({ id: "__banner__", kind: "banner" });
+  // Capture stateDir once at mount — getLayout() uses AsyncLocalStorage which
+  // is only set during the initial render (inside runWithContext). Re-renders
+  // triggered by React state updates run outside that scope.
+  const [stateDir] = useState(() => getLayout().taskStateDir(opts.name));
 
   const feedItems: FeedItem[] = useMemo(
     () => [
@@ -134,8 +138,6 @@ export function TaskLoop({ opts }: TaskLoopProps) {
   }, [loop.isRunning, exit]);
 
   if (!loop.state) return null;
-
-  const stateDir = join(opts.statesDir, opts.name);
 
   return (
     <Box key={resizeKey} flexDirection="column">

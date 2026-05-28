@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import type { ProjectLayout } from "@ralphy/types";
 import { buildInitialState } from "@ralphy/core/state";
 import type { State } from "@ralphy/types";
 import type { BuildInitialStateOptions } from "@ralphy/core/state";
@@ -17,8 +18,21 @@ import { App } from "../components/App";
 import type { LoopParsedArgs as ParsedArgs } from "../cli";
 
 let tempDir: string;
+
+function makeTestLayout(dir: string): ProjectLayout {
+  return {
+    root: dir,
+    statesDir: dir,
+    tasksDir: dir,
+    agentStateFile: join(dir, "agent-state.json"),
+    changeDir: (name) => join(dir, name),
+    taskStateDir: (name) => join(dir, name),
+    stateFile: (name) => join(dir, name, ".ralph-state.json"),
+  };
+}
+
 function withStorage<T>(fn: () => T): T {
-  return runWithContext(createDefaultContext(), fn);
+  return runWithContext(createDefaultContext({ layout: makeTestLayout(tempDir) }), fn);
 }
 
 function findFrame(frames: string[], text: string): string {
@@ -180,7 +194,7 @@ describe("TaskList", () => {
   test("shows 'No incomplete tasks' when empty", () =>
     withStorage(() => {
       mkdirSync(tempDir, { recursive: true });
-      const { lastFrame } = render(<TaskList statesDir={tempDir} />);
+      const { lastFrame } = render(<TaskList />);
       expect(lastFrame()!).toContain("No incomplete tasks");
     }));
 
@@ -191,7 +205,7 @@ describe("TaskList", () => {
       const state = makeState({ name: "my-change", prompt: "Build something" });
       writeFileSync(join(stateDir, ".ralph-state.json"), JSON.stringify(state), "utf-8");
 
-      const { frames } = render(<TaskList statesDir={tempDir} />);
+      const { frames } = render(<TaskList />);
       const frame = findFrame(frames, "my-change");
       expect(frame).toContain("my-change");
       expect(frame).toContain("Build something");
@@ -204,7 +218,7 @@ describe("TaskList", () => {
       const state = { ...makeState({ name: "done-change" }), status: "completed" as const };
       writeFileSync(join(stateDir, ".ralph-state.json"), JSON.stringify(state), "utf-8");
 
-      const { lastFrame } = render(<TaskList statesDir={tempDir} />);
+      const { lastFrame } = render(<TaskList />);
       expect(lastFrame()!).toContain("No incomplete tasks");
     }));
 
@@ -216,7 +230,7 @@ describe("TaskList", () => {
       writeFileSync(join(stateDir, ".ralph-state.json"), JSON.stringify(state), "utf-8");
       writeFileSync(join(stateDir, "tasks.md"), "- [x] One\n- [x] Two\n- [ ] Three\n", "utf-8");
 
-      const { frames } = render(<TaskList statesDir={tempDir} />);
+      const { frames } = render(<TaskList />);
       const frame = findFrame(frames, "prog-change");
       expect(frame).toContain("prog-change");
       expect(frame).toContain("2/3");
@@ -229,7 +243,7 @@ describe("TaskList", () => {
       const state = makeState({ name: "header-change", prompt: "Test" });
       writeFileSync(join(stateDir, ".ralph-state.json"), JSON.stringify(state), "utf-8");
 
-      const { lastFrame } = render(<TaskList statesDir={tempDir} />);
+      const { lastFrame } = render(<TaskList />);
       const frame = lastFrame()!;
       expect(frame).toContain("Name");
       expect(frame).toContain("Status");
@@ -363,16 +377,7 @@ describe("App", () => {
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
   test("status mode without name shows error", async () => {
-    const { frames } = withStorage(() =>
-      render(
-        <App
-          args={makeArgs({ mode: "status" })}
-          statesDir={tempDir}
-          tasksDir={tempDir}
-          projectRoot={tempDir}
-        />,
-      ),
-    );
+    const { frames } = withStorage(() => render(<App args={makeArgs({ mode: "status" })} />));
     await tick();
     const frame = findFrame(frames, "--name is required");
     expect(frame).toContain("--name is required");
@@ -381,14 +386,7 @@ describe("App", () => {
 
   test("status mode with missing change shows error", async () => {
     const { lastFrame } = withStorage(() =>
-      render(
-        <App
-          args={makeArgs({ mode: "status", name: "nonexistent" })}
-          statesDir={tempDir}
-          tasksDir={tempDir}
-          projectRoot={tempDir}
-        />,
-      ),
+      render(<App args={makeArgs({ mode: "status", name: "nonexistent" })} />),
     );
     expect(lastFrame()!).toContain("not found");
     await tick();
@@ -402,29 +400,13 @@ describe("App", () => {
       const state = makeState({ name: "my-change" });
       writeFileSync(join(stateDir, ".ralph-state.json"), JSON.stringify(state), "utf-8");
 
-      const { lastFrame } = render(
-        <App
-          args={makeArgs({ mode: "status", name: "my-change" })}
-          statesDir={tempDir}
-          tasksDir={tempDir}
-          projectRoot={tempDir}
-        />,
-      );
+      const { lastFrame } = render(<App args={makeArgs({ mode: "status", name: "my-change" })} />);
       const frame = lastFrame()!;
       expect(frame).toContain("my-change");
     }));
 
   test("task mode without name shows error", async () => {
-    const { frames } = withStorage(() =>
-      render(
-        <App
-          args={makeArgs({ mode: "task" })}
-          statesDir={tempDir}
-          tasksDir={tempDir}
-          projectRoot={tempDir}
-        />,
-      ),
-    );
+    const { frames } = withStorage(() => render(<App args={makeArgs({ mode: "task" })} />));
     await tick();
     const frame = findFrame(frames, "--name is required");
     expect(frame).toContain("--name is required");
