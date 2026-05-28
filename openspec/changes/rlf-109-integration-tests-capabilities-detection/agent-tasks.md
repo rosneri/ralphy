@@ -1,3 +1,66 @@
+## Fix failing CI checks (2026-05-28T14:02:19.907Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26579406611 ---
+ci Typecheck (affected) ﻿2026-05-28T14:00:34.7869550Z ##[group]Run bun run typecheck:ci
+ci Typecheck (affected) 2026-05-28T14:00:34.7869914Z [36;1mbun run typecheck:ci[0m
+ci Typecheck (affected) 2026-05-28T14:00:34.7895824Z shell: /usr/bin/bash -e {0}
+ci Typecheck (affected) 2026-05-28T14:00:34.7896115Z env:
+ci Typecheck (affected) 2026-05-28T14:00:34.7896375Z NX_BASE: 3109143db5d5456a63c3795dcee51e6c63773cee
+ci Typecheck (affected) 2026-05-28T14:00:34.7896758Z NX_HEAD: b4b83784dee9de56a28624326e71d37f2e36d5dd
+ci Typecheck (affected) 2026-05-28T14:00:34.7897138Z NODE_OPTIONS: --max-old-space-size=8192
+ci Typecheck (affected) 2026-05-28T14:00:34.7897468Z ##[endgroup]
+ci Typecheck (affected) 2026-05-28T14:00:34.7960275Z $ nx affected -t typecheck --parallel=1 --exclude=ui
+ci Typecheck (affected) 2026-05-28T14:00:35.0512361Z
+ci Typecheck (affected) 2026-05-28T14:00:35.0516843Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --base argument provided, but found environment variable NX_BASE so using its value as the affected base: [1m3109143db5d5456a63c3795dcee51e6c63773cee[22m[39m
+ci Typecheck (affected) 2026-05-28T14:00:35.0517684Z
+ci Typecheck (affected) 2026-05-28T14:00:35.0517693Z
+ci Typecheck (affected) 2026-05-28T14:00:35.0518793Z [7m[1m[38;5;214m NX [39m[22m[27m [38;5;214mNo explicit --head argument provided, but found environment variable NX_HEAD so using its value as the affected head: [1mb4b83784dee9de56a28624326e71d37f2e36d5dd[22m[39m
+ci Typecheck (affected) 2026-05-28T14:00:35.0519654Z
+ci Typecheck (affected) 2026-05-28T14:00:35.4465909Z
+ci Typecheck (affected) 2026-05-28T14:00:35.4467921Z [7m[1m[36m NX [39m[22m[27m [36mRunning target [1mtypecheck[22m for 5 projects and [1m15[22m tasks they depend on:[39m
+ci Typecheck (affected) 2026-05-28T14:00:35.4468907Z
+ci Typecheck (affected) 2026-05-28T14:00:35.4469215Z [2m-[22m agent
+ci Typecheck (affected) 2026-05-28T14:00:35.4469727Z [2m-[22m shell
+ci Typecheck (affected) 2026-05-28T14:00:35.4470236Z [2m-[22m core
+ci Typecheck (affected) 2026-05-28T14:00:35.4470733Z [2m-[22m loop
+ci Typecheck (affected) 2026-05-28T14:00:35.4471241Z [2m-[22m mcp
+ci Typecheck (affected) 2026-05-28T14:00:35.4471514Z
+ci Typecheck (affected) 2026-05-28T14:00:35.4471800Z [2m[36m[39m[22m
+ci Typecheck (affected) 2026-05-28T14:00:37.2405169Z
+ci Typecheck (affected) 2026-05-28T14:00:37.2406267Z ##[group]✅ [2m> [22m[2mnx run[22m types:typecheck
+ci Typecheck (affected) 2026-05-28T14:00:37.2406575Z
+ci Typecheck (affected) 2026-05-28T14:00:37.2406872Z [2m> [22mtsc -b packages/types/tsconfig.json
+ci Typecheck (affected) 2026-05-28T14:00:37.2407125Z
+ci Typecheck (affected) 2026-05-28T14:00:38.3510066Z ##[endgroup]
+ci Typecheck (affected) 2026-05-28T14:00:38.3511098Z ##[group]✅ [2m> [22m[2mnx run[22m output:typecheck
+ci Typecheck (affected) 2026-05-28T14:00:38.3511570Z
+ci Typecheck (affected) 2026-05-28T14:00:38.3512049Z [2m> [22mtsc -b packages/output/tsconfig.json
+ci Typecheck (affected) 2026-05-28T14:00:38.3512476Z
+ci Typecheck (affected) 2026-05-28T14:00:39.5016293Z ##[endgroup]
+ci Typecheck (affected) 2026-05-28T14:00:39.5017534Z ##[group]✅ [2m> [22m[2mnx run[22m context:typecheck
+ci Typecheck (affected) 2026-05-28T14:00:39.5018046Z
+ci Typecheck (affected) 2026-05-28T14:00:39.5018572Z [2m> [22mtsc -b packages/context/tsconfig.json
+ci Typecheck (affected) 2026-05-28T14:00:39.5019022Z
+ci Typecheck (affected) 2026-05-28T14:00:40.5421803Z ##[endgroup]
+ci Typecheck (affected) 2026-05-28T14:00:40.5422632Z ##[group]✅ [2m> [22m[2mnx run[22m version:typecheck
+ci Typecheck (affected) 2026-05-28T14:00:40.5422924Z
+ci Typecheck (affected) 2026-05-28T14:00:40.5423254Z [2m> [22mtsc -b packages/version/tsconfig.json
+ci Typecheck (affected) 2026-05-28T14:00:40.5423621Z
+ci Typecheck (affected) 2026-05-28T14:00:41.5203040Z ##[endgroup]
+ci Typecheck (affected) 2026-05-28T14:00:41.5204257Z ##[group]✅ [2m> [22m[2mnx run[2
+…[truncated 270222 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-28T13:57:18.105Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
