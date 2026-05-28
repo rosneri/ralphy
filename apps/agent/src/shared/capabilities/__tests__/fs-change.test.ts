@@ -74,6 +74,23 @@ describe("fsChange.prependTask", () => {
     expect(idxOld).toBeGreaterThan(idxNew);
     expect(out).toContain("```\nboom\n```");
   });
+
+  test("emits started + fetched lifecycle events on the bus", async () => {
+    const tasksPath = join(root, "tasks.md");
+    await Bun.write(tasksPath, "# Tasks\n\n- [ ] existing task\n");
+
+    const bus = createBus();
+    const seen: string[] = [];
+    bus.on("*", (e) => seen.push(e.type));
+
+    await runCapability(
+      fsChange.prependTask,
+      { tasksPath, heading: "New task heading", failureOutput: "output" },
+      { bus },
+    );
+
+    expect(seen).toEqual(["fs.change.task.prepend.started", "fs.change.task.prepend.fetched"]);
+  });
 });
 
 describe("fsChange.scaffold error path", () => {

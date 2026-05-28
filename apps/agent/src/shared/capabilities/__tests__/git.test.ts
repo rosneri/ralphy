@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { homedir } from "node:os";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createBus } from "@ralphy/events";
 import { runCapability } from "../run-capability";
 import { git } from "../git";
@@ -39,6 +40,43 @@ describe("git capability", () => {
     }
     expect(result).toBeUndefined();
     expect((captured as Error).message).toBe("boom");
+  });
+
+  test("createWorktree emits started + fetched on success (existing worktree reuse path)", async () => {
+    const bus = createBus();
+    const events: string[] = [];
+    bus.on("*", (e) => events.push(e.type as string));
+
+    // Derive the path createWorktree will target so we can pre-create it
+    const worktreeDir = join(homedir(), ".ralph", basename(root), "worktrees", "eng-reuse");
+    await mkdir(worktreeDir, { recursive: true });
+
+    const runner: GitRunner = {
+      run: async (args) => {
+        if (args[0] === "worktree" && args[1] === "list") {
+          // Signal that this worktree already exists → triggers reuse path
+          return { stdout: `worktree ${worktreeDir}\n`, stderr: "" };
+        }
+        // installPrePushHook: git config
+        return { stdout: "", stderr: "" };
+      },
+    };
+
+    let result: { cwd: string; branch: string } | undefined;
+    try {
+      result = await runCapability(
+        git.createWorktree,
+        { projectRoot: root, changeName: "eng-reuse", baseBranch: "main", runner },
+        { bus },
+      );
+    } finally {
+      await rm(worktreeDir, { recursive: true, force: true });
+    }
+
+    expect(events).toContain("git.worktree.create.started");
+    expect(events).toContain("git.worktree.create.fetched");
+    expect(events).not.toContain("git.worktree.create.failed");
+    expect(result?.cwd).toBe(worktreeDir);
   });
 
   test("createWorktree emits started + failed when the runner throws", async () => {
