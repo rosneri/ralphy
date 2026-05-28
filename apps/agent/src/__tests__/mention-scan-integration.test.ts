@@ -110,10 +110,11 @@ describe("mention-scan integration: no-issues", () => {
   test("returns empty array immediately when no indicator branches can be built", async () => {
     // When all indicator fields are undefined, no branches → short-circuit, no fetch
     let fetchCalled = false;
-    globalThis.fetch = (async () => {
+    const mockFetch: FetchLike = async () => {
       fetchCalled = true;
       return ok({ issues: { nodes: [] } });
-    }) as typeof fetch;
+    };
+    globalThis.fetch = mockFetch as typeof fetch;
 
     const results = await fetchMentionScanIssues("api-key", {
       indicators: {},

@@ -60,7 +60,7 @@ function stubAndCapture(responses: Response[]): {
 } {
   let i = 0;
   const captured: { query: string; variables: Record<string, unknown> }[] = [];
-  globalThis.fetch = async (_url: unknown, init?: RequestInit) => {
+  (globalThis as { fetch: unknown }).fetch = async (_url: unknown, init?: RequestInit) => {
     const body = JSON.parse(init?.body as string) as {
       query: string;
       variables: Record<string, unknown>;
