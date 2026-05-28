@@ -1085,7 +1085,12 @@ export function AgentMode({
             const labelParts: React.ReactNode[] = [];
             entries.forEach(([, g], i) => {
               labelParts.push(
-                <Link key={g.issueIdentifier} url={g.issueUrl} label={g.issueIdentifier} color="yellow" />,
+                <Link
+                  key={g.issueIdentifier}
+                  url={g.issueUrl}
+                  label={g.issueIdentifier}
+                  color="yellow"
+                />,
               );
               if (i < entries.length - 1) {
                 labelParts.push(
