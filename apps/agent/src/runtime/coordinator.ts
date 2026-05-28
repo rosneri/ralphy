@@ -1128,6 +1128,30 @@ export class AgentCoordinator {
         // running. Do not finalize the issue (no setError/setDone). A
         // future poll will re-classify and resume after approval/revise.
         this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
+        // Flush a final syncTasks pass so spec-attachments picks up the
+        // proposal.md / design.md / tasks.md that the worker just wrote.
+        // Without this, a planning-only worker (LIT-303 case) that
+        // finishes inside iteration 0 leaves Linear with no design PDF —
+        // the poll loop's `count === lastSyncedIteration` guard skips
+        // every subsequent tick.
+        if (this.deps.syncTasks) {
+          let iteration = 0;
+          if (this.deps.getIterationCount) {
+            try {
+              iteration = await this.deps.getIterationCount(worker.changeName);
+            } catch {
+              iteration = 0;
+            }
+          }
+          try {
+            await this.deps.syncTasks(worker, iteration);
+          } catch (err) {
+            this.deps.onLog(
+              `! sync-tasks (awaiting-reap) failed for ${issue.identifier}: ${(err as Error).message}`,
+              "yellow",
+            );
+          }
+        }
         this.deps.onLog(
           `  ${issue.identifier}: worker reaped (awaiting human confirmation)`,
           "gray",

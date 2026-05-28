@@ -431,6 +431,39 @@ describe("AgentCoordinator — todo polling", () => {
     expect(ctx.removes).toEqual([]);
   });
 
+  test("reapForAwaiting flushes a final syncTasks pass so design.md uploads before the gate", async () => {
+    // LIT-303 repro: when a worker completes planning inside a single
+    // iteration and is reaped for awaiting-confirmation, the only prior
+    // syncTasks call fired at spawn (iteration 0) — before design.md
+    // existed. Without a post-reap flush, the spec-attachments hook
+    // never sees the now-written design.md and no PDF lands on Linear.
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const syncCalls: { changeName: string; iteration: number }[] = [];
+    const deps = {
+      ...ctx.deps,
+      getIterationCount: async (_n: string) => 0,
+      syncTasks: async (w: { changeName: string }, iteration: number) => {
+        syncCalls.push({ changeName: w.changeName, iteration });
+      },
+    };
+    const coord = new AgentCoordinator(deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(coord.activeCount).toBe(1);
+    // After spawn there is exactly one syncTasks call (iteration 0).
+    expect(syncCalls).toEqual([{ changeName: "change-eng-1", iteration: 0 }]);
+
+    expect(coord.reapForAwaiting("change-eng-1")).toBe(true);
+    await tick();
+
+    // Post-reap: the exit handler should have invoked syncTasks one more
+    // time so spec-attachments + tasks-comment hooks re-run against the
+    // now-written design.md / proposal.md.
+    expect(syncCalls.length).toBe(2);
+    expect(syncCalls[1]!.changeName).toBe("change-eng-1");
+  });
+
   test("reapForAwaiting returns false when no active worker matches", async () => {
     const ctx = makeDeps();
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
