@@ -32,9 +32,7 @@ mock.module("@ralphy/core/git", () => ({
   // New surface introduced by the LIT-303 fix. Returns the parsed lines of
   // `git status --porcelain` (empty array = clean worktree). Tests vary this
   // via the `mockUncommittedPorcelain` flag.
-  getUncommittedFiles: mock(() =>
-    mockUncommittedPorcelain.split("\n").filter((l) => l.length > 0),
-  ),
+  getUncommittedFiles: mock(() => mockUncommittedPorcelain.split("\n").filter((l) => l.length > 0)),
 }));
 
 mock.module("@ralphy/openspec", () => ({

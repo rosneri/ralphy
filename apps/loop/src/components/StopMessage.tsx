@@ -64,8 +64,8 @@ export function StopMessage({
     case "stranded":
       return (
         <Text color="yellow" bold>
-          {"\n"}Stopped: all tasks checked off but worktree has uncommitted changes —
-          refusing to archive. Commit or reset to resume.
+          {"\n"}Stopped: all tasks checked off but worktree has uncommitted changes — refusing to
+          archive. Commit or reset to resume.
         </Text>
       );
   }
