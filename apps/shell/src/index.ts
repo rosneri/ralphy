@@ -12,7 +12,7 @@ import * as telemetry from "@ralphy/telemetry";
 import { attachDefaults, createBus, setProcessBus } from "@ralphy/events";
 import { VERSION } from "@ralphy/version";
 
-const SUBCOMMANDS = new Set<string>(["loop", "agent"]);
+const SUBCOMMANDS = new Set<string>(["loop", "agent", "task"]);
 
 const HELP = [
   `ralphy v${VERSION}`,
@@ -22,6 +22,7 @@ const HELP = [
   "Subcommands:",
   "  loop      Run the iterative task loop (task, list, status, init, clean, debug)",
   "  agent     Poll Linear and dispatch task loops concurrently",
+  "  task      Run a single phase (research, plan, execute, review)",
   "",
   "Run `ralphy <subcommand> --help` for subcommand-specific options.",
 ].join("\n");
@@ -34,6 +35,10 @@ async function dispatch(subcommand: string, rest: string[]): Promise<number> {
   if (subcommand === "agent") {
     const { main } = await import("@ralphy/agent");
     return main(rest);
+  }
+  if (subcommand === "task") {
+    const { taskMain } = await import("@ralphy/loop");
+    return taskMain(rest);
   }
   process.stderr.write(`Unknown subcommand: ${subcommand}\n\n${HELP}\n`);
   return 1;

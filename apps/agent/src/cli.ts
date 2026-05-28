@@ -5,6 +5,7 @@ import {
   initialCommonArgs,
   parseCommonArg,
   emptyParseState,
+  resolvePromptFile,
   type CommonArgs,
 } from "@ralphy/cli-args";
 
@@ -14,8 +15,6 @@ export type AgentMode = "agent" | "list" | "stop" | "status";
 
 export interface AgentParsedArgs extends CommonArgs {
   mode: AgentMode;
-  /** Identifier used in list mode (--name <ticket>). */
-  name: string;
   linearTeam: string;
   linearAssignee: string;
   pollInterval: number;
@@ -37,8 +36,6 @@ export interface AgentParsedArgs extends CommonArgs {
   jsonOutput: boolean;
   /** Optional path to mirror JSONL events to a file (works in both TUI and --json-output modes). */
   jsonLogFile?: string;
-  /** Optional task prompt appended to every scaffolded proposal. */
-  prompt: string;
   /** Enable manual testing phase passthrough for the inner loop. */
   manualTest: boolean;
   /** List mode: enable per-ticket diagnostics for --name <identifier>. */
@@ -193,7 +190,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   const result: AgentParsedArgs = {
     ...common,
     mode: "agent",
-    name: "",
     linearTeam: "",
     linearAssignee: "",
     pollInterval: 0,
@@ -206,30 +202,21 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
-    prompt: "",
     manualTest: false,
     debug: false,
     noTmux: false,
   };
 
   const state = emptyParseState();
-  let expectName = false;
   let expectLinearTeam = false;
   let expectLinearAssignee = false;
   let expectPollInterval = false;
   let expectConcurrency = false;
   let expectMaxTickets = false;
   let expectIndicator = false;
-  let expectPrompt = false;
-  let expectPromptFile = false;
   let expectJsonLogFile = false;
 
   for (const arg of argv) {
-    if (expectName) {
-      result.name = arg;
-      expectName = false;
-      continue;
-    }
     if (expectLinearTeam) {
       result.linearTeam = arg;
       expectLinearTeam = false;
@@ -261,16 +248,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
       expectIndicator = false;
       continue;
     }
-    if (expectPrompt) {
-      result.prompt = arg;
-      expectPrompt = false;
-      continue;
-    }
-    if (expectPromptFile) {
-      result.prompt = await Bun.file(arg).text();
-      expectPromptFile = false;
-      continue;
-    }
     if (expectJsonLogFile) {
       result.jsonLogFile = arg;
       expectJsonLogFile = false;
@@ -280,15 +257,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     if (parseCommonArg(arg, result, state)) continue;
 
     switch (arg) {
-      case "--name":
-        expectName = true;
-        break;
-      case "--prompt":
-        expectPrompt = true;
-        break;
-      case "--prompt-file":
-        expectPromptFile = true;
-        break;
       case "--linear-team":
         expectLinearTeam = true;
         break;
@@ -355,6 +323,8 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
     }
   }
+
+  await resolvePromptFile(result, state);
 
   if (result.fixCi && !result.createPr) {
     throw new Error("--fix-ci requires --create-pr");

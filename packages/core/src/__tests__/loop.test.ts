@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   buildTaskPrompt,
+  buildResearchPrompt,
+  buildPlanPrompt,
+  buildReviewPrompt,
+  buildPhasePrompt,
   checkStopSignal,
   checkStopCondition,
   updateStateIteration,
@@ -513,5 +517,106 @@ describe("buildTaskPrompt — validateOnComplete", () => {
       writeState(tempDir, state);
       const prompt = buildTaskPrompt(state, tempDir);
       expect(prompt).toContain("bunx openspec validate");
+    }));
+});
+
+describe("buildPhasePrompt — execute uses buildTaskPrompt", () => {
+  test("execute phase produces same output as buildTaskPrompt directly", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      expect(buildPhasePrompt("execute", state, tempDir)).toBe(buildTaskPrompt(state, tempDir));
+    }));
+});
+
+describe("buildPhasePrompt router", () => {
+  test("routes 'execute' to buildTaskPrompt", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const phasePrompt = buildPhasePrompt("execute", state, tempDir);
+      const directPrompt = buildTaskPrompt(state, tempDir);
+      expect(phasePrompt).toBe(directPrompt);
+    }));
+
+  test("routes 'research' to buildResearchPrompt", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const phasePrompt = buildPhasePrompt("research", state, tempDir);
+      const directPrompt = buildResearchPrompt(state, tempDir);
+      expect(phasePrompt).toBe(directPrompt);
+    }));
+
+  test("routes 'plan' to buildPlanPrompt", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const phasePrompt = buildPhasePrompt("plan", state, tempDir);
+      const directPrompt = buildPlanPrompt(state, tempDir);
+      expect(phasePrompt).toBe(directPrompt);
+    }));
+
+  test("routes 'review' to buildReviewPrompt", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const phasePrompt = buildPhasePrompt("review", state, tempDir);
+      const directPrompt = buildReviewPrompt(state, tempDir);
+      expect(phasePrompt).toBe(directPrompt);
+    }));
+
+  test("execute phase contains Current Task Section when tasks.md has unchecked items", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Setup\n- [ ] do the thing\n", "utf-8");
+      const prompt = buildPhasePrompt("execute", state, tempDir);
+      expect(prompt).toContain("Current Task Section");
+    }));
+
+  test("research phase contains Research Phase heading", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildPhasePrompt("research", state, tempDir);
+      expect(prompt).toContain("Research Phase");
+    }));
+
+  test("plan phase contains Planning Phase heading", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildPhasePrompt("plan", state, tempDir);
+      expect(prompt).toContain("Planning Phase");
+    }));
+
+  test("review phase contains Review Phase heading", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildPhasePrompt("review", state, tempDir);
+      expect(prompt).toContain("Review Phase");
+    }));
+
+  test("all phases include steering when steering.md is present", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "steering.md"), "Keep it simple\n", "utf-8");
+      for (const phase of ["research", "plan", "execute", "review"] as const) {
+        const prompt = buildPhasePrompt(phase, state, tempDir);
+        expect(prompt).toContain("User Steering");
+        expect(prompt).toContain("Keep it simple");
+      }
+    }));
+
+  test("execute phase forwards reviewPhase config", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "tasks.md"), "## Done\n- [x] done\n", "utf-8");
+      const prompt = buildPhasePrompt("execute", state, tempDir, { enabled: true, maxRounds: 1 });
+      expect(prompt).toContain("Self-Review Phase");
     }));
 });

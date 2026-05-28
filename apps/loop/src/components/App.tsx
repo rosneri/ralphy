@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { join } from "node:path";
 import { Text, useApp } from "ink";
 import type { LoopParsedArgs } from "../cli";
+import type { TaskPhase } from "../loop";
 import { readState } from "@ralphy/core/state";
 import { getStorage } from "@ralphy/context";
 import { TaskStatus } from "./TaskStatus";
@@ -10,6 +11,7 @@ import { OpenSpecChangeStore } from "@ralphy/openspec";
 
 interface AppProps {
   args: LoopParsedArgs;
+  taskPhase?: TaskPhase;
   statesDir: string;
   tasksDir: string;
   projectRoot: string;
@@ -34,11 +36,12 @@ function ErrorMessage({ message }: { message: string }) {
 
 interface TaskModeWrapperProps {
   args: LoopParsedArgs;
+  taskPhase?: TaskPhase;
   statesDir: string;
   tasksDir: string;
 }
 
-function TaskModeWrapper({ args, statesDir, tasksDir }: TaskModeWrapperProps) {
+function TaskModeWrapper({ args, taskPhase, statesDir, tasksDir }: TaskModeWrapperProps) {
   return (
     <TaskLoop
       opts={{
@@ -58,13 +61,14 @@ function TaskModeWrapper({ args, statesDir, tasksDir }: TaskModeWrapperProps) {
         statesDir,
         tasksDir,
         changeStore: new OpenSpecChangeStore(),
+        ...(taskPhase !== undefined ? { phase: taskPhase } : {}),
         ...(args.reviewPhase.enabled ? { reviewPhase: args.reviewPhase } : {}),
       }}
     />
   );
 }
 
-export function App({ args, statesDir, tasksDir }: AppProps) {
+export function App({ args, taskPhase, statesDir, tasksDir }: AppProps) {
   switch (args.mode) {
     case "status": {
       if (!args.name) {
@@ -104,7 +108,14 @@ export function App({ args, statesDir, tasksDir }: AppProps) {
       }
       // Directory creation is handled up front in index.ts / the sidecar; the
       // storage provider will create parents lazily on first write as well.
-      return <TaskModeWrapper args={args} statesDir={statesDir} tasksDir={tasksDir} />;
+      return (
+        <TaskModeWrapper
+          args={args}
+          {...(taskPhase !== undefined ? { taskPhase } : {})}
+          statesDir={statesDir}
+          tasksDir={tasksDir}
+        />
+      );
     }
   }
 }
