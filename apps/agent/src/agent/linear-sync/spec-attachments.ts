@@ -172,7 +172,9 @@ async function readRawState(statePath: string): Promise<Record<string, unknown>>
 async function readSpecAttachments(statePath: string): Promise<SpecAttachmentsState> {
   const raw = await readRawState(statePath);
   const sa =
-    (raw.specAttachments as Partial<Record<Slot, Partial<SpecAttachmentSlot>>> | undefined) ?? {};
+    (raw.specAttachments as
+      | Partial<Record<Slot | LegacySlot, Partial<SpecAttachmentSlot>>>
+      | undefined) ?? {};
   return {
     proposal: {
       attachmentId: sa.proposal?.attachmentId ?? null,
@@ -195,7 +197,7 @@ async function readSpecAttachments(statePath: string): Promise<SpecAttachmentsSt
 
 async function persistSlot(
   statePath: string,
-  slot: Slot,
+  slot: Slot | LegacySlot,
   value: SpecAttachmentSlot,
 ): Promise<void> {
   await writeField(stateDirOf(statePath), "linear-attachments", `specAttachments.${slot}`, value);
