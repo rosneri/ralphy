@@ -3,9 +3,10 @@ import { useState, useCallback } from "react";
 interface SteeringInputProps {
   onSend: (message: string) => Promise<void>;
   disabled: boolean;
+  onFocusChange?: (focused: boolean) => void;
 }
 
-export function SteeringInput({ onSend, disabled }: SteeringInputProps) {
+export function SteeringInput({ onSend, disabled, onFocusChange }: SteeringInputProps) {
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
 
@@ -32,6 +33,8 @@ export function SteeringInput({ onSend, disabled }: SteeringInputProps) {
         type="text"
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onFocus={() => onFocusChange?.(true)}
+        onBlur={() => onFocusChange?.(false)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();

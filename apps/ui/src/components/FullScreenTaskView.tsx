@@ -1,61 +1,67 @@
-import { useState, useEffect, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSidecar } from "../context/Sidecar.context";
 import { useTaskStream } from "../hooks/useTaskStream";
 import { useDocument } from "../hooks/useDocument";
-import { useTasks } from "../hooks/useTasks";
-import { FeedLine } from "../components/FeedLine";
-import { StatusBar } from "../components/StatusBar";
-import { ProgressList } from "../components/ProgressList";
-import { FullScreenTaskView } from "../components/FullScreenTaskView";
+import { FeedLine } from "./FeedLine";
+import { StatusBar } from "./StatusBar";
+import { ProgressList } from "./ProgressList";
+import { SteeringInput } from "./SteeringInput";
 import type { State } from "@ralphy/types";
 
-export function TaskDetailView() {
-  const { name } = useParams<{ name: string }>();
-  const { baseUrl } = useSidecar();
-  const { tasks } = useTasks();
-  const {
-    state: streamState,
-    logEntries,
-    progress,
-    progressItems,
-    isRunning,
-    stopReason,
-    startTask,
-    stopTask,
-  } = useTaskStream(name);
+type TaskRef = { name: string };
 
-  // Fetch initial state if not streaming
+export function getAdjacentTask(
+  tasks: TaskRef[],
+  current: string,
+  direction: "prev" | "next",
+): string | null {
+  if (tasks.length === 0) return null;
+  const idx = tasks.findIndex((t) => t.name === current);
+  if (idx === -1) return null;
+  if (direction === "prev") {
+    return tasks[(idx - 1 + tasks.length) % tasks.length].name;
+  }
+  return tasks[(idx + 1) % tasks.length].name;
+}
+
+interface FullScreenTaskViewProps {
+  taskName: string;
+  tasks: TaskRef[];
+  onClose: () => void;
+}
+
+export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskViewProps) {
+  const [currentName, setCurrentName] = useState(taskName);
+  const { baseUrl } = useSidecar();
+
+  const { state: streamState, logEntries, progress, progressItems, isRunning, stopReason, addLogEntry } =
+    useTaskStream(currentName);
+
   const [initialState, setInitialState] = useState<State | null>(null);
   useEffect(() => {
-    if (!name || !baseUrl) return;
-    fetch(`${baseUrl}/tasks/${name}`)
+    setInitialState(null);
+    if (!currentName || !baseUrl) return;
+    fetch(`${baseUrl}/tasks/${currentName}`)
       .then((r) => r.json())
       .then(setInitialState)
       .catch(() => {});
-  }, [name, baseUrl]);
+  }, [currentName, baseUrl]);
 
   const state = streamState ?? initialState;
-
-  // Use WS running state once known, otherwise fall back to HTTP-fetched isRunning
   const effectiveIsRunning =
     isRunning !== null
       ? isRunning
       : (initialState as Record<string, unknown> | null)?.isRunning === true;
 
-  // Document editors
-  const steering = useDocument(name, "STEERING.md");
-  const plan = useDocument(name, "PLAN.md");
-  const spec = useDocument(name, "spec.md");
-  const research = useDocument(name, "RESEARCH.md");
-
-  // Right panel accordion — always visible, one doc expanded
-  const log = useDocument(name, "LOG.jsonl");
+  const steering = useDocument(currentName, "STEERING.md");
+  const plan = useDocument(currentName, "PLAN.md");
+  const spec = useDocument(currentName, "spec.md");
+  const research = useDocument(currentName, "RESEARCH.md");
+  const log = useDocument(currentName, "LOG.jsonl");
 
   type DocKey = "spec" | "plan" | "research" | "progress" | "steering" | "log";
   const [expandedDoc, setExpandedDoc] = useState<DocKey>("spec");
 
-  // Refresh log content when tab is expanded or periodically while running
   useEffect(() => {
     if (expandedDoc !== "log") return;
     log.refresh();
@@ -64,7 +70,6 @@ export function TaskDetailView() {
     return () => clearInterval(interval);
   }, [expandedDoc, effectiveIsRunning, log.refresh]);
 
-  // Auto-scroll feed
   const feedRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
@@ -80,70 +85,72 @@ export function TaskDetailView() {
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
   };
 
-  // Start options
-  const [maxIterations, setMaxIterations] = useState("10");
-  const [maxCost, setMaxCost] = useState("0");
+  const handleSendSteering = useCallback(
+    async (message: string) => {
+      if (!currentName || !baseUrl) return;
+      await fetch(`${baseUrl}/tasks/${currentName}/steer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      steering.refresh();
+      addLogEntry("steering", message);
+    },
+    [currentName, baseUrl, steering, addLogEntry],
+  );
 
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [steeringFocused, setSteeringFocused] = useState(false);
+
+  const navigatePrev = useCallback(() => {
+    const prev = getAdjacentTask(tasks, currentName, "prev");
+    if (prev) setCurrentName(prev);
+  }, [tasks, currentName]);
+
+  const navigateNext = useCallback(() => {
+    const next = getAdjacentTask(tasks, currentName, "next");
+    if (next) setCurrentName(next);
+  }, [tasks, currentName]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "f" && !isFullscreen) {
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
-        setIsFullscreen(true);
+      if (steeringFocused) return;
+      if (e.key === "ArrowLeft" || e.key === "[") {
+        e.preventDefault();
+        navigatePrev();
+      } else if (e.key === "ArrowRight" || e.key === "]") {
+        e.preventDefault();
+        navigateNext();
+      } else if (e.key === "Escape" || e.key === "f") {
+        onClose();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isFullscreen]);
+  }, [steeringFocused, navigatePrev, navigateNext, onClose]);
 
-  if (!name) return null;
+  const currentIdx = tasks.findIndex((t) => t.name === currentName);
+  const positionText = currentIdx >= 0 ? `${currentIdx + 1} / ${tasks.length}` : "";
 
   return (
-    <>
-      {isFullscreen && (
-        <FullScreenTaskView
-          taskName={name}
-          tasks={tasks}
-          onClose={() => setIsFullscreen(false)}
-        />
-      )}
-      <div className="header">
-        <h1>
-          <Link to="/" style={{ color: "var(--text-dim)" }}>
-            Ralphy
-          </Link>
-          {" / "}
-          {name}
-          {state && (
-            <span style={{ marginLeft: 12, fontSize: 13, color: "var(--text-dim)" }}>
-              {state.status}
-            </span>
-          )}
-        </h1>
-        <div style={{ display: "flex", gap: 8 }}>
-          {effectiveIsRunning ? (
-            <button className="danger" onClick={stopTask}>
-              Stop
-            </button>
-          ) : state?.status !== "completed" ? (
-            <button
-              className="primary"
-              onClick={() =>
-                startTask({
-                  engine: state?.engine ?? "claude",
-                  model: state?.model ?? "sonnet",
-                  prompt: state?.prompt ?? "",
-                  maxIterations: Number(maxIterations) || 0,
-                  maxCostUsd: Number(maxCost) || 0,
-                })
-              }
-            >
-              {state?.iteration ? "Resume" : "Start"}
-            </button>
-          ) : null}
-        </div>
+    <div className="fullscreen-overlay">
+      <div className="fullscreen-nav">
+        <button onClick={navigatePrev} disabled={tasks.length <= 1} style={{ padding: "4px 8px" }}>
+          ←
+        </button>
+        <button onClick={navigateNext} disabled={tasks.length <= 1} style={{ padding: "4px 8px" }}>
+          →
+        </button>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>{currentName}</span>
+        {positionText && (
+          <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{positionText}</span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+          [ / ] navigate • Esc close
+        </span>
+        <button onClick={onClose} style={{ padding: "4px 8px" }}>
+          ✕
+        </button>
       </div>
 
       {state && (
@@ -153,38 +160,6 @@ export function TaskDetailView() {
           isRunning={effectiveIsRunning}
           stopReason={stopReason}
         />
-      )}
-
-      {!effectiveIsRunning && !stopReason && state?.status !== "completed" && (
-        <div
-          style={{
-            padding: "12px 20px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            gap: 16,
-            alignItems: "center",
-          }}
-        >
-          <label style={{ color: "var(--text-dim)", fontSize: 12 }}>
-            Max iterations:
-            <input
-              type="number"
-              value={maxIterations}
-              onChange={(e) => setMaxIterations(e.target.value)}
-              style={{ width: 60, marginLeft: 6, padding: "4px 8px" }}
-            />
-          </label>
-          <label style={{ color: "var(--text-dim)", fontSize: 12 }}>
-            Max cost ($):
-            <input
-              type="number"
-              value={maxCost}
-              onChange={(e) => setMaxCost(e.target.value)}
-              style={{ width: 60, marginLeft: 6, padding: "4px 8px" }}
-              step="0.5"
-            />
-          </label>
-        </div>
       )}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -206,8 +181,8 @@ export function TaskDetailView() {
                 {state?.status === "completed"
                   ? "Task completed."
                   : state?.iteration
-                    ? `${state.iteration} iterations completed. Click Resume to continue.`
-                    : "Click Start to begin the task loop."}
+                    ? `${state.iteration} iterations completed.`
+                    : "No activity yet."}
               </p>
             ) : (
               logEntries.map((entry) => <FeedLine key={entry.id} entry={entry} />)
@@ -229,6 +204,11 @@ export function TaskDetailView() {
             )}
           </div>
 
+          <SteeringInput
+            onSend={handleSendSteering}
+            disabled={!effectiveIsRunning}
+            onFocusChange={setSteeringFocused}
+          />
         </div>
 
         <div
@@ -239,34 +219,30 @@ export function TaskDetailView() {
             flexDirection: "column",
           }}
         >
-          {/* Documents in fixed order — expanded one stays in place */}
           <DocPanel
             title="SPEC"
             expanded={expandedDoc === "spec"}
             content={spec.content}
             loading={spec.loading}
-            placeholder="Feature specification — requirements, user stories, and success criteria."
+            placeholder="Feature specification."
             onExpand={() => setExpandedDoc("spec")}
           />
-
           <DocPanel
             title="RESEARCH"
             expanded={expandedDoc === "research"}
             content={research.content}
             loading={research.loading}
-            placeholder="Research notes — codebase analysis and technical findings."
+            placeholder="Research notes."
             onExpand={() => setExpandedDoc("research")}
           />
-
           <DocPanel
             title="PLAN"
             expanded={expandedDoc === "plan"}
             content={plan.content}
             loading={plan.loading}
-            placeholder="Implementation plan — step-by-step tasks and architecture decisions."
+            placeholder="Implementation plan."
             onExpand={() => setExpandedDoc("plan")}
           />
-
           {expandedDoc === "progress" ? (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={panelHeaderStyle}>PROGRESS</div>
@@ -288,27 +264,25 @@ export function TaskDetailView() {
               PROGRESS
             </div>
           )}
-
           <DocPanel
             title="STEERING"
             expanded={expandedDoc === "steering"}
             content={steering.content}
             loading={steering.loading}
-            placeholder="Live guidance for the task. Use the input below to steer the running loop."
+            placeholder="Live guidance for the task."
             onExpand={() => setExpandedDoc("steering")}
           />
-
           <DocPanel
             title="LOG"
             expanded={expandedDoc === "log"}
             content={log.content}
             loading={log.loading}
-            placeholder="Iteration log — raw output from each loop iteration."
+            placeholder="Iteration log."
             onExpand={() => setExpandedDoc("log")}
           />
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
