@@ -10,6 +10,12 @@
 - [x] Verify opt-out: call `buildMetaPrompt` with `{ enabled: false }` and confirm the result is exactly `""`
 - [x] Verify `buildPhasePrompt` integration by running the loop tests: `bun run test --filter loop` in packages/core — confirm meta-prompt prepend and opt-out scenarios pass
 - [x] Run `bun run typecheck` across all affected packages (core, loop, workflow) and confirm no type errors
+- [x] Verify all 4 phases generate distinct guidance text: run a Bun script calling `buildMetaPrompt` for research/plan/execute/review phases and confirm each has unique phase-specific instructions
+- [x] Verify budget zero-handling: call `buildMetaPrompt` with `maxIterations: 0`, `maxCostUsd: 0`, and `maxRuntimeMinutes: 0` — confirm none of those lines appear in the output
+- [x] Verify 1-based iteration display: call `buildMetaPrompt` with `state.iteration = 0` and confirm output shows `**Iteration:** 1`
+- [x] Verify Active Flags section absent when no flags set: call `buildMetaPrompt` with no runtime flag options and confirm `### Active Flags` section does not appear in output
+- [x] Verify Linear issue display: call with `linearIssueIdentifier: "RLF-162"` (no URL) and confirm no "(undefined)" in output; then call with both identifier and URL and confirm URL appears
+- [x] Run full build: `bun run build:ci` from repo root and confirm all affected packages compile cleanly
 
 ```
 CI is failing on this PR. Investigate and fix:
