@@ -17,6 +17,7 @@ import { getStorage, runWithContext, createDefaultContext } from "@ralphy/contex
 import { getProcessBus } from "@ralphy/events";
 import {
   buildPhasePrompt,
+  routeTaskPhase,
   checkStopCondition,
   updateStateIteration,
   checkStopSignal,
@@ -350,12 +351,20 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         addIterationHeader(iter, time);
         addInfo(`Iteration ${iter} (total: ${currentState.iteration})`);
 
-        const prompt = buildPhasePrompt(
-          opts.phase ?? "execute",
-          currentState,
-          tasksDir,
-          opts.reviewPhase,
-        );
+        // Drive the worker prompt from the live OpenSpec phase. Without this,
+        // `opts.phase ?? "execute"` ran every iteration even when mission
+        // artifacts (`design.md` / `tasks.md`) were missing — the worker
+        // chewed on `agent-tasks.md` flow items forever and the phase
+        // indicator parked on `proposal`/`design`. See routeTaskPhase tests.
+        const proposalContent = storage.read(join(tasksDir, "proposal.md"));
+        const designContent = storage.read(join(tasksDir, "design.md"));
+        const routedPhase = routeTaskPhase(opts.phase, {
+          proposal: proposalContent,
+          design: designContent,
+          tasks: tasksContent,
+        });
+
+        const prompt = buildPhasePrompt(routedPhase, currentState, tasksDir, opts.reviewPhase);
 
         const iterStart = new Date().toISOString();
         try {
