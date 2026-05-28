@@ -521,49 +521,73 @@ describe("buildTaskPrompt — validateOnComplete", () => {
 });
 
 describe("buildPhasePrompt — execute uses buildTaskPrompt", () => {
-  test("execute phase produces same output as buildTaskPrompt directly", () =>
+  test("execute phase output ends with buildTaskPrompt output when meta-prompt disabled", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
-      expect(buildPhasePrompt("execute", state, tempDir)).toBe(buildTaskPrompt(state, tempDir));
+      const phasePrompt = buildPhasePrompt("execute", state, tempDir, undefined, {
+        enabled: false,
+      });
+      expect(phasePrompt).toBe(buildTaskPrompt(state, tempDir));
     }));
 });
 
 describe("buildPhasePrompt router", () => {
-  test("routes 'execute' to buildTaskPrompt", () =>
+  test("routes 'execute' to buildTaskPrompt (meta disabled)", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
-      const phasePrompt = buildPhasePrompt("execute", state, tempDir);
+      const phasePrompt = buildPhasePrompt("execute", state, tempDir, undefined, {
+        enabled: false,
+      });
       const directPrompt = buildTaskPrompt(state, tempDir);
       expect(phasePrompt).toBe(directPrompt);
     }));
 
-  test("routes 'research' to buildResearchPrompt", () =>
+  test("routes 'research' to buildResearchPrompt (meta disabled)", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
-      const phasePrompt = buildPhasePrompt("research", state, tempDir);
+      const phasePrompt = buildPhasePrompt("research", state, tempDir, undefined, {
+        enabled: false,
+      });
       const directPrompt = buildResearchPrompt(state, tempDir);
       expect(phasePrompt).toBe(directPrompt);
     }));
 
-  test("routes 'plan' to buildPlanPrompt", () =>
+  test("routes 'plan' to buildPlanPrompt (meta disabled)", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
-      const phasePrompt = buildPhasePrompt("plan", state, tempDir);
+      const phasePrompt = buildPhasePrompt("plan", state, tempDir, undefined, { enabled: false });
       const directPrompt = buildPlanPrompt(state, tempDir);
       expect(phasePrompt).toBe(directPrompt);
     }));
 
-  test("routes 'review' to buildReviewPrompt", () =>
+  test("routes 'review' to buildReviewPrompt (meta disabled)", () =>
     withStorage(() => {
       const state = makeState();
       writeState(tempDir, state);
-      const phasePrompt = buildPhasePrompt("review", state, tempDir);
+      const phasePrompt = buildPhasePrompt("review", state, tempDir, undefined, { enabled: false });
       const directPrompt = buildReviewPrompt(state, tempDir);
       expect(phasePrompt).toBe(directPrompt);
+    }));
+
+  test("prepends meta-prompt when enabled (default)", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildPhasePrompt("execute", state, tempDir);
+      expect(prompt).toContain("Task Context");
+      expect(prompt).toContain("execute");
+    }));
+
+  test("meta-prompt is skipped when enabled: false passed", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildPhasePrompt("execute", state, tempDir, undefined, { enabled: false });
+      expect(prompt).not.toContain("Task Context");
     }));
 
   test("execute phase contains Current Task Section when tasks.md has unchecked items", () =>

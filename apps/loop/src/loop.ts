@@ -2,6 +2,7 @@
 export {
   type TaskPhase,
   type LoopOptions,
+  type MetaPromptOptions,
   type StopReason,
   type ReviewRoundResult,
   buildTaskPrompt,

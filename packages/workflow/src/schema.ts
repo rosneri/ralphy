@@ -272,6 +272,13 @@ export const WorkflowConfigSchema = z.object({
       maxRecoveryAttempts: 3,
       advanceMergedToDone: false,
     }),
+  metaPrompt: z
+    .object({
+      /** Set to false to disable the task-level meta-prompt layer for all phases. */
+      enabled: z.boolean().default(true),
+    })
+    .strict()
+    .default({ enabled: true }),
   openspec: z
     .object({
       reviewPhase: z

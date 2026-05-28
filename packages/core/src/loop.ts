@@ -5,6 +5,9 @@ import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
 import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
 import { countOpenFindings as countOpenFindingsInContent } from "./openspec/phase";
+import { buildMetaPrompt, type MetaPromptOptions } from "./prompt/meta-prompt";
+
+export type { MetaPromptOptions } from "./prompt/meta-prompt";
 
 // Re-export task utilities with standardized names for use in loop context
 export {
@@ -78,6 +81,8 @@ export interface LoopOptions {
   };
   /** Called after each review round completes. Use to emit Linear comments. */
   onReviewRound?: (result: ReviewRoundResult) => Promise<void>;
+  /** Options for the task-level meta-prompt layer. Pass enabled:false to opt out. */
+  metaPrompt?: MetaPromptOptions;
 }
 
 const STEERING_MAX_LINES = 20;
@@ -328,17 +333,25 @@ export function buildPhasePrompt(
   state: State,
   taskDir: string,
   reviewPhase?: ReviewPhaseConfig,
+  metaPromptOptions?: MetaPromptOptions,
 ): string {
+  const meta = buildMetaPrompt(state, phase, metaPromptOptions);
+  let phasePrompt: string;
   switch (phase) {
     case "research":
-      return buildResearchPrompt(state, taskDir);
+      phasePrompt = buildResearchPrompt(state, taskDir);
+      break;
     case "plan":
-      return buildPlanPrompt(state, taskDir);
+      phasePrompt = buildPlanPrompt(state, taskDir);
+      break;
     case "execute":
-      return buildTaskPrompt(state, taskDir, reviewPhase);
+      phasePrompt = buildTaskPrompt(state, taskDir, reviewPhase);
+      break;
     case "review":
-      return buildReviewPrompt(state, taskDir);
+      phasePrompt = buildReviewPrompt(state, taskDir);
+      break;
   }
+  return meta + phasePrompt;
 }
 
 /**

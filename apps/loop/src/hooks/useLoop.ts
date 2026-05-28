@@ -355,6 +355,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           currentState,
           tasksDir,
           opts.reviewPhase,
+          opts.metaPrompt,
         );
 
         const iterStart = new Date().toISOString();
