@@ -28,8 +28,15 @@ Object.assign(Bun, {
   },
 });
 
-const { getCurrentBranch, gitAdd, gitCommit, gitPush, commitState, commitTaskDir } =
-  await import("../git");
+const {
+  getCurrentBranch,
+  gitAdd,
+  gitCommit,
+  gitPush,
+  commitState,
+  commitTaskDir,
+  getUncommittedFiles,
+} = await import("../git");
 
 let tempDir: string;
 
@@ -159,6 +166,19 @@ describe("commitTaskDir", () => {
   test("silently handles failure", () => {
     defaultSpawnResult = { exitCode: 1, stdout: "", stderr: "nothing to commit" };
     expect(() => commitTaskDir("/tasks/test", "msg")).not.toThrow();
+  });
+});
+
+describe("getUncommittedFiles", () => {
+  test("returns list of uncommitted file paths from git status", () => {
+    nextSpawnResults = [{ exitCode: 0, stdout: " M src/foo.ts\n?? src/bar.ts\n", stderr: "" }];
+    expect(getUncommittedFiles()).toEqual([" M src/foo.ts", "?? src/bar.ts"]);
+    expect(spawnCalls[0]!.cmd).toEqual(["git", "status", "--porcelain"]);
+  });
+
+  test("returns empty array when git status fails", () => {
+    nextSpawnResults = [{ exitCode: 1, stdout: "", stderr: "not a git repo" }];
+    expect(getUncommittedFiles()).toEqual([]);
   });
 });
 

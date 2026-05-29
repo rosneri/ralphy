@@ -8,13 +8,19 @@ import type { MentionTrigger } from "../coordinator";
 import {
   fetchMentionScanIssues,
   addReactionToComment,
+  createIssueComment,
   formatLinearError,
   isRateLimitedError,
   type LinearIssue,
 } from "../linear";
+import { buildMentionAckComment } from "@ralphy/core/detections";
 import { changeNameForIssue } from "../scaffold";
 import { scanCodeReview } from "../../features/review-followup/scan";
-import { addGithubReactionToComment, fetchPrIssueComments } from "../../features/mention/github";
+import {
+  addGithubReactionToComment,
+  fetchPrIssueComments,
+  postGithubPrComment,
+} from "../../features/mention/github";
 import { isRalphComment, containsHandle, findLastRalphPickupISO } from "./task-bodies";
 import type { Indicators } from "@ralphy/types";
 
@@ -141,6 +147,21 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
               "yellow",
             );
           }
+          if (cfg.linear.postComments !== false) {
+            try {
+              await createIssueComment(
+                apiKey,
+                issue.id,
+                buildMentionAckComment(c.body, c.user?.name),
+              );
+            } catch (err) {
+              diag(
+                "mention",
+                `! mention scan: ack comment failed for ${issue.identifier}: ${formatLinearError(err)}`,
+                "yellow",
+              );
+            }
+          }
           queued.add(issue.id);
           break;
         }
@@ -189,6 +210,15 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
                 "mention",
                 `! mention scan: GitHub reaction failed for ${prUrl}: ${formatLinearError(err)}`,
                 "yellow",
+              );
+            }
+            if (cfg.linear.postComments !== false) {
+              await postGithubPrComment(
+                cmdRunner,
+                projectRoot,
+                prUrl,
+                buildMentionAckComment(c.body, c.author),
+                onLog,
               );
             }
           }

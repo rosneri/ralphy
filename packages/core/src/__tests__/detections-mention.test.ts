@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { hasMentionTrigger } from "../detections/mention";
+import { hasMentionTrigger, buildMentionAckComment } from "../detections/mention";
 
 describe("hasMentionTrigger", () => {
   test("non-Ralph comment contains phrase → true", () => {
@@ -69,5 +69,46 @@ describe("hasMentionTrigger", () => {
         triggerPhrase: "ralph go",
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildMentionAckComment", () => {
+  test("without author uses Acknowledged greeting", () => {
+    const result = buildMentionAckComment("@ralphy please retry");
+    expect(result).toContain("👀 Acknowledged!");
+    expect(result).toContain("> @ralphy please retry");
+  });
+
+  test("with author uses Got it greeting", () => {
+    const result = buildMentionAckComment("@ralphy please retry", "alice");
+    expect(result).toContain("👀 Got it, alice!");
+    expect(result).toContain("> @ralphy please retry");
+  });
+
+  test("single-line body within 200 chars has no ellipsis", () => {
+    const result = buildMentionAckComment("short message");
+    expect(result).not.toContain("…");
+    expect(result).toContain("> short message");
+  });
+
+  test("multiline body only quotes first line", () => {
+    const result = buildMentionAckComment("first line\nsecond line\nthird line");
+    expect(result).toContain("> first line");
+    expect(result).not.toContain("second line");
+    expect(result).not.toContain("third line");
+  });
+
+  test("long body truncated to 200 chars with ellipsis", () => {
+    const longLine = "a".repeat(250);
+    const result = buildMentionAckComment(longLine);
+    expect(result).toContain("…");
+    const excerpt = result.split("> ")[1]!;
+    expect(excerpt.replace("…", "")).toHaveLength(200);
+  });
+
+  test("body exactly 200 chars has no ellipsis", () => {
+    const exactLine = "b".repeat(200);
+    const result = buildMentionAckComment(exactLine);
+    expect(result).not.toContain("…");
   });
 });

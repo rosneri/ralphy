@@ -11,3 +11,13 @@ export function hasMentionTrigger(inputs: MentionInputs): boolean {
   const needle = inputs.triggerPhrase.toLowerCase();
   return inputs.comments.some((c) => !c.isRalph && c.body.toLowerCase().includes(needle));
 }
+
+export function buildMentionAckComment(body: string, author?: string): string {
+  const firstLine = body.split("\n")[0]!;
+  const truncated = firstLine.slice(0, 200);
+  const excerpt = truncated + (truncated.length < firstLine.length ? "…" : "");
+  const greeting = author
+    ? `👀 Got it, ${author}! I've picked up your mention and queued a review pass.`
+    : `👀 Acknowledged! I've picked up your mention and queued a review pass.`;
+  return `${greeting}\n\n> ${excerpt}`;
+}

@@ -43,6 +43,8 @@ interface FakeFetchHandlers {
   /** Workflow state for the single candidate issue. Defaults to Done so
    *  the legacy behavior is still exercised. */
   issueState?: { name: string; type: string };
+  /** Override the postComments workflow setting. Defaults to true. */
+  postComments?: boolean;
 }
 
 interface TestSetup {
@@ -178,7 +180,7 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
     createPrOnSuccess: false,
     linear: {
       team: "ENG",
-      postComments: true,
+      postComments: handlers.postComments ?? true,
       mentionTrigger: true,
       indicators: {
         getTodo: { filter: [{ type: "status", value: "Todo" }] },
@@ -272,6 +274,20 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
     });
     expect(reactionCalls).toEqual([{ commentId: "comment-id-42", emoji: "👀" }]);
     expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
+  });
+
+  test("ack comment is posted immediately on Linear mention when postComments: true", async () => {
+    const { pickupCommentBodies } = await runMentionPoll(tempDir, {});
+    expect(
+      pickupCommentBodies.some((b) => b.includes("Got it, alice") || b.includes("Acknowledged")),
+    ).toBe(true);
+  });
+
+  test("no ack comment posted when postComments: false", async () => {
+    const { pickupCommentBodies } = await runMentionPoll(tempDir, { postComments: false });
+    expect(
+      pickupCommentBodies.some((b) => b.includes("Got it") || b.includes("Acknowledged")),
+    ).toBe(false);
   });
 
   test("mention scan uses inline comments without per-issue fetchIssueComments (RLF-66)", async () => {
