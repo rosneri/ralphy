@@ -49,14 +49,21 @@ configure-mcp:
 	@MCP_FILE="$(BASE_PATH)/.mcp.json"; \
 	ENTRY="{\"type\":\"stdio\",\"command\":\"bun\",\"args\":[\".ralph/bin/mcp.js\"],\"env\":{}}"; \
 	if [ -f "$$MCP_FILE" ]; then \
-		jq --argjson ralph "$$ENTRY" '.mcpServers.ralph = $$ralph' "$$MCP_FILE" | \
-		perl -0777 -pe 's/\[\s*\n\s*(".*?")\s*\n\s*\]/[\1]/g' > "$$MCP_FILE.tmp" && \
-		mv "$$MCP_FILE.tmp" "$$MCP_FILE"; \
+		CURRENT=$$(jq -cS '.mcpServers.ralph // empty' "$$MCP_FILE" 2>/dev/null); \
+		WANT=$$(echo "$$ENTRY" | jq -cS '.'); \
+		if [ "$$CURRENT" = "$$WANT" ]; then \
+			echo "  ℹ️  MCP server already configured; leaving .mcp.json untouched"; \
+		else \
+			jq --argjson ralph "$$ENTRY" '.mcpServers.ralph = $$ralph' "$$MCP_FILE" | \
+			perl -0777 -pe 's/\[\s*("(?:[^"\\]|\\.)*"(?:\s*,\s*"(?:[^"\\]|\\.)*")*)\s*\]/"[" . join(", ", $$1 =~ m{("(?:[^"\\]|\\.)*")}g) . "]"/ge' > "$$MCP_FILE.tmp" && \
+			mv "$$MCP_FILE.tmp" "$$MCP_FILE"; \
+			echo "  ✓ MCP server configured in .mcp.json"; \
+		fi; \
 	else \
 		echo "{}" | jq --argjson ralph "$$ENTRY" '.mcpServers.ralph = $$ralph' | \
-		perl -0777 -pe 's/\[\s*\n\s*(".*?")\s*\n\s*\]/[\1]/g' > "$$MCP_FILE"; \
+		perl -0777 -pe 's/\[\s*("(?:[^"\\]|\\.)*"(?:\s*,\s*"(?:[^"\\]|\\.)*")*)\s*\]/"[" . join(", ", $$1 =~ m{("(?:[^"\\]|\\.)*")}g) . "]"/ge' > "$$MCP_FILE"; \
+		echo "  ✓ MCP server configured in .mcp.json"; \
 	fi
-	@echo "  ✓ MCP server configured in .mcp.json"
 
 init-openspec:
 	@echo "  Initializing OpenSpec..."
