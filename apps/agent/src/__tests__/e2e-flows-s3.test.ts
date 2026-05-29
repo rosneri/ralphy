@@ -614,11 +614,7 @@ describe("S3 — coordinator flow routing", () => {
     expect(workers.has(changeName)).toBe(true);
     // The spawn should NOT be a ci-fix spawn. In mention mode the coordinator
     // posts "picked up new review comments" before spawning.
-    expect(
-      linear.comments.some(
-        (c) => c.body.includes("picked up") || c.body.includes("review comments"),
-      ),
-    ).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("review comments"))).toBe(true);
     // Only one spawn issued (no double-spawn).
     expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(1);
   });

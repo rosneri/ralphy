@@ -18,6 +18,38 @@ export async function addGithubReactionToComment(
   await cmdRunner.run(["gh", "api", "-X", "POST", path, "-f", `content=${content}`], projectRoot);
 }
 
+/** Post a comment on a GitHub PR conversation tab. */
+export async function postGithubPrComment(
+  cmdRunner: CmdRunner,
+  projectRoot: string,
+  prUrl: string,
+  body: string,
+  onLog: (msg: string, color?: string) => void,
+): Promise<void> {
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(prUrl);
+  if (!m) return;
+  const [, owner, repo, num] = m;
+  try {
+    await cmdRunner.run(
+      [
+        "gh",
+        "api",
+        "-X",
+        "POST",
+        `repos/${owner}/${repo}/issues/${num}/comments`,
+        "-f",
+        `body=${body}`,
+      ],
+      projectRoot,
+    );
+  } catch (err) {
+    onLog(
+      `! mention scan: gh ack comment failed for ${prUrl}: ${formatLinearError(err)}`,
+      "yellow",
+    );
+  }
+}
+
 /** Fetch issue-level comments on a PR (i.e. the conversation tab). */
 export async function fetchPrIssueComments(
   cmdRunner: CmdRunner,
