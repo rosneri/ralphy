@@ -7,7 +7,7 @@ export interface CmdRunner {
 }
 
 /** Blocker PR this PR is stacked on, surfaced in the PR body. */
-export interface StackedOnRef {
+interface StackedOnRef {
   prUrl: string;
   prNumber: number | null;
   blockerIdentifier: string | null;
