@@ -1229,7 +1229,7 @@ export function AgentMode({
                 <Text dimColor>│</Text>
                 <Text dimColor>{elapsed}</Text>
                 <Text dimColor>·</Text>
-                <Text dimColor>iter {iter}</Text>
+                <Text dimColor>↺ {iter}</Text>
                 {currentTask && (
                   <>
                     <Text dimColor>│</Text>
