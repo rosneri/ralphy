@@ -50,6 +50,72 @@ const QUOTE_RULE_WIDTH = 3;
 const CODE_PADDING_X = 8;
 const CODE_PADDING_Y = 6;
 
+// pdfkit's built-in fonts (Helvetica/Courier) only encode WinAnsi (≈CP1252).
+// Any character outside that set is dropped to a mojibake glyph — box-drawing
+// renders as "% %", arrows as "!'", etc. We transliterate the common offenders
+// (which show up constantly in design-doc data-flow diagrams) to ASCII
+// look-alikes, then replace anything still unencodable with "?".
+const UNICODE_FALLBACKS: Record<string, string> = {
+  // Arrows.
+  "→": "->", "⟶": "->", "➜": "->", "➔": "->", "↳": "->", "↪": "->", "⤷": "->",
+  "←": "<-", "⟵": "<-", "↔": "<->", "⇒": "=>", "⇐": "<=", "⇔": "<=>",
+  "↑": "^", "↓": "v", "⬆": "^", "⬇": "v",
+  // Box drawing — every variant collapses to "|", "-", or "+".
+  "─": "-", "━": "-", "╴": "-", "╶": "-", "╌": "-", "┄": "-", "┈": "-",
+  "│": "|", "┃": "|", "║": "|", "╎": "|", "┆": "|", "┊": "|",
+  "┌": "+", "┍": "+", "┎": "+", "┏": "+", "┐": "+", "┑": "+", "┒": "+", "┓": "+",
+  "└": "+", "┕": "+", "┖": "+", "┗": "+", "┘": "+", "┙": "+", "┚": "+", "┛": "+",
+  "├": "+", "┝": "+", "┞": "+", "┟": "+", "┠": "+", "┣": "+",
+  "┤": "+", "┥": "+", "┦": "+", "┧": "+", "┨": "+", "┫": "+",
+  "┬": "+", "┭": "+", "┮": "+", "┯": "+", "┰": "+", "┱": "+", "┲": "+", "┳": "+",
+  "┴": "+", "┵": "+", "┶": "+", "┷": "+", "┸": "+", "┹": "+", "┺": "+", "┻": "+",
+  "┼": "+", "╅": "+", "╆": "+", "╋": "+", "╪": "+", "╫": "+", "╬": "+",
+  "╭": "+", "╮": "+", "╯": "+", "╰": "+", "╱": "/", "╲": "\\", "╳": "x",
+  "═": "=", "╒": "+", "╓": "+", "╔": "+", "╕": "+", "╖": "+", "╗": "+",
+  "╘": "+", "╙": "+", "╚": "+", "╛": "+", "╜": "+", "╝": "+",
+  // Bullets / markers not already in WinAnsi.
+  "▸": ">", "▶": ">", "►": ">", "◀": "<", "◦": "-", "▪": "-", "▫": "-",
+  "■": "-", "□": "-", "●": "-", "○": "-", "◆": "-", "◇": "-",
+  // Checks / stars.
+  "✓": "[x]", "✔": "[x]", "✗": "[ ]", "✘": "[ ]", "★": "*", "☆": "*",
+  // Math / comparison.
+  "≤": "<=", "≥": ">=", "≠": "!=", "≈": "~", "×": "x", "÷": "/", "±": "+/-",
+  "∞": "inf", "√": "sqrt", "·": "-",
+  // Whitespace.
+  "\t": "    ", " ": " ", " ": " ", " ": " ",
+};
+
+// Codepoints reachable through WinAnsi's 0x80–0x9F range (curly quotes, dashes,
+// the bullet, ellipsis, trademark, …). These are > 0xFF yet still encodable, so
+// they must survive sanitization untouched.
+const WINANSI_EXTRA = new Set<number>([
+  0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160,
+  0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014,
+  0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178,
+]);
+
+function isWinAnsi(cp: number): boolean {
+  if (cp === 0x0a || cp === 0x0d) return true; // newlines flow through unchanged
+  if (cp >= 0x20 && cp <= 0x7e) return true; // ASCII printable
+  if (cp >= 0xa0 && cp <= 0xff) return true; // Latin-1 supplement
+  return WINANSI_EXTRA.has(cp);
+}
+
+/** Make `text` safe for pdfkit's built-in fonts: transliterate known Unicode
+ *  to ASCII, then replace any remaining unencodable glyph with "?". */
+function toPdfSafe(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const mapped = UNICODE_FALLBACKS[ch];
+    if (mapped !== undefined) {
+      out += mapped;
+      continue;
+    }
+    out += isWinAnsi(ch.codePointAt(0) ?? 0) ? ch : "?";
+  }
+  return out;
+}
+
 /** Render the given Markdown text to a PDF byte buffer. Resolves with
  *  Uint8Array suitable for direct upload via `uploadFileToLinear`. */
 export function renderMarkdownToPdf(md: string, title: string): Promise<Uint8Array> {
@@ -143,7 +209,7 @@ function renderHeading(doc: PDFKit.PDFDocument, token: Tokens.Heading, indent: n
   doc.font(FONT_BOLD).fontSize(size).fillColor(COLOR_TEXT);
   const x = MARGIN + indent;
   const width = doc.page.width - 2 * MARGIN - indent;
-  doc.text(plainInline(token.tokens ?? []), x, doc.y, { width });
+  doc.text(toPdfSafe(plainInline(token.tokens ?? [])), x, doc.y, { width });
   doc.moveDown(0.3);
   doc.font(FONT_BODY).fontSize(BODY_SIZE).fillColor(COLOR_TEXT);
 }
@@ -231,9 +297,10 @@ function renderCodeBlock(doc: PDFKit.PDFDocument, token: Tokens.Code, indent: nu
       doc.addPage();
     }
     const yTop = doc.y;
+    const safe = toPdfSafe(line);
     doc.rect(x, yTop, width, lineHeight).fill(COLOR_CODE_BG);
     doc.fillColor(COLOR_TEXT);
-    doc.text(line.length > 0 ? line : " ", x + CODE_PADDING_X, yTop, {
+    doc.text(safe.length > 0 ? safe : " ", x + CODE_PADDING_X, yTop, {
       width: width - 2 * CODE_PADDING_X,
       lineBreak: false,
     });
@@ -370,7 +437,10 @@ function emitInline(
       lineBreak: true,
     };
     if (run.code) {
-      doc.font(FONT_MONO).fontSize(CODE_SIZE).fillColor(COLOR_INLINE_CODE_FG);
+      // Inline code must share the body font size: a smaller size inside a
+      // `continued` run shifts the mono fragment onto a raised baseline, so it
+      // visibly floats above the surrounding text ("different line height").
+      doc.font(FONT_MONO).fontSize(BODY_SIZE).fillColor(COLOR_INLINE_CODE_FG);
     } else {
       doc.fontSize(BODY_SIZE).fillColor(COLOR_TEXT);
       if (run.bold && run.italic) doc.font(FONT_BOLD_ITALIC);
@@ -379,10 +449,11 @@ function emitInline(
       else doc.font(FONT_BODY);
     }
 
+    const safe = toPdfSafe(run.text);
     if (i === 0) {
-      doc.text(run.text, x, doc.y, opts);
+      doc.text(safe, x, doc.y, opts);
     } else {
-      doc.text(run.text, opts);
+      doc.text(safe, opts);
     }
   }
   doc.font(FONT_BODY).fontSize(BODY_SIZE).fillColor(COLOR_TEXT);

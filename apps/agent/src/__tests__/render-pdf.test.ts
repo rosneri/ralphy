@@ -1,6 +1,47 @@
 import { describe, expect, test } from "bun:test";
+import zlib from "node:zlib";
 import { PDFParse } from "pdf-parse";
 import { renderMarkdownToPdf } from "../agent/linear-sync/render-pdf";
+
+/** Inflate every content stream in a pdfkit PDF and pull out one record per
+ *  text-showing operator: the font resource, font size, and baseline y from
+ *  the active text matrix. Lets a test assert *where* glyphs actually land —
+ *  e.g. that inline code shares the body text baseline. */
+function textRuns(pdf: Uint8Array): Array<{ font: string; size: number; y: number }> {
+  const buf = Buffer.from(pdf);
+  const s = buf.toString("latin1");
+  const runs: Array<{ font: string; size: number; y: number }> = [];
+  const streamRe = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = streamRe.exec(s))) {
+    const start = m.index + m[0].length;
+    const end = s.indexOf("endstream", start);
+    let content: string;
+    try {
+      content = zlib.inflateSync(buf.subarray(start, end)).toString("latin1");
+    } catch {
+      continue;
+    }
+    let font = "";
+    let size = 0;
+    let y = 0;
+    const tok = /1 0 0 1 [\d.-]+ ([\d.-]+) Tm|\/(F\d+) ([\d.-]+) Tf|\b(TJ|Tj)\b/g;
+    let t: RegExpExecArray | null;
+    while ((t = tok.exec(content))) {
+      if (t[1] !== undefined) y = parseFloat(t[1]);
+      else if (t[2] !== undefined) {
+        font = t[2];
+        size = parseFloat(t[3]!);
+      } else runs.push({ font, size, y });
+    }
+  }
+  return runs;
+}
+
+async function extractText(pdf: Uint8Array): Promise<string> {
+  const parser = new PDFParse({ data: new Uint8Array(pdf) });
+  return (await parser.getText()).text;
+}
 
 const SAMPLE = `# Title
 
@@ -144,5 +185,58 @@ A line continued after a hard break.
     // than one is present to confirm pagination actually happened.
     const pageMatches = haystack.match(/\/Type\s*\/Page\b/g) ?? [];
     expect(pageMatches.length).toBeGreaterThan(1);
+  });
+
+  // --- Bug: non-WinAnsi glyphs (box-drawing / arrows) render as "% %" / "!'"
+  // garbage because pdfkit's built-in fonts only encode WinAnsi. The renderer
+  // must transliterate them to ASCII look-alikes. The "→" arrow decodes to
+  // "!'" today and the "├──" branch to "% %".
+  describe("unicode in code blocks is transliterated to ASCII", () => {
+    const md = "```\nA → B\n├── child\n```\n";
+
+    test("fix_case: an arrow renders as '->' and no box-drawing glyph survives", async () => {
+      const text = await extractText(await renderMarkdownToPdf(md, "Unicode"));
+      expect(text).toContain("A -> B");
+      expect(text).not.toContain("├");
+      // For all-mappable input neither the mojibake "%" nor a "?" fallback appears.
+      expect(text).not.toContain("%");
+      expect(text).not.toContain("?");
+    });
+
+    test("bug_case (regression guard): arrow no longer decodes to mojibake", async () => {
+      const text = await extractText(await renderMarkdownToPdf(md, "Unicode"));
+      // Pre-fix the line read "A !' B"; flipped to guard the garbage never returns.
+      expect(text).not.toContain("A !");
+    });
+  });
+
+  // --- Bug: inline `code` was emitted at a smaller font size than the body
+  // text inside the same pdfkit `continued` run, so it sat on a raised
+  // baseline ("different line height"). All runs on one line must share a
+  // single baseline.
+  describe("inline code shares the body text baseline", () => {
+    // Short enough to stay on one line so every run shares a baseline y.
+    const md = "Word `code` tail words on one short line here.\n";
+
+    test("fix_case: inline code sits within ~1pt of the body baseline", async () => {
+      const runs = textRuns(await renderMarkdownToPdf(md, "Inline"));
+      // Sanity: the inline code really is styled as a distinct (mono) font.
+      const monoRuns = runs.filter((r) => r.font !== runs[0]!.font);
+      expect(monoRuns.length).toBeGreaterThan(0);
+      // Pre-fix the 9pt mono run floated ~1.9pt above the 10.5pt body. With a
+      // shared font size the only residual offset is the Courier↔Helvetica
+      // ascender difference (~0.9pt) — visually one line. Threshold sits
+      // between the two so a re-shrink of inline code fails this.
+      const ys = runs.map((r) => r.y);
+      expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(1.5);
+    });
+
+    test("bug_case (regression guard): inline code is not shrunk below body size", async () => {
+      const runs = textRuns(await renderMarkdownToPdf(md, "Inline"));
+      const bodySize = Math.max(...runs.map((r) => r.size));
+      // Pre-fix the mono run was 9pt vs 10.5pt body; flipped to require every
+      // run share one size so baselines stay aligned.
+      expect(runs.every((r) => r.size === bodySize)).toBe(true);
+    });
   });
 });
