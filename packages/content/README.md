@@ -1,6 +1,6 @@
 # Ralph
 
-Iterative AI task execution framework. This directory was created by `make install` from [ralphy](https://github.com/neriros/ralphy).
+Iterative AI task execution framework. This directory was created by `make install` from [ralphy](https://github.com/rosneri/ralphy).
 
 ## Quick Start
 

@@ -45,31 +45,6 @@ Work through the items in the Current Section in order.
 
 Follow every injected checklist below in order. Fix all issues before proceeding.
 
-**CRITICAL: ALWAYS use Nx affected, NEVER run-many**
-
-```bash
-# CORRECT - Run all relevant tasks together with affected
-nx affected -t test,lint,typecheck
-```
-
-**NEVER DO THIS:**
-
-```bash
-# WRONG - Runs ALL tests (100x slower, crushes CPU)
-nx run-many -t test
-
-# WRONG - Multiple independent commands (spawns uncontrolled processes)
-nx run lib1:test & nx run lib2:test
-```
-
-**Rules:**
-
-- **ALWAYS** use `affected` - it only validates your uncommitted changes
-- **NEVER** use `run-many` - it runs on the entire monorepo
-- **NEVER** run multiple independent Nx commands in parallel
-- Keep Nx daemon running (never use `NX_DAEMON=false`)
-- If tests fail, fix them and re-run `nx affected` (still fast)
-
 ### 3. Update PROGRESS.md
 
 - Check off (`[x]`) every completed item in the section
@@ -89,7 +64,7 @@ Before committing, review all changes made in this section:
 
 - Document them in PROGRESS.md with a note (e.g., `- [x] Item name — Issue: [description]`)
 - Fix each issue directly in the code
-- Re-run verification commands (`nx affected -t test,lint,typecheck`)
+- Re-run the project's verification commands (test, lint, typecheck)
 - Loop back to step 2 (Verify) until all issues are resolved
 
 **If no issues are found:**
