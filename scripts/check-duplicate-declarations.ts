@@ -36,6 +36,19 @@ import ts from "typescript";
 
 const REPO_ROOT = join(import.meta.dirname, "..");
 
+/**
+ * Refuse to run unless REPO_ROOT is a JS/TS repo (has a package.json). This is a
+ * safety guard: the detectors shell out to `tsc`, `eslint`, and `jscpd` over
+ * `libs/` and `apps/`, and a recursive scan kicked off in the wrong directory
+ * (or a non-project tree) can pin a CPU core for a long time. If there's no
+ * package.json next to the script's parent, there's nothing legitimate to scan.
+ */
+async function assertJsRepo(): Promise<void> {
+  if (await Bun.file(join(REPO_ROOT, "package.json")).exists()) return;
+  console.log(`✓ ${REPO_ROOT} is not a JS repo (no package.json); skipping duplicate check.`);
+  process.exit(0);
+}
+
 type DeclKind = "variable" | "function" | "enum" | "class" | "type" | "interface";
 
 interface Declaration {
@@ -717,6 +730,7 @@ async function runJscpdDetector(
 }
 
 async function main(): Promise<void> {
+  await assertJsRepo();
   const args = parseArgs(process.argv.slice(2));
   const allFiles = await collectAllSourceFiles();
 
