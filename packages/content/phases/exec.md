@@ -64,7 +64,7 @@ Before committing, review all changes made in this section:
 
 - Document them in PROGRESS.md with a note (e.g., `- [x] Item name — Issue: [description]`)
 - Fix each issue directly in the code
-- Re-run verification commands (`nx affected -t test,lint,typecheck`)
+- Re-run the project's verification commands (test, lint, typecheck)
 - Loop back to step 2 (Verify) until all issues are resolved
 
 **If no issues are found:**

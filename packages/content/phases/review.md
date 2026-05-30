@@ -52,7 +52,7 @@ For each implemented item in the current section:
 - **Test files created** — Are there tests for the new code?
 - **Coverage** — Do tests cover normal paths and edge cases?
 - **Integration** — Do tests verify the code works with existing code?
-- **No regressions** — Did existing tests pass? (`nx affected -t test`)
+- **No regressions** — Did existing tests pass?
 
 ### 3. Spec Compliance Review
 
@@ -65,11 +65,7 @@ Cross-reference the implementation against spec.md:
 
 ### 4. Lint & Type Safety
 
-Run checks:
-
-```bash
-nx affected -t lint,typecheck
-```
+Run the project's lint and typecheck commands.
 
 If there are errors:
 
