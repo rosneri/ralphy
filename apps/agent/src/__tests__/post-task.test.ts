@@ -597,13 +597,22 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
-        resolveDependencyBaseBranch: async () => "feature/blocker",
+        resolveDependencyBaseBranch: async () => ({
+          baseBranch: "feature/blocker",
+          prUrl: "https://github.com/owner/repo/pull/123",
+          prNumber: 123,
+          blockerIdentifier: "RLF-7",
+        }),
       },
     );
 
     expect(code).toBe(0);
     const createCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")!;
     expect(createCall[createCall.indexOf("--base") + 1]).toBe("feature/blocker");
+    // The PR body names the dependency: which ticket and which PR.
+    const body = createCall[createCall.indexOf("--body") + 1] ?? "";
+    expect(body).toContain("Stacked on #123");
+    expect(body).toContain("RLF-7");
   });
 
   test("ralph:branch label still wins over stackPrsOnDependencies resolver", async () => {
@@ -638,7 +647,12 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         respawnWorker: async () => 0,
         resolveDependencyBaseBranch: async () => {
           resolverCalled = true;
-          return "feature/blocker";
+          return {
+            baseBranch: "feature/blocker",
+            prUrl: "https://github.com/owner/repo/pull/123",
+            prNumber: 123,
+            blockerIdentifier: "RLF-7",
+          };
         },
       },
     );

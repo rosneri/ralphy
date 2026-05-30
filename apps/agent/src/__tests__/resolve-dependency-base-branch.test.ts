@@ -76,7 +76,12 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
       run: async (args) => {
         ghCalls.push(args);
         return {
-          stdout: JSON.stringify({ state: "OPEN", headRefName: "feature/blocker-3" }),
+          stdout: JSON.stringify({
+            state: "OPEN",
+            headRefName: "feature/blocker-3",
+            title: "RLF-42: build the blocker",
+            url: openPrUrl,
+          }),
           stderr: "",
         };
       },
@@ -92,7 +97,15 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     expect(linearCalls).toBe(1);
     expect(capturedIds).toEqual(blockerIds);
     expect(ghCalls).toHaveLength(1);
-    expect(out).toBe("feature/blocker-3");
+    // The gh pr view query must request the fields needed to name the
+    // dependency clearly (ticket via title, PR via number/url).
+    expect(ghCalls[0]).toContain("state,headRefName,title,url");
+    expect(out).toEqual({
+      baseBranch: "feature/blocker-3",
+      prUrl: openPrUrl,
+      prNumber: 777,
+      blockerIdentifier: "RLF-42",
+    });
   });
 
   test("batched fetch failure logs a yellow line and returns null", async () => {

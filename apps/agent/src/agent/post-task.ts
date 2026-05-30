@@ -8,6 +8,7 @@ import { baseBranchFromLabels, type LinearIssue } from "./linear";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
+import type { DependencyBase } from "./wire/pr-helpers";
 import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
 import { fetchPrStatus, type PrStatus } from "../pr-status";
 import { waitForMergeability } from "../shared/pr/wait-for-mergeability";
@@ -116,6 +117,7 @@ export type PostTaskPhase =
   | "pr-create"
   | "pr-only-meta"
   | "pr-skipped-noop"
+  | "stacked-pr"
   | "auto-merge-enabled"
   | "conflict-check"
   | "conflict-fix-inner"
@@ -148,9 +150,9 @@ interface PostTaskDeps {
    * to detect them on the next poll.
    */
   checkPrConflict?: (prUrl: string) => Promise<boolean>;
-  /** Optional: resolve the head branch of a blocker's single open PR. See
+  /** Optional: resolve the blocker PR a stacked PR should base on. See
    *  PrPhaseDeps for details. */
-  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<string | null>;
+  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<DependencyBase | null>;
   /** Optional: build the per-issue `FeatureCtx` consumed by the feature
    *  registry walk. When provided, `runPostTask` iterates the registry and
    *  invokes `feature.postTask?.(...)` on each entry alongside the legacy
@@ -178,6 +180,9 @@ interface PostTaskCtx {
   /** Effective PR base for this issue. Either cfg.prBaseBranch or a
    *  per-issue override from a `ralph:branch:<name>` Linear label. */
   base: string;
+  /** Set when `base` came from a blocker PR (stacked PR) — surfaced in the
+   *  PR body so the dependency is clear. */
+  stackedOn?: DependencyBase;
   changeDir: string;
   stateFilePath: string;
   cfg: PostTaskInput["cfg"];
@@ -452,6 +457,15 @@ async function createPrWithRetry(
           base,
           metaOnlyFiles: ctx.cfg.metaOnlyFiles ?? [],
           draft: ctx.cfg.prDraft ?? false,
+          ...(ctx.stackedOn
+            ? {
+                stackedOn: {
+                  prUrl: ctx.stackedOn.prUrl,
+                  prNumber: ctx.stackedOn.prNumber,
+                  blockerIdentifier: ctx.stackedOn.blockerIdentifier,
+                },
+              }
+            : {}),
         },
         ctx.cmd,
       );
@@ -795,11 +809,11 @@ interface PrPhaseDeps {
   respawnWorker: () => Promise<number>;
   registerPr?: (changeName: string, prUrl: string) => void;
   checkPrConflict?: (prUrl: string) => Promise<boolean>;
-  /** Optional: resolve the head branch of a blocker's single open PR for
-   *  the given issue, or null when no unambiguous blocker PR exists. Invoked
+  /** Optional: resolve the blocker PR (branch + ticket + PR) the given issue
+   *  should stack onto, or null when no unambiguous blocker PR exists. Invoked
    *  only when `cfg.stackPrsOnDependencies` is true and no `ralph:branch:`
    *  label override is present. */
-  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<string | null>;
+  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<DependencyBase | null>;
 }
 
 /**
@@ -844,14 +858,23 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
 
   const labelBase = baseBranchFromLabels(issue.labels);
   let base = labelBase ?? cfg.prBaseBranch;
+  let stackedOn: DependencyBase | undefined;
   if (labelBase && labelBase !== cfg.prBaseBranch) {
     log(`  base branch override from label: ${labelBase}`, "gray");
   } else if (cfg.stackPrsOnDependencies && resolveDependencyBaseBranch) {
     try {
       const dependencyBase = await resolveDependencyBaseBranch(issue);
-      if (dependencyBase && dependencyBase !== base) {
-        log(`  base branch override from blocker PR: ${dependencyBase}`, "gray");
-        base = dependencyBase;
+      if (dependencyBase && dependencyBase.baseBranch !== base) {
+        stackedOn = dependencyBase;
+        base = dependencyBase.baseBranch;
+        const blocker = dependencyBase.blockerIdentifier ?? "blocker";
+        const prRef = dependencyBase.prNumber ? `PR #${dependencyBase.prNumber}` : "blocker PR";
+        log(
+          `  🥞 stacked PR: ${issue.identifier} → based on ${blocker} ${prRef} ` +
+            `(${dependencyBase.prUrl}); base branch \`${base}\``,
+          "cyan",
+        );
+        emit("stacked-pr", `${blocker} ${prRef} → ${base}`);
       }
     } catch (err) {
       log(
@@ -866,6 +889,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     cwd,
     branch,
     base,
+    ...(stackedOn ? { stackedOn } : {}),
     changeDir,
     stateFilePath,
     cfg,

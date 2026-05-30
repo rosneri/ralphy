@@ -40,16 +40,46 @@ export async function pickOpenPrUrlFromAttachments(
 }
 
 /**
+ * Identity of the blocker PR a stacked PR is based on. Carries enough to make
+ * the dependency clear in logs and on the PR itself — the head branch used as
+ * the new PR's base, the blocker PR URL/number, and the blocker ticket
+ * identifier (best-effort).
+ */
+export interface DependencyBase {
+  /** Head branch of the blocker's single open PR; used as the new PR's base. */
+  baseBranch: string;
+  /** URL of the blocker PR the new PR is stacked on top of. */
+  prUrl: string;
+  /** PR number parsed from `prUrl`, or null when it could not be parsed. */
+  prNumber: number | null;
+  /** Blocker ticket identifier (e.g. "LIT-42"), best-effort from the PR title. */
+  blockerIdentifier: string | null;
+}
+
+const PR_NUMBER_RE = /\/pull\/(\d+)/;
+/** Ralph titles its PRs `<IDENT>: <title>`, so the ticket leads the title. */
+const TICKET_IN_TITLE_RE = /^([A-Za-z][A-Za-z0-9]*-\d+)\b/;
+
+function parsePrNumber(url: string): number | null {
+  const m = PR_NUMBER_RE.exec(url);
+  return m ? Number(m[1]) : null;
+}
+
+/**
  * Standalone variant of the dependency-base resolver — exported so unit tests
  * can exercise it without booting the full coordinator. The closure inside
  * `buildAgentCoordinator` delegates to this. Keep behavior identical.
+ *
+ * Returns the blocker PR's identity (branch + ticket + PR) when exactly one
+ * blocker has a single open PR; null otherwise (no blockers, ambiguous, or
+ * lookup failure) so the caller falls back to the default base branch.
  */
 export async function resolveDependencyBaseBranchImpl(
   issue: LinearIssue,
   runner: CmdRunner,
   runnerCwd: string,
   deps: { apiKey: string; onLog: (msg: string, color?: string) => void },
-): Promise<string | null> {
+): Promise<DependencyBase | null> {
   const blockerIds = issue.blockedByIds;
   if (blockerIds.length === 0) return null;
 
@@ -64,25 +94,34 @@ export async function resolveDependencyBaseBranchImpl(
     return null;
   }
 
-  const candidates: string[] = [];
+  const candidates: DependencyBase[] = [];
   for (const blockerId of blockerIds) {
     const attachments = attachmentsByBlocker.get(blockerId) ?? [];
     const prUrls = attachments
       .map((a) => a.url)
       .filter((url) => /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url));
-    const openHeads: string[] = [];
+    const openPrs: DependencyBase[] = [];
     for (const url of prUrls) {
       try {
         const res = await runner.run(
-          ["gh", "pr", "view", url, "--json", "state,headRefName", "--jq", "."],
+          ["gh", "pr", "view", url, "--json", "state,headRefName,title,url", "--jq", "."],
           runnerCwd,
         );
         const parsed = JSON.parse(res.stdout.trim()) as {
           state?: string;
           headRefName?: string;
+          title?: string;
+          url?: string;
         };
         if (parsed.state === "OPEN" && parsed.headRefName) {
-          openHeads.push(parsed.headRefName);
+          const prUrl = parsed.url ?? url;
+          const titleMatch = parsed.title ? TICKET_IN_TITLE_RE.exec(parsed.title) : null;
+          openPrs.push({
+            baseBranch: parsed.headRefName,
+            prUrl,
+            prNumber: parsePrNumber(prUrl),
+            blockerIdentifier: titleMatch ? (titleMatch[1] as string) : null,
+          });
         }
       } catch (err) {
         deps.onLog(
@@ -91,17 +130,17 @@ export async function resolveDependencyBaseBranchImpl(
         );
       }
     }
-    if (openHeads.length === 1) {
-      candidates.push(openHeads[0] as string);
-    } else if (openHeads.length > 1) {
+    if (openPrs.length === 1) {
+      candidates.push(openPrs[0] as DependencyBase);
+    } else if (openPrs.length > 1) {
       deps.onLog(
-        `  ${issue.identifier}: blocker ${blockerId} has ${openHeads.length} open PRs — skipping dependency base resolution`,
+        `  ${issue.identifier}: blocker ${blockerId} has ${openPrs.length} open PRs — skipping dependency base resolution`,
         "gray",
       );
     }
   }
 
-  if (candidates.length === 1) return candidates[0] as string;
+  if (candidates.length === 1) return candidates[0] as DependencyBase;
   if (candidates.length > 1) {
     deps.onLog(
       `  ${issue.identifier}: ${candidates.length} blockers have open PRs — falling back to default base`,
