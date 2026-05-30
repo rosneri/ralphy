@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { getStorage, getLayout } from "@ralphy/context";
 import { worktreesDir } from "@ralphy/paths";
-import { phaseGlyph } from "./TaskStatus";
 
 /**
  * Count checked and unchecked task items in a markdown file.
@@ -77,12 +76,9 @@ function buildRows(): TaskRow[] {
       }
 
       seenNames.add(entry);
-      const taskPhase = String(state.phase ?? "execute");
       rows.push({
         name: String(state.name ?? entry),
-        // Show the real phase + its glyph (like the active TaskStatus view),
-        // not the status — otherwise iterating tasks render "iter" here.
-        phase: `${phaseGlyph(taskPhase)} ${taskPhase}`,
+        phase: String(state.status ?? "active"),
         status: String(state.status ?? "unknown"),
         iters: String(state.iteration ?? 0),
         progress,
