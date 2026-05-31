@@ -1,6 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreDependencies": [
+    "@rosneri/xstate-mcp",
     "@secretlint/secretlint-rule-preset-recommend",
     "@fission-ai/openspec",
     "@nx/js",
