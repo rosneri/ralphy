@@ -5,8 +5,15 @@ import { join } from "node:path";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { parseWorkflow } from "@ralphy/workflow";
-import { buildWorkflowMarkdown } from "@ralphy/workflow/wizard";
-import { SetupWizard, EditOrExitPrompt, fieldsForMode, assembleAnswers } from "../SetupWizard";
+import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
+import {
+  SetupWizard,
+  EditOrExitPrompt,
+  IndicatorBuilder,
+  fieldsForMode,
+  assembleAnswers,
+} from "../SetupWizard";
+import type { IndicatorMap } from "@ralphy/workflow/wizard";
 import { maybeRunSetupWizard } from "../index";
 
 describe("fieldsForMode", () => {
@@ -27,20 +34,36 @@ describe("fieldsForMode", () => {
     expect(ids).toContain("engine");
     expect(ids).toContain("model");
     expect(ids).toContain("createPrOnSuccess");
-    expect(ids).toContain("linear.indicatorsPreset");
+    expect(ids).toContain("linear.indicators");
+    expect(ids).toContain("linear.confirmationMode.enabled");
     expect(ids.length).toBeGreaterThan(fieldsForMode("quick").length);
+  });
+
+  test("gated sub-fields only appear when their section is enabled", () => {
+    const off = fieldsForMode("customized", {}).map((f) => f.id);
+    expect(off).not.toContain("stackPrsOnDependencies");
+    expect(off).not.toContain("linear.confirmationMode.timeoutHours");
+
+    const on = fieldsForMode("customized", {
+      createPrOnSuccess: true,
+      "linear.confirmationMode.enabled": true,
+    }).map((f) => f.id);
+    expect(on).toContain("stackPrsOnDependencies");
+    expect(on).toContain("autoMergeStrategy");
+    expect(on).toContain("linear.confirmationMode.timeoutHours");
   });
 });
 
 describe("assembleAnswers", () => {
   test("attaches the mode and round-trips through buildWorkflowMarkdown", () => {
-    const collected = {
-      project: { name: "svc" },
+    const values = {
+      "project.name": "svc",
       engine: "codex",
       concurrency: 2,
-      linear: { team: "ENG", indicatorsPreset: "status-standard" },
+      "linear.team": "ENG",
+      "linear.indicators": indicatorsForPreset("status-standard"),
     };
-    const answers = assembleAnswers("customized", collected);
+    const answers = assembleAnswers("customized", values);
     expect(answers.mode).toBe("customized");
     const { config } = parseWorkflow(buildWorkflowMarkdown(answers));
     expect(config.project.name).toBe("svc");
@@ -156,6 +179,39 @@ describe("SetupWizard render", () => {
     expect(frame).toContain("customized setup — step 1");
     expect(frame).toContain("Project name: svc");
     unmount();
+  });
+});
+
+describe("IndicatorBuilder", () => {
+  test("builds a get-slot filter from chosen type + value", async () => {
+    const ENTER = "\r";
+    const DOWN = "[B";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const captured: { map: IndicatorMap | null } = { map: null };
+    const { stdin, unmount } = render(
+      createElement(IndicatorBuilder, {
+        slots: ["getTodo"],
+        onDone: (m: IndicatorMap) => {
+          captured.map = m;
+        },
+        onCancel: () => {},
+      }),
+    );
+    await tick();
+    stdin.write(ENTER); // type = status (first option)
+    await tick();
+    stdin.write("Todo"); // marker value
+    await tick();
+    stdin.write(ENTER); // add marker
+    await tick();
+    for (let i = 0; i < 5; i++) {
+      stdin.write(DOWN); // move to "done with this slot"
+      await tick();
+    }
+    stdin.write(ENTER); // finish slot -> last slot -> onDone
+    await tick();
+    unmount();
+    expect(captured.map).toEqual({ getTodo: { filter: [{ type: "status", value: "Todo" }] } });
   });
 });
 

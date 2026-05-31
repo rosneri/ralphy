@@ -1,22 +1,17 @@
 import { useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { buildWorkflowMarkdown, type SetupMode, type WizardAnswers } from "@ralphy/workflow/wizard";
+import {
+  buildWorkflowMarkdown,
+  indicatorsForPreset,
+  type IndicatorMap,
+  type IndicatorMarker,
+  type SetupMode,
+  type WizardAnswers,
+  type WizardValue,
+} from "@ralphy/workflow/wizard";
+import { fieldsForMode, type Field, type FieldSpec } from "./fields";
 
-type FieldSpec =
-  | { kind: "text"; placeholder?: string }
-  | { kind: "number"; placeholder?: string }
-  | { kind: "select"; options: { label: string; value: string }[] }
-  | { kind: "confirm"; defaultChoice: "confirm" | "cancel" };
-
-interface Field {
-  /** Dotted path into WizardAnswers (at most two levels). */
-  id: string;
-  label: string;
-  hint?: string;
-  /** What to display in the history when the field is left blank. */
-  emptyLabel?: string;
-  spec: FieldSpec;
-}
+export { fieldsForMode } from "./fields";
 
 interface Option {
   label: string;
@@ -29,216 +24,126 @@ const MODE_OPTIONS: Option[] = [
   { label: "Customized — walk through every setting group", value: "customized" },
 ];
 
+const INDICATOR_OPTIONS: Option[] = [
+  { label: "None — configure later in WORKFLOW.md", value: "none" },
+  { label: "Status-based (Todo → In Progress → In Review)", value: "status-standard" },
+  { label: "Label-based (ralph:todo / in-progress / done)", value: "label-standard" },
+  { label: "Custom — build markers per lifecycle slot", value: "custom" },
+];
+
 const CONFIRM_OPTIONS: Option[] = [
   { label: "Yes", value: "true" },
   { label: "No", value: "false" },
 ];
 
-const PROJECT_NAME: Field = {
-  id: "project.name",
-  label: "Project name",
-  spec: { kind: "text", placeholder: "my-project" },
-};
-const LINEAR_TEAM: Field = {
-  id: "linear.team",
-  label: "Linear team key",
-  hint: "e.g. ENG — leave blank to match all teams",
-  emptyLabel: "all teams",
-  spec: { kind: "text" },
-};
-const LINEAR_ASSIGNEE: Field = {
-  id: "linear.assignee",
-  label: "Linear assignee",
-  hint: "user id, email, or 'me' — blank for unassigned",
-  emptyLabel: "unassigned",
-  spec: { kind: "text" },
-};
-const LINEAR_INDICATORS: Field = {
-  id: "linear.indicatorsPreset",
-  label: "Linear lifecycle indicators",
-  spec: {
-    kind: "select",
-    options: [
-      { label: "None — configure later in WORKFLOW.md", value: "none" },
-      { label: "Status-based (Todo → In Progress → In Review)", value: "status-standard" },
-      { label: "Label-based (ralph:todo / in-progress / done)", value: "label-standard" },
-    ],
-  },
-};
+/** Answers are keyed by field id (a dotted frontmatter path). */
+type Answers = Record<string, WizardValue>;
 
-const QUICK_FIELDS: Field[] = [PROJECT_NAME, LINEAR_TEAM, LINEAR_ASSIGNEE];
-
-const CUSTOMIZED_FIELDS: Field[] = [
-  PROJECT_NAME,
-  { id: "project.language", label: "Language", spec: { kind: "text", placeholder: "TypeScript" } },
-  { id: "project.framework", label: "Framework", spec: { kind: "text", placeholder: "Bun + Nx" } },
-  { id: "commands.test", label: "Test command", spec: { kind: "text", placeholder: "bun test" } },
-  {
-    id: "commands.lint",
-    label: "Lint command",
-    spec: { kind: "text", placeholder: "bun run lint" },
-  },
-  {
-    id: "commands.build",
-    label: "Build command",
-    spec: { kind: "text", placeholder: "bun run build" },
-  },
-  {
-    id: "commands.typecheck",
-    label: "Typecheck command",
-    spec: { kind: "text", placeholder: "bun run typecheck" },
-  },
-  {
-    id: "engine",
-    label: "Engine",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "claude", value: "claude" },
-        { label: "codex", value: "codex" },
-      ],
-    },
-  },
-  {
-    id: "model",
-    label: "Model tier",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "opus", value: "opus" },
-        { label: "sonnet", value: "sonnet" },
-        { label: "haiku", value: "haiku" },
-      ],
-    },
-  },
-  {
-    id: "concurrency",
-    label: "Concurrency (parallel tasks)",
-    spec: { kind: "number", placeholder: "1" },
-  },
-  {
-    id: "createPrOnSuccess",
-    label: "Open a pull request when a task succeeds?",
-    spec: { kind: "confirm", defaultChoice: "cancel" },
-  },
-  { id: "prBaseBranch", label: "PR base branch", spec: { kind: "text", placeholder: "main" } },
-  {
-    id: "fixCiOnFailure",
-    label: "Let the agent attempt to fix CI failures?",
-    spec: { kind: "confirm", defaultChoice: "cancel" },
-  },
-  {
-    id: "useWorktree",
-    label: "Run each task in an isolated git worktree?",
-    spec: { kind: "confirm", defaultChoice: "cancel" },
-  },
-  LINEAR_TEAM,
-  LINEAR_ASSIGNEE,
-  LINEAR_INDICATORS,
-];
-
-export function fieldsForMode(mode: SetupMode): Field[] {
-  return mode === "customized" ? CUSTOMIZED_FIELDS : QUICK_FIELDS;
+/** Wrap collected answers into the builder's input shape. */
+export function assembleAnswers(mode: SetupMode, values: Answers): WizardAnswers {
+  return { mode, values };
 }
 
-type AnswerValue = string | number | boolean;
-type Answers = Record<number, AnswerValue>;
-
-/** The options shown for a select/confirm field. */
-function optionsFor(field: Field): Option[] {
-  if (field.spec.kind === "select") return field.spec.options;
-  return CONFIRM_OPTIONS;
-}
-
-/** Set a one- or two-level dotted path on a plain record. */
-function setPath(target: Record<string, unknown>, path: string, value: AnswerValue): void {
-  const parts = path.split(".");
-  if (parts.length === 1) {
-    target[parts[0]!] = value;
-    return;
+/** Convert the indicators answer (preset string or custom map) to a map. */
+function resolveIndicators(value: WizardValue | undefined): IndicatorMap | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") {
+    return value === "none"
+      ? undefined
+      : indicatorsForPreset(value as "status-standard" | "label-standard");
   }
-  const [head, leaf] = parts as [string, string];
-  const child = (target[head] as Record<string, unknown> | undefined) ?? {};
-  child[leaf] = value;
-  target[head] = child;
+  return value as IndicatorMap;
 }
 
-/**
- * Assemble the collected answers into the WizardAnswers shape. The collected
- * record already mirrors the dotted ids, so we only need to attach the mode.
- */
-export function assembleAnswers(
-  mode: SetupMode,
-  collected: Record<string, unknown>,
-): WizardAnswers {
-  return { mode, ...collected } as WizardAnswers;
-}
-
-/** Turn the per-step answer map into the final WORKFLOW.md string. */
 function buildFromAnswers(
   mode: SetupMode,
-  fields: Field[],
   answers: Answers,
   build: (answers: WizardAnswers) => string = buildWorkflowMarkdown,
 ): string {
-  const collected: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(answers)) {
-    const field = fields[Number(key)];
-    if (field) setPath(collected, field.id, value);
+  const values: Answers = { ...answers };
+  if ("linear.indicators" in values) {
+    const indicators = resolveIndicators(values["linear.indicators"]);
+    if (indicators) values["linear.indicators"] = indicators;
+    else delete values["linear.indicators"];
   }
-  return build(assembleAnswers(mode, collected));
+  return build(assembleAnswers(mode, values));
 }
 
-/** Human-readable rendering of a recorded answer for the history list. */
-function formatAnswer(field: Field, value: AnswerValue | undefined): string {
+function optionsFor(field: Field): Option[] {
+  if (field.spec.kind === "select" || field.spec.kind === "multiselect") return field.spec.options;
+  if (field.spec.kind === "indicators") return INDICATOR_OPTIONS;
+  return CONFIRM_OPTIONS;
+}
+
+/** Human-readable rendering of an answer for the history list. */
+function formatAnswer(field: Field, value: WizardValue | undefined): string {
+  if (field.spec.kind === "indicators") {
+    if (value === undefined || value === "none") return "none";
+    if (typeof value === "string") {
+      return optionsFor(field).find((o) => o.value === value)?.label ?? value;
+    }
+    return `custom (${Object.keys(value).length} slot(s))`;
+  }
   if (value === undefined) {
-    // A field-specific word (e.g. "unassigned") wins; otherwise fall back to
-    // the schema default the placeholder advertises.
     if (field.emptyLabel) return field.emptyLabel;
     if (field.spec.kind === "text" || field.spec.kind === "number") {
       return field.spec.placeholder ?? "(skipped)";
     }
+    if (field.spec.kind === "list" || field.spec.kind === "multiselect") return "(none)";
     return "(skipped)";
   }
   if (field.spec.kind === "confirm") return value ? "Yes" : "No";
   if (field.spec.kind === "select") {
-    return field.spec.options.find((option) => option.value === value)?.label ?? String(value);
+    return optionsFor(field).find((o) => o.value === value)?.label ?? String(value);
   }
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "(none)";
   return String(value);
 }
 
-/** Highlighted option index when (re)entering a select/confirm field. */
-function initialOptionIndex(field: Field, stored: AnswerValue | undefined): number {
+interface EditingState {
+  draft: string;
+  optionIndex: number;
+  listItems: string[];
+  selected: Set<string>;
+}
+
+function computeEditing(field: Field, stored: WizardValue | undefined): EditingState {
+  return {
+    draft:
+      (field.spec.kind === "text" || field.spec.kind === "number") && stored !== undefined
+        ? String(stored)
+        : "",
+    optionIndex: initialOptionIndex(field, stored),
+    listItems: field.spec.kind === "list" && Array.isArray(stored) ? [...stored] : [],
+    selected:
+      field.spec.kind === "multiselect" && Array.isArray(stored) ? new Set(stored) : new Set(),
+  };
+}
+
+function initialOptionIndex(field: Field, stored: WizardValue | undefined): number {
   const options = optionsFor(field);
   if (field.spec.kind === "confirm") {
     if (stored === undefined) return field.spec.defaultChoice === "confirm" ? 0 : 1;
     return stored ? 0 : 1;
   }
+  if (field.spec.kind === "indicators") {
+    if (stored === undefined || stored === "none") return 0;
+    if (typeof stored === "string") {
+      const found = options.findIndex((o) => o.value === stored);
+      return found < 0 ? 0 : found;
+    }
+    return options.findIndex((o) => o.value === "custom"); // a custom map
+  }
   if (stored === undefined) return 0;
-  const found = options.findIndex((option) => option.value === stored);
+  const found = options.findIndex((o) => o.value === stored);
   return found < 0 ? 0 : found;
 }
 
-/** Map field-id keyed values onto the step-index keyed answers map. */
-function indexedAnswers(mode: SetupMode, values: Record<string, AnswerValue>): Answers {
-  const answers: Answers = {};
-  fieldsForMode(mode).forEach((field, i) => {
-    const value = values[field.id];
-    if (value !== undefined) answers[i] = value;
-  });
-  return answers;
-}
-
 interface SetupWizardProps {
-  /** Called with the finished WORKFLOW.md string. The host writes the file. */
   onComplete: (markdown: string) => void;
-  /** Called when the user aborts (Esc) before finishing. */
   onCancel?: () => void;
-  /** Start directly in this mode (skips the mode picker) — used when editing. */
   initialMode?: SetupMode;
-  /** Field-id keyed values to prefill (used when editing an existing file). */
-  initialValues?: Record<string, AnswerValue>;
-  /** Override how answers become markdown (editing applies onto the existing file). */
+  initialValues?: Answers;
   buildMarkdown?: (answers: WizardAnswers) => string;
 }
 
@@ -250,135 +155,176 @@ export function SetupWizard({
   buildMarkdown,
 }: SetupWizardProps) {
   const { exit } = useApp();
-  const startFields = initialMode ? fieldsForMode(initialMode) : [];
-  const startAnswers = initialMode ? indexedAnswers(initialMode, initialValues ?? {}) : {};
+  const startValues = initialValues ?? {};
+  const startFields = initialMode ? fieldsForMode(initialMode, startValues) : [];
+  const startEditing = startFields[0]
+    ? computeEditing(startFields[0]!, startValues[startFields[0]!.id])
+    : null;
+
   const [mode, setMode] = useState<SetupMode | null>(initialMode ?? null);
   const [modeIndex, setModeIndex] = useState(0);
   const [index, setIndex] = useState(0);
-  const [maxVisited, setMaxVisited] = useState(initialMode ? startFields.length - 1 : 0);
-  const [answers, setAnswers] = useState<Answers>(startAnswers);
-  const [draft, setDraft] = useState(() => {
-    const first = startFields[0];
-    if (first && (first.spec.kind === "text" || first.spec.kind === "number")) {
-      return startAnswers[0] === undefined ? "" : String(startAnswers[0]);
-    }
-    return "";
-  });
-  const [optionIndex, setOptionIndex] = useState(() => {
-    const first = startFields[0];
-    if (first && (first.spec.kind === "select" || first.spec.kind === "confirm")) {
-      return initialOptionIndex(first, startAnswers[0]);
-    }
-    return 0;
-  });
+  const [visited, setVisited] = useState<Set<string>>(() => new Set(startFields.map((f) => f.id)));
+  const [answers, setAnswers] = useState<Answers>(startValues);
+  const [draft, setDraft] = useState(startEditing?.draft ?? "");
+  const [optionIndex, setOptionIndex] = useState(startEditing?.optionIndex ?? 0);
+  const [listItems, setListItems] = useState<string[]>(startEditing?.listItems ?? []);
+  const [selected, setSelected] = useState<Set<string>>(startEditing?.selected ?? new Set());
+  const [building, setBuilding] = useState(false);
 
-  const fields = mode ? fieldsForMode(mode) : [];
+  const fields = mode ? fieldsForMode(mode, answers) : [];
   const lastIndex = fields.length - 1;
+  const field = fields[index];
 
-  /** Reset the transient editing state when (re)entering a step. */
-  const initEditing = (field: Field, stored: AnswerValue | undefined): void => {
-    if (field.spec.kind === "text" || field.spec.kind === "number") {
-      setDraft(stored === undefined ? "" : String(stored));
-      setOptionIndex(0);
-    } else {
-      setDraft("");
-      setOptionIndex(initialOptionIndex(field, stored));
-    }
+  const initEditing = (next: Field, source: Answers): void => {
+    const editing = computeEditing(next, source[next.id]);
+    setDraft(editing.draft);
+    setOptionIndex(editing.optionIndex);
+    setListItems(editing.listItems);
+    setSelected(editing.selected);
   };
 
-  /** Commit the current step's editing state into a fresh answers map. */
-  const commitCurrent = (): Answers => {
-    const next: Answers = { ...answers };
-    const field = fields[index]!;
-    const { spec } = field;
-    if (spec.kind === "text") {
-      const trimmed = draft.trim();
-      if (trimmed === "") delete next[index];
-      else next[index] = trimmed;
-    } else if (spec.kind === "number") {
+  const valueForCommit = (target: Field): WizardValue | undefined => {
+    const { spec } = target;
+    if (spec.kind === "text") return draft.trim() === "" ? undefined : draft.trim();
+    if (spec.kind === "number") {
       const parsed = Number.parseInt(draft.trim(), 10);
-      if (Number.isFinite(parsed)) next[index] = parsed;
-      else delete next[index];
-    } else if (spec.kind === "confirm") {
-      next[index] = optionIndex === 0;
-    } else {
-      next[index] = spec.options[optionIndex]!.value;
+      return Number.isFinite(parsed) ? parsed : undefined;
     }
+    if (spec.kind === "confirm") return optionIndex === 0;
+    if (spec.kind === "select") return spec.options[optionIndex]!.value;
+    if (spec.kind === "list") return listItems.length ? [...listItems] : undefined;
+    if (spec.kind === "multiselect") return selected.size ? [...selected] : undefined;
+    // indicators handled separately (never reaches here)
+    return undefined;
+  };
+
+  const commitCurrent = (): Answers => {
+    if (!field) return answers;
+    const next: Answers = { ...answers };
+    if (field.spec.kind === "indicators") {
+      const value = INDICATOR_OPTIONS[optionIndex]!.value;
+      if (value === "custom") return next; // committed by the builder, not here
+      if (value === "none") delete next["linear.indicators"];
+      else next["linear.indicators"] = value;
+      return next;
+    }
+    const value = valueForCommit(field);
+    if (value === undefined) delete next[field.id];
+    else next[field.id] = value;
     return next;
   };
 
-  const goTo = (target: number, src: Answers): void => {
-    setAnswers(src);
+  const goTo = (target: number, source: Answers): void => {
+    setAnswers(source);
     setIndex(target);
-    initEditing(fields[target]!, src[target]);
+    initEditing(fieldsForMode(mode!, source)[target]!, source);
   };
 
-  useInput((input, key) => {
-    if (key.escape) {
-      onCancel?.();
+  const advance = (source: Answers): void => {
+    const nextFields = fieldsForMode(mode!, source);
+    if (index >= nextFields.length - 1) {
+      onComplete(buildFromAnswers(mode!, source, buildMarkdown));
       exit();
       return;
     }
+    setVisited((prev) => new Set(prev).add(nextFields[index + 1]!.id));
+    goTo(index + 1, source);
+  };
 
-    if (mode === null) {
-      if (key.upArrow) setModeIndex((modeIndex + MODE_OPTIONS.length - 1) % MODE_OPTIONS.length);
-      else if (key.downArrow) setModeIndex((modeIndex + 1) % MODE_OPTIONS.length);
-      else if (key.return) {
-        const chosen = MODE_OPTIONS[modeIndex]!.value as SetupMode;
-        setMode(chosen);
-        setIndex(0);
-        initEditing(fieldsForMode(chosen)[0]!, undefined);
-      }
-      return;
-    }
-
-    const field = fields[index]!;
-    const isOptionField = field.spec.kind === "select" || field.spec.kind === "confirm";
-
-    // Up/Down switch the current question's options.
-    if (key.upArrow || key.downArrow) {
-      if (isOptionField) {
-        const length = optionsFor(field).length;
-        const delta = key.upArrow ? length - 1 : 1;
-        setOptionIndex((optionIndex + delta) % length);
-      }
-      return;
-    }
-
-    // Left/Right move to the previous/next question (forward only into
-    // questions already reached), committing the current edit first.
-    if (key.leftArrow) {
-      if (index > 0) goTo(index - 1, commitCurrent());
-      return;
-    }
-    if (key.rightArrow) {
-      if (index < lastIndex && index < maxVisited) goTo(index + 1, commitCurrent());
-      return;
-    }
-
-    if (key.return) {
-      const next = commitCurrent();
-      if (index >= lastIndex) {
-        onComplete(buildFromAnswers(mode, fields, next, buildMarkdown));
+  useInput(
+    (input, key) => {
+      if (key.escape) {
+        onCancel?.();
         exit();
-      } else {
-        setMaxVisited(Math.max(maxVisited, index + 1));
-        goTo(index + 1, next);
+        return;
       }
-      return;
-    }
 
-    if (isOptionField) return; // typing is ignored on option fields
+      if (mode === null) {
+        if (key.upArrow) setModeIndex((modeIndex + MODE_OPTIONS.length - 1) % MODE_OPTIONS.length);
+        else if (key.downArrow) setModeIndex((modeIndex + 1) % MODE_OPTIONS.length);
+        else if (key.return) {
+          const chosen = MODE_OPTIONS[modeIndex]!.value as SetupMode;
+          setMode(chosen);
+          setIndex(0);
+          setVisited(new Set([fieldsForMode(chosen, answers)[0]!.id]));
+          initEditing(fieldsForMode(chosen, answers)[0]!, answers);
+        }
+        return;
+      }
 
-    // text / number editing
-    if (key.backspace || key.delete) {
-      setDraft(draft.slice(0, -1));
-      return;
-    }
-    if (input && !key.ctrl && !key.meta && !key.tab) {
-      setDraft(draft + input);
-    }
-  });
+      const current = fields[index]!;
+      const isOption =
+        current.spec.kind === "select" ||
+        current.spec.kind === "confirm" ||
+        current.spec.kind === "indicators" ||
+        current.spec.kind === "multiselect";
+
+      // Up/Down move option highlight.
+      if (key.upArrow || key.downArrow) {
+        if (isOption) {
+          const length = optionsFor(current).length;
+          setOptionIndex((optionIndex + (key.upArrow ? length - 1 : 1)) % length);
+        }
+        return;
+      }
+
+      // Left/Right move between questions (forward only into visited ones).
+      if (key.leftArrow) {
+        if (index > 0) goTo(index - 1, commitCurrent());
+        return;
+      }
+      if (key.rightArrow) {
+        const committed = commitCurrent();
+        const nextField = fieldsForMode(mode, committed)[index + 1];
+        if (index < lastIndex && nextField && visited.has(nextField.id)) {
+          goTo(index + 1, committed);
+        }
+        return;
+      }
+
+      // multiselect: space toggles the highlighted option.
+      if (current.spec.kind === "multiselect" && input === " ") {
+        const value = current.spec.options[optionIndex]!.value;
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (next.has(value)) next.delete(value);
+          else next.add(value);
+          return next;
+        });
+        return;
+      }
+
+      if (key.return) {
+        if (
+          current.spec.kind === "indicators" &&
+          INDICATOR_OPTIONS[optionIndex]!.value === "custom"
+        ) {
+          setBuilding(true);
+          return;
+        }
+        if (current.spec.kind === "list" && draft.trim() !== "") {
+          setListItems((prev) => [...prev, draft.trim()]);
+          setDraft("");
+          return;
+        }
+        advance(commitCurrent());
+        return;
+      }
+
+      if (isOption) return; // typing ignored on option fields
+
+      // text / number / list editing
+      if (key.backspace || key.delete) {
+        setDraft(draft.slice(0, -1));
+        return;
+      }
+      if (input && !key.ctrl && !key.meta && !key.tab) {
+        setDraft(draft + input);
+      }
+    },
+    { isActive: !building },
+  );
 
   if (mode === null) {
     return (
@@ -395,7 +341,23 @@ export function SetupWizard({
     );
   }
 
-  const field = fields[index]!;
+  if (building && field) {
+    return (
+      <IndicatorBuilder
+        slots={activeSlots(answers)}
+        onDone={(map) => {
+          const next: Answers = { ...answers };
+          if (Object.keys(map).length > 0) next["linear.indicators"] = map;
+          else delete next["linear.indicators"];
+          setBuilding(false);
+          advance(next);
+        }}
+        onCancel={() => setBuilding(false)}
+      />
+    );
+  }
+
+  if (!field) return null;
   return (
     <Box flexDirection="column">
       <AnsweredHistory fields={fields} answers={answers} upTo={index} />
@@ -403,7 +365,13 @@ export function SetupWizard({
         {mode} setup — step {index + 1}/{fields.length}
       </Text>
       <Box marginTop={1}>
-        <CurrentQuestion field={field} draft={draft} optionIndex={optionIndex} />
+        <CurrentQuestion
+          field={field}
+          draft={draft}
+          optionIndex={optionIndex}
+          listItems={listItems}
+          selected={selected}
+        />
       </Box>
       <Box marginTop={1}>
         <Text dimColor>{hintFor(field.spec.kind)}</Text>
@@ -414,8 +382,14 @@ export function SetupWizard({
 
 function hintFor(kind: FieldSpec["kind"]): string {
   const nav = "← prev · → next · esc cancel";
-  if (kind === "select" || kind === "confirm") {
+  if (kind === "select" || kind === "confirm" || kind === "indicators") {
     return `↑↓ to switch · enter to confirm and continue · ${nav}`;
+  }
+  if (kind === "multiselect") {
+    return `↑↓ to move · space to toggle · enter to confirm and continue · ${nav}`;
+  }
+  if (kind === "list") {
+    return `type + enter to add · empty enter to finish · ${nav}`;
   }
   return `type a value · enter to confirm and continue (blank to skip) · ${nav}`;
 }
@@ -437,10 +411,14 @@ function CurrentQuestion({
   field,
   draft,
   optionIndex,
+  listItems,
+  selected,
 }: {
   field: Field;
   draft: string;
   optionIndex: number;
+  listItems: string[];
+  selected: Set<string>;
 }) {
   const heading = (
     <Text>
@@ -448,11 +426,46 @@ function CurrentQuestion({
       {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
     </Text>
   );
-  if (field.spec.kind === "select" || field.spec.kind === "confirm") {
+
+  if (
+    field.spec.kind === "select" ||
+    field.spec.kind === "confirm" ||
+    field.spec.kind === "indicators"
+  ) {
     return (
       <Box flexDirection="column">
         {heading}
         <OptionList options={optionsFor(field)} highlight={optionIndex} />
+      </Box>
+    );
+  }
+  if (field.spec.kind === "multiselect") {
+    return (
+      <Box flexDirection="column">
+        {heading}
+        {field.spec.options.map((option, i) => (
+          <Text key={option.value} {...(i === optionIndex ? { color: "green" } : {})}>
+            {i === optionIndex ? "❯ " : "  "}[{selected.has(option.value) ? "x" : " "}]{" "}
+            {option.label}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
+  if (field.spec.kind === "list") {
+    return (
+      <Box flexDirection="column">
+        {heading}
+        {listItems.map((item, i) => (
+          <Text key={i} color="green">
+            • {item}
+          </Text>
+        ))}
+        <Box>
+          <Text>{"> "}</Text>
+          {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
+          <Text inverse> </Text>
+        </Box>
       </Box>
     );
   }
@@ -464,6 +477,33 @@ function CurrentQuestion({
         <Text inverse> </Text>
       </Box>
       {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
+    </Box>
+  );
+}
+
+function AnsweredHistory({
+  fields,
+  answers,
+  upTo,
+}: {
+  fields: Field[];
+  answers: Answers;
+  upTo: number;
+}) {
+  if (upTo <= 0) return null;
+  const rows = [];
+  for (let i = 0; i < upTo; i++) {
+    const field = fields[i]!;
+    rows.push(
+      <Text key={field.id}>
+        <Text dimColor>{field.label}: </Text>
+        <Text color="green">{formatAnswer(field, answers[field.id])}</Text>
+      </Text>,
+    );
+  }
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {rows}
     </Box>
   );
 }
@@ -505,29 +545,193 @@ export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "ex
   );
 }
 
-function AnsweredHistory({
-  fields,
-  answers,
-  upTo,
-}: {
-  fields: Field[];
-  answers: Answers;
-  upTo: number;
-}) {
-  if (upTo <= 0) return null;
-  const rows = [];
-  for (let i = 0; i < upTo; i++) {
-    const field = fields[i]!;
-    rows.push(
-      <Text key={i}>
-        <Text dimColor>{field.label}: </Text>
-        <Text color="green">{formatAnswer(field, answers[i])}</Text>
-      </Text>,
-    );
+// ─── Custom indicator builder ───────────────────────────────────────────────
+
+const CORE_SLOTS = [
+  "getTodo",
+  "getInProgress",
+  "setInProgress",
+  "setDone",
+  "setError",
+  "getAutoMerge",
+] as const;
+const CONFIRMATION_SLOTS = [
+  "getConfirmGate",
+  "getAutoApprove",
+  "getApproved",
+  "clearApproved",
+  "setAwaitingConfirmation",
+  "clearAwaitingConfirmation",
+] as const;
+
+/** Which slots the builder walks — core lifecycle plus gate slots when enabled. */
+function activeSlots(answers: Answers): string[] {
+  const slots: string[] = [...CORE_SLOTS];
+  if (answers["linear.confirmationMode.enabled"] === true) slots.push(...CONFIRMATION_SLOTS);
+  return slots;
+}
+
+type SlotCategory = "get" | "set" | "clear";
+function categoryOf(slot: string): SlotCategory {
+  if (slot.startsWith("get")) return "get";
+  if (slot.startsWith("clear")) return "clear";
+  return "set";
+}
+
+function typeOptionsFor(slot: string): Option[] {
+  const category = categoryOf(slot);
+  const all: Option[] = [
+    { label: "status", value: "status" },
+    { label: "label", value: "label" },
+    { label: "project", value: "project" },
+    { label: "attachment", value: "attachment" },
+    { label: "comment", value: "comment" },
+  ];
+  if (category === "get") return all;
+  if (category === "set") return all.filter((o) => o.value !== "comment");
+  return all.filter((o) => o.value === "label" || o.value === "comment"); // clear
+}
+
+function buildIndicatorMap(markers: Record<string, IndicatorMarker[]>): IndicatorMap {
+  const map: IndicatorMap = {};
+  for (const [slot, list] of Object.entries(markers)) {
+    if (!list.length) continue;
+    if (categoryOf(slot) === "get") map[slot] = { filter: list };
+    else map[slot] = list.length === 1 ? list[0]! : list;
   }
+  return map;
+}
+
+export function IndicatorBuilder({
+  slots,
+  onDone,
+  onCancel,
+}: {
+  slots: string[];
+  onDone: (map: IndicatorMap) => void;
+  onCancel: () => void;
+}) {
+  const [slotIndex, setSlotIndex] = useState(0);
+  const [phase, setPhase] = useState<"type" | "value" | "group">("type");
+  const [typeIndex, setTypeIndex] = useState(0);
+  const [draft, setDraft] = useState("");
+  const [pendingType, setPendingType] = useState("");
+  const [pendingValue, setPendingValue] = useState("");
+  const [markers, setMarkers] = useState<Record<string, IndicatorMarker[]>>({});
+
+  const slot = slots[slotIndex];
+  const typeChoices: Option[] = slot
+    ? [...typeOptionsFor(slot), { label: "✓ done with this slot", value: "__done" }]
+    : [];
+
+  const nextSlot = (): void => {
+    if (slotIndex >= slots.length - 1) {
+      onDone(buildIndicatorMap(markers));
+      return;
+    }
+    setSlotIndex(slotIndex + 1);
+    setPhase("type");
+    setTypeIndex(0);
+    setDraft("");
+  };
+
+  const addMarker = (marker: IndicatorMarker): void => {
+    setMarkers((prev) => ({ ...prev, [slot!]: [...(prev[slot!] ?? []), marker] }));
+    setPhase("type");
+    setTypeIndex(0);
+    setDraft("");
+  };
+
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel();
+      return;
+    }
+    if (!slot) return;
+
+    if (phase === "type") {
+      if (key.upArrow) setTypeIndex((typeIndex + typeChoices.length - 1) % typeChoices.length);
+      else if (key.downArrow) setTypeIndex((typeIndex + 1) % typeChoices.length);
+      else if (key.return) {
+        const choice = typeChoices[typeIndex]!.value;
+        if (choice === "__done") nextSlot();
+        else {
+          setPendingType(choice);
+          setPhase("value");
+          setDraft("");
+        }
+      }
+      return;
+    }
+
+    // value / group text entry
+    if (key.return) {
+      const text = draft.trim();
+      if (phase === "value") {
+        if (text === "") return; // value is required
+        if (pendingType === "label") {
+          setPendingValue(text);
+          setPhase("group");
+          setDraft("");
+        } else {
+          addMarker({ type: pendingType as IndicatorMarker["type"], value: text });
+        }
+      } else {
+        // group (optional, label only)
+        addMarker(
+          text === ""
+            ? { type: "label", value: pendingValue }
+            : { type: "label", value: pendingValue, group: text },
+        );
+      }
+      return;
+    }
+    if (key.backspace || key.delete) {
+      setDraft(draft.slice(0, -1));
+      return;
+    }
+    if (input && !key.ctrl && !key.meta && !key.tab) setDraft(draft + input);
+  });
+
+  if (!slot) return null;
+  const existing = markers[slot] ?? [];
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      {rows}
+    <Box flexDirection="column">
+      <Text bold>
+        Custom indicators — {slot} ({categoryOf(slot)})
+      </Text>
+      <Text dimColor>
+        slot {slotIndex + 1}/{slots.length}
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        {existing.map((marker, i) => (
+          <Text key={i} color="green">
+            • {marker.type}: {marker.group ? `${marker.group}:${marker.value}` : marker.value}
+          </Text>
+        ))}
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        {phase === "type" ? (
+          <>
+            <Text>Add a marker (or finish this slot):</Text>
+            <OptionList options={typeChoices} highlight={typeIndex} />
+            <Text dimColor>↑↓ to move · enter to choose · esc to cancel</Text>
+          </>
+        ) : (
+          <>
+            <Box>
+              <Text bold>
+                {phase === "value" ? `${pendingType} value` : "label group (optional)"}:{" "}
+              </Text>
+              <Text>{draft}</Text>
+              <Text inverse> </Text>
+            </Box>
+            <Text dimColor>
+              type a value · enter to confirm{phase === "group" ? " (blank = no group)" : ""}
+            </Text>
+          </>
+        )}
+      </Box>
     </Box>
   );
 }
