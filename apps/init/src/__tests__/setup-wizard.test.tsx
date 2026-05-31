@@ -238,7 +238,7 @@ describe("SetupWizard render", () => {
     const plain = frame.replace(/\[[0-9;]*m/g, "");
     expect(plain).toContain("customized · step 1");
     expect(plain).toContain("Project name"); // the title
-    expect(plain).toContain("Shown in prompts and logs"); // the description line
+    expect(plain).toContain("The project's display name"); // the description line
     expect(plain).toContain("svc"); // the prefilled value in the input
     unmount();
   });

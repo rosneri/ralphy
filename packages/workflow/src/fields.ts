@@ -5,8 +5,10 @@
  * prior answer so sub-options only appear when their section is enabled.
  *
  * `hint` is a short inline note about the input itself (e.g. "blank = all
- * teams"); `description` is a one-line explanation of what the setting does,
- * shown under the question. Migrations (see migrations.ts) reference these ids.
+ * teams"); `description` is a one- or two-sentence explanation of what the
+ * setting does, written for someone new to Ralphy — it is shown under the
+ * question AND pasted as a comment above the setting in the generated
+ * WORKFLOW.md (a test keeps the two in sync). Migrations reference these ids.
  */
 import type { WizardValue } from "./wizard";
 
@@ -38,14 +40,15 @@ const no = (): FieldSpec => ({ kind: "confirm", defaultChoice: "cancel" });
 const PROJECT_NAME: Field = {
   id: "project.name",
   label: "Project name",
-  description: "Shown in prompts and logs to identify this project.",
+  description: "The project's display name. Ralphy puts it in the agent's prompt and in its logs.",
   spec: { kind: "text", placeholder: "my-project" },
 };
 const LINEAR_TEAM: Field = {
   id: "linear.team",
   label: "Linear team key",
   hint: "e.g. ENG — leave blank to match all teams",
-  description: "Restrict issue pickup to one Linear team. Blank watches every team.",
+  description:
+    "Only pick up issues from this Linear team, given by its key (e.g. ENG). Leave blank to watch every team.",
   emptyLabel: "all teams",
   spec: { kind: "text" },
 };
@@ -53,7 +56,8 @@ const LINEAR_ASSIGNEE: Field = {
   id: "linear.assignee",
   label: "Linear assignee",
   hint: "user id, email, or 'me' — blank for unassigned",
-  description: "Only pick up issues assigned to this person. Blank picks up unassigned issues.",
+  description:
+    "Only pick up issues assigned to this person (a Linear user id, email, or 'me'). Blank picks up unassigned issues.",
   emptyLabel: "unassigned",
   spec: { kind: "text" },
 };
@@ -71,13 +75,15 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "project.language",
     label: "Language",
-    description: "Primary language, included in the agent's project context.",
+    description:
+      "Primary programming language (e.g. TypeScript). Added to the agent's prompt as context.",
     spec: { kind: "text", placeholder: "TypeScript" },
   },
   {
     id: "project.framework",
     label: "Framework",
-    description: "Primary framework/toolchain, included in the agent's project context.",
+    description:
+      "Primary framework or toolchain (e.g. Bun + Nx). Added to the agent's prompt as context.",
     spec: { kind: "text", placeholder: "Bun + Nx" },
   },
 
@@ -85,25 +91,26 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "commands.test",
     label: "Test command",
-    description: "Command the agent runs to validate its work each iteration.",
+    description:
+      "Shell command Ralphy runs to check the agent's work each iteration; its exit code decides pass or fail.",
     spec: { kind: "text", placeholder: "bun test" },
   },
   {
     id: "commands.lint",
     label: "Lint command",
-    description: "Command the agent runs to lint before finishing a task.",
+    description: "Shell command Ralphy runs to lint the code before a task is allowed to finish.",
     spec: { kind: "text", placeholder: "bun run lint" },
   },
   {
     id: "commands.build",
     label: "Build command",
-    description: "Command the agent runs to confirm the project still builds.",
+    description: "Shell command Ralphy runs to confirm the project still compiles / builds.",
     spec: { kind: "text", placeholder: "bun run build" },
   },
   {
     id: "commands.typecheck",
     label: "Typecheck command",
-    description: "Command the agent runs to confirm types still pass.",
+    description: "Shell command Ralphy runs to confirm the project's types still pass.",
     spec: { kind: "text", placeholder: "bun run typecheck" },
   },
 
@@ -111,7 +118,8 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "engine",
     label: "Engine",
-    description: "Which coding engine drives the loop.",
+    description:
+      "Which AI coding tool runs the loop: 'claude' (Claude Code) or 'codex' (OpenAI Codex).",
     spec: {
       kind: "select",
       options: [
@@ -123,7 +131,8 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "model",
     label: "Model tier",
-    description: "Model tier the engine uses — higher tiers cost more per token.",
+    description:
+      "Model tier the engine uses. 'opus' is the most capable, 'haiku' the cheapest and fastest; higher tiers cost more per token.",
     spec: {
       kind: "select",
       options: [
@@ -136,13 +145,14 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "logRawStream",
     label: "Log the raw engine stream to stdout?",
-    description: "Print the engine's raw event stream — verbose, useful for debugging.",
+    description:
+      "Print the engine's raw event stream to the terminal. Very verbose — mainly for debugging.",
     spec: no(),
   },
   {
     id: "taskVerbose",
     label: "Pass --verbose to the task sub-process?",
-    description: "Run each task sub-process in verbose mode for extra diagnostics.",
+    description: "Run the per-task process with --verbose for extra diagnostic output.",
     spec: no(),
   },
 
@@ -150,19 +160,22 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "concurrency",
     label: "Concurrency (parallel tasks)",
-    description: "How many tasks run in parallel. Higher uses more API quota at once.",
+    description:
+      "How many tasks Ralphy works on at once. Higher finishes faster but uses more API quota simultaneously.",
     spec: { kind: "number", placeholder: "1" },
   },
   {
     id: "pollIntervalSeconds",
     label: "Poll interval (seconds)",
-    description: "How often agent mode checks Linear for new issues.",
+    description:
+      "In agent mode, how often (in seconds) Ralphy checks Linear for new issues to pick up.",
     spec: { kind: "number", placeholder: "60" },
   },
   {
     id: "iterationDelaySeconds",
     label: "Delay between iterations (seconds)",
-    description: "Throttle: pause this long between loop iterations.",
+    description:
+      "Seconds to pause between loop iterations — a throttle to slow spend. 0 means no pause.",
     spec: { kind: "number", placeholder: "0" },
   },
 
@@ -170,25 +183,28 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "maxIterationsPerTask",
     label: "Max iterations per task (0 = unlimited)",
-    description: "Hard cap on loop iterations before a task is stopped.",
+    description:
+      "Stop a task after this many loop iterations. 0 means no limit (run until done or another limit hits).",
     spec: { kind: "number", placeholder: "0" },
   },
   {
     id: "maxCostUsdPerTask",
     label: "Max cost USD per task (0 = unlimited)",
-    description: "Stop a task once its accumulated API cost exceeds this many dollars.",
+    description:
+      "Stop a task once its API spend passes this many US dollars. 0 means no cost limit.",
     spec: { kind: "number", placeholder: "0" },
   },
   {
     id: "maxRuntimeMinutesPerTask",
     label: "Max runtime minutes per task (0 = unlimited)",
-    description: "Stop a task after this much wall-clock time.",
+    description: "Stop a task after this many minutes of wall-clock time. 0 means no time limit.",
     spec: { kind: "number", placeholder: "0" },
   },
   {
     id: "maxConsecutiveFailuresPerTask",
     label: "Max consecutive identical failures",
-    description: "Stop a task after this many identical failures in a row.",
+    description:
+      "Give up on a task after this many identical failures in a row — a guard against stuck loops.",
     spec: { kind: "number", placeholder: "5" },
   },
 
@@ -196,38 +212,42 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "useWorktree",
     label: "Run each task in an isolated git worktree?",
-    description: "Isolate each task in its own worktree so parallel tasks don't collide.",
+    description:
+      "Run each task in its own git worktree (a separate working copy of the repo) so parallel tasks don't overwrite each other's files.",
     spec: no(),
   },
   {
     id: "cleanupWorktreeOnSuccess",
     label: "Delete the worktree after a successful task?",
-    description: "Remove the task's worktree once it succeeds to reclaim disk.",
+    description:
+      "Delete a task's worktree (its separate working copy) once it succeeds, to reclaim disk space.",
     spec: no(),
     when: isOn("useWorktree"),
   },
   {
     id: "setupScript",
     label: "Setup script (runs before each task)",
-    description: "Shell script run before each task (e.g. install deps).",
+    description: "Shell script run once before each task starts — e.g. to install dependencies.",
     spec: { kind: "text" },
   },
   {
     id: "teardownScript",
     label: "Teardown script (runs after each task)",
-    description: "Shell script run after each task (e.g. cleanup).",
+    description: "Shell script run once after each task ends — e.g. to clean up temporary state.",
     spec: { kind: "text" },
   },
   {
     id: "enableManualTest",
     label: "Enable the manual-test phase?",
-    description: "Add a phase that prompts for manual UI testing before finishing.",
+    description:
+      "Add a phase that pauses for a human to manually test the change (e.g. in the UI) before the task is marked done.",
     spec: no(),
   },
   {
     id: "appendPrompt",
     label: "Extra text appended to every prompt",
-    description: "Free-text appended to every agent prompt (house rules, reminders).",
+    description:
+      "Free text added to the end of every prompt sent to the agent — house rules or reminders.",
     spec: { kind: "text" },
   },
 
@@ -235,34 +255,37 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "createPrOnSuccess",
     label: "Open a pull request when a task succeeds?",
-    description: "Open a PR automatically once a task completes successfully.",
+    description:
+      "When a task succeeds, automatically push the branch and open a GitHub pull request (PR).",
     spec: no(),
   },
   {
     id: "prDraft",
     label: "Open pull requests as drafts?",
-    description: "Open PRs in draft state instead of ready-for-review.",
+    description: "Open PRs as drafts (marked not-ready-for-review) instead of ready for review.",
     spec: no(),
     when: isOn("createPrOnSuccess"),
   },
   {
     id: "prBaseBranch",
     label: "PR base branch",
-    description: "Branch new PRs target.",
+    description: "The branch new pull requests merge into (their base) — e.g. main.",
     spec: { kind: "text", placeholder: "main" },
     when: isOn("createPrOnSuccess"),
   },
   {
     id: "stackPrsOnDependencies",
     label: "Stack dependent issues' PRs onto their blocker's PR?",
-    description: "Base a dependent issue's PR on its blocker's open PR instead of main.",
+    description:
+      "If an issue is blocked by another that already has an open PR, base this issue's PR on that PR's branch instead of main (a 'stacked' PR).",
     spec: no(),
     when: isOn("createPrOnSuccess"),
   },
   {
     id: "autoMergeStrategy",
     label: "Auto-merge strategy",
-    description: "How GitHub merges the PR when auto-merge fires.",
+    description:
+      "How GitHub combines the PR's commits when it auto-merges: squash (one commit), merge (a merge commit), or rebase.",
     spec: {
       kind: "select",
       options: [
@@ -276,14 +299,16 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "manualMergeWhenAutoMergeDisabled",
     label: "Merge manually when GitHub auto-merge is disabled?",
-    description: "If the repo has auto-merge off, have Ralphy merge the PR itself.",
+    description:
+      "If the repo doesn't have GitHub's auto-merge feature enabled, have Ralphy merge the PR itself once checks pass.",
     spec: yes(),
     when: isOn("createPrOnSuccess"),
   },
   {
     id: "finalizeNoOpAsDone",
     label: "Finalize a no-op (meta-only) change as done?",
-    description: "When a change touched only meta files, mark it done instead of retrying.",
+    description:
+      "If a change ended up touching only meta files (specs, task lists) and no real code, mark the issue done instead of retrying it.",
     spec: yes(),
   },
 
@@ -291,27 +316,30 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "fixCiOnFailure",
     label: "Let the agent fix CI failures?",
-    description: "After opening a PR, let the agent watch CI and push fixes for failures.",
+    description:
+      "After opening a PR, watch its CI (the automated checks GitHub runs) and let the agent push fixes when they fail.",
     spec: no(),
   },
   {
     id: "maxCiFixAttempts",
     label: "Max CI-fix attempts per task",
-    description: "Give up fixing CI after this many attempts.",
+    description: "Stop trying to fix failing CI after this many attempts.",
     spec: { kind: "number", placeholder: "5" },
     when: isOn("fixCiOnFailure"),
   },
   {
     id: "ciPollIntervalSeconds",
     label: "CI status poll interval (seconds)",
-    description: "How often to poll the PR's CI status while fixing.",
+    description:
+      "How often (in seconds) to re-check the PR's CI status while waiting on or fixing it.",
     spec: { kind: "number", placeholder: "30" },
     when: isOn("fixCiOnFailure"),
   },
   {
     id: "ignoreCiChecks",
     label: "CI checks to ignore",
-    description: "Named checks that don't block merge (e.g. known-flaky jobs).",
+    description:
+      "Names of CI checks to ignore when deciding whether a PR is green — e.g. known-flaky jobs.",
     spec: { kind: "list", placeholder: "check name" },
   },
 
@@ -319,13 +347,14 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "rules",
     label: "Project rules",
-    description: "House rules injected into every prompt the agent receives.",
+    description:
+      "House rules added to every prompt (e.g. 'never edit generated files'). One rule per entry.",
     spec: { kind: "list", placeholder: "a rule" },
   },
   {
     id: "boundaries.never_touch",
     label: "Never-touch globs",
-    description: "Glob patterns the agent must never modify.",
+    description: "Glob patterns for files the agent must never modify (e.g. dist/**).",
     spec: { kind: "list", placeholder: "dist/**" },
   },
 
@@ -335,58 +364,64 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "linear.postComments",
     label: "Post progress comments on the Linear issue?",
-    description: "Post status comments on the issue as the task runs.",
+    description: "Post progress comments on the Linear issue while a task runs.",
     spec: yes(),
   },
   {
     id: "linear.updateEveryIterations",
     label: "Post a progress update every N iterations (0 = off)",
-    description: "Cadence for progress comments, measured in loop iterations.",
+    description: "Post a progress comment every N loop iterations. 0 turns periodic updates off.",
     spec: { kind: "number", placeholder: "10" },
   },
   {
     id: "linear.mentionTrigger",
     label: "Watch comments/PRs for @mentions?",
-    description: "Re-engage a done issue when someone @mentions the bot.",
+    description:
+      "Watch a finished issue's comments and its PR for @mentions of Ralphy, and re-engage when mentioned.",
     spec: yes(),
   },
   {
     id: "linear.mentionHandle",
     label: "Mention handle",
-    description: "The handle that triggers re-engagement when mentioned.",
+    description:
+      "The @handle that, when mentioned, makes Ralphy pick the issue back up (e.g. @ralphy).",
     spec: { kind: "text", placeholder: "@ralphy" },
     when: isOn("linear.mentionTrigger"),
   },
   {
     id: "linear.codeReviewTrigger",
     label: "Watch PRs for unresolved review threads?",
-    description: "Re-engage when a tracked PR has unresolved review comments.",
+    description: "Watch open PRs for unresolved review comments and re-engage to address them.",
     spec: yes(),
   },
   {
     id: "linear.codeReviewStaleHours",
     label: "Code-review stale window (hours)",
-    description: "Ignore review threads older than this many hours.",
+    description:
+      "Ignore review comments older than this many hours, so stale threads don't re-trigger work.",
     spec: { kind: "number", placeholder: "24" },
     when: isOn("linear.codeReviewTrigger"),
   },
   {
     id: "linear.syncTasksToComment",
     label: "Mirror tasks.md into a sticky Linear comment?",
-    description: "Keep a pinned comment in sync with the task checklist.",
+    description:
+      "Keep one pinned ('sticky') Linear comment in sync with the task checklist (tasks.md).",
     spec: yes(),
   },
   {
     id: "linear.syncSpecsAsAttachments",
     label: "Upload proposal.md / design.md as attachments?",
-    description: "Attach the OpenSpec proposal and design docs to the issue.",
+    description:
+      "Upload the OpenSpec planning docs (proposal.md, design.md) to the issue as attachments. OpenSpec is Ralphy's spec-driven planning format.",
     spec: yes(),
     when: isOn("linear.syncTasksToComment"),
   },
   {
     id: "linear.specAttachmentFormats",
     label: "Spec attachment formats",
-    description: "Which formats to upload: markdown, a rendered PDF, or both.",
+    description:
+      "Which formats to upload the spec docs in: 'md' (raw markdown), 'pdf' (a rendered PDF), or both.",
     spec: {
       kind: "multiselect",
       options: [
@@ -401,20 +436,23 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "linear.confirmationMode.enabled",
     label: "Enable the human confirmation gate?",
-    description: "Pause after planning and wait for a human to approve before implementing.",
+    description:
+      "Pause after the agent finishes planning and wait for a human to approve before it writes any code (a confirmation gate).",
     spec: no(),
   },
   {
     id: "linear.confirmationMode.timeoutHours",
     label: "Confirmation timeout (hours)",
-    description: "Auto-resolve the gate if nobody responds within this window.",
+    description:
+      "If no one approves or rejects within this many hours, auto-resolve the confirmation gate.",
     spec: { kind: "number", placeholder: "48" },
     when: isOn("linear.confirmationMode.enabled"),
   },
   {
     id: "linear.confirmationMode.maxConfirmationRounds",
     label: "Max confirmation rounds",
-    description: "How many revise-and-reconfirm rounds are allowed before giving up.",
+    description:
+      "How many times the plan can be revised and re-submitted for approval before Ralphy gives up.",
     spec: { kind: "number", placeholder: "3" },
     when: isOn("linear.confirmationMode.enabled"),
   },
@@ -423,7 +461,8 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "linear.indicators",
     label: "Linear lifecycle indicators",
-    description: "How lifecycle events map to Linear statuses/labels (pickup, done, error).",
+    description:
+      "How Ralphy maps lifecycle events to Linear statuses/labels — which issues to pick up (todo) and what to set when a task is in progress, done, or errored.",
     spec: { kind: "indicators" },
   },
 
@@ -431,80 +470,89 @@ const CUSTOMIZED_FIELDS: Field[] = [
   {
     id: "preExistingErrorCheck.enabled",
     label: "Enable the base-branch health gate?",
-    description: "Before picking up work, fail fast if the base branch is already broken.",
+    description:
+      "Before picking up new work, run health-check commands on the base branch and pause if it's already broken, so the agent isn't blamed for pre-existing failures.",
     spec: no(),
   },
   {
     id: "preExistingErrorCheck.commands",
     label: "Health-gate commands (blank = use lint/test)",
-    description: "Commands run against the base branch to judge its health.",
+    description:
+      "Commands run against the base branch to judge its health. Leave empty to reuse your lint/test commands.",
     spec: { kind: "list", placeholder: "bun run lint" },
     when: isOn("preExistingErrorCheck.enabled"),
   },
   {
     id: "preExistingErrorCheck.baseBranch",
     label: "Health-gate base branch",
-    description: "Branch the health gate checks out and tests.",
+    description: "The branch the health gate checks out and tests (usually main).",
     spec: { kind: "text", placeholder: "main" },
     when: isOn("preExistingErrorCheck.enabled"),
   },
   {
     id: "preExistingErrorCheck.label",
     label: "Health-gate Linear label",
-    description: "Label applied to issues opened when the base branch is unhealthy.",
+    description:
+      "Linear label applied to the ticket Ralphy opens when the base branch is found broken.",
     spec: { kind: "text", placeholder: "ralph:pre-existing-error" },
     when: isOn("preExistingErrorCheck.enabled"),
   },
   {
     id: "prTracker.enabled",
     label: "Enable the PR tracker?",
-    description: "Watch open PRs and auto-recover ones whose merge state goes red.",
+    description:
+      "Keep watching the PRs Ralphy opened and automatically try to recover any whose merge state goes red (conflicts or failing CI).",
     spec: yes(),
   },
   {
     id: "prTracker.maxRecoveryAttempts",
     label: "PR tracker max recovery attempts",
-    description: "Give up recovering a red PR after this many attempts.",
+    description:
+      "Give up auto-recovering a red PR after this many attempts, then flag it for a human.",
     spec: { kind: "number", placeholder: "3" },
     when: isOn("prTracker.enabled"),
   },
   {
     id: "prTracker.advanceMergedToDone",
     label: "Advance merged PRs to done automatically?",
-    description: "Move an issue to done as soon as its PR merges.",
+    description: "Move an issue to its done state as soon as its PR is merged.",
     spec: no(),
     when: isOn("prTracker.enabled"),
   },
   {
     id: "metaPrompt.enabled",
     label: "Enable the meta-prompt addendum?",
-    description: "Prepend a task-level meta-prompt layer to each phase.",
+    description:
+      "Add Ralphy's task-level 'meta-prompt' layer (extra framing instructions) to each phase. Leave on unless you want raw prompts.",
     spec: yes(),
   },
   {
     id: "openspec.reviewPhase.enabled",
     label: "Enable the OpenSpec review phase?",
-    description: "After tasks finish, spawn a reviewer that reads the diff and files findings.",
+    description:
+      "After all tasks finish, spawn a separate reviewer agent that reads the full diff and writes review findings; open findings loop back into more work.",
     spec: no(),
   },
   {
     id: "openspec.reviewPhase.maxRounds",
     label: "Review phase max rounds",
-    description: "How many review→fix cycles to run before archiving the change.",
+    description: "How many review→fix cycles to run before the change is archived regardless.",
     spec: { kind: "number", placeholder: "1" },
     when: isOn("openspec.reviewPhase.enabled"),
   },
   {
     id: "openspec.reviewPhase.reviewerModel",
     label: "Reviewer model (blank = same as main)",
-    description: "Model for the review pass — a cheaper tier saves cost.",
+    description:
+      "Model used for the review pass. Blank reuses the main model; a cheaper tier (e.g. haiku) saves cost.",
     spec: { kind: "text", placeholder: "haiku" },
     when: isOn("openspec.reviewPhase.enabled"),
   },
   {
     id: "openspec.reviewPhase.reviewerContextStrategy",
     label: "Reviewer context",
-    description: "'fresh' starts a new session; 'warm' resumes the last task session.",
+    description:
+      "'fresh' gives the reviewer a brand-new session (unbiased); 'warm' resumes the last task's session (more context, cheaper).",
     spec: {
       kind: "select",
       options: [
