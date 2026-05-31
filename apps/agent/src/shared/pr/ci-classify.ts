@@ -6,14 +6,14 @@ export interface RawCheck {
   state?: string;
 }
 
-export const TRANSIENT_GH_RE =
+const TRANSIENT_GH_RE =
   /HTTP 5\d\d|Gateway Timeout|Bad Gateway|Service Unavailable|connection reset|ECONNRESET|ETIMEDOUT|getaddrinfo|EAI_AGAIN|could not resolve host/i;
 
 /** gh exits 1 with this message when no workflows are configured for a branch. */
 export const NO_CHECKS_RE = /no checks reported/i;
 
 /** Backoff schedule for transient `gh` failures (ms). 5s / 15s / 45s. */
-export const GH_RETRY_DELAYS = [5_000, 15_000, 45_000];
+const GH_RETRY_DELAYS = [5_000, 15_000, 45_000];
 
 /** Internal: run gh with retry on transient HTTP/network errors. */
 export async function runGhWithRetry(
