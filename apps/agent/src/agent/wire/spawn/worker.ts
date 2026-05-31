@@ -102,6 +102,8 @@ export function createSpawnWorker(
   } = input;
 
   function buildTaskCmdFor(changeName: string): string[] {
+    const engine = args.engineSet ? args.engine : cfg.engine;
+    const model = args.engineSet ? args.model : cfg.model;
     const c: string[] = [
       process.execPath,
       process.argv[1] ?? "",
@@ -109,8 +111,13 @@ export function createSpawnWorker(
       "task",
       "--name",
       changeName,
-      "--" + (args.engineSet ? args.engine : cfg.engine),
-      args.engineSet ? args.model : cfg.model,
+      "--" + engine,
+      // Pass the model via the explicit `--model` flag rather than as a
+      // positional after the engine flag: `--claude` consumes a trailing
+      // model token but `--codex` does not, so a positional would be parsed
+      // as a stray argument and abort the worker.
+      "--model",
+      model,
     ];
     const maxIter = args.maxIterations || cfg.maxIterationsPerTask;
     if (maxIter > 0) c.push("--max-iterations", String(maxIter));

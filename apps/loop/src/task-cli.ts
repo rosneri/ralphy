@@ -37,6 +37,7 @@ const TASK_HELP_TEXT = [
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",
   "  --claude [model]        Use Claude engine (haiku|sonnet|opus, default: opus)",
+  "  --codex                 Use Codex engine",
   "  --delay <seconds>       Seconds between iterations",
   "  --max-iterations <n>    Stop after N iterations (0 = unlimited)",
   "  --max-cost <n>          Stop when total cost exceeds $N (0 = no limit)",
@@ -93,10 +94,6 @@ export async function parseTaskArgs(argv: string[]): Promise<TaskParsedArgs> {
 
   if (!result.name) {
     throw new Error("--name is required. Run 'ralphy task --help' for usage information.");
-  }
-
-  if (result.engine === "codex") {
-    throw new Error("--codex is not supported by the task command. Use --claude instead.");
   }
 
   return result;
