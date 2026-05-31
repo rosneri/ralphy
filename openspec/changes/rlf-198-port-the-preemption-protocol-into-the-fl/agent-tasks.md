@@ -1,3 +1,30 @@
+## Fix failing CI checks (2026-05-31T16:35:09.839Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26718184048 ---
+ci Unused dependency check ﻿2026-05-31T16:34:01.1563794Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-31T16:34:01.1564191Z ^[[36;1mbun run check:unused:ci^[[0m
+ci Unused dependency check 2026-05-31T16:34:01.1592891Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-31T16:34:01.1593197Z env:
+ci Unused dependency check 2026-05-31T16:34:01.1593459Z NX_BASE: 40bda67b40086084dc16fb9e91732a0a6cedd622
+ci Unused dependency check 2026-05-31T16:34:01.1593821Z NX_HEAD: 303e9549c5ba9f7124c6990899fbb230e05c0e9e
+ci Unused dependency check 2026-05-31T16:34:01.1594132Z ##[endgroup]
+ci Unused dependency check 2026-05-31T16:34:01.1668435Z $ knip
+ci Unused dependency check 2026-05-31T16:34:05.8039519Z ^[[93m^[[4mUnused devDependencies^[[24m^[[39m (1)
+ci Unused dependency check 2026-05-31T16:34:05.8047429Z @rosneri/xstate-mcp package.json:74:6
+ci Unused dependency check 2026-05-31T16:34:05.8399539Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-31T16:34:05.8410789Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-31T16:30:24.620Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
