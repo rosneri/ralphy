@@ -117,6 +117,10 @@ export function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown
     if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };
     else if (spec.assignee.includes("@")) where.assignee = { email: { eq: spec.assignee } };
     else where.assignee = { id: { eq: spec.assignee } };
+  } else {
+    // No assignee configured: restrict to unassigned issues only, so the agent
+    // never grabs work already assigned to a human.
+    where.assignee = { null: true };
   }
 
   const inc = spec.include ?? [];
