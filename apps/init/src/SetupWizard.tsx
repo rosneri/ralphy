@@ -807,7 +807,7 @@ function categoryOf(slot: string): SlotCategory {
  * to every slot the state owns — so the same value drives the get / set / clear
  * for that state instead of being re-entered per slot.
  */
-export interface IndicatorState {
+interface IndicatorState {
   key: string;
   label: string;
   description: string;
