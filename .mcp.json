@@ -8,8 +8,8 @@
     },
     "xstate-mcp": {
       "type": "stdio",
-      "command": "bunx",
-      "args": ["@rosneri/xstate-mcp"],
+      "command": "bun",
+      "args": ["./node_modules/.bin/xstate-mcp"],
       "env": {}
     }
   }

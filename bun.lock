@@ -14,6 +14,7 @@
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@nx/devkit": "^22.7.1",
         "@nx/js": "^22.7.1",
+        "@rosneri/xstate-mcp": "^0.1.4",
         "@secretlint/secretlint-rule-preset-recommend": "^11.7.1",
         "@swc-node/register": "^1.11.1",
         "@swc/core": "^1.15.33",
@@ -940,6 +941,8 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.60.2", "", { "os": "win32", "cpu": "x64" }, "sha512-qdAzEULD+/hzObedtmV6iBpdL5TIbKVztGiK7O3/KYSf+HIzU257+MX1EXJcyIiDbMAqmbwaufcYPvyRryeZtA=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.2", "", { "os": "win32", "cpu": "x64" }, "sha512-Nd/SgG27WoA9e+/TdK74KnHz852TLa94ovOYySo/yMPuTmpckK/jIF2jSwS3g7ELSKXK13/cVdmg1Z/DaCWKxA=="],
+
+    "@rosneri/xstate-mcp": ["@rosneri/xstate-mcp@0.1.4", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "xstate": "^5.32.0", "zod": "^4.3.6" }, "bin": { "xstate-mcp": "bin/xstate-mcp.ts" } }, "sha512-agvaRhM6eTXntmgPlnIV+QZ6bCpJeVL7sBA12N/izQ2VQ7/2b1pK0mvrbw9bYYRdBO+e9Loi/V8rYEOTQle2Gg=="],
 
     "@secretlint/config-creator": ["@secretlint/config-creator@11.7.1", "", { "dependencies": { "@secretlint/types": "11.7.1" } }, "sha512-ET4EXYzSjl1EgwZRJmU/2NjQVIW4u+2nIZu4hs6Og5ys2MbSEheHNoBXOifQOZDgObleP8S9aU3BV2bUqPEQxw=="],
 
@@ -1954,6 +1957,8 @@
     "@oxc-resolver/binding-wasm32-wasi/@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.4", "", { "dependencies": { "@tybys/wasm-util": "^0.10.1" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow=="],
 
     "@ralphy/workflow/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "@rosneri/xstate-mcp/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "@secretlint/formatter/strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
 
