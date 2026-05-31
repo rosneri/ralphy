@@ -41,7 +41,8 @@ export type StateSlotName =
   | "confirmation"
   | "review"
   | "ci"
-  | "pr";
+  | "pr"
+  | "flow";
 
 /**
  * Narrow write surface a feature receives. Backed by `writeField` from

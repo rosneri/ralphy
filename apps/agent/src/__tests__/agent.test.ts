@@ -339,7 +339,19 @@ describe("agent/linear", () => {
     expect(issues[0]!.labels).toEqual(["bug"]);
     expect(captured!.variables.filter).toEqual({
       state: { type: { in: ["unstarted", "started", "backlog"] } },
+      assignee: { null: true },
     });
+  });
+
+  test("fetchOpenIssues filters to unassigned issues when no assignee is given", async () => {
+    let captured: { variables: { filter: Record<string, unknown> } } | null = null;
+    mockFetch(async (req) => {
+      captured = await req.json();
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200 });
+    });
+
+    await fetchOpenIssues("k", { team: "ENG" });
+    expect(captured!.variables.filter.assignee).toEqual({ null: true });
   });
 
   test("fetchOpenIssues collapses include to a flat filter when only one kind is present", async () => {
@@ -380,6 +392,7 @@ describe("agent/linear", () => {
     expect(captured!.variables.filter).toEqual({
       state: { name: { in: ["Todo"] } },
       labels: { some: { name: { in: ["ready"] } } },
+      assignee: { null: true },
     });
   });
 

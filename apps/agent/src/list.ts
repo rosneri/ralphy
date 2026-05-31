@@ -195,6 +195,11 @@ export function formatBlockedCell(blockedByIdentifiers: string[]): string {
   return blockedByIdentifiers.length === 0 ? "-" : blockedByIdentifiers.join(", ");
 }
 
+/** Returns the index of the first row with no blockers, or -1 if all are blocked. */
+export function selectNextPickIndex(rows: { blockedByIdentifiers: string[] }[]): number {
+  return rows.findIndex((r) => r.blockedByIdentifiers.length === 0);
+}
+
 /** Render the PR status as a short marker for the unified list table. */
 export function formatPrStatusMarker(status: PrStatus | null, failedCheckNames?: string[]): string {
   if (status === null) return "(no PR)";
@@ -349,6 +354,7 @@ async function fetchAndPrintLinear(
   process.stdout.write(`\nLinear tickets: ${sorted.length} issue(s)\n`);
   if (sorted.length === 0) return;
 
+  const nextPickIndex = selectNextPickIndex(sorted);
   const idWidth = Math.max(10, ...sorted.map((r) => r.identifier.length));
   const bucketWidth = Math.max(6, ...sorted.map((r) => r.bucketLabel.length));
   const stateWidth = Math.max(5, ...sorted.map((r) => r.stateName.length));
@@ -365,8 +371,9 @@ async function fetchAndPrintLinear(
   for (let i = 0; i < sorted.length; i += 1) {
     const r = sorted[i]!;
     const reviewCell = reviewCells ? `  ${pad(reviewCells[i]!, 10)}` : "";
+    const pickPrefix = nextPickIndex === i ? "▶ " : "  ";
     process.stdout.write(
-      `  ${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${pad(blockedCells[i]!, blockedWidth)}${reviewCell}  ${r.prUrl ?? "(no PR)"}\n`,
+      `${pickPrefix}${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${pad(blockedCells[i]!, blockedWidth)}${reviewCell}  ${r.prUrl ?? "(no PR)"}\n`,
     );
   }
 }
@@ -540,7 +547,7 @@ function markerMatches(issue: RawIssue, marker: Marker): boolean {
 }
 
 function assigneeMatches(issue: RawIssue, assignee: string | undefined): boolean {
-  if (!assignee) return true;
+  if (!assignee) return issue.assignee === null;
   const a = issue.assignee;
   if (!a) return false;
   if (assignee === "me") return true; // can't verify without `me` query
