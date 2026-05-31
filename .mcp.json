@@ -3,7 +3,7 @@
     "ralph": {
       "type": "stdio",
       "command": "bun",
-      "args": ["/Users/neri/Developer/ralphy/.ralph/bin/mcp.js"],
+      "args": [".ralph/bin/mcp.js"],
       "env": {}
     },
     "xstate-mcp": {
