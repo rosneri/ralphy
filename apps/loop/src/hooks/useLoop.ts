@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createActor } from "xstate";
 import { join } from "node:path";
 import type { State } from "@ralphy/types";
 import type { FeedEvent } from "@ralphy/engine/feed-events";
@@ -15,10 +16,10 @@ import { runEngine, handleEngineFailure } from "@ralphy/engine/engine";
 import { gitPush, commitTaskDir, getUncommittedFiles } from "@ralphy/core/git";
 import { getStorage, getLayout, runWithContext, createDefaultContext } from "@ralphy/context";
 import { getProcessBus } from "@ralphy/events";
+import { loopMachine, stoppedStateToReason } from "@ralphy/core/machines";
 import {
   buildPhasePrompt,
   routeTaskPhase,
-  checkStopCondition,
   updateStateIteration,
   checkStopSignal,
   appendSteeringMessage,
@@ -80,6 +81,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
   const lineIdRef = useRef(0);
   const steerControllerRef = useRef<AbortController | null>(null);
   const pendingSteerRef = useRef<string | null>(null);
+  const actorRef = useRef<ReturnType<typeof createActor<typeof loopMachine>> | null>(null);
 
   const steer = (message: string) => {
     pendingSteerRef.current = message;
@@ -173,30 +175,37 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         max_cost_usd: opts.maxCostUsd,
       });
 
-      let iter = 0;
       // Capture iterations already completed in prior runs so respawned workers
       // count toward the total maxIterations budget rather than resetting to 0.
       const startingIteration = currentState.iteration;
+      const startingCostUsd = currentState.usage.total_cost_usd;
       const loopStartTime = Date.now();
-      let consFailures = 0;
-      let lastResult = "";
-      let finalStopReason: StopReason | null = null;
+
+      const actor = createActor(loopMachine).start();
+      actorRef.current = actor;
+      actor.subscribe((snapshot) => {
+        setIteration(snapshot.context.iteration - startingIteration);
+        setConsecutiveFailures(snapshot.context.consecutiveFailures);
+        setIsRunning(snapshot.status === "active");
+      });
+      actor.send({
+        type: "START",
+        options: {
+          maxIterations: opts.maxIterations,
+          maxCostUsd: opts.maxCostUsd,
+          maxRuntimeMinutes: opts.maxRuntimeMinutes,
+          maxConsecutiveFailures: opts.maxConsecutiveFailures,
+        },
+        startTime: loopStartTime,
+        startingIteration,
+        startingCostUsd,
+      });
 
       while (!cancelled) {
         currentState = readState(stateDir);
         setState(currentState);
 
-        const stop = checkStopCondition(
-          currentState,
-          startingIteration + iter,
-          opts,
-          loopStartTime,
-          consFailures,
-        );
-        if (stop !== null) {
-          finalStopReason = stop;
-          break;
-        }
+        if (!actor.getSnapshot().matches("running")) break;
 
         // Check if all tasks are done. The change is considered complete
         // only when both mission tasks (`tasks.md`) and internal flow
@@ -233,7 +242,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             };
             writeState(stateDir, currentState);
             setState(currentState);
-            finalStopReason = "completed";
+            actor.send({ type: "ALL_TASKS_DONE", uncommittedEdits: false });
             break;
           }
         }
@@ -341,7 +350,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             addInfo(
               `All tasks checked off but worktree has ${uncommitted.length} uncommitted file(s) — refusing to archive. Commit or reset to resume.\n  ${preview}${more}`,
             );
-            finalStopReason = "stranded";
+            actor.send({ type: "ALL_TASKS_DONE", uncommittedEdits: true });
             break;
           }
 
@@ -374,16 +383,14 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           } catch (err) {
             addInfo(`Archive warning: ${err}`);
           }
-          finalStopReason = "completed";
+          actor.send({ type: "ALL_TASKS_DONE", uncommittedEdits: false });
           break;
         }
 
-        iter++;
-        setIteration(iter);
-
+        const localIter = actor.getSnapshot().context.iteration - startingIteration + 1;
         const time = new Date().toLocaleTimeString("en-US", { hour12: false });
-        addIterationHeader(iter, time);
-        addInfo(`Iteration ${iter} (total: ${currentState.iteration})`);
+        addIterationHeader(localIter, time);
+        addInfo(`Iteration ${localIter} (total: ${currentState.iteration})`);
 
         // Drive the worker prompt from the live OpenSpec phase. Without this,
         // `opts.phase ?? "execute"` ran every iteration even when mission
@@ -480,26 +487,19 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
               getProcessBus().emit({
                 type: "loop.engine_rate_limited",
                 exit_code: engineResult.exitCode,
-                iteration: iter,
+                iteration: localIter,
               });
-              finalStopReason = "rateLimited";
+              actor.send({ type: "RATE_LIMITED" });
               break;
             }
 
+            actor.send({ type: "ITERATION_FAILED" });
             getProcessBus().emit({
               type: "loop.iteration_failed",
               exit_code: engineResult.exitCode,
-              iteration: iter,
-              consecutive_failures: consFailures + 1,
+              iteration: localIter,
+              consecutive_failures: actor.getSnapshot().context.consecutiveFailures,
             });
-
-            if (result === lastResult) {
-              consFailures++;
-            } else {
-              consFailures = 1;
-              lastResult = result;
-            }
-            setConsecutiveFailures(consFailures);
 
             continue;
           }
@@ -519,9 +519,9 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             getProcessBus().emit({
               type: "loop.engine_rate_limited",
               exit_code: 0,
-              iteration: iter,
+              iteration: localIter,
             });
-            finalStopReason = "rateLimited";
+            actor.send({ type: "RATE_LIMITED" });
             break;
           }
 
@@ -535,9 +535,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             engineResult.usage,
           );
           setState(currentState);
-          consFailures = 0;
-          lastResult = "";
-          setConsecutiveFailures(0);
+          actor.send({ type: "ITERATION_DONE", costDeltaUsd: engineResult.usage?.cost_usd ?? 0 });
 
           try {
             gitPush();
@@ -551,46 +549,42 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
             break;
           }
 
-          addInfo(`Completed iteration ${iter}`);
+          addInfo(`Completed iteration ${localIter}`);
 
           // Delay between iterations
-          if (
-            checkStopCondition(
-              currentState,
-              startingIteration + iter,
-              opts,
-              loopStartTime,
-              consFailures,
-            ) === null &&
-            opts.delay > 0
-          ) {
+          if (actor.getSnapshot().matches("running") && opts.delay > 0) {
             addInfo(`Sleeping ${opts.delay}s before next iteration...`);
             await sleep(opts.delay);
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           addInfo(`Engine error: ${err}`);
-          getProcessBus().emit({ type: "loop.engine_error", iteration: iter, error: message });
+          getProcessBus().emit({ type: "loop.engine_error", iteration: localIter, error: message });
           break;
         }
       }
 
+      actor.stop();
+
       currentState = ensureState(stateDir);
       setState(currentState);
 
+      const finalIter = actor.getSnapshot().context.iteration - startingIteration;
+      const stopReason = stoppedStateToReason(actor.getSnapshot());
+
       getProcessBus().emit({
         type: "loop.task_stopped",
-        stop_reason: finalStopReason,
-        iterations: iter,
+        stop_reason: stopReason,
+        iterations: finalIter,
         total_cost_usd: currentState.usage.total_cost_usd,
         total_duration_ms: Date.now() - loopStartTime,
         engine: opts.engine,
         model: opts.model,
       });
 
-      addInfo(`Ralph loop finished after ${iter} iterations.`);
+      addInfo(`Ralph loop finished after ${finalIter} iterations.`);
 
-      if (iter > 0) {
+      if (finalIter > 0) {
         commitTaskDir(tasksDir, `change ${opts.name} finished`);
         try {
           gitPush();
@@ -599,14 +593,15 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         }
       }
 
-      if (finalStopReason !== null) {
-        setStopReason(finalStopReason);
+      if (stopReason !== null) {
+        setStopReason(stopReason);
       }
       setIsRunning(false);
     });
 
     return () => {
       cancelled = true;
+      actorRef.current?.stop();
     };
     // Effect should only run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps

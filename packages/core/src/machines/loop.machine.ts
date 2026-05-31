@@ -1,4 +1,5 @@
 import { assign, setup } from "xstate";
+import type { StopReason } from "../loop";
 
 export interface LoopMachineOptions {
   maxIterations: number;
@@ -18,11 +19,25 @@ export interface LoopMachineContext {
 }
 
 export type LoopMachineEvent =
-  | { type: "START"; options: LoopMachineOptions; startTime: number }
+  | {
+      type: "START";
+      options: LoopMachineOptions;
+      startTime: number;
+      startingIteration?: number;
+      startingCostUsd?: number;
+    }
   | { type: "ITERATION_DONE"; costDeltaUsd: number }
   | { type: "ITERATION_FAILED" }
   | { type: "RATE_LIMITED" }
   | { type: "ALL_TASKS_DONE"; uncommittedEdits: boolean };
+
+export function stoppedStateToReason(snapshot: { value: unknown }): StopReason | null {
+  const val = snapshot.value;
+  if (typeof val === "object" && val !== null && "stopped" in val) {
+    return (val as Record<string, string>).stopped as StopReason;
+  }
+  return null;
+}
 
 export const loopMachine = setup({
   types: {} as {
@@ -68,6 +83,8 @@ export const loopMachine = setup({
           actions: assign({
             options: ({ event }) => event.options,
             startTime: ({ event }) => event.startTime,
+            iteration: ({ event }) => event.startingIteration ?? 0,
+            costUsd: ({ event }) => event.startingCostUsd ?? 0,
           }),
         },
       },

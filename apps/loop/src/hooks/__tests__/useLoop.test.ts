@@ -34,12 +34,13 @@ describe("useLoop — telemetry surface (RLF-96 Stage 7)", () => {
 });
 
 describe("useLoop — max-iterations respawn fix (RLF-156)", () => {
-  test("uses startingIteration offset so prior-run iterations count toward maxIterations", async () => {
+  test("passes startingIteration to the actor START event so prior-run iterations count toward maxIterations", async () => {
     const text = await Bun.file(SRC).text();
-    // The fix: startingIteration must be captured before the loop and added to iter
-    // when calling checkStopCondition, so respawned workers don't reset the counter.
+    // The fix: startingIteration is captured before the loop and passed to the
+    // loopMachine actor via the START event, so the machine's iteration counter
+    // begins at the correct offset and respawned workers count toward maxIterations.
     expect(text.includes("startingIteration")).toBe(true);
-    expect(text.includes("startingIteration + iter")).toBe(true);
+    expect(text.includes("startingIteration,")).toBe(true);
   });
 });
 
