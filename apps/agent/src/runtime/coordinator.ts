@@ -863,6 +863,12 @@ export class AgentCoordinator {
     }
     if (candidates.length === 0) return counts;
 
+    // Snapshot pre-existing fix workers so the tail loop only counts items
+    // that were already queued/active before this scan — newly pushed items
+    // are already counted via the per-issue bucket increment below.
+    const preQueue = this.queue.map((q) => ({ id: q.issue.id, trigger: q.trigger }));
+    const preWorkers = this.workers.map((w) => ({ id: w.issueId, trigger: w.trigger }));
+
     for (const issue of candidates) {
       if (this.workers.some((w) => w.issueId === issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
@@ -957,11 +963,12 @@ export class AgentCoordinator {
 
     // Issues already queued or running for conflict-fix / ci-fix were detected
     // in a prior scan and skipped above — add them so the counter stays accurate.
-    for (const q of this.queue) {
+    // Use the pre-scan snapshot to avoid double-counting items pushed in this scan.
+    for (const q of preQueue) {
       if (q.trigger === "conflict-fix") counts.conflicted += 1;
       else if (q.trigger === "ci-fix") counts.ciFailed += 1;
     }
-    for (const w of this.workers) {
+    for (const w of preWorkers) {
       if (w.trigger === "conflict-fix") counts.conflicted += 1;
       else if (w.trigger === "ci-fix") counts.ciFailed += 1;
     }
