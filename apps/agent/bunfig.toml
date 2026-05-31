@@ -19,4 +19,7 @@ coveragePathIgnorePatterns = [
   "**/features/mention/github.ts",
   "**/features/confirmation/awaiting.ts",
   "**/features/review-followup/scan.ts",
+  # list.ts is integration code (network, filesystem, terminal output) — only
+  # buildBuckets is unit-testable and is covered in list-buckets.test.ts.
+  "**/list.ts",
 ]
