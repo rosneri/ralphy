@@ -116,8 +116,9 @@ describe("createSession", () => {
       "my-session",
       "-e",
       "RALPH_AGENT_MANAGED=1",
-      "ralph",
-      "agent",
+      "sh",
+      "-c",
+      "'ralph' 'agent'; printf '\\n[ralphy exited — press Enter to close]\\n'; read",
     ]);
   });
 
