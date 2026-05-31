@@ -60,8 +60,12 @@ export function createSession(name: string, command: string[], env: Record<strin
     envArgs.push("-e", `${key}=${value}`);
   }
 
+  // On non-zero exit, keep the pane open so errors are readable; Ctrl+C still works during the run.
+  const quoted = command.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+  const shellCmd = `${quoted}; __code=$?; if [ $__code -ne 0 ]; then printf '\\n[ralphy exited with code %s — press Enter to close]\\n' "$__code"; read; fi`;
+
   const result = Bun.spawnSync({
-    cmd: ["tmux", "new-session", "-d", "-s", name, ...envArgs, ...command],
+    cmd: ["tmux", "new-session", "-d", "-s", name, ...envArgs, "sh", "-c", shellCmd],
     stderr: "pipe",
   });
 
@@ -73,12 +77,6 @@ export function createSession(name: string, command: string[], env: Record<strin
       throw err;
     }
   }
-
-  // Keep the pane alive after exit so errors are readable before the user closes it.
-  Bun.spawnSync({
-    cmd: ["tmux", "set-window-option", "-t", name, "remain-on-exit", "on"],
-    stderr: "pipe",
-  });
 }
 
 export function attachSession(name: string): void {
