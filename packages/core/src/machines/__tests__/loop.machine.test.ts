@@ -17,7 +17,13 @@ function startActor(
   startingCostUsd?: number,
 ) {
   const actor = createActor(loopMachine).start();
-  actor.send({ type: "START", options, startTime, startingIteration, startingCostUsd });
+  actor.send({
+    type: "START",
+    options,
+    startTime,
+    ...(startingIteration !== undefined && { startingIteration }),
+    ...(startingCostUsd !== undefined && { startingCostUsd }),
+  });
   return actor;
 }
 

@@ -1,4 +1,4 @@
-import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
+import type { GetIndicator, Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import {
   fetchOpenIssues,
@@ -215,14 +215,54 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
   };
 }
 
-export function fetchDoneCandidatesWith(
+/**
+ * Fetch all issues that should be scanned for PR conflict and CI status.
+ * Unions results from every configured "get" indicator (getTodo, getInProgress,
+ * getDone, getReview, getAutoMerge) plus the setDone filter, deduped by id.
+ * Always fetches regardless of assignee — the PR scan covers all team members.
+ */
+export async function fetchDoneCandidatesWith(
   apiKey: string,
   team: string | undefined,
-  assignee: string | undefined,
+  _assignee: string | undefined,
   indicators: Indicators,
 ): Promise<LinearIssue[]> {
-  if (!indicators.setDone) return Promise.resolve([]);
-  const include = markersOf(indicators.setDone);
-  if (include.length === 0) return Promise.resolve([]);
-  return fetchOpenIssues(apiKey, { team, assignee, include, exclude: [] });
+  const getIndicators: GetIndicator[] = [
+    indicators.getTodo,
+    indicators.getInProgress,
+    indicators.getDone,
+    indicators.getReview,
+    indicators.getAutoMerge,
+  ].filter((i): i is GetIndicator => i != null);
+
+  // Also include issues currently in the setDone state.
+  if (indicators.setDone) {
+    getIndicators.push({ filter: markersOf(indicators.setDone) });
+  }
+
+  if (getIndicators.length === 0) return [];
+
+  const seen = new Set<string>();
+  const results: LinearIssue[] = [];
+
+  await Promise.all(
+    getIndicators.map(async (ind) => {
+      const include = ind.filter ?? [];
+      if (include.length === 0) return;
+      const issues = await fetchOpenIssues(apiKey, {
+        team,
+        anyAssignee: true,
+        include,
+        exclude: [],
+      });
+      for (const issue of issues) {
+        if (!seen.has(issue.id)) {
+          seen.add(issue.id);
+          results.push(issue);
+        }
+      }
+    }),
+  );
+
+  return results;
 }

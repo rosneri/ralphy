@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { flowMachine } from "../flow.machine";
 
 function actor() {
-  return createActor(flowMachine).start();
+  return createActor(flowMachine, { input: {} }).start();
 }
 
 describe("flowMachine — idle entry events", () => {
@@ -176,6 +176,63 @@ describe("flowMachine — review transitions", () => {
     const a = review();
     a.send({ type: "WORKER_FAILED" });
     expect(a.getSnapshot().value).toBe("error");
+  });
+
+  test("review: WORKER_SPAWNED stores worker and assignment in context", () => {
+    const a = review();
+    const fakeWorker = { exited: Promise.resolve(0), kill: () => {} };
+    a.send({
+      type: "WORKER_SPAWNED",
+      worker: fakeWorker,
+      assignment: { flowId: "implement", reason: "r", boost: "p2" },
+    } as never);
+    expect(a.getSnapshot().context.worker).toBe(fakeWorker);
+  });
+});
+
+describe("flowMachine — PREEMPT and WORKER_SPAWNED in conflict-fix and ci-fix", () => {
+  test("conflict-fix: WORKER_SPAWNED stores worker in context", () => {
+    const a = actor();
+    a.send({ type: "CONFLICT_DETECTED" });
+    const fakeWorker = { exited: Promise.resolve(0), kill: () => {} };
+    a.send({
+      type: "WORKER_SPAWNED",
+      worker: fakeWorker,
+      assignment: { flowId: "conflict-fix", reason: "r", boost: "p1" },
+    } as never);
+    expect(a.getSnapshot().context.worker).toBe(fakeWorker);
+  });
+
+  test("conflict-fix: PREEMPT stores pendingAssignment and transitions to preempting", () => {
+    const a = actor();
+    a.send({ type: "CONFLICT_DETECTED" });
+    const newAssignment = { flowId: "ci-fix" as const, reason: "ci failed", boost: "p1" as const };
+    a.send({ type: "PREEMPT", newAssignment });
+    expect(a.getSnapshot().context.pendingAssignment).toEqual(newAssignment);
+  });
+
+  test("ci-fix: WORKER_SPAWNED stores worker in context", () => {
+    const a = actor();
+    a.send({ type: "CI_FAILED_DETECTED" });
+    const fakeWorker = { exited: Promise.resolve(0), kill: () => {} };
+    a.send({
+      type: "WORKER_SPAWNED",
+      worker: fakeWorker,
+      assignment: { flowId: "ci-fix", reason: "r", boost: "p1" },
+    } as never);
+    expect(a.getSnapshot().context.worker).toBe(fakeWorker);
+  });
+
+  test("ci-fix: PREEMPT stores pendingAssignment and transitions to preempting", () => {
+    const a = actor();
+    a.send({ type: "CI_FAILED_DETECTED" });
+    const newAssignment = {
+      flowId: "conflict-fix" as const,
+      reason: "conflict",
+      boost: "p0" as const,
+    };
+    a.send({ type: "PREEMPT", newAssignment });
+    expect(a.getSnapshot().context.pendingAssignment).toEqual(newAssignment);
   });
 });
 
