@@ -12,5 +12,5 @@ export {
   type PreemptActorInput,
 } from "./flow.machine";
 export { FlowActorStore, type FlowActorDeps } from "./flow-actor-store";
-export { loopMachine } from "./loop.machine";
+export { loopMachine, stoppedStateToReason } from "./loop.machine";
 export type { LoopMachineContext, LoopMachineEvent, LoopMachineOptions } from "./loop.machine";
