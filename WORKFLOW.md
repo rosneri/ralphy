@@ -1,24 +1,39 @@
 ---
 project:
+  # The project's display name. Ralphy puts it in the agent's prompt and in
+  # its logs.
   name: ralphy
+  # Primary programming language (e.g. TypeScript). Added to the agent's
+  # prompt as context.
   language: TypeScript
-  framework: Bun + Nx
+  # Primary framework or toolchain (e.g. Bun + Nx). Added to the agent's
+  # prompt as context.
+  framework: Bun, NX
 
 commands:
+  # Shell command Ralphy runs to check the agent's work each iteration; its
+  # exit code decides pass or fail.
   test: bun test
+  # Shell command Ralphy runs to lint the code before a task is allowed to
+  # finish.
   lint: bun run lint
+  # Shell command Ralphy runs to confirm the project still compiles / builds.
   build: bun run build:publish
+  # Shell command Ralphy runs to confirm the project's types still pass.
   typecheck: bun run typecheck
 
+# House rules added to every prompt (e.g. 'never edit generated files'). One
+# rule per entry.
 rules:
-  - "use Bun-native APIs (Bun.spawn / Bun.file) — never node:fs sync"
-  - "never reduce coverage threshold"
-  - "strive to write code in packages and only consume it from apps"
+  - use Bun-native APIs (Bun.spawn / Bun.file) — never node:fs sync
+  - never reduce coverage threshold
+  - strive to write code in packages and only consume it from apps
 
 boundaries:
+  # Glob patterns for files the agent must never modify (e.g. dist/**).
   never_touch:
-    - "dist/**"
-    - ".claude/worktrees/**"
+    - dist/**
+    - .claude/worktrees/**
   # Globs that mark a file as "meta only". Before opening a PR, the loop runs
   # `git diff --name-only origin/<base>...HEAD`; if every file matches one of
   # these, the PR is blocked (the substantive change has been lost) and a fix
@@ -31,67 +46,84 @@ boundaries:
     - "**/tasks.md"
     - "**/MANUAL_TESTING*.md"
 
-# How many tasks to run in parallel.
+# How many tasks Ralphy works on at once. Higher finishes faster but uses
+# more API quota simultaneously.
 concurrency: 2
 
 # Stop picking up new issues after N have been started this run. 0 = unlimited.
 maxTickets: 0
 
-# Strategy used when getAutoMerge matches: "squash" | "merge" | "rebase".
-autoMergeStrategy: squash
+# How GitHub combines the PR's commits when it auto-merges: squash (one
+# commit), merge (a merge commit), or rebase.
+autoMergeStrategy: merge
 
-# Seconds between polls for new Linear issues (agent mode).
+# In agent mode, how often (in seconds) Ralphy checks Linear for new issues
+# to pick up.
 pollIntervalSeconds: 60
 
-# Maximum iterations per task. 0 = unlimited.
+# Stop a task after this many loop iterations. 0 means no limit (run until
+# done or another limit hits).
 maxIterationsPerTask: 300
 
-# Maximum cost in USD per task. 0 = unlimited.
+# Stop a task once its API spend passes this many US dollars. 0 means no
+# cost limit.
 maxCostUsdPerTask: 0
 
-# Maximum wall-clock minutes per task. 0 = unlimited.
+# Stop a task after this many minutes of wall-clock time. 0 means no time
+# limit.
 maxRuntimeMinutesPerTask: 0
 
-# Stop a task after this many consecutive identical failures.
+# Give up on a task after this many identical failures in a row — a guard
+# against stuck loops.
 maxConsecutiveFailuresPerTask: 5
 
-# Seconds to wait between loop iterations (throttle).
+# Seconds to pause between loop iterations — a throttle to slow spend. 0
+# means no pause.
 iterationDelaySeconds: 0
 
-# Log the raw engine stream to stdout.
+# Print the engine's raw event stream to the terminal. Very verbose — mainly
+# for debugging.
 logRawStream: true
 
-# Pass --verbose to the ralph task sub-process.
-taskVerbose: false
+# Run the per-task process with --verbose for extra diagnostic output.
+taskVerbose: true
 
-# Enable manual testing phase for each task (forwarded as --manual-test).
+# Add a phase that pauses for a human to manually test the change (e.g. in
+# the UI) before the task is marked done.
 enableManualTest: true
 
-# Run each task in an isolated git worktree.
+# Run each task in its own git worktree (a separate working copy of the
+# repo) so parallel tasks don't overwrite each other's files.
 useWorktree: true
 
-# Delete the worktree after a successful task.
+# Delete a task's worktree (its separate working copy) once it succeeds, to
+# reclaim disk space.
 cleanupWorktreeOnSuccess: false
 
-# Shell script to run inside the worktree before the task starts.
-setupScript: bun install
+# Shell script run once before each task starts — e.g. to install
+# dependencies.
+setupScript: bun i
 
-# Open a pull request after a task succeeds.
+# When a task succeeds, automatically push the branch and open a GitHub pull
+# request (PR).
 createPrOnSuccess: true
 
-# Base branch for pull requests.
+# The branch new pull requests merge into (their base) — e.g. main.
 prBaseBranch: main
 
-# Let the agent attempt to fix CI failures after a PR is created.
+# After opening a PR, watch its CI (the automated checks GitHub runs) and
+# let the agent push fixes when they fail.
 fixCiOnFailure: true
 
-# Maximum number of CI-fix attempts per task.
+# Stop trying to fix failing CI after this many attempts.
 maxCiFixAttempts: 10
 
-# Stack dependent issues' PRs onto the open PR of their blocker.
+# If an issue is blocked by another that already has an open PR, base this
+# issue's PR on that PR's branch instead of main (a 'stacked' PR).
 stackPrsOnDependencies: true
 
-# Seconds between CI status polls.
+# How often (in seconds) to re-check the PR's CI status while waiting on or
+# fixing it.
 ciPollIntervalSeconds: 60
 
 # RLF-173: scheduler-tier watcher for In-Review PRs whose merge state goes
@@ -108,41 +140,60 @@ ciPollIntervalSeconds: 60
 # the state file entry. Pass `--no-pr-tracker` to disable for a single
 # run without editing WORKFLOW.md.
 prTracker:
+  # Keep watching the PRs Ralphy opened and automatically try to recover any
+  # whose merge state goes red (conflicts or failing CI).
   enabled: true
+  # Give up auto-recovering a red PR after this many attempts, then flag it
+  # for a human.
   maxRecoveryAttempts: 3
-  advanceMergedToDone: false
+  # Move an issue to its done state as soon as its PR is merged.
+  advanceMergedToDone: true
 
-# Underlying engine: "claude" or "codex".
+# Which AI coding tool runs the loop: 'claude' (Claude Code) or 'codex'
+# (OpenAI Codex).
 engine: claude
 
-# Model tier: "haiku", "sonnet", or "opus".
+# Model tier the engine uses. 'opus' is the most capable, 'haiku' the
+# cheapest and fastest; higher tiers cost more per token.
 model: sonnet
 
 linear:
+  # Only pick up issues from this Linear team, given by its key (e.g. ENG).
+  # Leave blank to watch every team.
   team: RLF
 
+  # Post progress comments on the Linear issue while a task runs.
   postComments: true
+  # Post a progress comment every N loop iterations. 0 turns periodic updates
+  # off.
   updateEveryIterations: 10
 
+  # Watch a finished issue's comments and its PR for @mentions of Ralphy, and
+  # re-engage when mentioned.
   mentionTrigger: true
+  # The @handle that, when mentioned, makes Ralphy pick the issue back up
+  # (e.g. @ralphy).
   mentionHandle: "@ralphy-read"
 
+  # Watch open PRs for unresolved review comments and re-engage to address
+  # them.
   codeReviewTrigger: true
-  codeReviewStaleHours: 24
+  # Ignore review comments older than this many hours, so stale threads don't
+  # re-trigger work.
+  codeReviewStaleHours: 48
 
-  # Mirror the loop's tasks.md into a sticky Linear comment that always
-  # lands at the bottom of the issue timeline.
-  syncTasksToComment: true
+  # Keep one pinned ('sticky') Linear comment in sync with the task checklist
+  # (tasks.md).
+  syncTasksToComment: false
 
-  # Upload openspec proposal.md and design.md as Linear attachments on
-  # the parent issue. Refreshed when file contents change, no-op
-  # otherwise. Requires syncTasksToComment.
+  # Upload the OpenSpec planning docs (proposal.md, design.md) to the issue as
+  # attachments. OpenSpec is Ralphy's spec-driven planning format.
   syncSpecsAsAttachments: true
 
-  # Which rendered formats to upload for each spec. "md" mirrors the
-  # source file as-is. "pdf" also uploads a pdfkit-rendered PDF mirror
-  # as a peer attachment (handy when viewing Linear on mobile).
-  specAttachmentFormats: ["pdf"]
+  # Which formats to upload the spec docs in: 'md' (raw markdown), 'pdf' (a
+  # rendered PDF), or both.
+  specAttachmentFormats:
+    - pdf
 
   # Confirmation mode — human gate between the OpenSpec `tasks` and
   # `implement` phases. Approve via `getApproved`, revise via
@@ -150,15 +201,20 @@ linear:
   # Use getConfirmGate indicator (opt-in mode) and getAutoApprove indicator
   # (opt-out/bypass mode) in the indicators section below.
   confirmationMode:
+    # Pause after the agent finishes planning and wait for a human to approve
+    # before it writes any code (a confirmation gate).
     enabled: true
+    # If no one approves or rejects within this many hours, auto-resolve the
+    # confirmation gate.
     timeoutHours: 48
+    # How many times the plan can be revised and re-submitted for approval
+    # before Ralphy gives up.
     maxConfirmationRounds: 3
 
-  # Indicators grouped by lifecycle: each get* is followed by the set*/clear*
-  # that mutates the same status/label, so a reader sees the whole lifecycle
-  # in one block.
+  # How Ralphy maps lifecycle events to Linear statuses/labels — which issues
+  # to pick up (todo) and what to set when a task is in progress, done, or
+  # errored.
   indicators:
-    # Todo → In Progress
     getTodo:
       filter:
         - type: status
@@ -170,60 +226,34 @@ linear:
     setInProgress:
       type: status
       value: In Progress
-
-    # Done / review hand-off
     setDone:
       type: status
       value: In Review
-    getReview:
-      filter:
-        - type: label
-          value: "review"
-          group: "Ralphy"
-    clearReview:
-      type: label
-      value: "review"
-      group: "Ralphy"
-
-    # Merge-state lifecycle (conflicted / ci-failed / mergeable) is
-    # driven by GitHub directly via `gh pr view` — no Linear indicators
-    # to configure here.
-
-    # Auto-merge opt-in
-    getAutoMerge:
-      filter:
-        - type: label
-          value: "auto-merge"
-          group: "Ralphy"
-
-    # Confirmation gate (paired with linear.confirmationMode above)
-    # getConfirmGate: when set, only gate tickets that match this indicator (opt-in mode).
-    getConfirmGate:
-      filter:
-        - type: label
-          value: "confirm"
-          group: "Ralphy"
-    # getAutoApprove: when set, bypass the gate for tickets that match (opt-out mode).
-    getAutoApprove:
-      filter:
-        - type: label
-          value: "auto-merge"
-          group: "Ralphy"
-    getApproved:
-      filter:
-        - type: label
-          value: "approved"
-          group: "Ralphy"
-    clearApproved:
-      type: label
-      value: "approved"
-      group: "Ralphy"
-
-    # Error quarantine
     setError:
       type: label
-      value: "error"
-      group: "Ralphy"
+      value: ralph:error
+prDraft: true
+manualMergeWhenAutoMergeDisabled: true
+finalizeNoOpAsDone: true
+preExistingErrorCheck:
+  # Before picking up new work, run health-check commands on the base branch
+  # and pause if it's already broken, so the agent isn't blamed for
+  # pre-existing failures.
+  enabled: false
+metaPrompt:
+  # Add Ralphy's task-level 'meta-prompt' layer (extra framing instructions)
+  # to each phase. Leave on unless you want raw prompts.
+  enabled: true
+openspec:
+  reviewPhase:
+    # After all tasks finish, spawn a separate reviewer agent that reads the
+    # full diff and writes review findings; open findings loop back into more
+    # work.
+    enabled: true
+    maxRounds: 2
+    reviewerModel: opus
+    reviewerContextStrategy: fresh
+version: 1
 ---
 
 You are working on {{ issue.identifier }}: {{ issue.title }}.
