@@ -8,7 +8,7 @@
     "@total-typescript/ts-reset",
     "@rosneri/xstate-mcp"
   ],
-  "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
+  "ignore": ["reset.d.ts", "scripts/debug-agent.ts", "scripts/xstate-mcp-server.ts"],
   "workspaces": {
     "apps/loop": {
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
