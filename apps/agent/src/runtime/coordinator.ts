@@ -477,21 +477,14 @@ export class AgentCoordinator {
       if (changeDir) {
         await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
       }
-      // Derive trigger from actor state; fall back to "resume" for unexpected states
-      const resumeActorState = actor.getSnapshot().value as string;
-      const resumeTrigger = (
-        resumeActorState === "conflict-fix" || resumeActorState === "ci-fix"
-          ? resumeActorState
-          : "resume"
-      ) as QueueTrigger;
       this.queue.push({
         issue,
-        trigger: resumeTrigger,
-        priority: defaultPriorityFor(resumeTrigger),
+        trigger: "resume",
+        priority: defaultPriorityFor("resume"),
       });
       queuedIds.add(issue.id);
       added += 1;
-      this.deps.onLog(`  ↳ ${issue.identifier} queued (${resumeTrigger})`, "gray");
+      this.deps.onLog(`  ↳ ${issue.identifier} queued (resume)`, "gray");
     }
 
     // Conflicted + CI-failed enqueueing happens inside `scanPrMergeStates`
@@ -584,11 +577,11 @@ export class AgentCoordinator {
           validFlowStates.includes(stateVal as Flow) ? stateVal : "working"
         ) as Flow;
       } else {
-        // Actor not in memory (should not happen for active workers) — fall back to trigger
-        if (w.trigger === "conflict-fix") flow[w.changeName] = "conflict-fix";
-        else if (w.trigger === "ci-fix") flow[w.changeName] = "ci-fix";
-        else if (w.trigger === "review") flow[w.changeName] = "review";
-        else flow[w.changeName] = "working";
+        this.deps.onLog(
+          `[warn] no actor in memory for active worker ${w.changeName} — defaulting flow to "working"`,
+          "gray",
+        );
+        flow[w.changeName] = "working";
       }
     }
     return { found, added, buckets, prStatus, phase: {}, flow };
@@ -695,15 +688,7 @@ export class AgentCoordinator {
       actor.send({ type: "CI_FAILED_DETECTED" });
     }
 
-    // Derive trigger from actor state
-    const actorState = actor.getSnapshot().value as string;
-    const trigger = (
-      actorState === "conflict-fix" || actorState === "ci-fix"
-        ? actorState
-        : pr.status === "conflicted"
-          ? "conflict-fix"
-          : "ci-fix"
-    ) as QueueTrigger;
+    const trigger: QueueTrigger = pr.status === "conflicted" ? "conflict-fix" : "ci-fix";
 
     if (changeDir) {
       await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
@@ -914,6 +899,12 @@ export class AgentCoordinator {
             );
           }
         }
+        const conflictActor = await this.flowStore.getActor(
+          issue.id,
+          this.deps.getChangeDir?.(issue) ?? undefined,
+        );
+        conflictActor.send({ type: "RESUME_DETECTED" });
+        conflictActor.send({ type: "CONFLICT_DETECTED" });
         this.queue.push({
           issue,
           trigger: "conflict-fix",
@@ -944,6 +935,12 @@ export class AgentCoordinator {
             );
           }
         }
+        const ciActor = await this.flowStore.getActor(
+          issue.id,
+          this.deps.getChangeDir?.(issue) ?? undefined,
+        );
+        ciActor.send({ type: "RESUME_DETECTED" });
+        ciActor.send({ type: "CI_FAILED_DETECTED" });
         this.queue.push({
           issue,
           trigger: "ci-fix",
