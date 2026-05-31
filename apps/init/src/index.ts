@@ -171,28 +171,6 @@ async function promptMigrate(fromVersion: number): Promise<MigrateChoice> {
   return choice;
 }
 
-/**
- * Printed after a successful write. The wizard only fills in the settings
- * (the YAML frontmatter); the actual instructions sent to the agent live in
- * the file BODY, which is a template the user edits by hand.
- */
-function printTemplatingTip(path: string): void {
-  process.stdout.write(
-    [
-      "",
-      "Next: the prompt sent to the agent lives in the BODY of this file,",
-      `below the closing "---". Edit it to change what each task is told to do:`,
-      `  ${path}`,
-      "",
-      "It's a template — Ralphy fills in per-issue values before each run:",
-      "  {{ issue.identifier }}  {{ issue.title }}  {{ issue.labels }}",
-      "  {{ rules }}  {{ boundaries.never_touch }}  {{ last_error }}  {{ attempt }}",
-      "  {% if attempt > 1 %} … {% endif %}   {% for rule in rules %} … {% endfor %}",
-      "",
-    ].join("\n"),
-  );
-}
-
 /** Run an edit/migration of the existing file, prefilled from its config. */
 async function editExisting(
   projectRoot: string,
@@ -208,7 +186,6 @@ async function editExisting(
     ...(onlyFields ? { onlyFields } : {}),
   });
   process.stdout.write(wrote ? `\n✓ Updated ${path}\n` : `\nNo changes written.\n`);
-  if (wrote) printTemplatingTip(path);
   return 0;
 }
 
@@ -243,7 +220,6 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write(
         wrote ? `\n✓ Recreated ${path}\n` : `\nSetup cancelled — no file written.\n`,
       );
-      if (wrote) printTemplatingTip(path);
       return 0;
     }
 
@@ -277,6 +253,5 @@ export async function main(argv: string[]): Promise<number> {
 
   const wrote = await runSetupWizard(projectRoot);
   process.stdout.write(wrote ? `\n✓ Created ${path}\n` : `\nSetup cancelled — no file written.\n`);
-  if (wrote) printTemplatingTip(path);
   return 0;
 }

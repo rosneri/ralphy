@@ -119,7 +119,7 @@ describe("SetupWizard render", () => {
   });
 
   test("down arrow switches options and enter confirms (mode picker)", async () => {
-    const DOWN = "[B";
+    const DOWN = "\x1b[B";
     const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
     const { stdin, lastFrame, unmount } = render(
       createElement(SetupWizard, { onComplete: () => {} }),
@@ -302,12 +302,11 @@ describe("SetupWizard render", () => {
 describe("IndicatorBuilder", () => {
   test("builds a get-slot filter from chosen type + value", async () => {
     const ENTER = "\r";
-    const DOWN = "[B";
     const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
     const captured: { map: IndicatorMap | null } = { map: null };
     const { stdin, unmount } = render(
       createElement(IndicatorBuilder, {
-        slots: ["getTodo"],
+        states: [{ key: "todo", label: "Todo", description: "pickup", slots: ["getTodo"] }],
         onDone: (m: IndicatorMap) => {
           captured.map = m;
         },
@@ -319,22 +318,80 @@ describe("IndicatorBuilder", () => {
     await tick();
     stdin.write("Todo"); // marker value
     await tick();
-    stdin.write(ENTER); // add marker
-    await tick();
-    for (let i = 0; i < 5; i++) {
-      stdin.write(DOWN); // move to "done with this slot"
-      await tick();
-    }
-    stdin.write(ENTER); // finish slot -> last slot -> onDone
+    stdin.write(ENTER); // commit (status isn't a label) -> last state -> onDone
     await tick();
     unmount();
     expect(captured.map).toEqual({ getTodo: { filter: [{ type: "status", value: "Todo" }] } });
+  });
+
+  test("one value fills every slot of a state (get + set share it)", async () => {
+    const ENTER = "\r";
+    const DOWN = "\x1b[B";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const captured: { map: IndicatorMap | null } = { map: null };
+    const { stdin, unmount } = render(
+      createElement(IndicatorBuilder, {
+        states: [
+          {
+            key: "inProgress",
+            label: "In progress",
+            description: "started",
+            slots: ["getInProgress", "setInProgress"],
+          },
+        ],
+        onDone: (m: IndicatorMap) => {
+          captured.map = m;
+        },
+        onCancel: () => {},
+      }),
+    );
+    await tick();
+    stdin.write(DOWN); // status -> label
+    await tick();
+    stdin.write(ENTER); // type = label
+    await tick();
+    stdin.write("ralph:wip");
+    await tick();
+    stdin.write(ENTER); // value -> group prompt (label)
+    await tick();
+    stdin.write(ENTER); // blank group -> commit -> onDone
+    await tick();
+    unmount();
+    expect(captured.map).toEqual({
+      getInProgress: { filter: [{ type: "label", value: "ralph:wip" }] },
+      setInProgress: { type: "label", value: "ralph:wip" },
+    });
+  });
+
+  test("skipping a state leaves its slots unset", async () => {
+    const ENTER = "\r";
+    const DOWN = "\x1b[B";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const captured: { map: IndicatorMap | null } = { map: null };
+    const { stdin, unmount } = render(
+      createElement(IndicatorBuilder, {
+        states: [{ key: "todo", label: "Todo", description: "pickup", slots: ["getTodo"] }],
+        onDone: (m: IndicatorMap) => {
+          captured.map = m;
+        },
+        onCancel: () => {},
+      }),
+    );
+    await tick();
+    for (let i = 0; i < 5; i++) {
+      stdin.write(DOWN); // past the 5 type options to "skip this state"
+      await tick();
+    }
+    stdin.write(ENTER); // skip -> onDone with empty map
+    await tick();
+    unmount();
+    expect(captured.map).toEqual({});
   });
 });
 
 describe("EditOrExitPrompt", () => {
   test("mounts and reports the chosen option", async () => {
-    const DOWN = "[B";
+    const DOWN = "\x1b[B";
     const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
     let choice = "";
     const { stdin, lastFrame, unmount } = render(
