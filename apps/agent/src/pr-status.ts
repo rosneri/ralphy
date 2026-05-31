@@ -1,5 +1,5 @@
 import type { CmdRunner } from "./agent/pr";
-import { classifyCheck } from "./shared/pr/ci-classify";
+import { classifyCheck, runGhWithRetry } from "./shared/pr/ci-classify";
 import type { RawCheck } from "./shared/pr/ci-classify";
 
 export type CiBucket = "pass" | "fail" | "pending";
@@ -30,13 +30,26 @@ const PR_VIEW_FIELDS = "state,isDraft,mergeable,statusCheckRollup,autoMergeReque
  * Mirrors the bucketing in `agent/ci.ts::getPrChecksStatus` but works off the
  * `statusCheckRollup` shape returned by `gh pr view` (rather than `gh pr checks`).
  */
-function bucketChecks(rollup: RawCheck[] | null | undefined, prState: PrState): CiBucket {
-  if (rollup === null || rollup === undefined || rollup.length === 0) {
+function bucketChecks(
+  rollup: RawCheck[] | null | undefined,
+  prState: PrState,
+  ignoreCiChecks: string[] = [],
+): CiBucket {
+  if (rollup === null || rollup === undefined) {
     return prState === "MERGED" ? "pass" : "pending";
   }
+  const ignoredLower = ignoreCiChecks.map((n) => n.toLowerCase());
+  const filtered =
+    ignoredLower.length > 0
+      ? rollup.filter((c) => {
+          const id = (c.name ?? c.context ?? "").toLowerCase();
+          return !ignoredLower.includes(id);
+        })
+      : rollup;
+  if (filtered.length === 0) return "pass";
   let anyPending = false;
   let anyFail = false;
-  for (const c of rollup) {
+  for (const c of filtered) {
     const result = classifyCheck(c);
     if (result === "pending") {
       anyPending = true;
@@ -84,10 +97,18 @@ export async function fetchPrStatus(
   runner: CmdRunner,
   cwd: string,
   transition?: PrStatusTransitionHook,
+  ignoreCiChecks: string[] = [],
+  sleepFn?: (ms: number) => Promise<void>,
 ): Promise<PrStatus> {
   let stdout: string;
   try {
-    const out = await runner.run(["gh", "pr", "view", url, "--json", PR_VIEW_FIELDS], cwd);
+    const out = await runGhWithRetry(
+      ["gh", "pr", "view", url, "--json", PR_VIEW_FIELDS],
+      runner,
+      cwd,
+      undefined,
+      sleepFn,
+    );
     stdout = out.stdout;
   } catch (err) {
     const e = err as Error & { stderr?: string };
@@ -116,7 +137,7 @@ export async function fetchPrStatus(
     state,
     isDraft: Boolean(raw.isDraft),
     mergeable,
-    ciBucket: bucketChecks(raw.statusCheckRollup, state),
+    ciBucket: bucketChecks(raw.statusCheckRollup, state, ignoreCiChecks),
     autoMergeEnabled: raw.autoMergeRequest !== null && raw.autoMergeRequest !== undefined,
     createdAt: raw.createdAt ?? "",
   };

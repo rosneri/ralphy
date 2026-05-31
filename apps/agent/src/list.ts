@@ -202,6 +202,7 @@ async function fetchAndPrintLinear(
   assignee: string | undefined,
   cwd: string,
   runner: CmdRunner,
+  ignoreCiChecks: string[] = [],
 ): Promise<void> {
   // Fan out across buckets in parallel.
   const bucketResults = await Promise.all(
@@ -280,7 +281,7 @@ async function fetchAndPrintLinear(
   await Promise.all(
     rows.map(async (row) => {
       if (!row.prUrl) return;
-      row.status = await fetchPrStatus(row.prUrl, runner, cwd);
+      row.status = await fetchPrStatus(row.prUrl, runner, cwd, undefined, ignoreCiChecks);
     }),
   );
 
@@ -365,7 +366,15 @@ export async function runList(input: RunListInput): Promise<void> {
   if (team) process.stdout.write(`\nteam: ${team}\n`);
   if (assignee) process.stdout.write(`assignee: ${assignee}\n`);
 
-  await fetchAndPrintLinear(apiKey, buckets, team, assignee, projectRoot, localCmdRunner);
+  await fetchAndPrintLinear(
+    apiKey,
+    buckets,
+    team,
+    assignee,
+    projectRoot,
+    localCmdRunner,
+    cfg.ignoreCiChecks,
+  );
 }
 
 // ---------------------------------------------------------------------------
