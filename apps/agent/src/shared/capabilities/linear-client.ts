@@ -39,7 +39,7 @@ export interface LinearIssue {
    * Identifiers (e.g. "ENG-123") of open blockers.
    * Populated alongside blockedByIds from the same relations.
    */
-  blockedByIdentifiers: string[];
+  blockedByIdentifiers?: string[];
   /**
    * Recent comments embedded with the mention-scan candidate query so the
    * agent can skip a per-issue `fetchIssueComments` round-trip. Only

@@ -251,7 +251,7 @@ async function fetchAndPrintLinear(
         stateName: issue.state.name,
         title: issue.title.slice(0, 60),
         prUrl: null,
-        blockedByIdentifiers: issue.blockedByIdentifiers,
+        blockedByIdentifiers: issue.blockedByIdentifiers ?? [],
       });
     }
   }
