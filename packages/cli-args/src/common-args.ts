@@ -99,13 +99,15 @@ const BOOLEAN_SETTERS: Record<string, BooleanSetter> = {
 
 function applyValueOption(option: CliOption, args: CommonArgs, raw: string): void {
   const setter = VALUE_SETTERS[option.argKey];
-  if (!setter) throw new Error(`no value setter registered for ${option.flag}`);
+  // Invariant: every value-kind COMMON_CLI_OPTION must have a setter here.
+  if (!setter) throw new Error("no value setter registered for CLI option");
   setter(args, raw);
 }
 
 function applyBooleanOption(option: CliOption, args: CommonArgs): void {
   const setter = BOOLEAN_SETTERS[option.argKey];
-  if (!setter) throw new Error(`no boolean setter registered for ${option.flag}`);
+  // Invariant: every boolean-kind COMMON_CLI_OPTION must have a setter here.
+  if (!setter) throw new Error("no boolean setter registered for CLI option");
   setter(args);
 }
 

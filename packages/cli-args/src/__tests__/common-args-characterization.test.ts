@@ -19,7 +19,7 @@ function parseAll(argv: string[]): CommonArgs {
   const state = emptyParseState();
   for (const token of argv) {
     if (!parseCommonArg(token, args, state)) {
-      throw new Error(`unconsumed token: ${token}`);
+      throw new Error("unconsumed token in characterization parse");
     }
   }
   return args;
