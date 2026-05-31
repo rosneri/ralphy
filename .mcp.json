@@ -9,7 +9,7 @@
     "xstate-mcp": {
       "type": "stdio",
       "command": "bun",
-      "args": ["./node_modules/.bin/xstate-mcp"],
+      "args": ["./scripts/xstate-mcp-server.ts"],
       "env": {}
     }
   }
