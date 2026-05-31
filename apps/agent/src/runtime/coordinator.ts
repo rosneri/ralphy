@@ -870,8 +870,7 @@ export class AgentCoordinator {
       }
       if (!pr) continue;
       if (pr.status === "mergeable") counts.mergeable += 1;
-      else if (pr.status === "conflicted") counts.conflicted += 1;
-      else if (pr.status === "ci_failed") counts.ciFailed += 1;
+      // conflicted/ci_failed counts are accumulated via the queue/worker loops below
 
       // pr-tracker (RLF-173): mergeable PR clears any prior recovery
       // counter so a future regression starts fresh.
