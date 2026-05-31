@@ -131,7 +131,7 @@ describe("SetupWizard render", () => {
     stdin.write("\r"); // confirm customized
     await tick();
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("customized setup — step 1");
+    expect(frame).toContain("customized · step 1");
     expect(frame).toContain("Project name");
     unmount();
   });
@@ -155,7 +155,7 @@ describe("SetupWizard render", () => {
     stdin.write(LEFT); // back to name (history should show Q1)
     await tick();
     const backFrame = lastFrame() ?? "";
-    expect(backFrame).toContain("quick setup — step 1");
+    expect(backFrame).toContain("quick · step 1");
     stdin.write(RIGHT); // forward to team again (name preserved)
     await tick();
     stdin.write(ENTER); // team blank -> assignee
@@ -235,9 +235,10 @@ describe("SetupWizard render", () => {
     const frame = lastFrame() ?? "";
     // Strip ANSI styling — the bold label and the value sit in separate spans.
     const plain = frame.replace(/\[[0-9;]*m/g, "");
-    expect(plain).toContain("customized setup — step 1");
-    expect(plain).toContain("Project name: svc");
-    expect(plain).toContain("Shown in prompts and logs"); // the new description line
+    expect(plain).toContain("customized · step 1");
+    expect(plain).toContain("Project name"); // the title
+    expect(plain).toContain("Shown in prompts and logs"); // the description line
+    expect(plain).toContain("svc"); // the prefilled value in the input
     unmount();
   });
 });

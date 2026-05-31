@@ -32,6 +32,15 @@ interface RunOptions {
 }
 
 /**
+ * Clear the terminal so a fresh Ink app doesn't stack under a previous one.
+ * Each `render()`/`waitUntilExit()` leaves its final frame committed to the
+ * scrollback; clearing before the next render keeps the flow on one screen.
+ */
+function clearScreen(): void {
+  if (process.stdout.isTTY) process.stdout.write("\x1b[2J\x1b[3J\x1b[H");
+}
+
+/**
  * Render the Ink wizard and write the resulting WORKFLOW.md. Returns true when
  * a file was written, false when the user cancelled. Assumes the caller has
  * already confirmed the terminal is interactive.
@@ -44,6 +53,7 @@ export async function runSetupWizard(
   const buildMarkdown = options.existing
     ? (answers: WizardAnswers) => applyAnswersToWorkflow(options.existing!, answers)
     : undefined;
+  clearScreen();
   const { waitUntilExit } = render(
     createElement(SetupWizard, {
       onComplete: (md: string) => {
@@ -104,6 +114,7 @@ function initialValuesFromConfig(
 /** Ask whether to edit the existing file or exit. */
 async function promptEditOrExit(): Promise<"edit" | "exit"> {
   let choice: "edit" | "exit" = "exit";
+  clearScreen();
   const { waitUntilExit } = render(
     createElement(EditOrExitPrompt, {
       onChoice: (value: "edit" | "exit") => {
@@ -118,6 +129,7 @@ async function promptEditOrExit(): Promise<"edit" | "exit"> {
 /** Ask how to migrate an outdated file: fill the diff, review all, or exit. */
 async function promptMigrate(fromVersion: number): Promise<MigrateChoice> {
   let choice: MigrateChoice = "exit";
+  clearScreen();
   const { waitUntilExit } = render(
     createElement(MigratePrompt, {
       fromVersion,

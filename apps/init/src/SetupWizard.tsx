@@ -340,9 +340,12 @@ export function SetupWizard({
   if (mode === null) {
     return (
       <Box flexDirection="column">
-        <Text bold>Ralphy setup — no WORKFLOW.md found</Text>
-        <Text dimColor>Choose a setup mode:</Text>
-        <Box marginTop={1}>
+        <Text>
+          <Text color="cyan">◆ </Text>
+          <Text bold>Ralphy setup</Text>
+        </Text>
+        <Text dimColor>{"  "}No WORKFLOW.md found — choose a setup mode</Text>
+        <Box marginTop={1} marginLeft={2}>
           <OptionList options={MODE_OPTIONS} highlight={modeIndex} />
         </Box>
         <Box marginTop={1}>
@@ -371,24 +374,49 @@ export function SetupWizard({
   if (!field) return null;
   return (
     <Box flexDirection="column">
-      <AnsweredHistory fields={fields} answers={answers} upTo={index} />
-      <Text dimColor>
-        {mode} setup — step {index + 1}/{fields.length}
+      {/* Header */}
+      <Text>
+        <Text color="cyan">◆ </Text>
+        <Text bold>Ralphy setup</Text>
+        <Text dimColor>
+          {"  ·  "}
+          {mode} · step {index + 1}/{fields.length}
+        </Text>
       </Text>
-      {field.description ? (
-        <Box marginTop={1}>
-          <Text dimColor>{field.description}</Text>
+
+      {/* What's been answered so far */}
+      <AnsweredHistory fields={fields} answers={answers} upTo={index} />
+
+      {/* Current question: title → description → space → input */}
+      <Box marginTop={1} flexDirection="column">
+        <Text>
+          <Text color="cyan">? </Text>
+          <Text bold>{field.label}</Text>
+        </Text>
+        {field.description ? (
+          <Text dimColor>
+            {"  "}
+            {field.description}
+          </Text>
+        ) : null}
+        {field.hint ? (
+          <Text dimColor>
+            {"  "}
+            {field.hint}
+          </Text>
+        ) : null}
+        <Box marginTop={1} marginLeft={2} flexDirection="column">
+          <QuestionInput
+            field={field}
+            draft={draft}
+            optionIndex={optionIndex}
+            listItems={listItems}
+            selected={selected}
+          />
         </Box>
-      ) : null}
-      <Box marginTop={1}>
-        <CurrentQuestion
-          field={field}
-          draft={draft}
-          optionIndex={optionIndex}
-          listItems={listItems}
-          selected={selected}
-        />
       </Box>
+
+      {/* Footer controls */}
       <Box marginTop={1}>
         <Text dimColor>{hintFor(field.spec.kind)}</Text>
       </Box>
@@ -423,7 +451,8 @@ function OptionList({ options, highlight }: { options: Option[]; highlight: numb
   );
 }
 
-function CurrentQuestion({
+/** Renders only the interactive part of a question (options or text input). */
+function QuestionInput({
   field,
   draft,
   optionIndex,
@@ -436,29 +465,16 @@ function CurrentQuestion({
   listItems: string[];
   selected: Set<string>;
 }) {
-  const heading = (
-    <Text>
-      <Text bold>{field.label}:</Text>
-      {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
-    </Text>
-  );
-
   if (
     field.spec.kind === "select" ||
     field.spec.kind === "confirm" ||
     field.spec.kind === "indicators"
   ) {
-    return (
-      <Box flexDirection="column">
-        {heading}
-        <OptionList options={optionsFor(field)} highlight={optionIndex} />
-      </Box>
-    );
+    return <OptionList options={optionsFor(field)} highlight={optionIndex} />;
   }
   if (field.spec.kind === "multiselect") {
     return (
       <Box flexDirection="column">
-        {heading}
         {field.spec.options.map((option, i) => (
           <Text key={option.value} {...(i === optionIndex ? { color: "green" } : {})}>
             {i === optionIndex ? "❯ " : "  "}[{selected.has(option.value) ? "x" : " "}]{" "}
@@ -471,14 +487,13 @@ function CurrentQuestion({
   if (field.spec.kind === "list") {
     return (
       <Box flexDirection="column">
-        {heading}
         {listItems.map((item, i) => (
           <Text key={i} color="green">
             • {item}
           </Text>
         ))}
         <Box>
-          <Text>{"> "}</Text>
+          <Text color="green">{"❯ "}</Text>
           {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
           <Text inverse> </Text>
         </Box>
@@ -486,13 +501,10 @@ function CurrentQuestion({
     );
   }
   return (
-    <Box flexDirection="column">
-      <Box>
-        <Text bold>{field.label}: </Text>
-        {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
-        <Text inverse> </Text>
-      </Box>
-      {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
+    <Box>
+      <Text color="green">{"❯ "}</Text>
+      {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
+      <Text inverse> </Text>
     </Box>
   );
 }
@@ -512,13 +524,15 @@ function AnsweredHistory({
     const field = fields[i]!;
     rows.push(
       <Text key={field.id}>
-        <Text dimColor>{field.label}: </Text>
-        <Text color="green">{formatAnswer(field, answers[field.id])}</Text>
+        <Text color="green">✓ </Text>
+        <Text dimColor>{field.label}</Text>
+        <Text dimColor>{"  "}</Text>
+        <Text color="cyan">{formatAnswer(field, answers[field.id])}</Text>
       </Text>,
     );
   }
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginTop={1}>
       {rows}
     </Box>
   );
@@ -550,8 +564,12 @@ export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "ex
   });
   return (
     <Box flexDirection="column">
-      <Text bold>WORKFLOW.md already exists</Text>
-      <Box marginTop={1}>
+      <Text>
+        <Text color="cyan">◆ </Text>
+        <Text bold>WORKFLOW.md already exists</Text>
+      </Text>
+      <Text dimColor>{"  "}Choose what to do</Text>
+      <Box marginTop={1} marginLeft={2}>
         <OptionList options={EDIT_EXIT_OPTIONS} highlight={choiceIndex} />
       </Box>
       <Box marginTop={1}>
@@ -604,16 +622,23 @@ export function MigratePrompt({
   });
   return (
     <Box flexDirection="column">
-      <Text bold>
-        WORKFLOW.md is out of date (v{fromVersion} → v{toVersion})
+      <Text>
+        <Text color="cyan">◆ </Text>
+        <Text bold>
+          WORKFLOW.md is out of date (v{fromVersion} → v{toVersion})
+        </Text>
       </Text>
-      <Box marginTop={1} flexDirection="column">
-        <Text dimColor>What changed:</Text>
+      <Text dimColor>{"  "}Migrate it to the current schema</Text>
+      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+        <Text dimColor>What changed</Text>
         {descriptions.map((description, i) => (
-          <Text key={i}>• {description}</Text>
+          <Text key={i} dimColor>
+            {"  • "}
+            {description}
+          </Text>
         ))}
       </Box>
-      <Box marginTop={1}>
+      <Box marginTop={1} marginLeft={2}>
         <OptionList options={MIGRATE_OPTIONS} highlight={choiceIndex} />
       </Box>
       <Box marginTop={1}>
