@@ -104,11 +104,7 @@ export function TaskDetailView() {
   return (
     <>
       {isFullscreen && (
-        <FullScreenTaskView
-          taskName={name}
-          tasks={tasks}
-          onClose={() => setIsFullscreen(false)}
-        />
+        <FullScreenTaskView taskName={name} tasks={tasks} onClose={() => setIsFullscreen(false)} />
       )}
       <div className="header">
         <h1>
@@ -229,7 +225,6 @@ export function TaskDetailView() {
               </div>
             )}
           </div>
-
         </div>
 
         <div

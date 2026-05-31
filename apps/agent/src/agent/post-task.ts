@@ -30,6 +30,7 @@ const PR_FAILED_EXIT = 71;
  * `runPrPhase`'s `blocked: "no-op"` handling and the coordinator's
  * `notifyExited`.
  */
+// allow-duplicate
 export const NO_CHANGES_EXIT = 72;
 
 /**

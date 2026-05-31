@@ -24,93 +24,73 @@ jobs:
           nx-shas: "true"
 
       - name: No duplicate declarations
-        if: "!cancelled()"
         run: bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
 
       - name: No direct axios in apps/ui
-        if: "!cancelled()"
         run: bun scripts/check-no-direct-http.ts
 
       - name: No prop drilling in React components
-        if: "!cancelled()"
         run: bun scripts/check-prop-drilling.ts
 
       - name: Hooks must live in useSomething files
-        if: "!cancelled()"
         run: bun scripts/check-hooks-location.ts
 
       - name: Folder size check
-        if: "!cancelled()"
         run: bun scripts/check-folder-size.ts
 
       - name: Single component per TSX file
-        if: "!cancelled()"
         run: bun scripts/check-single-component.ts
 
       - name: Static error messages (no template literals in Error/Exception constructors)
-        if: "!cancelled()"
         run: bun scripts/check-static-error-messages.ts
 
       - name: No unsafe casts (as any / as unknown)
-        if: "!cancelled()"
         run: bash scripts/check-no-unsafe-casts.sh
 
       - name: Shellcheck
-        if: "!cancelled()"
         run: find . -name '*.sh' -not -path '*/node_modules/*' -not -path '*/.husky/_/*' | xargs shellcheck
 
       - name: Lint (affected)
-        if: "!cancelled()"
         run: bun run lint:ci
 
       - name: Format check (affected)
-        if: "!cancelled()"
         run: bun run fmt:ci
 
       - name: Typecheck (affected)
-        if: "!cancelled()"
         run: bun run typecheck:ci
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
       # - name: Spell check
-      #   if: "!cancelled()"
       #   run: bunx cspell "**/*.{ts,tsx,js,mjs,mts,json,md}" --no-progress
 
       - name: Architecture doc drift check
-        if: "!cancelled()"
         run: |
           bun run build:architecture
           git diff --exit-code ARCHITECTURE.md
 
       - name: Circular dependency check
-        if: "!cancelled()"
         run: bun run check:circular:ci
 
       - name: Unused dependency check
-        if: "!cancelled()"
         run: bun run check:unused:ci
 
       - name: Outdated dependency check
-        if: "!cancelled()"
         run: bun scripts/check-outdated.ts
 
       - name: Test affected files + coverage
-        if: "!cancelled()"
         run: bun run test:affected-files:coverage:ci
 
       - name: Test (full) # local-ci: skip
-        if: "!cancelled() && startsWith(github.ref, 'refs/tags/v')"
+        if: startsWith(github.ref, 'refs/tags/v')
         run: bun run test:ci
 
       - name: Test coverage (full) # local-ci: skip
-        if: "!cancelled() && startsWith(github.ref, 'refs/tags/v')"
+        if: startsWith(github.ref, 'refs/tags/v')
         run: bun run test:coverage:ci
 
       - name: Security audit
-        if: "!cancelled()"
         run: bun audit --audit-level=high
 
       - name: Build (affected)
-        if: "!cancelled()"
         run: bun run build:ci
