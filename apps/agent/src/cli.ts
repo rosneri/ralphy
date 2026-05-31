@@ -49,6 +49,8 @@ export interface AgentParsedArgs extends CommonArgs {
   prTrackerEnabled?: boolean;
   /** List mode: show failing CI check names per PR. */
   checks: boolean;
+  /** List mode: show unresolved review comment count per PR. */
+  review: boolean;
 }
 
 // allow-duplicate
@@ -115,6 +117,7 @@ const HELP_TEXT = [
   "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
   "  --pre-existing-error-check  Run baseline commands against the base branch; pause new pickups + open a Linear ticket when red",
   "  --checks                List mode: show failing CI check names per PR",
+  "  --review                List mode: show unresolved review comment count per PR",
   "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
   "  --help, -h              Show this help message",
   "",
@@ -202,6 +205,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     debug: false,
     noTmux: false,
     checks: false,
+    review: false,
   };
 
   const state = emptyParseState();
@@ -298,6 +302,9 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--checks":
         result.checks = true;
+        break;
+      case "--review":
+        result.review = true;
         break;
       case "--debug":
         result.debug = true;
