@@ -124,6 +124,7 @@ describe("buildIssueFilter (via fetchOpenIssues) with project markers", () => {
     const filter = calls[0]?.variables.filter as Record<string, unknown>;
     expect(filter).toEqual({
       project: { name: { in: ["Ralph Queue"] } },
+      assignee: { null: true },
     });
   });
 

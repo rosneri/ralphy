@@ -14,6 +14,7 @@
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@nx/devkit": "^22.7.1",
         "@nx/js": "^22.7.1",
+        "@rosneri/xstate-mcp": "^0.1.4",
         "@secretlint/secretlint-rule-preset-recommend": "^11.7.1",
         "@swc-node/register": "^1.11.1",
         "@swc/core": "^1.15.33",
@@ -56,12 +57,14 @@
         "marked": "^18.0.4",
         "pdfkit": "^0.18.0",
         "react": "^18.3.1",
+        "xstate": "^5",
       },
       "devDependencies": {
         "@types/pdfkit": "^0.17.6",
         "@types/react": "^18.3.18",
         "ink-testing-library": "^4.0.0",
         "react-devtools-core": "^7.0.1",
+        "xstate-mcp": "^1.0.3",
       },
     },
     "apps/loop": {
@@ -178,6 +181,7 @@
         "@ralphy/content": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/types": "workspace:*",
+        "xstate": "^5",
       },
     },
     "packages/engine": {
@@ -937,6 +941,8 @@
     "@rollup/rollup-win32-x64-gnu": ["@rollup/rollup-win32-x64-gnu@4.60.2", "", { "os": "win32", "cpu": "x64" }, "sha512-qdAzEULD+/hzObedtmV6iBpdL5TIbKVztGiK7O3/KYSf+HIzU257+MX1EXJcyIiDbMAqmbwaufcYPvyRryeZtA=="],
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.2", "", { "os": "win32", "cpu": "x64" }, "sha512-Nd/SgG27WoA9e+/TdK74KnHz852TLa94ovOYySo/yMPuTmpckK/jIF2jSwS3g7ELSKXK13/cVdmg1Z/DaCWKxA=="],
+
+    "@rosneri/xstate-mcp": ["@rosneri/xstate-mcp@0.1.4", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "xstate": "^5.32.0", "zod": "^4.3.6" }, "bin": { "xstate-mcp": "bin/xstate-mcp.ts" } }, "sha512-agvaRhM6eTXntmgPlnIV+QZ6bCpJeVL7sBA12N/izQ2VQ7/2b1pK0mvrbw9bYYRdBO+e9Loi/V8rYEOTQle2Gg=="],
 
     "@secretlint/config-creator": ["@secretlint/config-creator@11.7.1", "", { "dependencies": { "@secretlint/types": "11.7.1" } }, "sha512-ET4EXYzSjl1EgwZRJmU/2NjQVIW4u+2nIZu4hs6Og5ys2MbSEheHNoBXOifQOZDgObleP8S9aU3BV2bUqPEQxw=="],
 
@@ -1870,6 +1876,10 @@
 
     "ws": ["ws@7.5.10", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": "^5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-+dbF1tHwZpXcbOJdVOkzLDxZP1ailvSxM6ZweXTegylPny803bFhA+vqBYw4s31NSAk4S2Qz+AKXK9a4wkdjcQ=="],
 
+    "xstate": ["xstate@5.32.0", "", {}, "sha512-zsk73aWGmxn9z34P0kbiod5JwTvdYRW3+IDxITq8sd9+VWwMyW7BUzpplnYy9mIEXa6V8IMDv7Hy4m0mhT5+2Q=="],
+
+    "xstate-mcp": ["xstate-mcp@1.0.3", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.27.0", "ws": "^8.18.0", "zod": "^3.24.0" }, "bin": { "xstate-mcp": "dist/index.js" } }, "sha512-n8MRUz09S6xutR1WatVZOJ4xTjWIowB+s88svypQ+zIJRjzDb68a9AZv46vbsydO2UxdV1jgoFrk5O7NkH+YsA=="],
+
     "y18n": ["y18n@5.0.8", "", {}, "sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA=="],
 
     "yallist": ["yallist@3.1.1", "", {}, "sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g=="],
@@ -1947,6 +1957,8 @@
     "@oxc-resolver/binding-wasm32-wasi/@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.4", "", { "dependencies": { "@tybys/wasm-util": "^0.10.1" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow=="],
 
     "@ralphy/workflow/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
+
+    "@rosneri/xstate-mcp/zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
     "@secretlint/formatter/strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
 
@@ -2063,6 +2075,8 @@
     "wrap-ansi/string-width": ["string-width@7.2.0", "", { "dependencies": { "emoji-regex": "^10.3.0", "get-east-asian-width": "^1.0.0", "strip-ansi": "^7.1.0" } }, "sha512-tsaTIkKW9b4N+AEj+SVA+WhJzV7/zMhcSu78mLKWSk7cXMOSHsBKFWUs0fWwq8QyK3MgJBQRX6Gbi4kYbdvGkQ=="],
 
     "wrap-ansi/strip-ansi": ["strip-ansi@7.2.0", "", { "dependencies": { "ansi-regex": "^6.2.2" } }, "sha512-yDPMNjp4WyfYBkHnjIRLfca1i6KMyGCtsVgoKe/z1+6vukgaENdgGBZt+ZmKPc4gavvEZ5OgHfHdrazhgNyG7w=="],
+
+    "xstate-mcp/ws": ["ws@8.20.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, "sha512-sAt8BhgNbzCtgGbt2OxmpuryO63ZoDk/sqaB/znQm94T4fCEsy/yV+7CdC1kJhOU9lboAEU7R3kquuycDoibVA=="],
 
     "@commitlint/resolve-extends/global-directory/ini": ["ini@6.0.0", "", {}, "sha512-IBTdIkzZNOpqm7q3dRqJvMaldXjDHWkEDfrwGEQTs5eaQMWV+djAhR+wahyNNMAa+qpbDUhBMVt4ZKNwpPm7xQ=="],
 

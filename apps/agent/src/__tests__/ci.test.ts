@@ -48,6 +48,7 @@ describe("getPrChecksStatus", () => {
     expect(await getPrChecksStatus("123", runner, "/wt")).toEqual({
       bucket: "pending",
       failedRunIds: [],
+      failedCheckNames: [],
     });
   });
 
@@ -63,6 +64,7 @@ describe("getPrChecksStatus", () => {
     expect(await getPrChecksStatus("123", runner, "/wt")).toEqual({
       bucket: "pass",
       failedRunIds: [],
+      failedCheckNames: [],
     });
   });
 
@@ -91,6 +93,30 @@ describe("getPrChecksStatus", () => {
     const status = await getPrChecksStatus("123", runner, "/wt");
     expect(status.bucket).toBe("fail");
     expect(status.failedRunIds.sort()).toEqual(["12345", "55555"]);
+    expect(status.failedCheckNames.sort()).toEqual(["build", "lint", "test"]);
+  });
+
+  test('"fail" extracts check names from failing checks', async () => {
+    const { runner } = makeRunner({
+      "gh pr checks": {
+        stdout: JSON.stringify([
+          {
+            name: "unit-tests",
+            bucket: "fail",
+            link: "https://github.com/o/r/actions/runs/1/job/1",
+          },
+          {
+            name: "integration",
+            bucket: "fail",
+            link: "https://github.com/o/r/actions/runs/2/job/2",
+          },
+          { name: "deploy", bucket: "pass" },
+        ]),
+      },
+    });
+    const status = await getPrChecksStatus("123", runner, "/wt");
+    expect(status.bucket).toBe("fail");
+    expect(status.failedCheckNames.sort()).toEqual(["integration", "unit-tests"]);
   });
 });
 
@@ -105,7 +131,7 @@ describe("getPrChecksStatus ignoreCiChecks", () => {
       },
     });
     const status = await getPrChecksStatus("123", runner, "/wt", undefined, ["Vercel"]);
-    expect(status).toEqual({ bucket: "pass", failedRunIds: [] });
+    expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
 
   test("ignored check matching is case-insensitive", async () => {
@@ -117,7 +143,7 @@ describe("getPrChecksStatus ignoreCiChecks", () => {
       },
     });
     const status = await getPrChecksStatus("123", runner, "/wt", undefined, ["VERCEL"]);
-    expect(status).toEqual({ bucket: "pass", failedRunIds: [] });
+    expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
 });
 
@@ -186,7 +212,7 @@ describe("getPrChecksStatus retry on transient failure", () => {
       },
     };
     const status = await getPrChecksStatus("139", runner, "/wt");
-    expect(status).toEqual({ bucket: "pass", failedRunIds: [] });
+    expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
 });
 
@@ -228,7 +254,8 @@ function makeFixHarness(): FixHarness {
   const taskCalls: string[] = [];
   let pushCalls = 0;
   const deps: CiFixDeps = {
-    getStatus: async () => queue.shift() ?? { bucket: "pending", failedRunIds: [] },
+    getStatus: async () =>
+      queue.shift() ?? { bucket: "pending", failedRunIds: [], failedCheckNames: [] },
     getFailedLogs: async (ids) => `logs for ${ids.join(",")}`,
     runTaskWithSteering: async (s) => {
       taskCalls.push(s);
@@ -256,7 +283,7 @@ function makeFixHarness(): FixHarness {
 describe("fixCiUntilGreen", () => {
   test("returns success immediately when checks already pass", async () => {
     const h = makeFixHarness();
-    h.setStatuses([{ bucket: "pass", failedRunIds: [] }]);
+    h.setStatuses([{ bucket: "pass", failedRunIds: [], failedCheckNames: [] }]);
     const r = await fixCiUntilGreen(h.deps, { maxAttempts: 3, pollIntervalSeconds: 0 });
     expect(r).toEqual({ success: true, attempts: 0 });
     expect(h.taskCalls).toHaveLength(0);
@@ -265,8 +292,8 @@ describe("fixCiUntilGreen", () => {
   test("re-runs task on failure, then returns success when subsequent run is green", async () => {
     const h = makeFixHarness();
     h.setStatuses([
-      { bucket: "fail", failedRunIds: ["1"] },
-      { bucket: "pass", failedRunIds: [] },
+      { bucket: "fail", failedRunIds: ["1"], failedCheckNames: [] },
+      { bucket: "pass", failedRunIds: [], failedCheckNames: [] },
     ]);
     const r = await fixCiUntilGreen(h.deps, { maxAttempts: 3, pollIntervalSeconds: 0 });
     expect(r.success).toBe(true);
@@ -279,9 +306,9 @@ describe("fixCiUntilGreen", () => {
   test("polls through pending statuses until pass", async () => {
     const h = makeFixHarness();
     h.setStatuses([
-      { bucket: "pending", failedRunIds: [] },
-      { bucket: "pending", failedRunIds: [] },
-      { bucket: "pass", failedRunIds: [] },
+      { bucket: "pending", failedRunIds: [], failedCheckNames: [] },
+      { bucket: "pending", failedRunIds: [], failedCheckNames: [] },
+      { bucket: "pass", failedRunIds: [], failedCheckNames: [] },
     ]);
     const r = await fixCiUntilGreen(h.deps, { maxAttempts: 3, pollIntervalSeconds: 0 });
     expect(r.success).toBe(true);
@@ -290,7 +317,7 @@ describe("fixCiUntilGreen", () => {
   test("gives up after maxAttempts of repeated failure", async () => {
     const h = makeFixHarness();
     // Always fail.
-    h.deps.getStatus = async () => ({ bucket: "fail", failedRunIds: ["1"] });
+    h.deps.getStatus = async () => ({ bucket: "fail", failedRunIds: ["1"], failedCheckNames: [] });
     const r = await fixCiUntilGreen(h.deps, { maxAttempts: 2, pollIntervalSeconds: 0 });
     expect(r).toEqual({ success: false, attempts: 2, reason: "max-attempts" });
     expect(h.taskCalls).toHaveLength(2);
@@ -298,7 +325,7 @@ describe("fixCiUntilGreen", () => {
 
   test("bails when pushBranch throws", async () => {
     const h = makeFixHarness();
-    h.setStatuses([{ bucket: "fail", failedRunIds: ["1"] }]);
+    h.setStatuses([{ bucket: "fail", failedRunIds: ["1"], failedCheckNames: [] }]);
     h.deps.pushBranch = async () => {
       throw new Error("permission denied");
     };
@@ -310,7 +337,7 @@ describe("fixCiUntilGreen", () => {
   test("bails with no-progress when worker produces no new commits", async () => {
     const h = makeFixHarness();
     // Always failing CI (e.g. Vercel rate-limited deploy).
-    h.deps.getStatus = async () => ({ bucket: "fail", failedRunIds: ["1"] });
+    h.deps.getStatus = async () => ({ bucket: "fail", failedRunIds: ["1"], failedCheckNames: [] });
     // HEAD never advances → worker has nothing to push.
     h.deps.getHeadSha = async () => "deadbeef";
     const r = await fixCiUntilGreen(h.deps, { maxAttempts: 10, pollIntervalSeconds: 0 });
@@ -323,8 +350,8 @@ describe("fixCiUntilGreen", () => {
   test("keeps retrying when worker advances HEAD (real fixes)", async () => {
     const h = makeFixHarness();
     h.setStatuses([
-      { bucket: "fail", failedRunIds: ["1"] },
-      { bucket: "pass", failedRunIds: [] },
+      { bucket: "fail", failedRunIds: ["1"], failedCheckNames: [] },
+      { bucket: "pass", failedRunIds: [], failedCheckNames: [] },
     ]);
     let sha = "aaaaaaa";
     h.deps.getHeadSha = async () => sha;

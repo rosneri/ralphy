@@ -47,6 +47,10 @@ export interface AgentParsedArgs extends CommonArgs {
   /** RLF-173 override: when defined, force pr-tracker on/off regardless of
    *  the `prTracker.enabled` workflow config. `--no-pr-tracker` sets false. */
   prTrackerEnabled?: boolean;
+  /** List mode: show failing CI check names per PR. */
+  checks: boolean;
+  /** List mode: show unresolved review comment count per PR. */
+  review: boolean;
 }
 
 // allow-duplicate
@@ -112,6 +116,8 @@ const HELP_TEXT = [
   "                          (auto-enabled when stdin is not a TTY, e.g. pipes / nohup / CI)",
   "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
   "  --pre-existing-error-check  Run baseline commands against the base branch; pause new pickups + open a Linear ticket when red",
+  "  --checks                List mode: show failing CI check names per PR",
+  "  --review                List mode: show unresolved review comment count per PR",
   "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
   "  --help, -h              Show this help message",
   "",
@@ -198,6 +204,8 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     manualTest: false,
     debug: false,
     noTmux: false,
+    checks: false,
+    review: false,
   };
 
   const state = emptyParseState();
@@ -291,6 +299,12 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--manual-test":
         result.manualTest = true;
+        break;
+      case "--checks":
+        result.checks = true;
+        break;
+      case "--review":
+        result.review = true;
         break;
       case "--debug":
         result.debug = true;
