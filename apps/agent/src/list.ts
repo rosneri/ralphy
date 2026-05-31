@@ -160,6 +160,7 @@ interface UnifiedRow extends SortableRow {
   stateName: string;
   title: string;
   prUrl: string | null;
+  blockedByIdentifiers: string[];
 }
 
 const localCmdRunner: CmdRunner = {
@@ -178,6 +179,11 @@ const localCmdRunner: CmdRunner = {
     return { stdout, stderr };
   },
 };
+
+/** Render the Blocked column cell for a row. */
+export function formatBlockedCell(blockedByIdentifiers: string[]): string {
+  return blockedByIdentifiers.length === 0 ? "-" : blockedByIdentifiers.join(", ");
+}
 
 /** Render the PR status as a short marker for the unified list table. */
 function formatPrStatusMarker(status: PrStatus | null): string {
@@ -245,6 +251,7 @@ async function fetchAndPrintLinear(
         stateName: issue.state.name,
         title: issue.title.slice(0, 60),
         prUrl: null,
+        blockedByIdentifiers: issue.blockedByIdentifiers,
       });
     }
   }
@@ -295,14 +302,16 @@ async function fetchAndPrintLinear(
   const stateWidth = Math.max(5, ...sorted.map((r) => r.stateName.length));
   const markers = sorted.map((r) => formatPrStatusMarker(r.status));
   const markerWidth = Math.max(9, ...markers.map((m) => m.length));
+  const blockedCells = sorted.map((r) => formatBlockedCell(r.blockedByIdentifiers));
+  const blockedWidth = Math.max(7, ...blockedCells.map((c) => c.length));
 
   process.stdout.write(
-    `  ${pad("Identifier", idWidth)}  ${pad("Bucket", bucketWidth)}  ${pad("State", stateWidth)}  ${pad("Title", 60)}  ${pad("PR Status", markerWidth)}  PR URL\n`,
+    `  ${pad("Identifier", idWidth)}  ${pad("Bucket", bucketWidth)}  ${pad("State", stateWidth)}  ${pad("Title", 60)}  ${pad("PR Status", markerWidth)}  ${pad("Blocked", blockedWidth)}  PR URL\n`,
   );
   for (let i = 0; i < sorted.length; i += 1) {
     const r = sorted[i]!;
     process.stdout.write(
-      `  ${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${r.prUrl ?? "(no PR)"}\n`,
+      `  ${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${pad(blockedCells[i]!, blockedWidth)}  ${r.prUrl ?? "(no PR)"}\n`,
     );
   }
 }

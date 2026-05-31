@@ -400,15 +400,27 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
               nodes: [
                 {
                   type: "blocked_by",
-                  relatedIssue: { id: "blocker-open", state: { type: "started" } },
+                  relatedIssue: {
+                    id: "blocker-open",
+                    identifier: "RLF-BLOCK",
+                    state: { type: "started" },
+                  },
                 },
                 {
                   type: "blocked_by",
-                  relatedIssue: { id: "blocker-done", state: { type: "completed" } },
+                  relatedIssue: {
+                    id: "blocker-done",
+                    identifier: "RLF-DONE",
+                    state: { type: "completed" },
+                  },
                 },
                 {
                   type: "duplicate_of",
-                  relatedIssue: { id: "ignored", state: { type: "started" } },
+                  relatedIssue: {
+                    id: "ignored",
+                    identifier: "RLF-IGN",
+                    state: { type: "started" },
+                  },
                 },
               ],
             },
@@ -425,6 +437,7 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
       identifier: "RLF-1",
       labels: ["x", "y"],
       blockedByIds: ["blocker-open"],
+      blockedByIdentifiers: ["RLF-BLOCK"],
     });
   });
 });
