@@ -73,6 +73,12 @@ export function createSession(name: string, command: string[], env: Record<strin
       throw err;
     }
   }
+
+  // Keep the pane alive after exit so errors are readable before the user closes it.
+  Bun.spawnSync({
+    cmd: ["tmux", "set-window-option", "-t", name, "remain-on-exit", "on"],
+    stderr: "pipe",
+  });
 }
 
 export function attachSession(name: string): void {
