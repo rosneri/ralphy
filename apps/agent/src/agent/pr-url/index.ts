@@ -12,10 +12,11 @@ interface GitHubPrRow {
 /**
  * Resolve a PR URL for a Linear issue by searching GitHub. Runs
  * `gh pr list --search "<identifier> in:title" --state all` and accepts
- * any row whose title contains the identifier as a word OR whose
- * `headRefName` contains the slugged identifier. When several rows
- * match, OPEN PRs are preferred; among rows of equal openness the most
- * recently updated wins.
+ * any row whose title OR `headRefName` contains the identifier as a whole
+ * word. Word-boundary matching on both fields prevents cross-linking an
+ * issue to an unrelated ticket's PR (e.g. `RLF-7` must not match a
+ * `rlf-70-…` branch). When several rows match, OPEN PRs are preferred;
+ * among rows of equal openness the most recently updated wins.
  *
  * Returns null on no match or any `gh` failure.
  */
@@ -26,7 +27,6 @@ export async function discoverPrUrlFromGitHub(
   onLog?: (msg: string, color?: string) => void,
 ): Promise<string | null> {
   if (!identifier) return null;
-  const slug = identifier.toLowerCase();
   let rows: GitHubPrRow[];
   try {
     const res = await runner.run(
@@ -51,9 +51,7 @@ export async function discoverPrUrlFromGitHub(
   }
   const idRe = new RegExp(`\\b${escapeRegex(identifier)}\\b`, "i");
   const matches = rows.filter(
-    (r) =>
-      Boolean(r.url) &&
-      (idRe.test(r.title ?? "") || (r.headRefName ?? "").toLowerCase().includes(slug)),
+    (r) => Boolean(r.url) && (idRe.test(r.title ?? "") || idRe.test(r.headRefName ?? "")),
   );
   if (matches.length === 0) return null;
   const open = matches.filter((r) => r.state === "OPEN");
