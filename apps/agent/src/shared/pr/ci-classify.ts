@@ -4,6 +4,8 @@ export interface RawCheck {
   status?: string;
   conclusion?: string;
   state?: string;
+  name?: string;
+  context?: string;
 }
 
 const TRANSIENT_GH_RE =

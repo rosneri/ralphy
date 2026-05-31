@@ -152,7 +152,8 @@ describe("fetchPrStatus", () => {
       throw: true,
       stderr: "could not resolve host: api.github.com\nmore noise",
     });
-    const r = await fetchPrStatus("u", runner, "/wt");
+    const sleepFn = async (_ms: number) => {};
+    const r = await fetchPrStatus("u", runner, "/wt", undefined, [], sleepFn);
     expect(r.kind).toBe("error");
     if (r.kind === "error") {
       expect(r.message).toBe("could not resolve host: api.github.com");
@@ -179,5 +180,59 @@ describe("fetchPrStatus", () => {
     );
     const r = (await fetchPrStatus("u", runner, "/wt")) as PrStatusOk;
     expect(r.isDraft).toBe(true);
+  });
+
+  test("statusCheckRollup=[] on an open PR yields ciBucket=pass", async () => {
+    const runner = makeRunner(
+      ghJson({ state: "OPEN", mergeable: "MERGEABLE", statusCheckRollup: [] }),
+    );
+    const r = (await fetchPrStatus("u", runner, "/wt")) as PrStatusOk;
+    expect(r.ciBucket).toBe("pass");
+  });
+
+  test("failing check matching ignoreCiChecks yields ciBucket=pass", async () => {
+    const runner = makeRunner(
+      ghJson({
+        state: "OPEN",
+        mergeable: "MERGEABLE",
+        statusCheckRollup: [
+          { status: "COMPLETED", conclusion: "FAILURE", name: "flaky-lint" },
+          { status: "COMPLETED", conclusion: "SUCCESS", name: "build" },
+        ],
+      }),
+    );
+    const r = (await fetchPrStatus("u", runner, "/wt", undefined, ["Flaky-Lint"])) as PrStatusOk;
+    expect(r.ciBucket).toBe("pass");
+  });
+
+  test("transient 5xx is retried and subsequent success yields kind=ok", async () => {
+    let calls = 0;
+    const retryRunner: CmdRunner = {
+      run: async (_cmd, _cwd) => {
+        calls += 1;
+        if (calls === 1) {
+          const err = new Error("HTTP 503 Service Unavailable") as Error & {
+            stderr?: string;
+            stdout?: string;
+          };
+          err.stderr = "HTTP 503 Service Unavailable";
+          throw err;
+        }
+        return {
+          stdout: JSON.stringify({
+            state: "OPEN",
+            mergeable: "MERGEABLE",
+            statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
+            autoMergeRequest: null,
+            createdAt: "2026-05-01T10:00:00Z",
+          }),
+          stderr: "",
+        };
+      },
+    };
+    const sleepFn = async (_ms: number) => {};
+    const r = (await fetchPrStatus("u", retryRunner, "/wt", undefined, [], sleepFn)) as PrStatusOk;
+    expect(r.kind).toBe("ok");
+    expect(calls).toBe(2);
   });
 });
