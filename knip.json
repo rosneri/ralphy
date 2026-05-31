@@ -7,11 +7,7 @@
     "@total-typescript/ts-reset",
     "xstate-mcp"
   ],
-  "ignore": [
-    "reset.d.ts",
-    "scripts/debug-agent.ts",
-    "apps/agent/src/runtime/machines/inspector.ts"
-  ],
+  "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
     "apps/loop": {
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]

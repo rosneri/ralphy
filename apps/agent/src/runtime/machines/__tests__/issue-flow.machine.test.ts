@@ -1,6 +1,6 @@
-import { createActor } from "xstate";
 import { describe, expect, it } from "bun:test";
-import { issueFlowMachine } from "../issue-flow.machine";
+import { createIssueFlowActor } from "../index";
+import type { IssueFlowContext, IssueFlowEvent } from "../index";
 import type { RouterSignals } from "../../types";
 
 function makeSignals(overrides: Partial<RouterSignals> = {}): RouterSignals {
@@ -17,7 +17,7 @@ function makeSignals(overrides: Partial<RouterSignals> = {}): RouterSignals {
 }
 
 function startActor() {
-  const actor = createActor(issueFlowMachine, { input: { issueId: "TEST-1" } });
+  const actor = createIssueFlowActor("TEST-1");
   actor.start();
   return actor;
 }
@@ -255,8 +255,10 @@ describe("issueFlowMachine", () => {
     it("stores signals in context on ROUTE", () => {
       const actor = startActor();
       const signals = makeSignals({ bucket: "in-progress" });
-      actor.send({ type: "ROUTE", signals });
-      expect(actor.getSnapshot().context.signals).toEqual(signals);
+      const event: IssueFlowEvent = { type: "ROUTE", signals };
+      actor.send(event);
+      const ctx: IssueFlowContext = actor.getSnapshot().context;
+      expect(ctx.signals).toEqual(signals);
     });
 
     it("stores workerExitCode on WORKER_EXITED", () => {
