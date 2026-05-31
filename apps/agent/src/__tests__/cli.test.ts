@@ -172,6 +172,11 @@ describe("agent parseArgs", () => {
     expect((await parseArgs(["list"])).checks).toBe(false);
   });
 
+  test("parses --review flag", async () => {
+    expect((await parseArgs(["list", "--review"])).review).toBe(true);
+    expect((await parseArgs(["list"])).review).toBe(false);
+  });
+
   test("rejects unknown argument with helpful hint", async () => {
     await expect(parseArgs(["--no-such-flag"])).rejects.toThrow("Unknown argument");
   });

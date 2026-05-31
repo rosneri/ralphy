@@ -115,7 +115,7 @@ describe("discoverPrUrlFromGitHub", () => {
     expect(logs[0]!.color).toBe("yellow");
   });
 
-  test("partial word match in title does not count (boundary check)", async () => {
+  test("partial word match in title or branch does not count (boundary check)", async () => {
     const runner = makeRunner(
       JSON.stringify([
         {
@@ -128,10 +128,26 @@ describe("discoverPrUrlFromGitHub", () => {
       ]),
     );
     const result = await discoverPrUrlFromGitHub("ENG-7", runner, "/cwd");
-    // headRefName "eng-77" contains "eng-7" as a substring; current
-    // behavior accepts it. Document via expectation so any future
-    // tightening is a deliberate breaking change.
-    expect(result).toBe("https://github.com/o/r/pull/1");
+    // "ENG-7" must not cross-link to ENG-77's PR: neither the title nor the
+    // branch ("eng-77") contains "ENG-7" as a whole word. Branch matching
+    // uses the same word-boundary regex as the title to prevent this.
+    expect(result).toBeNull();
+  });
+
+  test("whole-word match on branch name counts when title lacks the id", async () => {
+    const runner = makeRunner(
+      JSON.stringify([
+        {
+          url: "https://github.com/o/r/pull/2",
+          state: "OPEN",
+          headRefName: "eng-7-add-widget",
+          title: "Add widget",
+          updatedAt: "2026-04-01T00:00:00Z",
+        },
+      ]),
+    );
+    const result = await discoverPrUrlFromGitHub("ENG-7", runner, "/cwd");
+    expect(result).toBe("https://github.com/o/r/pull/2");
   });
 });
 

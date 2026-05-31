@@ -88,6 +88,7 @@ const baseArgs: ParsedArgs = {
   manualTest: false,
   debug: false,
   checks: false,
+  review: false,
 };
 
 describe("AgentMode header", () => {

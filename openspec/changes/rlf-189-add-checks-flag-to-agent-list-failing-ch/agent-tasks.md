@@ -59,3 +59,7 @@ ci Typecheck (affected) 2026-05-31T11:12:41.7920283Z ^[[2m
 ```
 
 ```
+
+## Resolve PR merge conflicts (2026-05-31T16:18:04.247Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
