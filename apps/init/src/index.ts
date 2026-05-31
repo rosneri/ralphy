@@ -5,9 +5,10 @@ import {
   workflowPath,
   loadWorkflow,
   CURRENT_WORKFLOW_VERSION,
+  DEFAULT_WORKFLOW_MD,
   type WorkflowConfig,
 } from "@ralphy/workflow";
-import { applyAnswersToWorkflow, type WizardAnswers } from "@ralphy/workflow/wizard";
+import { applyAnswersToWorkflow, workflowBody, type WizardAnswers } from "@ralphy/workflow/wizard";
 import {
   SetupWizard,
   EditOrExitPrompt,
@@ -57,8 +58,11 @@ export async function runSetupWizard(
 ): Promise<boolean> {
   let markdown: string | null = null;
   const buildMarkdown = options.existing
-    ? (answers: WizardAnswers) => applyAnswersToWorkflow(options.existing!, answers)
+    ? (answers: WizardAnswers, bodyOverride?: string) =>
+        applyAnswersToWorkflow(options.existing!, answers, bodyOverride)
     : undefined;
+  // Pre-fill the "customize prompt" step with the body that would be written.
+  const initialBody = workflowBody(options.existing ?? DEFAULT_WORKFLOW_MD);
   clearScreen();
   const { waitUntilExit } = render(
     createElement(SetupWizard, {
@@ -68,6 +72,7 @@ export async function runSetupWizard(
       onCancel: () => {
         markdown = null;
       },
+      initialBody,
       ...(options.initialMode ? { initialMode: options.initialMode } : {}),
       ...(options.initialValues ? { initialValues: options.initialValues } : {}),
       ...(options.onlyFields ? { onlyFields: options.onlyFields } : {}),

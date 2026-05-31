@@ -225,6 +225,30 @@ describe("SetupWizard render", () => {
     expect(md).toContain("name: my-app");
   });
 
+  test("the prompt-body step pre-fills the body and replaces it on Ctrl-D", async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const captured: { md: string | null } = { md: null };
+    const { stdin, lastFrame, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: (md: string) => {
+          captured.md = md;
+        },
+        initialMode: "customized",
+        onlyFields: ["promptBody"],
+        initialBody: "default body",
+        buildMarkdown: (_answers: unknown, body?: string) => `BODY:${body ?? "(none)"}`,
+      }),
+    );
+    await tick();
+    expect((lastFrame() ?? "").replace(/\x1b\[[0-9;]*m/g, "")).toContain("default body");
+    stdin.write("!"); // edit the body
+    await tick();
+    stdin.write("\x04"); // Ctrl-D finishes
+    await tick();
+    unmount();
+    expect(captured.md).toBe("BODY:default body!");
+  });
+
   test("prefills the first question when started in edit mode", () => {
     const { lastFrame, unmount } = render(
       createElement(SetupWizard, {

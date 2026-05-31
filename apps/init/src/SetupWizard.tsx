@@ -9,7 +9,12 @@ import {
   type WizardAnswers,
   type WizardValue,
 } from "@ralphy/workflow/wizard";
-import { fieldsForMode, type Field, type FieldSpec } from "@ralphy/workflow/fields";
+import {
+  fieldsForMode,
+  PROMPT_BODY_FIELD_ID,
+  type Field,
+  type FieldSpec,
+} from "@ralphy/workflow/fields";
 
 interface Option {
   label: string;
@@ -56,7 +61,7 @@ function resolveIndicators(value: WizardValue | undefined): IndicatorMap | undef
 function buildFromAnswers(
   mode: SetupMode,
   answers: Answers,
-  build: (answers: WizardAnswers) => string = buildWorkflowMarkdown,
+  build: (answers: WizardAnswers, bodyOverride?: string) => string = buildWorkflowMarkdown,
 ): string {
   const values: Answers = { ...answers };
   if ("linear.indicators" in values) {
@@ -64,7 +69,15 @@ function buildFromAnswers(
     if (indicators) values["linear.indicators"] = indicators;
     else delete values["linear.indicators"];
   }
-  return build(assembleAnswers(mode, values));
+  // The prompt body is not a frontmatter setting — pull it out and pass it as
+  // the body override instead of writing it as a key.
+  let bodyOverride: string | undefined;
+  if (PROMPT_BODY_FIELD_ID in values) {
+    const body = values[PROMPT_BODY_FIELD_ID];
+    if (typeof body === "string") bodyOverride = body;
+    delete values[PROMPT_BODY_FIELD_ID];
+  }
+  return build(assembleAnswers(mode, values), bodyOverride);
 }
 
 function optionsFor(field: Field): Option[] {
@@ -105,12 +118,21 @@ interface EditingState {
   selected: Set<string>;
 }
 
-function computeEditing(field: Field, stored: WizardValue | undefined): EditingState {
+function computeEditing(
+  field: Field,
+  stored: WizardValue | undefined,
+  multilineFallback = "",
+): EditingState {
+  const textLike = field.spec.kind === "text" || field.spec.kind === "number";
   return {
     draft:
-      (field.spec.kind === "text" || field.spec.kind === "number") && stored !== undefined
+      textLike && stored !== undefined
         ? String(stored)
-        : "",
+        : field.spec.kind === "multiline"
+          ? typeof stored === "string"
+            ? stored
+            : multilineFallback
+          : "",
     optionIndex: initialOptionIndex(field, stored),
     listItems: field.spec.kind === "list" && Array.isArray(stored) ? [...stored] : [],
     selected:
@@ -142,9 +164,11 @@ interface SetupWizardProps {
   onCancel?: () => void;
   initialMode?: SetupMode;
   initialValues?: Answers;
-  buildMarkdown?: (answers: WizardAnswers) => string;
+  buildMarkdown?: (answers: WizardAnswers, bodyOverride?: string) => string;
   /** Migration diff path: only ask these field ids (their `when` gates still apply). */
   onlyFields?: string[];
+  /** Current prompt-body text, pre-filled into the "customize prompt" step. */
+  initialBody?: string;
 }
 
 export function SetupWizard({
@@ -154,14 +178,16 @@ export function SetupWizard({
   initialValues,
   buildMarkdown,
   onlyFields,
+  initialBody,
 }: SetupWizardProps) {
   const { exit } = useApp();
   const startValues = initialValues ?? {};
+  const bodyFallback = initialBody ?? "";
   const fieldsFor = (mode: SetupMode, answers: Answers): Field[] =>
     fieldsForMode(mode, answers, onlyFields);
   const startFields = initialMode ? fieldsFor(initialMode, startValues) : [];
   const startEditing = startFields[0]
-    ? computeEditing(startFields[0]!, startValues[startFields[0]!.id])
+    ? computeEditing(startFields[0]!, startValues[startFields[0]!.id], bodyFallback)
     : null;
 
   const [mode, setMode] = useState<SetupMode | null>(initialMode ?? null);
@@ -180,7 +206,7 @@ export function SetupWizard({
   const field = fields[index];
 
   const initEditing = (next: Field, source: Answers): void => {
-    const editing = computeEditing(next, source[next.id]);
+    const editing = computeEditing(next, source[next.id], bodyFallback);
     setDraft(editing.draft);
     setOptionIndex(editing.optionIndex);
     setListItems(editing.listItems);
@@ -198,6 +224,7 @@ export function SetupWizard({
     if (spec.kind === "select") return spec.options[optionIndex]!.value;
     if (spec.kind === "list") return listItems.length ? [...listItems] : undefined;
     if (spec.kind === "multiselect") return selected.size ? [...selected] : undefined;
+    if (spec.kind === "multiline") return draft;
     // indicators handled separately (never reaches here)
     return undefined;
   };
@@ -265,6 +292,22 @@ export function SetupWizard({
       }
 
       const current = fields[index]!;
+
+      // Multiline (prompt body) captures all keys: type to edit, Enter inserts
+      // a newline, Ctrl-D finishes. Esc (handled above) cancels the wizard.
+      if (current.spec.kind === "multiline") {
+        if (key.ctrl && input === "d") {
+          advance(commitCurrent());
+        } else if (key.return) {
+          setDraft(`${draft}\n`);
+        } else if (key.backspace || key.delete) {
+          setDraft(draft.slice(0, -1));
+        } else if (input && !key.ctrl && !key.meta && !key.tab) {
+          setDraft(draft + input);
+        }
+        return;
+      }
+
       const isOption =
         current.spec.kind === "select" ||
         current.spec.kind === "confirm" ||
@@ -435,6 +478,9 @@ function hintFor(kind: FieldSpec["kind"]): string {
   if (kind === "list") {
     return `type + enter to add · empty enter to finish · ${nav}`;
   }
+  if (kind === "multiline") {
+    return "type to edit · enter for a new line · Ctrl-D to finish · esc cancel";
+  }
   return `type a value · enter to confirm and continue (blank to skip) · ${nav}`;
 }
 
@@ -497,6 +543,19 @@ function QuestionInput({
           {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
           <Text inverse> </Text>
         </Box>
+      </Box>
+    );
+  }
+  if (field.spec.kind === "multiline") {
+    const lines = draft.split("\n");
+    return (
+      <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
+        {lines.map((line, i) => (
+          <Text key={i}>
+            {line === "" ? " " : line}
+            {i === lines.length - 1 ? <Text inverse> </Text> : null}
+          </Text>
+        ))}
       </Box>
     );
   }

@@ -108,8 +108,21 @@ function stampDescriptions(doc: YAML.Document): void {
   }
 }
 
-/** Parse `markdown`, set every answered value at its dotted path, re-emit. */
-function applyToMarkdown(markdown: string, values: Record<string, WizardValue>): string {
+/** The prompt template body (everything after the frontmatter) of a WORKFLOW.md. */
+export function workflowBody(markdown: string): string {
+  const m = FRONTMATTER_RE.exec(markdown);
+  return m?.[2] ?? "";
+}
+
+/**
+ * Parse `markdown`, set every answered value at its dotted path, re-emit.
+ * When `bodyOverride` is provided, it replaces the template body (the prompt).
+ */
+function applyToMarkdown(
+  markdown: string,
+  values: Record<string, WizardValue>,
+  bodyOverride?: string,
+): string {
   const m = FRONTMATTER_RE.exec(markdown);
   if (!m) {
     throw new Error("setup wizard: WORKFLOW.md is missing its YAML frontmatter block");
@@ -123,24 +136,28 @@ function applyToMarkdown(markdown: string, values: Record<string, WizardValue>):
   doc.setIn(["version"], CURRENT_WORKFLOW_VERSION);
   // Document every live setting with its description (single source).
   stampDescriptions(doc);
-  const body = m[2] ?? "";
+  const body = bodyOverride ?? m[2] ?? "";
   const frontmatter = doc.toString({ flowCollectionPadding: false }).replace(/\n+$/, "");
   return `---\n${frontmatter}\n---\n${body}`;
 }
 
 /**
  * Build a WORKFLOW.md from wizard answers, starting from the canonical default
- * template. Keeps all of the template's comments/formatting; with no answers in
- * quick mode the output is byte-identical to the default.
+ * template. `bodyOverride` replaces the default prompt body when given.
  */
-export function buildWorkflowMarkdown(answers: WizardAnswers): string {
-  return applyToMarkdown(DEFAULT_WORKFLOW_MD, withPresets(answers));
+export function buildWorkflowMarkdown(answers: WizardAnswers, bodyOverride?: string): string {
+  return applyToMarkdown(DEFAULT_WORKFLOW_MD, withPresets(answers), bodyOverride);
 }
 
 /**
  * Apply wizard answers onto an EXISTING WORKFLOW.md, preserving everything the
  * answers do not touch (custom rules, existing indicators, comments, body).
+ * `bodyOverride` replaces the existing prompt body when given.
  */
-export function applyAnswersToWorkflow(existing: string, answers: WizardAnswers): string {
-  return applyToMarkdown(existing, answers.values);
+export function applyAnswersToWorkflow(
+  existing: string,
+  answers: WizardAnswers,
+  bodyOverride?: string,
+): string {
+  return applyToMarkdown(existing, answers.values, bodyOverride);
 }

@@ -19,7 +19,11 @@ export type FieldSpec =
   | { kind: "multiselect"; options: { label: string; value: string }[] }
   | { kind: "list"; placeholder?: string }
   | { kind: "confirm"; defaultChoice: "confirm" | "cancel" }
-  | { kind: "indicators" };
+  | { kind: "indicators" }
+  | { kind: "multiline" };
+
+/** Reserved field id whose value is the prompt body, not a frontmatter setting. */
+export const PROMPT_BODY_FIELD_ID = "promptBody";
 
 export interface Field {
   id: string;
@@ -562,6 +566,15 @@ const CUSTOMIZED_FIELDS: Field[] = [
     },
     when: isOn("openspec.reviewPhase.enabled"),
   },
+
+  // ── Prompt body (the template sent to the agent) ──
+  {
+    id: PROMPT_BODY_FIELD_ID,
+    label: "Customize the prompt sent to the agent?",
+    description:
+      "The prompt the agent receives lives in the file body — a template filled with per-issue values (e.g. {{ issue.identifier }}). Edit it here, or leave it and finish to keep the default.",
+    spec: { kind: "multiline" },
+  },
 ];
 
 /**
@@ -648,6 +661,7 @@ export function modelOptionValues(): string[] {
  * inline docs never drift.
  */
 export const FIELD_DESCRIPTIONS: { path: string[]; description: string }[] =
-  CUSTOMIZED_FIELDS.filter((field): field is Field & { description: string } =>
-    Boolean(field.description),
+  CUSTOMIZED_FIELDS.filter(
+    (field): field is Field & { description: string } =>
+      Boolean(field.description) && field.spec.kind !== "multiline",
   ).map((field) => ({ path: field.id.split("."), description: field.description }));
