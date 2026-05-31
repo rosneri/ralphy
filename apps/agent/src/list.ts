@@ -304,7 +304,7 @@ async function fetchAndPrintLinear(
   if (checks) {
     await Promise.all(
       rows.map(async (row) => {
-        if (!row.prUrl || row.status?.ciBucket !== "fail") return;
+        if (!row.prUrl || row.status?.kind !== "ok" || row.status.ciBucket !== "fail") return;
         try {
           const ciStatus = await getPrChecksStatus(
             row.prUrl,
