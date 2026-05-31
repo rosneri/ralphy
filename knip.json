@@ -4,9 +4,14 @@
     "@secretlint/secretlint-rule-preset-recommend",
     "@fission-ai/openspec",
     "@nx/js",
-    "@total-typescript/ts-reset"
+    "@total-typescript/ts-reset",
+    "xstate-mcp"
   ],
-  "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
+  "ignore": [
+    "reset.d.ts",
+    "scripts/debug-agent.ts",
+    "apps/agent/src/runtime/machines/inspector.ts"
+  ],
   "workspaces": {
     "apps/init": {
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]

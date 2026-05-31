@@ -251,6 +251,10 @@ export interface Indicators {
   getTodo?: GetIndicator;
   /** Issues to resume after restart (already in flight). */
   getInProgress?: GetIndicator;
+  /** Issues that have been completed / merged — included in the PR conflict+CI scan. */
+  getDone?: GetIndicator;
+  /** Issues currently under human review — included in the PR conflict+CI scan. */
+  getReview?: GetIndicator;
   /** Issues opted in for auto-merge: when matched, the agent enables
    *  GitHub auto-merge on the PR immediately after creation. */
   getAutoMerge?: GetIndicator;

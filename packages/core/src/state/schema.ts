@@ -13,6 +13,7 @@ export const OWNERSHIP: Record<string, ReadonlyArray<string>> = {
   "review-followup": ["review"],
   "ci-fix": ["ci"],
   implement: ["pr"],
+  coordinator: ["flow"],
 };
 
 export const ALL_OWNED_SLOTS: Set<string> = new Set<string>(
