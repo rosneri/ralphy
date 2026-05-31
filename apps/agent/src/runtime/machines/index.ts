@@ -6,8 +6,9 @@ export { issueFlowMachine };
 export type { IssueFlowContext, IssueFlowEvent } from "./issue-flow.machine";
 
 export function createIssueFlowActor(issueId: string) {
-  return createActor(issueFlowMachine, {
-    input: { issueId },
-    inspect: createMachineInspector(),
-  });
+  const inspector = createMachineInspector();
+  if (inspector) {
+    return createActor(issueFlowMachine, { input: { issueId }, inspect: inspector });
+  }
+  return createActor(issueFlowMachine, { input: { issueId } });
 }
