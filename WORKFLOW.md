@@ -155,7 +155,7 @@ engine: claude
 
 # Model tier the engine uses. 'opus' is the most capable, 'haiku' the
 # cheapest and fastest; higher tiers cost more per token.
-model: sonnet
+model: opus
 
 linear:
   # Only pick up issues from this Linear team, given by its key (e.g. ENG).
