@@ -1,0 +1,112 @@
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createElement } from "react";
+import { render } from "ink-testing-library";
+import { parseWorkflow } from "@ralphy/workflow";
+import { buildWorkflowMarkdown } from "@ralphy/workflow/wizard";
+import { SetupWizard, fieldsForMode, assembleAnswers } from "../SetupWizard";
+import { maybeRunSetupWizard } from "../index";
+
+describe("fieldsForMode", () => {
+  test("quick/permissive ask only the three common fields", () => {
+    expect(fieldsForMode("quick").map((f) => f.id)).toEqual([
+      "project.name",
+      "linear.team",
+      "linear.assignee",
+    ]);
+    expect(fieldsForMode("permissive").map((f) => f.id)).toEqual(
+      fieldsForMode("quick").map((f) => f.id),
+    );
+  });
+
+  test("customized walks every setting group", () => {
+    const ids = fieldsForMode("customized").map((f) => f.id);
+    expect(ids).toContain("commands.test");
+    expect(ids).toContain("engine");
+    expect(ids).toContain("model");
+    expect(ids).toContain("createPrOnSuccess");
+    expect(ids).toContain("linear.indicatorsPreset");
+    expect(ids.length).toBeGreaterThan(fieldsForMode("quick").length);
+  });
+});
+
+describe("assembleAnswers", () => {
+  test("attaches the mode and round-trips through buildWorkflowMarkdown", () => {
+    const collected = {
+      project: { name: "svc" },
+      engine: "codex",
+      concurrency: 2,
+      linear: { team: "ENG", indicatorsPreset: "status-standard" },
+    };
+    const answers = assembleAnswers("customized", collected);
+    expect(answers.mode).toBe("customized");
+    const { config } = parseWorkflow(buildWorkflowMarkdown(answers));
+    expect(config.project.name).toBe("svc");
+    expect(config.engine).toBe("codex");
+    expect(config.concurrency).toBe(2);
+    expect(config.linear.team).toBe("ENG");
+    expect(config.linear.indicators.getTodo?.filter).toEqual([{ type: "status", value: "Todo" }]);
+  });
+});
+
+describe("SetupWizard render", () => {
+  test("mounts and shows the mode picker", () => {
+    const { lastFrame, unmount } = render(createElement(SetupWizard, { onComplete: () => {} }));
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Ralphy setup");
+    expect(frame).toContain("Quick");
+    expect(frame).toContain("Customized");
+    unmount();
+  });
+
+  test("driving quick mode end-to-end produces a valid WORKFLOW.md", async () => {
+    const ENTER = "\r";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    let result: string | null = null;
+    const { stdin, unmount } = render(
+      createElement(SetupWizard, { onComplete: (md: string) => (result = md) }),
+    );
+    const type = async (text: string) => {
+      stdin.write(text);
+      await tick();
+      stdin.write(ENTER);
+      await tick();
+    };
+    await tick();
+    stdin.write(ENTER); // select "quick" (first option)
+    await tick();
+    await type("demo"); // project name
+    await type("ENG"); // linear team
+    await type("me"); // linear assignee
+    unmount();
+
+    expect(result).not.toBeNull();
+    const { config } = parseWorkflow(result!);
+    expect(config.project.name).toBe("demo");
+    expect(config.linear.team).toBe("ENG");
+    expect(config.linear.assignee).toBe("me");
+  });
+});
+
+describe("maybeRunSetupWizard gating", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ralphy-init-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("returns false when WORKFLOW.md already exists", async () => {
+    await Bun.write(join(dir, "WORKFLOW.md"), "---\nproject: {}\n---\n");
+    expect(await maybeRunSetupWizard(dir)).toBe(false);
+  });
+
+  test("returns false (no write) in a non-interactive shell", async () => {
+    // The test runner is not a TTY, so the wizard must not render or write.
+    expect(await maybeRunSetupWizard(dir)).toBe(false);
+    expect(await Bun.file(join(dir, "WORKFLOW.md")).exists()).toBe(false);
+  });
+});

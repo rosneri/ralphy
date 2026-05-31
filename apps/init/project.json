@@ -1,0 +1,42 @@
+{
+  "name": "init",
+  "sourceRoot": "apps/init/src",
+  "tags": ["scope:init"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "oxlint --config .oxlintrc.json apps/init/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "fmt:check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "oxfmt --check apps/init/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -b apps/init/tsconfig.json",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test apps/init/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage src",
+        "cwd": "{projectRoot}"
+      }
+    }
+  }
+}

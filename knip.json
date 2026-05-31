@@ -8,6 +8,9 @@
   ],
   "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
+    "apps/init": {
+      "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
+    },
     "apps/loop": {
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
     },
