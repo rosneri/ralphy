@@ -1,4 +1,6 @@
 import type { CmdRunner } from "./agent/pr";
+import { classifyCheck } from "./shared/pr/ci-classify";
+import type { RawCheck } from "./shared/pr/ci-classify";
 
 export type CiBucket = "pass" | "fail" | "pending";
 export type Mergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
@@ -23,12 +25,6 @@ export type PrStatus = PrStatusOk | PrStatusError;
 
 const PR_VIEW_FIELDS = "state,isDraft,mergeable,statusCheckRollup,autoMergeRequest,createdAt";
 
-interface RawCheck {
-  status?: string;
-  conclusion?: string;
-  state?: string;
-}
-
 /**
  * Map a `gh pr view --json statusCheckRollup` array into our 3-bucket model.
  * Mirrors the bucketing in `agent/ci.ts::getPrChecksStatus` but works off the
@@ -41,29 +37,13 @@ function bucketChecks(rollup: RawCheck[] | null | undefined, prState: PrState): 
   let anyPending = false;
   let anyFail = false;
   for (const c of rollup) {
-    // GitHub Actions checks: { status: "COMPLETED", conclusion: "SUCCESS"|"FAILURE"|... }
-    // Legacy commit statuses: { state: "SUCCESS"|"FAILURE"|"PENDING" }
-    const status = (c.status ?? "").toUpperCase();
-    const conclusion = (c.conclusion ?? "").toUpperCase();
-    const state = (c.state ?? "").toUpperCase();
-    if (status && status !== "COMPLETED") {
+    const result = classifyCheck(c);
+    if (result === "pending") {
       anyPending = true;
-      continue;
-    }
-    if (state === "PENDING" || state === "EXPECTED") {
-      anyPending = true;
-      continue;
-    }
-    const settled = conclusion || state;
-    if (
-      settled === "FAILURE" ||
-      settled === "TIMED_OUT" ||
-      settled === "CANCELLED" ||
-      settled === "ERROR"
-    ) {
+    } else if (result === "fail") {
       anyFail = true;
     }
-    // SUCCESS / NEUTRAL / SKIPPED — treat as pass
+    // pass / skip — no flag set
   }
   if (anyPending) return "pending";
   if (anyFail) return "fail";

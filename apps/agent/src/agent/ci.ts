@@ -1,46 +1,12 @@
 import type { CmdRunner } from "./pr";
+import { classifyGhBucket, NO_CHECKS_RE, runGhWithRetry } from "../shared/pr/ci-classify";
+
+const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
 
 export interface CiStatus {
   bucket: "pass" | "fail" | "pending";
   /** Workflow run IDs of failing checks (only populated when bucket is "fail"). */
   failedRunIds: string[];
-}
-
-const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
-
-const TRANSIENT_GH_RE =
-  /HTTP 5\d\d|Gateway Timeout|Bad Gateway|Service Unavailable|connection reset|ECONNRESET|ETIMEDOUT|getaddrinfo|EAI_AGAIN|could not resolve host/i;
-
-/** gh exits 1 with this message when no workflows are configured for a branch. */
-const NO_CHECKS_RE = /no checks reported/i;
-
-/** Backoff schedule for transient `gh` failures (ms). 5s / 15s / 45s. */
-const GH_RETRY_DELAYS = [5_000, 15_000, 45_000];
-
-/** Internal: run gh with retry on transient HTTP/network errors. */
-async function runGhWithRetry(
-  cmd: string[],
-  runner: CmdRunner,
-  cwd: string,
-  onRetry?: (attempt: number, delayMs: number, reason: string) => void,
-  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
-): Promise<{ stdout: string; stderr: string }> {
-  let lastErr: unknown;
-  for (let i = 0; i <= GH_RETRY_DELAYS.length; i++) {
-    try {
-      return await runner.run(cmd, cwd);
-    } catch (err) {
-      const e = err as Error & { stderr?: string; stdout?: string };
-      const blob = `${e.message}\n${e.stderr ?? ""}\n${e.stdout ?? ""}`;
-      if (!TRANSIENT_GH_RE.test(blob) || i === GH_RETRY_DELAYS.length) throw err;
-      const delay = GH_RETRY_DELAYS[i]!;
-      const firstLine = (e.stderr?.trim().split("\n")[0] ?? e.message).slice(0, 120);
-      onRetry?.(i + 1, delay, firstLine);
-      await sleep(delay);
-      lastErr = err;
-    }
-  }
-  throw lastErr;
 }
 
 /**
@@ -89,12 +55,12 @@ export async function getPrChecksStatus(
     }[]
   )
     .filter((c) => !ignoredLower.includes(c.name.toLowerCase()))
-    .filter((c) => c.bucket !== "skipping");
+    .filter((c) => classifyGhBucket(c.bucket) !== "skip");
 
-  if (checks.some((c) => c.bucket === "pending")) {
+  if (checks.some((c) => classifyGhBucket(c.bucket) === "pending")) {
     return { bucket: "pending", failedRunIds: [] };
   }
-  const failed = checks.filter((c) => c.bucket === "fail" || c.bucket === "cancel");
+  const failed = checks.filter((c) => classifyGhBucket(c.bucket) === "fail");
   if (failed.length === 0) return { bucket: "pass", failedRunIds: [] };
 
   const ids = new Set<string>();
