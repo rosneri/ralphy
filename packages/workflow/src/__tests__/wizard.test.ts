@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { applyAnswersToWorkflow, buildWorkflowMarkdown, indicatorsForPreset } from "../wizard";
+import {
+  applyAnswersToWorkflow,
+  buildWorkflowMarkdown,
+  indicatorsForPreset,
+  workflowBody,
+} from "../wizard";
 import type { WizardAnswers, WizardValue } from "../wizard-types";
 import { parseWorkflow, CURRENT_WORKFLOW_VERSION } from "../workflow";
 import { DEFAULT_WORKFLOW_MD } from "../default";
@@ -195,6 +200,23 @@ describe("applyAnswersToWorkflow (editing an existing file)", () => {
     expect(parseWorkflow(updated).config.linear.indicators.getTodo?.filter).toEqual([
       { type: "label", value: "ralph:todo" },
     ]);
+  });
+
+  test("workflowBody extracts the prompt template; bodyOverride replaces it", () => {
+    const md = buildWorkflowMarkdown({ mode: "quick", values: {} });
+    expect(workflowBody(md)).toContain("{{ issue.identifier }}");
+    expect(workflowBody("no frontmatter here")).toBe("");
+
+    const created = buildWorkflowMarkdown({ mode: "quick", values: {} }, "CUSTOM PROMPT BODY");
+    expect(workflowBody(created)).toBe("CUSTOM PROMPT BODY");
+
+    const edited = applyAnswersToWorkflow(
+      md,
+      { mode: "customized", values: { engine: "codex" } },
+      "EDITED BODY",
+    );
+    expect(workflowBody(edited)).toBe("EDITED BODY");
+    expect(parseWorkflow(edited).config.engine).toBe("codex");
   });
 
   test("preserves unrelated body content", () => {
