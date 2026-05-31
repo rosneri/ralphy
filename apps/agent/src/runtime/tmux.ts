@@ -60,9 +60,9 @@ export function createSession(name: string, command: string[], env: Record<strin
     envArgs.push("-e", `${key}=${value}`);
   }
 
-  // On non-zero exit, keep the pane open so errors are readable; Ctrl+C still works during the run.
+  // Always pause after exit so the user can read the output before the pane closes.
   const quoted = command.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-  const shellCmd = `${quoted}; __code=$?; if [ $__code -ne 0 ]; then printf '\\n[ralphy exited with code %s — press Enter to close]\\n' "$__code"; read; fi`;
+  const shellCmd = `${quoted}; printf '\\n[ralphy exited — press Enter to close]\\n'; read`;
 
   const result = Bun.spawnSync({
     cmd: ["tmux", "new-session", "-d", "-s", name, ...envArgs, "sh", "-c", shellCmd],
