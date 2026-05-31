@@ -71,7 +71,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nx/devkit": "^22.7.1",
     "@nx/js": "^22.7.1",
-    "@rosneri/xstate-mcp": "^0.1.4",
     "@secretlint/secretlint-rule-preset-recommend": "^11.7.1",
     "@swc-node/register": "^1.11.1",
     "@swc/core": "^1.15.33",
