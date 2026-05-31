@@ -72,7 +72,12 @@ export interface PreemptActorInput {
 export const preemptionActorLogic = fromPromise<void, PreemptActorInput>(async ({ input }) => {
   const { worker, graceMs, teardown, persist, issueId, newAssignment, bus } = input;
 
-  bus.emit({ type: "runtime.preempt.started", issueId, from: input.from ?? null, to: newAssignment.flowId });
+  bus.emit({
+    type: "runtime.preempt.started",
+    issueId,
+    from: input.from ?? null,
+    to: newAssignment.flowId,
+  });
 
   if (worker !== undefined) {
     try {
@@ -134,11 +139,13 @@ type FlowEvent =
   | WorkerSpawnedEvent
   | PreemptEvent;
 
-const workerSpawnedAssign = assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
-  worker: event.worker,
-  teardown: event.teardown,
-  currentAssignment: event.assignment,
-}));
+const workerSpawnedAssign = assign(
+  ({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
+    worker: event.worker,
+    teardown: event.teardown,
+    currentAssignment: event.assignment,
+  }),
+);
 
 export const flowMachine = setup({
   types: {} as {
@@ -181,7 +188,10 @@ export const flowMachine = setup({
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
-          actions: assign({ pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) => event.newAssignment }),
+          actions: assign({
+            pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) =>
+              event.newAssignment,
+          }),
         },
         WORKER_SPAWNED: {
           actions: workerSpawnedAssign,
@@ -194,7 +204,10 @@ export const flowMachine = setup({
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
-          actions: assign({ pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) => event.newAssignment }),
+          actions: assign({
+            pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) =>
+              event.newAssignment,
+          }),
         },
         WORKER_SPAWNED: {
           actions: workerSpawnedAssign,
@@ -207,7 +220,10 @@ export const flowMachine = setup({
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
-          actions: assign({ pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) => event.newAssignment }),
+          actions: assign({
+            pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) =>
+              event.newAssignment,
+          }),
         },
         WORKER_SPAWNED: {
           actions: workerSpawnedAssign,
@@ -219,7 +235,10 @@ export const flowMachine = setup({
         CONFIRMATION_CLEARED: "working",
         PREEMPT: {
           target: "preempting",
-          actions: assign({ pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) => event.newAssignment }),
+          actions: assign({
+            pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) =>
+              event.newAssignment,
+          }),
         },
       },
     },
@@ -259,11 +278,13 @@ export const flowMachine = setup({
     "routing-after-preempt": {
       always: [
         {
-          guard: ({ context }: { context: FlowContext }) => context.pendingAssignment?.flowId === "conflict-fix",
+          guard: ({ context }: { context: FlowContext }) =>
+            context.pendingAssignment?.flowId === "conflict-fix",
           target: "conflict-fix",
         },
         {
-          guard: ({ context }: { context: FlowContext }) => context.pendingAssignment?.flowId === "ci-fix",
+          guard: ({ context }: { context: FlowContext }) =>
+            context.pendingAssignment?.flowId === "ci-fix",
           target: "ci-fix",
         },
         {
@@ -273,11 +294,13 @@ export const flowMachine = setup({
           target: "awaiting",
         },
         {
-          guard: ({ context }: { context: FlowContext }) => context.pendingAssignment?.flowId === "review-followup",
+          guard: ({ context }: { context: FlowContext }) =>
+            context.pendingAssignment?.flowId === "review-followup",
           target: "review",
         },
         {
-          guard: ({ context }: { context: FlowContext }) => context.pendingAssignment?.flowId === "idle",
+          guard: ({ context }: { context: FlowContext }) =>
+            context.pendingAssignment?.flowId === "idle",
           target: "idle",
         },
         { target: "working" },

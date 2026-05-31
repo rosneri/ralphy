@@ -1,7 +1,12 @@
 import { createActor } from "xstate";
 import { describe, expect, it } from "bun:test";
 import { createBus } from "@ralphy/events";
-import { flowMachine, preemptionActorLogic, type FlowAssignment, type FlowWorker } from "../flow.machine";
+import {
+  flowMachine,
+  preemptionActorLogic,
+  type FlowAssignment,
+  type FlowWorker,
+} from "../flow.machine";
 
 const GRACE_MS = 20;
 
@@ -23,10 +28,10 @@ function makeActor(graceMs = GRACE_MS) {
   return { actor, events, persisted };
 }
 
-function makeFakeWorker(opts: {
-  ignoresSigterm?: boolean;
-  throwOnKill?: boolean;
-}): { worker: FlowWorker; kills: string[] } {
+function makeFakeWorker(opts: { ignoresSigterm?: boolean; throwOnKill?: boolean }): {
+  worker: FlowWorker;
+  kills: string[];
+} {
   const kills: string[] = [];
   let resolveExited: (code: number) => void = () => {};
   const exited = new Promise<number>((r) => {
@@ -106,7 +111,10 @@ describe("flow.machine — preemption: graceful SIGTERM skips SIGKILL", () => {
       assignment: { flowId: "implement", reason: "started", boost: "p2" },
     });
 
-    actor.send({ type: "PREEMPT", newAssignment: { flowId: "ci-fix", reason: "ci failing", boost: "p2" } });
+    actor.send({
+      type: "PREEMPT",
+      newAssignment: { flowId: "ci-fix", reason: "ci failing", boost: "p2" },
+    });
 
     await new Promise<void>((resolve) => {
       const sub = actor.subscribe((snap) => {
@@ -296,7 +304,9 @@ describe("flow.machine — snapshot rehydration mid-preempting (no-worker path)"
     // Rehydrate — the bus object reference is preserved in the in-memory snapshot
     // so bus events fired by the restored preemption actor are captured above.
     const rehydrated = createActor(machine, {
-      snapshot: snap as Parameters<typeof createActor>[1] extends { snapshot?: infer S } ? S : never,
+      snapshot: snap as Parameters<typeof createActor>[1] extends { snapshot?: infer S }
+        ? S
+        : never,
       input: { issueId: "ISS-snap", bus, persist: () => {}, graceMs: GRACE_MS },
     });
     rehydrated.start();
