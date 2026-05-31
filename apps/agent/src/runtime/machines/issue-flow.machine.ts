@@ -18,8 +18,9 @@ export type IssueFlowEvent =
   | { type: "PREEMPTED"; signals: RouterSignals }
   | { type: "RESET" };
 
-// Coordinator treats exit code 2 (NO_CHANGES_EXIT = 72 in post-task.ts) as success.
+// Coordinator treats NO_CHANGES_EXIT = 72 (post-task.ts) as success.
 // Re-derived here to avoid a circular import from the top-level agent package.
+// allow-duplicate
 const NO_CHANGES_EXIT = 72;
 
 function makeAssignment(
