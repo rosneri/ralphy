@@ -918,6 +918,9 @@ export class AgentCoordinator {
           trigger: "conflict-fix",
           priority: defaultPriorityFor("conflict-fix"),
         });
+        // Count this freshly-detected conflict; pre-existing queue/worker
+        // entries are added from the snapshot below (no double-counting).
+        counts.conflicted += 1;
         continue;
       }
 
@@ -954,6 +957,9 @@ export class AgentCoordinator {
           trigger: "ci-fix",
           priority: defaultPriorityFor("ci-fix"),
         });
+        // Count this freshly-detected CI failure; pre-existing queue/worker
+        // entries are added from the snapshot below (no double-counting).
+        counts.ciFailed += 1;
       }
     }
 
