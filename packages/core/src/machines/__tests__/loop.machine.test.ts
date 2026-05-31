@@ -10,9 +10,22 @@ const baseOptions: LoopMachineOptions = {
   maxConsecutiveFailures: 0,
 };
 
-function startActor(options: LoopMachineOptions = baseOptions, startTime: number = Date.now()) {
+function startActor(
+  options: LoopMachineOptions = baseOptions,
+  startTime: number = Date.now(),
+  startingIteration?: number,
+  startingCostUsd?: number,
+  startingStatus?: "active" | "blocked" | "completed",
+) {
   const actor = createActor(loopMachine).start();
-  actor.send({ type: "START", options, startTime });
+  actor.send({
+    type: "START",
+    options,
+    startTime,
+    ...(startingIteration !== undefined && { startingIteration }),
+    ...(startingCostUsd !== undefined && { startingCostUsd }),
+    ...(startingStatus !== undefined && { startingStatus }),
+  });
   return actor;
 }
 
@@ -87,5 +100,29 @@ describe("loopMachine", () => {
     actor.send({ type: "ITERATION_DONE", costDeltaUsd: 0 });
     actor.send({ type: "ITERATION_DONE", costDeltaUsd: 0 });
     expect(actor.getSnapshot().value).toBe("running");
+  });
+
+  test("START with seeds sets context.iteration and context.costUsd correctly", () => {
+    const actor = startActor(baseOptions, Date.now(), 5, 1.5);
+    expect(actor.getSnapshot().context.iteration).toBe(5);
+    expect(actor.getSnapshot().context.costUsd).toBe(1.5);
+  });
+
+  test("START without seeds defaults iteration and costUsd to 0", () => {
+    const actor = startActor();
+    expect(actor.getSnapshot().context.iteration).toBe(0);
+    expect(actor.getSnapshot().context.costUsd).toBe(0);
+  });
+
+  test("START with completed status stops immediately", () => {
+    const actor = startActor(baseOptions, Date.now(), 0, 0, "completed");
+    expect(actor.getSnapshot().value).toEqual({ stopped: "completed" });
+  });
+
+  test("maxIterations is respected when startingIteration is provided", () => {
+    const actor = startActor({ ...baseOptions, maxIterations: 5 }, Date.now(), 4);
+    // Already at iteration 4, one more ITERATION_DONE reaches 5 → should stop
+    actor.send({ type: "ITERATION_DONE", costDeltaUsd: 0 });
+    expect(actor.getSnapshot().value).toEqual({ stopped: "maxIterations" });
   });
 });

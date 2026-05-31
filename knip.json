@@ -1,17 +1,14 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "ignoreDependencies": [
+    "@rosneri/xstate-mcp",
     "@secretlint/secretlint-rule-preset-recommend",
     "@fission-ai/openspec",
     "@nx/js",
     "@total-typescript/ts-reset",
-    "xstate-mcp"
+    "@rosneri/xstate-mcp"
   ],
-  "ignore": [
-    "reset.d.ts",
-    "scripts/debug-agent.ts",
-    "apps/agent/src/runtime/machines/inspector.ts"
-  ],
+  "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
     "apps/init": {
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
