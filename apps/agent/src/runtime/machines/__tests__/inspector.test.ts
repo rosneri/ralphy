@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import type { InspectionEvent } from "xstate";
+import type { ActorRefLike, InspectedEventEvent } from "xstate";
 
 function freshModule() {
   return import("../inspector?t=" + Math.random());
 }
 
-const FAKE_EVENT = {
+const FAKE_ACTOR_REF: ActorRefLike = {
+  sessionId: "fake-session",
+  send: (_event: { type: string }) => {},
+  getSnapshot: () => ({ status: "active" as const, output: undefined, error: undefined }),
+};
+
+const FAKE_EVENT: InspectedEventEvent = {
   type: "@xstate.event",
-  actorRef: {} as never,
+  actorRef: FAKE_ACTOR_REF,
   event: { type: "TEST" },
-} satisfies InspectionEvent;
+  sourceRef: undefined,
+  rootId: "root",
+};
 
 function installMockWebSocket(readyState: number) {
   const ws = {

@@ -56,6 +56,7 @@
         "marked": "^18.0.4",
         "pdfkit": "^0.18.0",
         "react": "^18.3.1",
+        "xstate": "^5",
       },
       "devDependencies": {
         "@types/pdfkit": "^0.17.6",
