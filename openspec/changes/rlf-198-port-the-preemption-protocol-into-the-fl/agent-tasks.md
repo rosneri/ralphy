@@ -1,3 +1,36 @@
+## Fix failing CI checks (2026-05-31T16:14:15.704Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26717719809 ---
+ci Unused dependency check ﻿2026-05-31T16:14:04.3519923Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-31T16:14:04.3520305Z ^[[36;1mbun run check:unused:ci^[[0m
+ci Unused dependency check 2026-05-31T16:14:04.3549596Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-31T16:14:04.3549935Z env:
+ci Unused dependency check 2026-05-31T16:14:04.3550206Z NX_BASE: 40bda67b40086084dc16fb9e91732a0a6cedd622
+ci Unused dependency check 2026-05-31T16:14:04.3550598Z NX_HEAD: 3143587367bf4bb30b4d2019b262a83a0ee8870d
+ci Unused dependency check 2026-05-31T16:14:04.3550918Z ##[endgroup]
+ci Unused dependency check 2026-05-31T16:14:04.3626457Z $ knip
+ci Unused dependency check 2026-05-31T16:14:08.9067335Z ^[[93m^[[4mUnused devDependencies^[[24m^[[39m (1)
+ci Unused dependency check 2026-05-31T16:14:08.9075797Z @rosneri/xstate-mcp package.json:74:6
+ci Unused dependency check 2026-05-31T16:14:08.9076550Z ^[[93m^[[4mUnused exports^[[24m^[[39m (1)
+ci Unused dependency check 2026-05-31T16:14:08.9077302Z preemptionActorLogic apps/agent/src/runtime/flow-runner.ts:7:10
+ci Unused dependency check 2026-05-31T16:14:08.9078039Z ^[[93m^[[4mUnused exported types^[[24m^[[39m (1)
+ci Unused dependency check 2026-05-31T16:14:08.9078541Z Teardown type apps/agent/src/runtime/flow-runner.ts:8:27
+ci Unused dependency check 2026-05-31T16:14:08.9084502Z ^[[33m^[[4mConfiguration hints^[[24m (1)^[[39m
+ci Unused dependency check 2026-05-31T16:14:08.9088216Z apps/agent/src/runtime/machines/inspector.ts knip.json ^[[90mRemove from ^[[97mignore^[[90m^[[39m
+ci Unused dependency check 2026-05-31T16:14:08.9427582Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-31T16:14:08.9439032Z ##[error]Process completed with exit code 1.
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-31T16:07:59.899Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
