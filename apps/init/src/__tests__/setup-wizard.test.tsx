@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { parseWorkflow } from "@ralphy/workflow";
-import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
+import {
+  applyAnswersToWorkflow,
+  buildWorkflowMarkdown,
+  indicatorsForPreset,
+} from "@ralphy/workflow/wizard";
 import { fieldsForMode } from "@ralphy/workflow/fields";
 import {
   SetupWizard,
@@ -182,6 +186,42 @@ describe("SetupWizard render", () => {
     expect(plain).toContain("step 1/2");
     expect(plain).toContain("Stack dependent issues' PRs");
     unmount();
+  });
+
+  test("diff mode writes only the diff field, not the prefilled defaults", async () => {
+    const UP = "\x1b[A";
+    const ENTER = "\r";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    // Sparse legacy file: no version, no engine/model materialized.
+    const legacy = ["---", "project:", "  name: my-app", "---", "Body."].join("\n");
+    let result: string | null = null;
+    const { stdin, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: (md: string) => (result = md),
+        initialMode: "customized",
+        onlyFields: ["linear.confirmationMode.enabled"],
+        // Prefill mirrors initialValuesFromConfig — present for gating only.
+        initialValues: { engine: "claude", model: "opus", createPrOnSuccess: false },
+        buildMarkdown: (answers) => applyAnswersToWorkflow(legacy, answers),
+      }),
+    );
+    await tick();
+    stdin.write(UP); // confirm: No(default) -> Yes
+    await tick();
+    stdin.write(ENTER); // commit the only diff field -> complete
+    await tick();
+    unmount();
+
+    expect(result).not.toBeNull();
+    const md = result!;
+    // The diff field is written...
+    expect(md).toContain("confirmationMode:");
+    expect(parseWorkflow(md).config.linear.confirmationMode.enabled).toBe(true);
+    // ...but the prefilled, non-diff defaults are NOT materialized into the file.
+    expect(md).not.toContain("engine:");
+    expect(md).not.toContain("createPrOnSuccess:");
+    // Legacy content is preserved.
+    expect(md).toContain("name: my-app");
   });
 
   test("prefills the first question when started in edit mode", () => {

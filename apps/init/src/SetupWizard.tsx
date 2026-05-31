@@ -224,10 +224,18 @@ export function SetupWizard({
     initEditing(fieldsFor(mode!, source)[target]!, source);
   };
 
+  // In diff mode we prefill every config value so gating works, but only the
+  // diff fields should be written back — otherwise a sparse legacy file gains a
+  // cluster of materialized defaults it never asked for.
+  const valuesToWrite = (source: Answers): Answers =>
+    onlyFields
+      ? Object.fromEntries(Object.entries(source).filter(([id]) => onlyFields.includes(id)))
+      : source;
+
   const advance = (source: Answers): void => {
     const nextFields = fieldsFor(mode!, source);
     if (index >= nextFields.length - 1) {
-      onComplete(buildFromAnswers(mode!, source, buildMarkdown));
+      onComplete(buildFromAnswers(mode!, valuesToWrite(source), buildMarkdown));
       exit();
       return;
     }
