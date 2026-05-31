@@ -4,7 +4,8 @@
     "@secretlint/secretlint-rule-preset-recommend",
     "@fission-ai/openspec",
     "@nx/js",
-    "@total-typescript/ts-reset"
+    "@total-typescript/ts-reset",
+    "@rosneri/xstate-mcp"
   ],
   "ignore": ["reset.d.ts", "scripts/debug-agent.ts"],
   "workspaces": {
