@@ -272,7 +272,7 @@ describe("flow.machine — post-preemption routing", () => {
         });
       });
 
-      expect(actor.getSnapshot().value).toBe(expectedState);
+      expect(actor.getSnapshot().value as string).toBe(expectedState);
     });
   }
 });

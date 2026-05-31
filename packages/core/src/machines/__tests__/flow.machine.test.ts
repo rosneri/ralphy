@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { flowMachine } from "../flow.machine";
 
 function actor() {
-  return createActor(flowMachine).start();
+  return createActor(flowMachine, { input: {} }).start();
 }
 
 describe("flowMachine — idle entry events", () => {

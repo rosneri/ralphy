@@ -34,10 +34,10 @@ export interface FlowContext {
   bus: Bus;
   persist: (issueId: string, assignment: FlowAssignment) => Promise<void> | void;
   graceMs: number;
-  worker?: FlowWorker;
-  teardown?: Teardown;
-  currentAssignment?: FlowAssignment;
-  pendingAssignment?: FlowAssignment;
+  worker: FlowWorker | undefined;
+  teardown: Teardown | undefined;
+  currentAssignment: FlowAssignment | undefined;
+  pendingAssignment: FlowAssignment | undefined;
 }
 
 export type FlowInput = {
@@ -139,14 +139,6 @@ type FlowEvent =
   | WorkerSpawnedEvent
   | PreemptEvent;
 
-const workerSpawnedAssign = assign(
-  ({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
-    worker: event.worker,
-    teardown: event.teardown,
-    currentAssignment: event.assignment,
-  }),
-);
-
 export const flowMachine = setup({
   types: {} as {
     context: FlowContext;
@@ -194,7 +186,11 @@ export const flowMachine = setup({
           }),
         },
         WORKER_SPAWNED: {
-          actions: workerSpawnedAssign,
+          actions: assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
+            worker: event.worker,
+            teardown: event.teardown ?? undefined,
+            currentAssignment: event.assignment,
+          })),
         },
       },
     },
@@ -210,7 +206,11 @@ export const flowMachine = setup({
           }),
         },
         WORKER_SPAWNED: {
-          actions: workerSpawnedAssign,
+          actions: assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
+            worker: event.worker,
+            teardown: event.teardown ?? undefined,
+            currentAssignment: event.assignment,
+          })),
         },
       },
     },
@@ -226,7 +226,11 @@ export const flowMachine = setup({
           }),
         },
         WORKER_SPAWNED: {
-          actions: workerSpawnedAssign,
+          actions: assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
+            worker: event.worker,
+            teardown: event.teardown ?? undefined,
+            currentAssignment: event.assignment,
+          })),
         },
       },
     },
@@ -247,7 +251,11 @@ export const flowMachine = setup({
         WORKER_SUCCEEDED: "done",
         WORKER_FAILED: "error",
         WORKER_SPAWNED: {
-          actions: workerSpawnedAssign,
+          actions: assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
+            worker: event.worker,
+            teardown: event.teardown ?? undefined,
+            currentAssignment: event.assignment,
+          })),
         },
       },
     },
@@ -255,14 +263,16 @@ export const flowMachine = setup({
       invoke: {
         src: "preemption",
         input: ({ context }: { context: FlowContext }) => ({
-          worker: context.worker,
           graceMs: context.graceMs,
           bus: context.bus,
           persist: context.persist,
           issueId: context.issueId,
-          from: context.currentAssignment?.flowId,
           newAssignment: context.pendingAssignment!,
-          teardown: context.teardown,
+          ...(context.currentAssignment !== undefined
+            ? { from: context.currentAssignment.flowId }
+            : {}),
+          ...(context.worker !== undefined ? { worker: context.worker } : {}),
+          ...(context.teardown !== undefined ? { teardown: context.teardown } : {}),
         }),
         onDone: {
           actions: assign(({ context }: { context: FlowContext }) => ({

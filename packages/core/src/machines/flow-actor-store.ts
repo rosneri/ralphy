@@ -35,9 +35,13 @@ export class FlowActorStore {
 
     const input: FlowInput = {
       issueId: key,
-      bus: this.deps?.bus,
-      persist: this.deps?.persist,
-      graceMs: this.deps?.graceMs,
+      ...(this.deps
+        ? {
+            bus: this.deps.bus,
+            persist: this.deps.persist,
+            ...(this.deps.graceMs !== undefined ? { graceMs: this.deps.graceMs } : {}),
+          }
+        : {}),
     };
 
     if (changeDir) {
