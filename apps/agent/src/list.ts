@@ -128,11 +128,12 @@ interface Bucket {
   exclude: Marker[];
 }
 
-function buildBuckets(indicators: Indicators): Bucket[] {
+export function buildBuckets(indicators: Indicators): Bucket[] {
   const excludeFromTodo = unionMarkers(indicators.setDone, indicators.setError);
+  const excludeFromInProgress = unionMarkers(indicators.setError);
   return [
     { label: "todo", indicator: indicators.getTodo, exclude: excludeFromTodo },
-    { label: "in-progress", indicator: indicators.getInProgress, exclude: [] },
+    { label: "in-progress", indicator: indicators.getInProgress, exclude: excludeFromInProgress },
     { label: "auto-merge", indicator: indicators.getAutoMerge, exclude: [] },
   ];
 }
