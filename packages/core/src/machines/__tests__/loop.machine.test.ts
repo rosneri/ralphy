@@ -15,6 +15,7 @@ function startActor(
   startTime: number = Date.now(),
   startingIteration?: number,
   startingCostUsd?: number,
+  startingStatus?: "active" | "blocked" | "completed",
 ) {
   const actor = createActor(loopMachine).start();
   actor.send({
@@ -23,6 +24,7 @@ function startActor(
     startTime,
     ...(startingIteration !== undefined && { startingIteration }),
     ...(startingCostUsd !== undefined && { startingCostUsd }),
+    ...(startingStatus !== undefined && { startingStatus }),
   });
   return actor;
 }
@@ -110,6 +112,11 @@ describe("loopMachine", () => {
     const actor = startActor();
     expect(actor.getSnapshot().context.iteration).toBe(0);
     expect(actor.getSnapshot().context.costUsd).toBe(0);
+  });
+
+  test("START with completed status stops immediately", () => {
+    const actor = startActor(baseOptions, Date.now(), 0, 0, "completed");
+    expect(actor.getSnapshot().value).toEqual({ stopped: "completed" });
   });
 
   test("maxIterations is respected when startingIteration is provided", () => {

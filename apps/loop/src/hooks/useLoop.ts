@@ -199,6 +199,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
         startTime: loopStartTime,
         startingIteration,
         startingCostUsd,
+        startingStatus: currentState.status,
       });
 
       while (!cancelled) {

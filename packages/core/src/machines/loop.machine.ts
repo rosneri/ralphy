@@ -25,6 +25,7 @@ export type LoopMachineEvent =
       startTime: number;
       startingIteration?: number;
       startingCostUsd?: number;
+      startingStatus?: LoopMachineContext["status"];
     }
   | { type: "ITERATION_DONE"; costDeltaUsd: number }
   | { type: "ITERATION_FAILED" }
@@ -85,6 +86,7 @@ export const loopMachine = setup({
             startTime: ({ event }) => event.startTime,
             iteration: ({ event }) => event.startingIteration ?? 0,
             costUsd: ({ event }) => event.startingCostUsd ?? 0,
+            status: ({ event }) => event.startingStatus ?? "active",
           }),
         },
       },
