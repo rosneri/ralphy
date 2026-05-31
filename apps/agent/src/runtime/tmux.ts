@@ -60,8 +60,12 @@ export function createSession(name: string, command: string[], env: Record<strin
     envArgs.push("-e", `${key}=${value}`);
   }
 
+  // Always pause after exit so the user can read the output before the pane closes.
+  const quoted = command.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
+  const shellCmd = `${quoted}; printf '\\n[ralphy exited — press Enter to close]\\n'; read`;
+
   const result = Bun.spawnSync({
-    cmd: ["tmux", "new-session", "-d", "-s", name, ...envArgs, ...command],
+    cmd: ["tmux", "new-session", "-d", "-s", name, ...envArgs, "sh", "-c", shellCmd],
     stderr: "pipe",
   });
 

@@ -1,5 +1,6 @@
-/** Boost band: combines age + Linear priority + mention recency. */
-export type BoostBand = "p0" | "p1" | "p2" | "p3";
+import type { BoostBand, FlowId, FlowAssignment } from "@ralphy/core/machines";
+
+export type { BoostBand, FlowId, FlowAssignment };
 
 /** Signals derived from one Linear issue + its PR + bus history. Pure data. */
 export interface RouterSignals {
@@ -19,25 +20,6 @@ export interface RouterSignals {
    *                     spawning a worker.
    */
   awaitingCi: "none" | "watching";
-}
-
-export type FlowId =
-  | "confirmation"
-  | "conflict-fix"
-  | "ci-fix"
-  | "awaiting-ci"
-  | "review-followup"
-  | "implement"
-  | "new-ticket"
-  | "mention"
-  | "stuck"
-  | "idle";
-
-/** Output of `route(signals)` — what flow should run for this issue. */
-export interface FlowAssignment {
-  flowId: FlowId;
-  reason: string;
-  boost: BoostBand;
 }
 
 /** One row in the precedence table. */

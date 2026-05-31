@@ -10,6 +10,8 @@ import { registry as featureRegistry } from "../features/registry";
 import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
 import type { FeatureCtx, FeatureId } from "../features/types";
 import type { PrTracker } from "../features/pr-tracker";
+import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
+import type { FlowAssignment, FlowId } from "./types";
 
 /**
  * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
@@ -241,6 +243,12 @@ export interface CoordinatorDeps {
    *  `null` from `detect`, so wiring this dep is observable only as bus
    *  events — behavior is unchanged until a slice replaces its stub. */
   buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
+  /** Optional: return the absolute path to the openspec change directory for
+   *  the given issue (`openspec/changes/<changeName>/`). Used by the flow
+   *  machine actor store to persist snapshots to `.ralph-state.json` between
+   *  polls. When omitted, snapshots are held in memory only and the flow
+   *  machine starts fresh after each coordinator restart. */
+  getChangeDir?: (issue: LinearIssue) => string | null;
 }
 
 interface CoordinatorOptions {
@@ -326,12 +334,19 @@ export class AgentCoordinator {
   private ticketsStarted = 0;
 
   private readonly bus: Bus;
+  /** Per-issue XState v5 actor store. Keyed by issue.id so the actor is
+   *  available before `prepare()` resolves the changeName. Snapshots are
+   *  persisted to `changeDir/.ralph-state.json` when `getChangeDir` is
+   *  wired, enabling cross-restart rehydration. */
+  private readonly flowStore: FlowActorStore;
 
   constructor(
     private readonly deps: CoordinatorDeps,
     private readonly opts: CoordinatorOptions,
   ) {
     this.bus = deps.bus ?? createNoopBus();
+    const providedMachine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
+    this.flowStore = new FlowActorStore({ bus: this.bus, persist: () => {} }, providedMachine);
   }
 
   get activeCount(): number {
@@ -458,6 +473,13 @@ export class AgentCoordinator {
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
       if (await this.maybePromoteFinishedConflicted(issue)) continue;
+      // Send RESUME_DETECTED to actor (idle → working; ignored if already in working/conflict-fix/etc.)
+      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const actor = await this.flowStore.getActor(issue.id, changeDir);
+      actor.send({ type: "RESUME_DETECTED" });
+      if (changeDir) {
+        await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+      }
       this.queue.push({
         issue,
         trigger: "resume",
@@ -476,6 +498,13 @@ export class AgentCoordinator {
     for (const { issue, trigger: mention } of mentions) {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
+      // Send REVIEW_TRIGGERED to actor (idle → review)
+      const mentionChangeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const mentionActor = await this.flowStore.getActor(issue.id, mentionChangeDir);
+      mentionActor.send({ type: "REVIEW_TRIGGERED" });
+      if (mentionChangeDir) {
+        await this.flowStore.persistActor(issue.id, mentionChangeDir).catch(() => {});
+      }
       this.queue.push({
         issue,
         trigger: "review",
@@ -495,6 +524,13 @@ export class AgentCoordinator {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
+      // Send FRESH_PICKED_UP to actor (idle → working)
+      const freshChangeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const freshActor = await this.flowStore.getActor(issue.id, freshChangeDir);
+      freshActor.send({ type: "FRESH_PICKED_UP" });
+      if (freshChangeDir) {
+        await this.flowStore.persistActor(issue.id, freshChangeDir).catch(() => {});
+      }
       this.queue.push({
         issue,
         trigger: "fresh",
@@ -536,10 +572,20 @@ export class AgentCoordinator {
       buckets.awaiting;
     const flow: Record<string, Flow> = {};
     for (const w of this.workers) {
-      if (w.trigger === "conflict-fix") flow[w.changeName] = "conflict-fix";
-      else if (w.trigger === "ci-fix") flow[w.changeName] = "ci-fix";
-      else if (w.trigger === "review") flow[w.changeName] = "review";
-      else flow[w.changeName] = "working";
+      const workerActor = this.flowStore.peekActor(w.issueId);
+      if (workerActor) {
+        const stateVal = workerActor.getSnapshot().value as string;
+        const validFlowStates: Flow[] = ["conflict-fix", "ci-fix", "awaiting", "review", "working"];
+        flow[w.changeName] = (
+          validFlowStates.includes(stateVal as Flow) ? stateVal : "working"
+        ) as Flow;
+      } else {
+        this.deps.onLog(
+          `[warn] no actor in memory for active worker ${w.changeName} — defaulting flow to "working"`,
+          "gray",
+        );
+        flow[w.changeName] = "working";
+      }
     }
     return { found, added, buckets, prStatus, phase: {}, flow };
   }
@@ -563,6 +609,11 @@ export class AgentCoordinator {
     for (const issue of inProgress) {
       const ctx = this.deps.buildFeatureCtx(issue);
       if (!ctx) continue;
+
+      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const actor = await this.flowStore.getActor(issue.id, changeDir);
+      const wasAwaiting = actor.getSnapshot().value === "awaiting";
+
       let matchedId: FeatureId | null = null;
       for (const feature of featureRegistry) {
         if (matchedId !== null) {
@@ -579,6 +630,19 @@ export class AgentCoordinator {
             claimed.set(feature.id, bucket);
           }
           bucket.add(issue.id);
+        }
+      }
+
+      const confirmationClaimed = claimed.get("confirmation")?.has(issue.id) ?? false;
+      if (confirmationClaimed) {
+        actor.send({ type: "AWAITING_DETECTED" });
+        if (changeDir) {
+          await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+        }
+      } else if (wasAwaiting) {
+        actor.send({ type: "CONFIRMATION_CLEARED" });
+        if (changeDir) {
+          await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
         }
       }
     }
@@ -610,10 +674,28 @@ export class AgentCoordinator {
     if (!pr) return false;
     if (pr.status !== "conflicted" && pr.status !== "ci_failed") return false;
 
-    const trigger = pr.status === "conflicted" ? "conflict-fix" : "ci-fix";
     const stateLabel = pr.status === "conflicted" ? "conflicting with main" : "failing CI";
 
     if (this.conflictPromoted.has(issue.id)) return true;
+
+    // Dispatch to flow actor: ensure actor is in working before sending the
+    // conflict/ci event (it might be idle on fresh restart without a snapshot).
+    const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+    const actor = await this.flowStore.getActor(issue.id, changeDir);
+    if (actor.getSnapshot().value === "idle") {
+      actor.send({ type: "RESUME_DETECTED" });
+    }
+    if (pr.status === "conflicted") {
+      actor.send({ type: "CONFLICT_DETECTED" });
+    } else {
+      actor.send({ type: "CI_FAILED_DETECTED" });
+    }
+
+    const trigger: QueueTrigger = pr.status === "conflicted" ? "conflict-fix" : "ci-fix";
+
+    if (changeDir) {
+      await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+    }
 
     emitCapture(this.bus, "agent_conflict_promoted", {
       issue_identifier: issue.identifier,
@@ -766,6 +848,12 @@ export class AgentCoordinator {
     }
     if (candidates.length === 0) return counts;
 
+    // Snapshot pre-existing fix workers so the tail loop only counts items
+    // that were already queued/active before this scan — newly pushed items
+    // are already counted via the per-issue bucket increment below.
+    const preQueue = this.queue.map((q) => ({ id: q.issue.id, trigger: q.trigger }));
+    const preWorkers = this.workers.map((w) => ({ id: w.issueId, trigger: w.trigger }));
+
     for (const issue of candidates) {
       if (this.workers.some((w) => w.issueId === issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
@@ -820,6 +908,12 @@ export class AgentCoordinator {
             );
           }
         }
+        const conflictActor = await this.flowStore.getActor(
+          issue.id,
+          this.deps.getChangeDir?.(issue) ?? undefined,
+        );
+        conflictActor.send({ type: "RESUME_DETECTED" });
+        conflictActor.send({ type: "CONFLICT_DETECTED" });
         this.queue.push({
           issue,
           trigger: "conflict-fix",
@@ -850,12 +944,30 @@ export class AgentCoordinator {
             );
           }
         }
+        const ciActor = await this.flowStore.getActor(
+          issue.id,
+          this.deps.getChangeDir?.(issue) ?? undefined,
+        );
+        ciActor.send({ type: "RESUME_DETECTED" });
+        ciActor.send({ type: "CI_FAILED_DETECTED" });
         this.queue.push({
           issue,
           trigger: "ci-fix",
           priority: defaultPriorityFor("ci-fix"),
         });
       }
+    }
+
+    // Issues already queued or running for conflict-fix / ci-fix were detected
+    // in a prior scan and skipped above — add them so the counter stays accurate.
+    // Use the pre-scan snapshot to avoid double-counting items pushed in this scan.
+    for (const q of preQueue) {
+      if (q.trigger === "conflict-fix") counts.conflicted += 1;
+      else if (q.trigger === "ci-fix") counts.ciFailed += 1;
+    }
+    for (const w of preWorkers) {
+      if (w.trigger === "conflict-fix") counts.conflicted += 1;
+      else if (w.trigger === "ci-fix") counts.ciFailed += 1;
     }
 
     return counts;
@@ -1081,6 +1193,21 @@ export class AgentCoordinator {
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
+
+    // Notify the flow actor that a worker has been spawned so it can track the handle
+    const spawnedActor = this.flowStore.peekActor(issue.id);
+    if (spawnedActor) {
+      const flowWorker = {
+        exited: handle.exited as Promise<number | null>,
+        kill: (_signal?: "SIGTERM" | "SIGKILL") => handle.kill(),
+      };
+      const assignment: FlowAssignment = {
+        flowId: triggerToFlowId(trigger),
+        reason: `started via ${trigger}`,
+        boost: "p2" as const,
+      };
+      spawnedActor.send({ type: "WORKER_SPAWNED", worker: flowWorker, assignment });
+    }
     this.ticketsStarted += 1;
     const maxT = this.opts.maxTickets ?? 0;
     if (maxT > 0 && this.ticketsStarted >= maxT) {
@@ -1211,6 +1338,16 @@ export class AgentCoordinator {
     if (worker.reapedForAwaiting) return true;
     worker.reapedForAwaiting = true;
     emitCapture(this.bus, "agent_worker_reaped_for_awaiting", { change_name: changeName });
+    // Notify the flow actor to preempt the current worker and transition to awaiting
+    const reapActor = this.flowStore.peekActor(worker.issueId);
+    if (reapActor) {
+      const awaitingAssignment: FlowAssignment = {
+        flowId: "confirmation",
+        reason: "awaiting human confirmation",
+        boost: "p2" as const,
+      };
+      reapActor.send({ type: "PREEMPT", newAssignment: awaitingAssignment });
+    }
     try {
       worker.kill();
     } catch {
@@ -1253,6 +1390,18 @@ export class AgentCoordinator {
     // quarantined failure. Treat it like `ok` for task sync and finalization.
     const noChanges = code === NO_CHANGES_EXIT;
     const ok = code === 0 || noChanges;
+
+    // Dispatch to flow actor based on exit code
+    const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+    const exitActor = await this.flowStore.getActor(issue.id, changeDir);
+    exitActor.send({ type: ok ? "WORKER_SUCCEEDED" : "WORKER_FAILED" });
+    if (changeDir) {
+      await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+    }
+    const exitActorState = exitActor.getSnapshot().value as string;
+    if (exitActorState === "done" || exitActorState === "error") {
+      this.flowStore.disposeActor(issue.id);
+    }
     if (this.deps.syncTasks && ok) {
       const synthetic: ActiveWorker = {
         changeName,
@@ -1371,6 +1520,13 @@ export class AgentCoordinator {
 }
 
 import type { BoostBand } from "./types";
+
+function triggerToFlowId(trigger: QueueTrigger): FlowId {
+  if (trigger === "conflict-fix") return "conflict-fix";
+  if (trigger === "ci-fix") return "ci-fix";
+  if (trigger === "review") return "review-followup";
+  return "implement";
+}
 
 const BOOST_RANK: Record<BoostBand, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 

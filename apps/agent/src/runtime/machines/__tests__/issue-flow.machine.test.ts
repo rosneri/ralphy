@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 import { createIssueFlowActor } from "../index";
 import type { IssueFlowContext, IssueFlowEvent } from "../index";
 import type { RouterSignals } from "../../types";
@@ -22,7 +22,38 @@ function startActor() {
   return actor;
 }
 
+let originalWebSocket: typeof WebSocket | undefined;
+
+afterEach(() => {
+  if (originalWebSocket) {
+    globalThis.WebSocket = originalWebSocket;
+    originalWebSocket = undefined;
+  }
+  delete process.env.XSTATE_INSPECT;
+});
+
 describe("issueFlowMachine", () => {
+  it("wires the optional inspector when enabled", () => {
+    originalWebSocket = globalThis.WebSocket;
+    process.env.XSTATE_INSPECT = "true";
+    const addEventListener = mock((_type: string, _handler: unknown) => {});
+    const ws = {
+      readyState: 0,
+      send: mock((_data: string) => {}),
+      addEventListener,
+    };
+    const ctor = mock(() => ws);
+    Object.assign(ctor, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+    (globalThis as { WebSocket: unknown }).WebSocket = ctor;
+
+    const actor = startActor();
+
+    expect(ctor).toHaveBeenCalledTimes(1);
+    expect(actor.getSnapshot().context.issueId).toBe("TEST-1");
+    const closeHandler = addEventListener.mock.calls.find((call) => call[0] === "close")?.[1];
+    if (typeof closeHandler === "function") closeHandler();
+  });
+
   describe("happy path — implement", () => {
     it("routes idle → implement → workerRunning → done", () => {
       const actor = startActor();

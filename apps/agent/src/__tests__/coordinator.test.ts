@@ -1240,3 +1240,124 @@ describe("AgentCoordinator — poll summary log routing", () => {
     await tick();
   });
 });
+
+describe("AgentCoordinator — flow machine actor state", () => {
+  test("flow value for a fresh issue reflects 'working' (actor dispatched FRESH_PICKED_UP)", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    // Worker is active; flow should read from actor state which is "working"
+    const result2 = await coord.pollOnce();
+    expect(result2.flow["change-eng-1"]).toBe("working");
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("flow value for a conflict-fix issue reflects 'conflict-fix' from actor state", async () => {
+    const doneIssue = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([doneIssue]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    // Second poll: worker is active, actor state is "conflict-fix"
+    const result2 = await coord.pollOnce();
+    expect(result2.flow["change-eng-1"]).toBe("conflict-fix");
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("flow value for a ci-fix issue reflects 'ci-fix' from actor state", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "ci_failed" as const });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    const result2 = await coord.pollOnce();
+    expect(result2.flow["change-eng-1"]).toBe("ci-fix");
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("flow value for a review issue reflects 'review' from actor state", async () => {
+    const issueA = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setMentions([
+      {
+        issue: issueA,
+        trigger: { source: "linear", body: "@ralphy review", createdAt: "2026-01-01T00:00:00Z" },
+      },
+    ]);
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+
+    const result2 = await coord.pollOnce();
+    expect(result2.flow["change-eng-1"]).toBe("review");
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("process restart: actor rehydrates from persisted snapshot and produces correct trigger", async () => {
+    const { mkdtemp, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    const tmpDir = await mkdtemp(join(tmpdir(), "coord-restart-test-"));
+    try {
+      const issueA = issue("a", "ENG-1");
+
+      function makeDepsWithChangeDir(
+        initial: { todo?: LinearIssue[] } = {},
+      ): ReturnType<typeof makeDeps> & { tmpDir: string } {
+        const d = makeDeps(initial);
+        d.deps.getChangeDir = (_i: LinearIssue) => tmpDir;
+        return { ...d, tmpDir };
+      }
+
+      // First coordinator: issue picked up as fresh, actor transitions to "working"
+      const ctx1 = makeDepsWithChangeDir({ todo: [issueA] });
+      const coord1 = new AgentCoordinator(ctx1.deps, { concurrency: 1 });
+      await coord1.init();
+      await coord1.pollOnce();
+      await tick();
+      // Actor snapshot persisted to tmpDir at this point
+
+      // Simulate restart: create a fresh coordinator with the same getChangeDir
+      const ctx2 = makeDepsWithChangeDir();
+      ctx2.setInProgress([issueA]);
+      const coord2 = new AgentCoordinator(ctx2.deps, { concurrency: 1 });
+      await coord2.init();
+      await coord2.pollOnce();
+      await tick();
+
+      // The second coordinator should rehydrate the actor (already in "working") and
+      // RESUME_DETECTED should be ignored (already working). The trigger should still be "resume".
+      expect(ctx2.workers.has("change-eng-1")).toBe(true);
+
+      // Flow should show "working" (rehydrated state)
+      const result3 = await coord2.pollOnce();
+      expect(result3.flow["change-eng-1"]).toBe("working");
+
+      ctx2.workers.get("change-eng-1")!.resolve(0);
+      await tick();
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
