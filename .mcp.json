@@ -9,7 +9,7 @@
     "xstate-mcp": {
       "type": "stdio",
       "command": "bunx",
-      "args": ["xstate-mcp"],
+      "args": ["@rosneri/xstate-mcp"],
       "env": {}
     }
   }
