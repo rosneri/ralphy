@@ -13,6 +13,7 @@ import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
+import { getPrChecksStatus } from "./agent/ci";
 import { RALPHY_ATTACHMENT_TITLE } from "./shared/capabilities/linear-client";
 import { unionMarkers } from "./agent/wire/indicators";
 
@@ -161,6 +162,7 @@ interface UnifiedRow extends SortableRow {
   title: string;
   prUrl: string | null;
   blockedByIdentifiers: string[];
+  failedCheckNames?: string[];
 }
 
 const localCmdRunner: CmdRunner = {
@@ -186,14 +188,20 @@ export function formatBlockedCell(blockedByIdentifiers: string[]): string {
 }
 
 /** Render the PR status as a short marker for the unified list table. */
-function formatPrStatusMarker(status: PrStatus | null): string {
+export function formatPrStatusMarker(status: PrStatus | null, failedCheckNames?: string[]): string {
   if (status === null) return "(no PR)";
   if (status.kind === "error") return "?";
   if (status.state === "MERGED") return "merged";
   if (status.state === "CLOSED") return "closed";
   const parts: string[] = [];
   if (status.mergeable === "CONFLICTING") parts.push("✗conflict");
-  if (status.ciBucket === "fail") parts.push("✗ci");
+  if (status.ciBucket === "fail") {
+    if (failedCheckNames && failedCheckNames.length > 0) {
+      parts.push(`✗ci[${failedCheckNames.join(", ")}]`);
+    } else {
+      parts.push("✗ci");
+    }
+  }
   if (status.ciBucket === "pending") parts.push("⏳ci");
   if (status.isDraft) parts.push("draft");
   if (status.autoMergeEnabled) parts.push("auto-merge");
@@ -209,6 +217,7 @@ async function fetchAndPrintLinear(
   cwd: string,
   runner: CmdRunner,
   ignoreCiChecks: string[] = [],
+  checks = false,
 ): Promise<void> {
   // Fan out across buckets in parallel.
   const bucketResults = await Promise.all(
@@ -292,6 +301,26 @@ async function fetchAndPrintLinear(
     }),
   );
 
+  if (checks) {
+    await Promise.all(
+      rows.map(async (row) => {
+        if (!row.prUrl || row.status?.kind !== "ok" || row.status.ciBucket !== "fail") return;
+        try {
+          const ciStatus = await getPrChecksStatus(
+            row.prUrl,
+            runner,
+            cwd,
+            undefined,
+            ignoreCiChecks,
+          );
+          row.failedCheckNames = ciStatus.failedCheckNames;
+        } catch {
+          row.failedCheckNames = [];
+        }
+      }),
+    );
+  }
+
   const sorted = sortRows(rows);
 
   process.stdout.write(`\nLinear tickets: ${sorted.length} issue(s)\n`);
@@ -300,7 +329,7 @@ async function fetchAndPrintLinear(
   const idWidth = Math.max(10, ...sorted.map((r) => r.identifier.length));
   const bucketWidth = Math.max(6, ...sorted.map((r) => r.bucketLabel.length));
   const stateWidth = Math.max(5, ...sorted.map((r) => r.stateName.length));
-  const markers = sorted.map((r) => formatPrStatusMarker(r.status));
+  const markers = sorted.map((r) => formatPrStatusMarker(r.status, r.failedCheckNames));
   const markerWidth = Math.max(9, ...markers.map((m) => m.length));
   const blockedCells = sorted.map((r) => formatBlockedCell(r.blockedByIdentifiers));
   const blockedWidth = Math.max(7, ...blockedCells.map((c) => c.length));
@@ -321,6 +350,7 @@ interface RunListInput {
   linearAssigneeOverride: string;
   debug: boolean;
   name: string;
+  checks: boolean;
 }
 
 export async function runList(input: RunListInput): Promise<void> {
@@ -383,6 +413,7 @@ export async function runList(input: RunListInput): Promise<void> {
     projectRoot,
     localCmdRunner,
     cfg.ignoreCiChecks,
+    input.checks,
   );
 }
 

@@ -47,6 +47,7 @@ const baseArgs: ParsedArgs = {
   prompt: "",
   manualTest: false,
   debug: false,
+  checks: false,
 };
 
 function makeBuilderWithAwaiting(

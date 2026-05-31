@@ -167,6 +167,11 @@ describe("agent parseArgs", () => {
     expect(provided.jsonLogFile).toBe("/tmp/x.jsonl");
   });
 
+  test("parses --checks flag", async () => {
+    expect((await parseArgs(["list", "--checks"])).checks).toBe(true);
+    expect((await parseArgs(["list"])).checks).toBe(false);
+  });
+
   test("rejects unknown argument with helpful hint", async () => {
     await expect(parseArgs(["--no-such-flag"])).rejects.toThrow("Unknown argument");
   });

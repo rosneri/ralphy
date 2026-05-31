@@ -48,6 +48,7 @@ export async function main(argv: string[]): Promise<number> {
         linearAssigneeOverride: args.linearAssignee,
         debug: args.debug,
         name: args.name,
+        checks: args.checks,
       });
     });
     return typeof process.exitCode === "number" ? process.exitCode : 0;

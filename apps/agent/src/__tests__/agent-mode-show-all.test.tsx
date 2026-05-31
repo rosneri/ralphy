@@ -122,6 +122,7 @@ const baseArgs: ParsedArgs = {
   prompt: "",
   manualTest: false,
   debug: false,
+  checks: false,
 };
 
 describe("AgentMode Ctrl+L expanded subtasks", () => {
