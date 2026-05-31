@@ -1,3 +1,52 @@
+## Fix failing CI checks (2026-05-31T13:37:34.445Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26714089563 ---
+ci Test affected files + coverage ﻿2026-05-31T13:36:35.8195430Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-31T13:36:35.8195880Z ^[[36;1mbun run test:affected-files:coverage:ci^[[0m
+ci Test affected files + coverage 2026-05-31T13:36:35.8222399Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-31T13:36:35.8222690Z env:
+ci Test affected files + coverage 2026-05-31T13:36:35.8222958Z NX_BASE: 0e30a6f59e58a0139c844bb6507ed2cfdbd6d1be
+ci Test affected files + coverage 2026-05-31T13:36:35.8223340Z NX_HEAD: e1200bd0b652eb35c19d21b08fbfba489ede3fb1
+ci Test affected files + coverage 2026-05-31T13:36:35.8223664Z ##[endgroup]
+ci Test affected files + coverage 2026-05-31T13:36:35.8291984Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-31T13:36:35.8527016Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-31T13:36:35.8527488Z
+ci Test affected files + coverage 2026-05-31T13:36:46.4031636Z agent: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-31T13:36:46.4032297Z apps/agent/src/runtime/machines/**tests**/inspector.test.ts
+ci Test affected files + coverage 2026-05-31T13:36:46.4032603Z
+ci Test affected files + coverage 2026-05-31T13:36:46.4049966Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-31T13:36:46.4301064Z
+ci Test affected files + coverage 2026-05-31T13:36:46.4301768Z ##[group]src/**tests**/pending-tasks.test.ts:
+ci Test affected files + coverage 2026-05-31T13:36:46.7577765Z (pass) parseSubtasks > skips items under a Planning heading and returns the rest in order [1.31ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7580474Z (pass) parseSubtasks > keeps items when there is no Planning section [0.11ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7581762Z (pass) parseSubtasks > treats the Planning heading case-insensitively [0.07ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7583134Z (pass) parseSubtasks > resumes parsing after Planning when a new section begins [0.13ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7584424Z (pass) parseSubtasks > returns an empty array for empty input [0.08ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7585502Z (pass) parseSubtasks > trims whitespace on items [0.06ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7586438Z (pass) parseSubtasks > ignores non-task lines [0.05ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7587767Z (pass) parseSubtasks > skips legacy flow-task sections in tasks.md (backward compat) [0.09ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7589588Z (pass) parseSubtasks > skips Address reviewer comments and @ralphy mention sections [0.10ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7591494Z (pass) derived taskProgress from parseSubtasks > counts only Implementation items, ignoring Planning and flow-task sections [0.24ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7593490Z (pass) orderSubtasksForCappedDisplay > puts unchecked items before completed items, stable in file order [0.10ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7595133Z (pass) orderSubtasksForCappedDisplay > returns an empty array for empty input [0.04ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7596581Z (pass) orderSubtasksForCappedDisplay > leaves all-unchecked input unchanged [0.03ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7597922Z (pass) orderSubtasksForCappedDisplay > leaves all-done input unchanged [0.03ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7599889Z (pass) orderSubtasksForCappedDisplay > keeps freshly prepended unchecked tasks on top once the cap (15) kicks in [0.30ms]
+ci Test affected files + coverage 2026-05-31T13:36:46.7619075Z (pass) pickLatestGatedTicket > returns null top and moreCount 0 for an empty map [0.09ms]
+ci Test affected files + coverage 2026-05-31T13
+…[truncated 217127 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-31T13:33:51.355Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
