@@ -214,6 +214,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
   const [mode, setMode] = useState<SetupMode | null>(null);
   const [modeIndex, setModeIndex] = useState(0);
   const [index, setIndex] = useState(0);
+  const [maxVisited, setMaxVisited] = useState(0);
   const [answers, setAnswers] = useState<Answers>({});
   const [draft, setDraft] = useState("");
   const [optionIndex, setOptionIndex] = useState(0);
@@ -267,9 +268,9 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
     }
 
     if (mode === null) {
-      if (input === " ") {
-        setModeIndex((modeIndex + 1) % MODE_OPTIONS.length);
-      } else if (key.return) {
+      if (key.upArrow) setModeIndex((modeIndex + MODE_OPTIONS.length - 1) % MODE_OPTIONS.length);
+      else if (key.downArrow) setModeIndex((modeIndex + 1) % MODE_OPTIONS.length);
+      else if (key.return) {
         const chosen = MODE_OPTIONS[modeIndex]!.value as SetupMode;
         setMode(chosen);
         setIndex(0);
@@ -278,13 +279,27 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
       return;
     }
 
-    // Arrows move between questions (committing the current edit first).
-    if (key.leftArrow || key.upArrow) {
+    const field = fields[index]!;
+    const isOptionField = field.spec.kind === "select" || field.spec.kind === "confirm";
+
+    // Up/Down switch the current question's options.
+    if (key.upArrow || key.downArrow) {
+      if (isOptionField) {
+        const length = optionsFor(field).length;
+        const delta = key.upArrow ? length - 1 : 1;
+        setOptionIndex((optionIndex + delta) % length);
+      }
+      return;
+    }
+
+    // Left/Right move to the previous/next question (forward only into
+    // questions already reached), committing the current edit first.
+    if (key.leftArrow) {
       if (index > 0) goTo(index - 1, commitCurrent());
       return;
     }
-    if (key.rightArrow || key.downArrow) {
-      if (index < lastIndex) goTo(index + 1, commitCurrent());
+    if (key.rightArrow) {
+      if (index < lastIndex && index < maxVisited) goTo(index + 1, commitCurrent());
       return;
     }
 
@@ -294,23 +309,20 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
         onComplete(buildFromAnswers(mode, fields, next));
         exit();
       } else {
+        setMaxVisited(Math.max(maxVisited, index + 1));
         goTo(index + 1, next);
       }
       return;
     }
 
-    const field = fields[index]!;
-    if (field.spec.kind === "select" || field.spec.kind === "confirm") {
-      if (input === " ") setOptionIndex((optionIndex + 1) % optionsFor(field).length);
-      return;
-    }
+    if (isOptionField) return; // typing is ignored on option fields
 
     // text / number editing
     if (key.backspace || key.delete) {
       setDraft(draft.slice(0, -1));
       return;
     }
-    if (input && !key.ctrl && !key.meta && !key.tab && !key.return) {
+    if (input && !key.ctrl && !key.meta && !key.tab) {
       setDraft(draft + input);
     }
   });
@@ -324,7 +336,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
           <OptionList options={MODE_OPTIONS} highlight={modeIndex} />
         </Box>
         <Box marginTop={1}>
-          <Text dimColor>space to select · enter to confirm and continue · esc to cancel</Text>
+          <Text dimColor>↑↓ to move · enter to confirm and continue · esc to cancel</Text>
         </Box>
       </Box>
     );
@@ -352,9 +364,9 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
 }
 
 function hintFor(kind: FieldSpec["kind"]): string {
-  const nav = "←↑ back · →↓ forward · esc cancel";
+  const nav = "← prev · → next · esc cancel";
   if (kind === "select" || kind === "confirm") {
-    return `space to select · enter to confirm and continue · ${nav}`;
+    return `↑↓ to switch · enter to confirm and continue · ${nav}`;
   }
   return `type a value · enter to confirm and continue (blank to skip) · ${nav}`;
 }
@@ -408,10 +420,8 @@ function AnsweredHistory({
     const field = fields[i]!;
     rows.push(
       <Box key={i} flexDirection="column">
-        <Text dimColor>
-          Q{i + 1}: {field.label}
-        </Text>
-        <Text color="green">A: {formatAnswer(field, answers[i])}</Text>
+        <Text dimColor>{field.label}</Text>
+        <Text color="green">{formatAnswer(field, answers[i])}</Text>
       </Box>,
     );
   }

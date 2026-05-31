@@ -89,15 +89,16 @@ describe("SetupWizard render", () => {
     expect(config.linear.assignee).toBe("me");
   });
 
-  test("space cycles select options and enter confirms (mode picker)", async () => {
+  test("down arrow switches options and enter confirms (mode picker)", async () => {
+    const DOWN = "[B";
     const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
     const { stdin, lastFrame, unmount } = render(
       createElement(SetupWizard, { onComplete: () => {} }),
     );
     await tick();
-    stdin.write(" "); // quick -> permissive
+    stdin.write(DOWN); // quick -> permissive
     await tick();
-    stdin.write(" "); // permissive -> customized
+    stdin.write(DOWN); // permissive -> customized
     await tick();
     stdin.write("\r"); // confirm customized
     await tick();
