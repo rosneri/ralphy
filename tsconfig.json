@@ -36,6 +36,9 @@
       "path": "./packages/agent-protocol"
     },
     {
+      "path": "./apps/init"
+    },
+    {
       "path": "./apps/loop"
     },
     {

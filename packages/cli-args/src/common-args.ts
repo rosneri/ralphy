@@ -1,6 +1,18 @@
 import type { Engine } from "@ralphy/types";
+import { COMMON_CLI_OPTIONS, modelOptionValues, type CliOption } from "@ralphy/workflow/fields";
 
-const VALID_MODELS = new Set<string>(["haiku", "sonnet", "opus"]);
+/**
+ * Common CLI flags shared by the loop / agent / task entrypoints.
+ *
+ * The set of config-backed flags (which flag exists, its value kind, and the
+ * WORKFLOW.md field it maps to) is declared once in `@ralphy/workflow/fields`
+ * as `COMMON_CLI_OPTIONS` and consumed here — so the wizard and the CLI never
+ * drift. This module owns only the CommonArgs-specific concerns: the typed
+ * assignment of each parsed value and the bespoke flags that have no config
+ * field (`--claude`/`--codex`, `--unlimited`, `--name`, `--prompt`, …).
+ */
+
+const VALID_MODELS = new Set<string>(modelOptionValues());
 
 export interface CommonArgs {
   engine: Engine;
@@ -41,36 +53,85 @@ export function initialCommonArgs(): CommonArgs {
   };
 }
 
-const FLAGS_WITH_VALUE = new Set<string>([
-  "--model",
-  "--delay",
-  "--max-cost",
-  "--max-runtime",
-  "--max-failures",
-  "--max-iterations",
-  "--project-root",
-]);
+// ─── Config-backed flags, derived from the shared catalogue ──────────────────
 
-const BOOLEAN_FLAGS = new Set<string>(["--codex", "--unlimited", "--log", "--verbose"]);
+const OPTION_BY_FLAG = new Map<string, CliOption>(
+  COMMON_CLI_OPTIONS.map((option) => [option.flag, option]),
+);
+const VALUE_FLAGS = new Set<string>(
+  COMMON_CLI_OPTIONS.filter((option) => option.kind !== "boolean").map((option) => option.flag),
+);
+
+/** Typed assignment for each value-taking option, keyed by its `argKey`. */
+type ValueSetter = (args: CommonArgs, raw: string) => void;
+const VALUE_SETTERS: Record<string, ValueSetter> = {
+  model: (args, raw) => {
+    if (!VALID_MODELS.has(raw)) throw new Error("Invalid model");
+    args.model = raw;
+  },
+  delay: (args, raw) => {
+    args.delay = parseInt(raw, 10);
+  },
+  maxCostUsd: (args, raw) => {
+    args.maxCostUsd = parseFloat(raw);
+  },
+  maxRuntimeMinutes: (args, raw) => {
+    args.maxRuntimeMinutes = parseFloat(raw);
+  },
+  maxConsecutiveFailures: (args, raw) => {
+    args.maxConsecutiveFailures = parseInt(raw, 10);
+  },
+  maxIterations: (args, raw) => {
+    args.maxIterations = parseInt(raw, 10);
+  },
+};
+
+/** Typed assignment for each bare boolean option, keyed by its `argKey`. */
+type BooleanSetter = (args: CommonArgs) => void;
+const BOOLEAN_SETTERS: Record<string, BooleanSetter> = {
+  log: (args) => {
+    args.log = true;
+  },
+  verbose: (args) => {
+    args.verbose = true;
+  },
+};
+
+function applyValueOption(option: CliOption, args: CommonArgs, raw: string): void {
+  const setter = VALUE_SETTERS[option.argKey];
+  // Invariant: every value-kind COMMON_CLI_OPTION must have a setter here.
+  if (!setter) throw new Error("no value setter registered for CLI option");
+  setter(args, raw);
+}
+
+function applyBooleanOption(option: CliOption, args: CommonArgs): void {
+  const setter = BOOLEAN_SETTERS[option.argKey];
+  // Invariant: every boolean-kind COMMON_CLI_OPTION must have a setter here.
+  if (!setter) throw new Error("no boolean setter registered for CLI option");
+  setter(args);
+}
 
 /** True if `flag` is a common flag that expects a following value. */
 export function isCommonExpectingFlag(flag: string): boolean {
-  return FLAGS_WITH_VALUE.has(flag) || flag === "--claude";
+  return VALUE_FLAGS.has(flag) || flag === "--project-root" || flag === "--claude";
 }
 
 /** True if `flag` is a common flag (boolean or value-taking). */
 export function isCommonArg(flag: string): boolean {
-  return BOOLEAN_FLAGS.has(flag) || FLAGS_WITH_VALUE.has(flag) || flag === "--claude";
+  return (
+    OPTION_BY_FLAG.has(flag) ||
+    flag === "--project-root" ||
+    flag === "--claude" ||
+    flag === "--codex" ||
+    flag === "--unlimited"
+  );
 }
 
 export interface ParseState {
-  expectModel: boolean;
-  expectModelFlag: boolean;
-  expectDelay: boolean;
-  expectMaxCost: boolean;
-  expectMaxRuntime: boolean;
-  expectMaxFailures: boolean;
-  expectMaxIterations: boolean;
+  /** A value-taking config flag was seen; the next token is its value. */
+  pendingOption: CliOption | null;
+  /** `--claude` accepts an optional trailing model (soft: skipped if not one). */
+  expectClaudeModel: boolean;
   expectProjectRoot: boolean;
   expectName: boolean;
   expectPrompt: boolean;
@@ -82,13 +143,8 @@ export interface ParseState {
 
 export function emptyParseState(): ParseState {
   return {
-    expectModel: false,
-    expectModelFlag: false,
-    expectDelay: false,
-    expectMaxCost: false,
-    expectMaxRuntime: false,
-    expectMaxFailures: false,
-    expectMaxIterations: false,
+    pendingOption: null,
+    expectClaudeModel: false,
     expectProjectRoot: false,
     expectName: false,
     expectPrompt: false,
@@ -105,47 +161,18 @@ export function emptyParseState(): ParseState {
  * (e.g. `--max-iterations 10`) can pick up the value on the next call.
  */
 export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState): boolean {
-  if (state.expectModel) {
+  if (state.pendingOption) {
+    applyValueOption(state.pendingOption, args, arg);
+    state.pendingOption = null;
+    return true;
+  }
+  if (state.expectClaudeModel) {
+    state.expectClaudeModel = false;
     if (VALID_MODELS.has(arg)) {
       args.model = arg;
-      state.expectModel = false;
       return true;
     }
-    state.expectModel = false;
-    // fall through: token wasn't a model, let caller try it
-  }
-  if (state.expectModelFlag) {
-    if (!VALID_MODELS.has(arg)) {
-      throw new Error("Invalid model");
-    }
-    args.model = arg;
-    state.expectModelFlag = false;
-    return true;
-  }
-  if (state.expectDelay) {
-    args.delay = parseInt(arg, 10);
-    state.expectDelay = false;
-    return true;
-  }
-  if (state.expectMaxCost) {
-    args.maxCostUsd = parseFloat(arg);
-    state.expectMaxCost = false;
-    return true;
-  }
-  if (state.expectMaxRuntime) {
-    args.maxRuntimeMinutes = parseFloat(arg);
-    state.expectMaxRuntime = false;
-    return true;
-  }
-  if (state.expectMaxFailures) {
-    args.maxConsecutiveFailures = parseInt(arg, 10);
-    state.expectMaxFailures = false;
-    return true;
-  }
-  if (state.expectMaxIterations) {
-    args.maxIterations = parseInt(arg, 10);
-    state.expectMaxIterations = false;
-    return true;
+    // Token wasn't a model — fall through and let it be parsed normally.
   }
   if (state.expectProjectRoot) {
     args.projectRoot = arg;
@@ -171,6 +198,13 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
     return true;
   }
 
+  const option = OPTION_BY_FLAG.get(arg);
+  if (option) {
+    if (option.kind === "boolean") applyBooleanOption(option, args);
+    else state.pendingOption = option;
+    return true;
+  }
+
   switch (arg) {
     case "--claude":
       if (args.engineSet && args.engine !== "claude") {
@@ -178,7 +212,7 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
       }
       args.engine = "claude";
       args.engineSet = true;
-      state.expectModel = true;
+      state.expectClaudeModel = true;
       return true;
     case "--codex":
       if (args.engineSet && args.engine !== "codex") {
@@ -187,32 +221,8 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
       args.engine = "codex";
       args.engineSet = true;
       return true;
-    case "--model":
-      state.expectModelFlag = true;
-      return true;
-    case "--delay":
-      state.expectDelay = true;
-      return true;
-    case "--max-cost":
-      state.expectMaxCost = true;
-      return true;
-    case "--max-runtime":
-      state.expectMaxRuntime = true;
-      return true;
-    case "--max-failures":
-      state.expectMaxFailures = true;
-      return true;
-    case "--max-iterations":
-      state.expectMaxIterations = true;
-      return true;
     case "--unlimited":
       args.maxIterations = 0;
-      return true;
-    case "--log":
-      args.log = true;
-      return true;
-    case "--verbose":
-      args.verbose = true;
       return true;
     case "--project-root":
       state.expectProjectRoot = true;

@@ -66,6 +66,20 @@
         "react-devtools-core": "^7.0.1",
       },
     },
+    "apps/init": {
+      "name": "@ralphy/init",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/paths": "workspace:*",
+        "@ralphy/workflow": "workspace:*",
+        "ink": "^5.1.0",
+        "react": "^18.3.1",
+      },
+      "devDependencies": {
+        "@types/react": "^18.3.18",
+        "ink-testing-library": "^4.0.0",
+      },
+    },
     "apps/loop": {
       "name": "@ralphy/loop",
       "version": "0.0.0",
@@ -111,6 +125,7 @@
       "dependencies": {
         "@ralphy/agent": "workspace:*",
         "@ralphy/events": "workspace:*",
+        "@ralphy/init": "workspace:*",
         "@ralphy/loop": "workspace:*",
         "@ralphy/telemetry": "workspace:*",
         "@ralphy/version": "workspace:*",
@@ -159,6 +174,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ralphy/types": "workspace:*",
+        "@ralphy/workflow": "workspace:*",
       },
     },
     "packages/content": {
@@ -864,6 +880,8 @@
     "@ralphy/events": ["@ralphy/events@workspace:packages/events"],
 
     "@ralphy/generators": ["@ralphy/generators@workspace:tools/generators/lib"],
+
+    "@ralphy/init": ["@ralphy/init@workspace:apps/init"],
 
     "@ralphy/log": ["@ralphy/log@workspace:packages/log"],
 

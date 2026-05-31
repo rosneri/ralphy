@@ -2,15 +2,16 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
   },
   "include": ["src"],
   "references": [
     {
-      "path": "../types"
+      "path": "../../packages/paths"
     },
     {
-      "path": "../workflow"
+      "path": "../../packages/workflow"
     }
   ]
 }

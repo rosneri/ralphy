@@ -9,6 +9,9 @@
       "path": "../../packages/version"
     },
     {
+      "path": "../init"
+    },
+    {
       "path": "../loop"
     },
     {
