@@ -10,6 +10,14 @@ Ralph loop framework.
 - Never use `node:fs` **sync** APIs in source. Callers should be async.
 - Tests that need to mock spawning must patch `Bun.spawnSync` directly (see `packages/openspec/src/__tests__/openspec-change-store.test.ts` for the pattern). Do not `mock.module("node:child_process", ...)`.
 
+## State Machines
+
+The authoritative stop and flow logic lives in XState machines — do not duplicate these guards imperatively:
+
+- `packages/core/src/machines/flow.machine.ts` — issue lifecycle states: `idle` → `working` → `conflict-fix` / `ci-fix` / `awaiting` / `review` / `done` / `error`. Send typed events (`RESUME_DETECTED`, `CONFLICT_DETECTED`, `CI_FAILED_DETECTED`, etc.) to transition; read `actor.getSnapshot().value` only when you need to surface the state to the UI or logs.
+- `packages/core/src/machines/loop.machine.ts` — loop stop-condition guards (`maxIterationsReached`, `costCapReached`, `runtimeLimitReached`, `consecutiveFailuresReached`). The machine is the source of truth; imperative wrappers in `loop.ts` (`checkStopCondition`) are still used by older callers but should not be duplicated for new code.
+- `packages/core/src/machines/flow-actor-store.ts` — in-memory actor registry with optional disk persistence. Call `getActor(issueId, changeDir)` to get-or-create an actor; call `persistActor` to flush state to disk. An actor is always loaded for any active worker — if `getActor` returns a missing actor, log a warning rather than falling back to stale trigger strings.
+
 ## Change Layout
 
 Change files are split across two directories:
