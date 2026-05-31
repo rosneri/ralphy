@@ -13,12 +13,14 @@
     "./layout": "./src/layout.ts",
     "./progress": "./src/progress.ts",
     "./openspec-phase": "./src/openspec/phase.ts",
-    "./detections": "./src/detections/index.ts"
+    "./detections": "./src/detections/index.ts",
+    "./machines": "./src/machines/index.ts"
   },
   "dependencies": {
     "@ralphy/change-store": "workspace:*",
     "@ralphy/content": "workspace:*",
     "@ralphy/context": "workspace:*",
-    "@ralphy/types": "workspace:*"
+    "@ralphy/types": "workspace:*",
+    "xstate": "^5"
   }
 }
