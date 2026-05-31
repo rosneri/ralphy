@@ -35,8 +35,15 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
   const [currentName, setCurrentName] = useState(taskName);
   const { baseUrl } = useSidecar();
 
-  const { state: streamState, logEntries, progress, progressItems, isRunning, stopReason, addLogEntry } =
-    useTaskStream(currentName);
+  const {
+    state: streamState,
+    logEntries,
+    progress,
+    progressItems,
+    isRunning,
+    stopReason,
+    addLogEntry,
+  } = useTaskStream(currentName);
 
   const [initialState, setInitialState] = useState<State | null>(null);
   useEffect(() => {
@@ -146,9 +153,7 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
           <span style={{ color: "var(--text-dim)", fontSize: 12 }}>{positionText}</span>
         )}
         <span style={{ flex: 1 }} />
-        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-          [ / ] navigate • Esc close
-        </span>
+        <span style={{ color: "var(--text-muted)", fontSize: 11 }}>[ / ] navigate • Esc close</span>
         <button onClick={onClose} style={{ padding: "4px 8px" }}>
           ✕
         </button>
