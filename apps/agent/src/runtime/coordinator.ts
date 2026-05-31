@@ -952,6 +952,17 @@ export class AgentCoordinator {
       }
     }
 
+    // Issues already queued or running for conflict-fix / ci-fix were detected
+    // in a prior scan and skipped above — add them so the counter stays accurate.
+    for (const q of this.queue) {
+      if (q.trigger === "conflict-fix") counts.conflicted += 1;
+      else if (q.trigger === "ci-fix") counts.ciFailed += 1;
+    }
+    for (const w of this.workers) {
+      if (w.trigger === "conflict-fix") counts.conflicted += 1;
+      else if (w.trigger === "ci-fix") counts.ciFailed += 1;
+    }
+
     return counts;
   }
 
