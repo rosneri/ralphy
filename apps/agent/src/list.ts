@@ -547,7 +547,7 @@ function markerMatches(issue: RawIssue, marker: Marker): boolean {
 }
 
 function assigneeMatches(issue: RawIssue, assignee: string | undefined): boolean {
-  if (!assignee) return true;
+  if (!assignee) return issue.assignee === null;
   const a = issue.assignee;
   if (!a) return false;
   if (assignee === "me") return true; // can't verify without `me` query
