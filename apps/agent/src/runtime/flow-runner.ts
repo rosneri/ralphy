@@ -1,6 +1,9 @@
 import type { Bus } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
+import { preemptionActorLogic } from "@ralphy/core/machines";
 import type { FlowAssignment, FlowId } from "./types";
+
+export { preemptionActorLogic };
 
 /** Flow ids that run as "no-worker" — the slice's `run()` executes
  *  inline (no `Bun.spawn`, no concurrency-slot acquisition). The

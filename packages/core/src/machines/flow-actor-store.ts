@@ -1,11 +1,26 @@
 import { createActor, type Actor, type SnapshotFrom } from "xstate";
-import { flowMachine } from "./flow.machine";
+import { flowMachine, type FlowAssignment, type FlowInput } from "./flow.machine";
 import { writeField } from "../state/store";
+import type { Bus } from "@ralphy/events";
 
 const STATE_FILE = ".ralph-state.json";
 
+export interface FlowActorDeps {
+  bus: Bus;
+  persist: (issueId: string, assignment: FlowAssignment) => Promise<void> | void;
+  graceMs?: number;
+}
+
 export class FlowActorStore {
   private actors = new Map<string, Actor<typeof flowMachine>>();
+  private readonly machine: typeof flowMachine;
+
+  constructor(
+    private readonly deps?: FlowActorDeps,
+    machine?: typeof flowMachine,
+  ) {
+    this.machine = machine ?? flowMachine;
+  }
 
   /**
    * Get the actor for `key` (typically issue.id or changeName). If the actor
@@ -18,12 +33,20 @@ export class FlowActorStore {
     const existing = this.actors.get(key);
     if (existing) return existing;
 
+    const input: FlowInput = {
+      issueId: key,
+      bus: this.deps?.bus,
+      persist: this.deps?.persist,
+      graceMs: this.deps?.graceMs,
+    };
+
     if (changeDir) {
       const snapshot = await this.loadSnapshot(changeDir);
       if (snapshot !== null && this.isValidSnapshot(snapshot)) {
         try {
-          const a = createActor(flowMachine, {
+          const a = createActor(this.machine, {
             snapshot: snapshot as SnapshotFrom<typeof flowMachine>,
+            input,
           });
           a.start();
           if (a.getSnapshot().value !== undefined) {
@@ -42,7 +65,7 @@ export class FlowActorStore {
       }
     }
 
-    const a = createActor(flowMachine);
+    const a = createActor(this.machine, { input });
     a.start();
     this.actors.set(key, a);
     return a;

@@ -10,7 +10,8 @@ import { registry as featureRegistry } from "../features/registry";
 import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
 import type { FeatureCtx, FeatureId } from "../features/types";
 import type { PrTracker } from "../features/pr-tracker";
-import { FlowActorStore } from "@ralphy/core/machines";
+import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
+import type { FlowAssignment, FlowId } from "./types";
 
 /**
  * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
@@ -337,13 +338,15 @@ export class AgentCoordinator {
    *  available before `prepare()` resolves the changeName. Snapshots are
    *  persisted to `changeDir/.ralph-state.json` when `getChangeDir` is
    *  wired, enabling cross-restart rehydration. */
-  private readonly flowStore = new FlowActorStore();
+  private readonly flowStore: FlowActorStore;
 
   constructor(
     private readonly deps: CoordinatorDeps,
     private readonly opts: CoordinatorOptions,
   ) {
     this.bus = deps.bus ?? createNoopBus();
+    const providedMachine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
+    this.flowStore = new FlowActorStore({ bus: this.bus, persist: () => {} }, providedMachine);
   }
 
   get activeCount(): number {
@@ -1186,6 +1189,21 @@ export class AgentCoordinator {
     };
     this.workers.push(worker);
     this.pendingIds.delete(issue.id);
+
+    // Notify the flow actor that a worker has been spawned so it can track the handle
+    const spawnedActor = this.flowStore.peekActor(issue.id);
+    if (spawnedActor) {
+      const flowWorker = {
+        exited: handle.exited as Promise<number | null>,
+        kill: (_signal?: "SIGTERM" | "SIGKILL") => handle.kill(),
+      };
+      const assignment: FlowAssignment = {
+        flowId: triggerToFlowId(trigger),
+        reason: `started via ${trigger}`,
+        boost: "p2" as const,
+      };
+      spawnedActor.send({ type: "WORKER_SPAWNED", worker: flowWorker, assignment });
+    }
     this.ticketsStarted += 1;
     const maxT = this.opts.maxTickets ?? 0;
     if (maxT > 0 && this.ticketsStarted >= maxT) {
@@ -1316,6 +1334,16 @@ export class AgentCoordinator {
     if (worker.reapedForAwaiting) return true;
     worker.reapedForAwaiting = true;
     emitCapture(this.bus, "agent_worker_reaped_for_awaiting", { change_name: changeName });
+    // Notify the flow actor to preempt the current worker and transition to awaiting
+    const reapActor = this.flowStore.peekActor(worker.issueId);
+    if (reapActor) {
+      const awaitingAssignment: FlowAssignment = {
+        flowId: "confirmation",
+        reason: "awaiting human confirmation",
+        boost: "p2" as const,
+      };
+      reapActor.send({ type: "PREEMPT", newAssignment: awaitingAssignment });
+    }
     try {
       worker.kill();
     } catch {
@@ -1488,6 +1516,13 @@ export class AgentCoordinator {
 }
 
 import type { BoostBand } from "./types";
+
+function triggerToFlowId(trigger: QueueTrigger): FlowId {
+  if (trigger === "conflict-fix") return "conflict-fix";
+  if (trigger === "ci-fix") return "ci-fix";
+  if (trigger === "review") return "review-followup";
+  return "implement";
+}
 
 const BOOST_RANK: Record<BoostBand, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 

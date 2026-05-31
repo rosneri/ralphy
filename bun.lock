@@ -179,6 +179,7 @@
         "@ralphy/change-store": "workspace:*",
         "@ralphy/content": "workspace:*",
         "@ralphy/context": "workspace:*",
+        "@ralphy/events": "workspace:*",
         "@ralphy/types": "workspace:*",
         "xstate": "^5",
       },
