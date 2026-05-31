@@ -16,6 +16,7 @@ import { sortRows, type SortableRow } from "./list-sort";
 import { getPrChecksStatus } from "./agent/ci";
 import { RALPHY_ATTACHMENT_TITLE } from "./shared/capabilities/linear-client";
 import { unionMarkers } from "./agent/wire/indicators";
+import { fetchPrReviewSummary } from "./shared/pr/review-state";
 
 interface LocalRow {
   name: string;
@@ -163,6 +164,7 @@ interface UnifiedRow extends SortableRow {
   prUrl: string | null;
   blockedByIdentifiers: string[];
   failedCheckNames?: string[];
+  review?: number;
 }
 
 const localCmdRunner: CmdRunner = {
@@ -181,6 +183,12 @@ const localCmdRunner: CmdRunner = {
     return { stdout, stderr };
   },
 };
+
+/** Render the Unresolved column cell for a row. */
+export function formatReviewCell(prUrl: string | null, count: number | undefined): string {
+  if (!prUrl) return "-";
+  return count !== undefined ? String(count) : "-";
+}
 
 /** Render the Blocked column cell for a row. */
 export function formatBlockedCell(blockedByIdentifiers: string[]): string {
@@ -218,6 +226,7 @@ async function fetchAndPrintLinear(
   runner: CmdRunner,
   ignoreCiChecks: string[] = [],
   checks = false,
+  review = false,
 ): Promise<void> {
   // Fan out across buckets in parallel.
   const bucketResults = await Promise.all(
@@ -321,6 +330,20 @@ async function fetchAndPrintLinear(
     );
   }
 
+  if (review) {
+    await Promise.all(
+      rows.map(async (row) => {
+        if (!row.prUrl) return;
+        try {
+          const summary = await fetchPrReviewSummary(row.prUrl, runner, cwd);
+          if (summary !== null) row.review = summary.unresolved;
+        } catch {
+          // leave review undefined on failure
+        }
+      }),
+    );
+  }
+
   const sorted = sortRows(rows);
 
   process.stdout.write(`\nLinear tickets: ${sorted.length} issue(s)\n`);
@@ -333,14 +356,17 @@ async function fetchAndPrintLinear(
   const markerWidth = Math.max(9, ...markers.map((m) => m.length));
   const blockedCells = sorted.map((r) => formatBlockedCell(r.blockedByIdentifiers));
   const blockedWidth = Math.max(7, ...blockedCells.map((c) => c.length));
+  const reviewCells = review ? sorted.map((r) => formatReviewCell(r.prUrl, r.review)) : null;
 
+  const reviewHeader = reviewCells ? `  ${pad("Unresolved", 10)}` : "";
   process.stdout.write(
-    `  ${pad("Identifier", idWidth)}  ${pad("Bucket", bucketWidth)}  ${pad("State", stateWidth)}  ${pad("Title", 60)}  ${pad("PR Status", markerWidth)}  ${pad("Blocked", blockedWidth)}  PR URL\n`,
+    `  ${pad("Identifier", idWidth)}  ${pad("Bucket", bucketWidth)}  ${pad("State", stateWidth)}  ${pad("Title", 60)}  ${pad("PR Status", markerWidth)}  ${pad("Blocked", blockedWidth)}${reviewHeader}  PR URL\n`,
   );
   for (let i = 0; i < sorted.length; i += 1) {
     const r = sorted[i]!;
+    const reviewCell = reviewCells ? `  ${pad(reviewCells[i]!, 10)}` : "";
     process.stdout.write(
-      `  ${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${pad(blockedCells[i]!, blockedWidth)}  ${r.prUrl ?? "(no PR)"}\n`,
+      `  ${pad(r.identifier, idWidth)}  ${pad(r.bucketLabel, bucketWidth)}  ${pad(r.stateName, stateWidth)}  ${pad(r.title, 60)}  ${pad(markers[i]!, markerWidth)}  ${pad(blockedCells[i]!, blockedWidth)}${reviewCell}  ${r.prUrl ?? "(no PR)"}\n`,
     );
   }
 }
@@ -351,6 +377,7 @@ interface RunListInput {
   debug: boolean;
   name: string;
   checks: boolean;
+  review: boolean;
 }
 
 export async function runList(input: RunListInput): Promise<void> {
@@ -414,6 +441,7 @@ export async function runList(input: RunListInput): Promise<void> {
     localCmdRunner,
     cfg.ignoreCiChecks,
     input.checks,
+    input.review,
   );
 }
 
