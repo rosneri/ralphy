@@ -7,6 +7,7 @@
     ".": "./src/common-args.ts"
   },
   "dependencies": {
-    "@ralphy/types": "workspace:*"
+    "@ralphy/types": "workspace:*",
+    "@ralphy/workflow": "workspace:*"
   }
 }

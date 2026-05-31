@@ -9,9 +9,7 @@ import {
   type WizardAnswers,
   type WizardValue,
 } from "@ralphy/workflow/wizard";
-import { fieldsForMode, type Field, type FieldSpec } from "./fields";
-
-export { fieldsForMode } from "./fields";
+import { fieldsForMode, type Field, type FieldSpec } from "@ralphy/workflow/fields";
 
 interface Option {
   label: string;

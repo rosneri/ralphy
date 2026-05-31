@@ -6,12 +6,12 @@ import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { parseWorkflow } from "@ralphy/workflow";
 import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
+import { fieldsForMode } from "@ralphy/workflow/fields";
 import {
   SetupWizard,
   EditOrExitPrompt,
   MigratePrompt,
   IndicatorBuilder,
-  fieldsForMode,
   assembleAnswers,
 } from "../SetupWizard";
 import type { IndicatorMap } from "@ralphy/workflow/wizard";

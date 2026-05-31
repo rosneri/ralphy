@@ -1,4 +1,4 @@
-import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
+import type { Indicators, Marker, SetIndicator, GetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import {
   fetchOpenIssues,

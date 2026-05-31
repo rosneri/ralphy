@@ -7,7 +7,7 @@ import {
   pendingMigrations,
   needsMigration,
 } from "../migrations";
-import { fieldsForMode } from "../SetupWizard";
+import { fieldsForMode } from "@ralphy/workflow/fields";
 
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {

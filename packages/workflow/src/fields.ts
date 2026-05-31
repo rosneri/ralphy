@@ -8,7 +8,7 @@
  * teams"); `description` is a one-line explanation of what the setting does,
  * shown under the question. Migrations (see migrations.ts) reference these ids.
  */
-import type { WizardValue } from "@ralphy/workflow/wizard";
+import type { WizardValue } from "./wizard";
 
 export type FieldSpec =
   | { kind: "text"; placeholder?: string }
@@ -536,3 +536,59 @@ export function fieldsForMode(
 }
 
 type SetupModeLike = "quick" | "permissive" | "customized";
+
+/** Look up a catalogue field by its id (dotted config path). */
+export function findField(id: string): Field | undefined {
+  // Quick fields are a subset of the customized catalogue, so this covers both.
+  return CUSTOMIZED_FIELDS.find((field) => field.id === id);
+}
+
+/** How a CLI flag's following token is parsed (or that it is a bare boolean). */
+export type CliValueKind = "int" | "float" | "model" | "boolean";
+
+/**
+ * A CLI flag that writes a WORKFLOW.md setting. `fieldId` points at a real
+ * catalogue field so the wizard and the CLI share one definition; `argKey` is
+ * the property set on the parsed args object — its name intentionally differs
+ * from the config path (e.g. `--max-iterations` → field `maxIterationsPerTask`
+ * → `args.maxIterations`). Engine selection, `--unlimited`, and the non-config
+ * flags (`--name`, `--prompt`, …) stay bespoke in the parser.
+ */
+export interface CliOption {
+  fieldId: string;
+  flag: string;
+  argKey: string;
+  kind: CliValueKind;
+}
+
+export const COMMON_CLI_OPTIONS: CliOption[] = [
+  { fieldId: "model", flag: "--model", argKey: "model", kind: "model" },
+  { fieldId: "iterationDelaySeconds", flag: "--delay", argKey: "delay", kind: "int" },
+  { fieldId: "maxCostUsdPerTask", flag: "--max-cost", argKey: "maxCostUsd", kind: "float" },
+  {
+    fieldId: "maxRuntimeMinutesPerTask",
+    flag: "--max-runtime",
+    argKey: "maxRuntimeMinutes",
+    kind: "float",
+  },
+  {
+    fieldId: "maxConsecutiveFailuresPerTask",
+    flag: "--max-failures",
+    argKey: "maxConsecutiveFailures",
+    kind: "int",
+  },
+  {
+    fieldId: "maxIterationsPerTask",
+    flag: "--max-iterations",
+    argKey: "maxIterations",
+    kind: "int",
+  },
+  { fieldId: "logRawStream", flag: "--log", argKey: "log", kind: "boolean" },
+  { fieldId: "taskVerbose", flag: "--verbose", argKey: "verbose", kind: "boolean" },
+];
+
+/** Valid model values, sourced from the catalogue's `model` select field. */
+export function modelOptionValues(): string[] {
+  const field = findField("model");
+  return field && field.spec.kind === "select" ? field.spec.options.map((o) => o.value) : [];
+}
