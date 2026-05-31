@@ -36,6 +36,11 @@ export interface LinearIssue {
    */
   blockedByIds: string[];
   /**
+   * Identifiers (e.g. "ENG-123") of open blockers.
+   * Populated alongside blockedByIds from the same relations.
+   */
+  blockedByIdentifiers?: string[];
+  /**
    * Recent comments embedded with the mention-scan candidate query so the
    * agent can skip a per-issue `fetchIssueComments` round-trip. Only
    * populated by `fetchMentionScanIssues`; absent on issues returned by
@@ -70,7 +75,12 @@ interface LinearNode {
   labels: { nodes: { name: string }[] };
   priority: number;
   createdAt: string;
-  relations: { nodes: { type: string; relatedIssue: { id: string; state: { type: string } } }[] };
+  relations: {
+    nodes: {
+      type: string;
+      relatedIssue: { id: string; identifier: string; state: { type: string } };
+    }[];
+  };
   comments?: { nodes: LinearComment[] };
 }
 
@@ -248,7 +258,7 @@ export async function fetchMentionScanIssues(
         project { id name }
         labels { nodes { name } }
         relations(first: 50) {
-          nodes { type relatedIssue { id state { type } } }
+          nodes { type relatedIssue { id identifier state { type } } }
         }
         comments(first: 50) {
           nodes { id body createdAt user { name email } }
@@ -277,6 +287,9 @@ export async function fetchMentionScanIssues(
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),
+    blockedByIdentifiers: (n.relations?.nodes ?? [])
+      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
+      .map((r) => r.relatedIssue.identifier),
     comments: n.comments?.nodes ?? [],
   }));
 }
@@ -306,7 +319,7 @@ export async function fetchOpenIssues(
         relations(first: 50) {
           nodes {
             type
-            relatedIssue { id state { type } }
+            relatedIssue { id identifier state { type } }
           }
         }
         ${commentsSlice}
@@ -334,6 +347,9 @@ export async function fetchOpenIssues(
     blockedByIds: (n.relations?.nodes ?? [])
       .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
       .map((r) => r.relatedIssue.id),
+    blockedByIdentifiers: (n.relations?.nodes ?? [])
+      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
+      .map((r) => r.relatedIssue.identifier),
     ...(includeComments ? { comments: n.comments?.nodes ?? [] } : {}),
   }));
 }
