@@ -180,9 +180,16 @@ function buildFromAnswers(mode: SetupMode, fields: Field[], answers: Answers): s
   return buildWorkflowMarkdown(assembleAnswers(mode, collected));
 }
 
-/** Human-readable rendering of a recorded answer for the Q/A history list. */
+/** Human-readable rendering of a recorded answer for the history list. */
 function formatAnswer(field: Field, value: AnswerValue | undefined): string {
-  if (value === undefined) return "(skipped)";
+  if (value === undefined) {
+    // Blank text/number fields fall back to the schema default the
+    // placeholder advertises; show that rather than "(skipped)".
+    if (field.spec.kind === "text" || field.spec.kind === "number") {
+      return field.spec.placeholder ?? "(skipped)";
+    }
+    return "(skipped)";
+  }
   if (field.spec.kind === "confirm") return value ? "Yes" : "No";
   if (field.spec.kind === "select") {
     return field.spec.options.find((option) => option.value === value)?.label ?? String(value);
