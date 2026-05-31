@@ -7,6 +7,8 @@ export interface CiStatus {
   bucket: "pass" | "fail" | "pending";
   /** Workflow run IDs of failing checks (only populated when bucket is "fail"). */
   failedRunIds: string[];
+  /** Names of failing checks (only populated when bucket is "fail"). */
+  failedCheckNames: string[];
 }
 
 /**
@@ -43,7 +45,7 @@ export async function getPrChecksStatus(
     const blob = `${e.message}\n${e.stderr ?? ""}\n${e.stdout ?? ""}`;
     // gh exits 1 with "no checks reported" when the repo has no CI workflows.
     // Treat this as a pass — no checks configured means nothing can fail.
-    if (NO_CHECKS_RE.test(blob)) return { bucket: "pass", failedRunIds: [] };
+    if (NO_CHECKS_RE.test(blob)) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
     throw err;
   }
   const ignoredLower = ignoreCiChecks.map((n) => n.toLowerCase());
@@ -58,17 +60,17 @@ export async function getPrChecksStatus(
     .filter((c) => classifyGhBucket(c.bucket) !== "skip");
 
   if (checks.some((c) => classifyGhBucket(c.bucket) === "pending")) {
-    return { bucket: "pending", failedRunIds: [] };
+    return { bucket: "pending", failedRunIds: [], failedCheckNames: [] };
   }
   const failed = checks.filter((c) => classifyGhBucket(c.bucket) === "fail");
-  if (failed.length === 0) return { bucket: "pass", failedRunIds: [] };
+  if (failed.length === 0) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
 
   const ids = new Set<string>();
   for (const c of failed) {
     const m = c.link?.match(/\/actions\/runs\/(\d+)/);
     if (m) ids.add(m[1]!);
   }
-  return { bucket: "fail", failedRunIds: [...ids] };
+  return { bucket: "fail", failedRunIds: [...ids], failedCheckNames: failed.map((c) => c.name) };
 }
 
 /** Fetch the failure logs for a set of workflow runs, truncated. */
