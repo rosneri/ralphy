@@ -59,9 +59,9 @@ const LINEAR_TEAM: Field = {
 const LINEAR_ASSIGNEE: Field = {
   id: "linear.assignee",
   label: "Linear assignee",
-  hint: "user id, email, or 'me' — blank for unassigned",
+  hint: "user id, email, 'me', 'any', or 'unassigned' — blank means unassigned",
   description:
-    "Only pick up issues assigned to this person (a Linear user id, email, or 'me'). Blank picks up unassigned issues.",
+    "Which issues to pick up by assignee. Use a Linear user id, email, or 'me' for a specific person; 'any' to pick up issues regardless of who they're assigned to; 'unassigned' (or blank) to pick up only unassigned issues.",
   emptyLabel: "unassigned",
   spec: { kind: "text" },
 };
