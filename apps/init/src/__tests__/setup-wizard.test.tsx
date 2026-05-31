@@ -15,6 +15,7 @@ import {
   SetupWizard,
   EditOrExitPrompt,
   MigratePrompt,
+  RecreateOrExitPrompt,
   IndicatorBuilder,
   assembleAnswers,
 } from "../SetupWizard";
@@ -292,6 +293,22 @@ describe("EditOrExitPrompt", () => {
     await tick();
     unmount();
     expect(choice).toBe("exit");
+  });
+});
+
+describe("RecreateOrExitPrompt", () => {
+  test("offers recreate/exit and reports the chosen option", async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    let choice = "";
+    const { stdin, lastFrame, unmount } = render(
+      createElement(RecreateOrExitPrompt, { onChoice: (value: string) => (choice = value) }),
+    );
+    await tick();
+    expect(lastFrame() ?? "").toContain("WORKFLOW.md is invalid");
+    stdin.write("\r"); // first option = recreate
+    await tick();
+    unmount();
+    expect(choice).toBe("recreate");
   });
 });
 

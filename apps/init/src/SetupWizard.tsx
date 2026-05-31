@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import {
   buildWorkflowMarkdown,
@@ -538,27 +538,40 @@ function AnsweredHistory({
   );
 }
 
-const EDIT_EXIT_OPTIONS: Option[] = [
-  { label: "Edit it with the setup wizard", value: "edit" },
-  { label: "Exit without changes", value: "exit" },
-];
-
-/** Shown by `ralphy init` when WORKFLOW.md already exists. */
-export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "exit") => void }) {
+/**
+ * Generic single-choice prompt: a cyan ◆ title, a dim subtitle, optional
+ * details, a navigable option list, and a footer. Esc resolves to the LAST
+ * option (always the exit/cancel choice). All `ralphy init` decision screens
+ * are thin wrappers over this so they stay visually consistent.
+ */
+function ChoicePrompt<Value extends string>({
+  title,
+  subtitle,
+  details,
+  options,
+  onChoice,
+}: {
+  title: ReactNode;
+  subtitle: string;
+  details?: ReactNode;
+  options: { label: string; value: Value }[];
+  onChoice: (value: Value) => void;
+}) {
   const { exit } = useApp();
   const [choiceIndex, setChoiceIndex] = useState(0);
+  const escValue = options[options.length - 1]!.value;
   useInput((_input, key) => {
     if (key.escape) {
-      onChoice("exit");
+      onChoice(escValue);
       exit();
       return;
     }
     if (key.upArrow) {
-      setChoiceIndex((choiceIndex + EDIT_EXIT_OPTIONS.length - 1) % EDIT_EXIT_OPTIONS.length);
+      setChoiceIndex((choiceIndex + options.length - 1) % options.length);
     } else if (key.downArrow) {
-      setChoiceIndex((choiceIndex + 1) % EDIT_EXIT_OPTIONS.length);
+      setChoiceIndex((choiceIndex + 1) % options.length);
     } else if (key.return) {
-      onChoice(EDIT_EXIT_OPTIONS[choiceIndex]!.value as "edit" | "exit");
+      onChoice(options[choiceIndex]!.value);
       exit();
     }
   });
@@ -566,11 +579,19 @@ export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "ex
     <Box flexDirection="column">
       <Text>
         <Text color="cyan">◆ </Text>
-        <Text bold>WORKFLOW.md already exists</Text>
+        <Text bold>{title}</Text>
       </Text>
-      <Text dimColor>{"  "}Choose what to do</Text>
+      <Text dimColor>
+        {"  "}
+        {subtitle}
+      </Text>
+      {details ? (
+        <Box flexDirection="column" marginTop={1} marginLeft={2}>
+          {details}
+        </Box>
+      ) : null}
       <Box marginTop={1} marginLeft={2}>
-        <OptionList options={EDIT_EXIT_OPTIONS} highlight={choiceIndex} />
+        <OptionList options={options} highlight={choiceIndex} />
       </Box>
       <Box marginTop={1}>
         <Text dimColor>↑↓ to move · enter to choose · esc to exit</Text>
@@ -579,9 +600,47 @@ export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "ex
   );
 }
 
+const EDIT_EXIT_OPTIONS: { label: string; value: "edit" | "exit" }[] = [
+  { label: "Edit it with the setup wizard", value: "edit" },
+  { label: "Exit without changes", value: "exit" },
+];
+
+/** Shown by `ralphy init` when WORKFLOW.md already exists and is valid. */
+export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "exit") => void }) {
+  return (
+    <ChoicePrompt
+      title="WORKFLOW.md already exists"
+      subtitle="Choose what to do"
+      options={EDIT_EXIT_OPTIONS}
+      onChoice={onChoice}
+    />
+  );
+}
+
+const RECREATE_EXIT_OPTIONS: { label: string; value: "recreate" | "exit" }[] = [
+  { label: "Recreate it from scratch with the setup wizard", value: "recreate" },
+  { label: "Exit and leave the file unchanged", value: "exit" },
+];
+
+/** Shown by `ralphy init` when WORKFLOW.md exists but can't be parsed. */
+export function RecreateOrExitPrompt({
+  onChoice,
+}: {
+  onChoice: (choice: "recreate" | "exit") => void;
+}) {
+  return (
+    <ChoicePrompt
+      title="WORKFLOW.md is invalid"
+      subtitle="It can't be read (missing or malformed YAML frontmatter)"
+      options={RECREATE_EXIT_OPTIONS}
+      onChoice={onChoice}
+    />
+  );
+}
+
 export type MigrateChoice = "diff" | "all" | "exit";
 
-const MIGRATE_OPTIONS: Option[] = [
+const MIGRATE_OPTIONS: { label: string; value: MigrateChoice }[] = [
   { label: "Fill in only the new settings", value: "diff" },
   { label: "Review every setting", value: "all" },
   { label: "Exit without changes", value: "exit" },
@@ -603,48 +662,24 @@ export function MigratePrompt({
   descriptions: string[];
   onChoice: (choice: MigrateChoice) => void;
 }) {
-  const { exit } = useApp();
-  const [choiceIndex, setChoiceIndex] = useState(0);
-  useInput((_input, key) => {
-    if (key.escape) {
-      onChoice("exit");
-      exit();
-      return;
-    }
-    if (key.upArrow) {
-      setChoiceIndex((choiceIndex + MIGRATE_OPTIONS.length - 1) % MIGRATE_OPTIONS.length);
-    } else if (key.downArrow) {
-      setChoiceIndex((choiceIndex + 1) % MIGRATE_OPTIONS.length);
-    } else if (key.return) {
-      onChoice(MIGRATE_OPTIONS[choiceIndex]!.value as MigrateChoice);
-      exit();
-    }
-  });
   return (
-    <Box flexDirection="column">
-      <Text>
-        <Text color="cyan">◆ </Text>
-        <Text bold>
-          WORKFLOW.md is out of date (v{fromVersion} → v{toVersion})
-        </Text>
-      </Text>
-      <Text dimColor>{"  "}Migrate it to the current schema</Text>
-      <Box flexDirection="column" marginTop={1} marginLeft={2}>
-        <Text dimColor>What changed</Text>
-        {descriptions.map((description, i) => (
-          <Text key={i} dimColor>
-            {"  • "}
-            {description}
-          </Text>
-        ))}
-      </Box>
-      <Box marginTop={1} marginLeft={2}>
-        <OptionList options={MIGRATE_OPTIONS} highlight={choiceIndex} />
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>↑↓ to move · enter to choose · esc to exit</Text>
-      </Box>
-    </Box>
+    <ChoicePrompt
+      title={`WORKFLOW.md is out of date (v${fromVersion} → v${toVersion})`}
+      subtitle="Migrate it to the current schema"
+      details={
+        <>
+          <Text dimColor>What changed</Text>
+          {descriptions.map((description, i) => (
+            <Text key={i} dimColor>
+              {"  • "}
+              {description}
+            </Text>
+          ))}
+        </>
+      }
+      options={MIGRATE_OPTIONS}
+      onChoice={onChoice}
+    />
   );
 }
 

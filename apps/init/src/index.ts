@@ -8,7 +8,13 @@ import {
   type WorkflowConfig,
 } from "@ralphy/workflow";
 import { applyAnswersToWorkflow, type WizardAnswers } from "@ralphy/workflow/wizard";
-import { SetupWizard, EditOrExitPrompt, MigratePrompt, type MigrateChoice } from "./SetupWizard";
+import {
+  SetupWizard,
+  EditOrExitPrompt,
+  MigratePrompt,
+  RecreateOrExitPrompt,
+  type MigrateChoice,
+} from "./SetupWizard";
 import { fieldsAddedSince, needsMigration, pendingMigrations } from "./migrations";
 
 const INIT_HELP = [
@@ -126,6 +132,21 @@ async function promptEditOrExit(): Promise<"edit" | "exit"> {
   return choice;
 }
 
+/** Ask whether to recreate an unreadable file or exit. */
+async function promptRecreateOrExit(): Promise<"recreate" | "exit"> {
+  let choice: "recreate" | "exit" = "exit";
+  clearScreen();
+  const { waitUntilExit } = render(
+    createElement(RecreateOrExitPrompt, {
+      onChoice: (value: "recreate" | "exit") => {
+        choice = value;
+      },
+    }),
+  );
+  await waitUntilExit();
+  return choice;
+}
+
 /** Ask how to migrate an outdated file: fill the diff, review all, or exit. */
 async function promptMigrate(fromVersion: number): Promise<MigrateChoice> {
   let choice: MigrateChoice = "exit";
@@ -179,7 +200,22 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write(`WORKFLOW.md already exists at ${path} — leaving it unchanged.\n`);
       return 0;
     }
-    const { config } = await loadWorkflow(projectRoot);
+    // Unreadable file (missing/malformed frontmatter) → recreate or exit.
+    let config: WorkflowConfig;
+    try {
+      ({ config } = await loadWorkflow(projectRoot));
+    } catch {
+      const choice = await promptRecreateOrExit();
+      if (choice === "exit") {
+        process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
+        return 0;
+      }
+      const wrote = await runSetupWizard(projectRoot);
+      process.stdout.write(
+        wrote ? `\n✓ Recreated ${path}\n` : `\nSetup cancelled — no file written.\n`,
+      );
+      return 0;
+    }
 
     // Outdated file → offer migration (fill the diff / review all / exit).
     if (needsMigration(config.version)) {
