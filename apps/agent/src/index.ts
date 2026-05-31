@@ -97,7 +97,11 @@ export async function main(argv: string[]): Promise<number> {
       }
       const flags = argv.filter((a) => a !== "--no-tmux");
       const managedArgv = [process.execPath, binPath, "agent", ...flags];
-      createSession(name, managedArgv, { RALPH_AGENT_MANAGED: "1" });
+      const env: Record<string, string> = { RALPH_AGENT_MANAGED: "1" };
+      for (const [k, v] of Object.entries(process.env)) {
+        if (v !== undefined) env[k] = v;
+      }
+      createSession(name, managedArgv, env);
     }
     if (isInsideTmux()) {
       switchClientToSession(name);
