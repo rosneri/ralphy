@@ -1,11 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import {
-  applyAnswersToWorkflow,
-  buildWorkflowMarkdown,
-  indicatorsForPreset,
-  type WizardAnswers,
-  type WizardValue,
-} from "../wizard";
+import { applyAnswersToWorkflow, buildWorkflowMarkdown, indicatorsForPreset } from "../wizard";
+import type { WizardAnswers, WizardValue } from "../wizard-types";
 import { parseWorkflow, CURRENT_WORKFLOW_VERSION } from "../workflow";
 import { DEFAULT_WORKFLOW_MD } from "../default";
 

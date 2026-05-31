@@ -10,7 +10,7 @@
  * question AND pasted as a comment above the setting in the generated
  * WORKFLOW.md (a test keeps the two in sync). Migrations reference these ids.
  */
-import type { WizardValue } from "./wizard";
+import type { WizardValue } from "./wizard-types";
 
 export type FieldSpec =
   | { kind: "text"; placeholder?: string }

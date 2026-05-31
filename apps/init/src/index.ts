@@ -8,7 +8,8 @@ import {
   DEFAULT_WORKFLOW_MD,
   type WorkflowConfig,
 } from "@ralphy/workflow";
-import { applyAnswersToWorkflow, workflowBody, type WizardAnswers } from "@ralphy/workflow/wizard";
+import { applyAnswersToWorkflow, workflowBody } from "@ralphy/workflow/wizard";
+import type { WizardAnswers } from "@ralphy/workflow/wizard-types";
 import {
   SetupWizard,
   EditOrExitPrompt,

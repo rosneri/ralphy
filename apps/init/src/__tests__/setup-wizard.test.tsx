@@ -19,7 +19,7 @@ import {
   IndicatorBuilder,
   assembleAnswers,
 } from "../SetupWizard";
-import type { IndicatorMap } from "@ralphy/workflow/wizard";
+import type { IndicatorMap } from "@ralphy/workflow/wizard-types";
 import { maybeRunSetupWizard } from "../index";
 
 describe("fieldsForMode", () => {

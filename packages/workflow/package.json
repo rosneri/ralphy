@@ -8,6 +8,7 @@
     "./template": "./src/template.ts",
     "./schema": "./src/schema.ts",
     "./wizard": "./src/wizard.ts",
+    "./wizard-types": "./src/wizard-types.ts",
     "./fields": "./src/fields.ts",
     "./default": "./src/default.ts",
     "./boundaries": "./src/boundaries.ts"

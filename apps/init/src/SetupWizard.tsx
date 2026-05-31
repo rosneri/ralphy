@@ -1,14 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import {
-  buildWorkflowMarkdown,
-  indicatorsForPreset,
-  type IndicatorMap,
-  type IndicatorMarker,
-  type SetupMode,
-  type WizardAnswers,
-  type WizardValue,
-} from "@ralphy/workflow/wizard";
+import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
+import type {
+  IndicatorMap,
+  IndicatorMarker,
+  SetupMode,
+  WizardAnswers,
+  WizardValue,
+} from "@ralphy/workflow/wizard-types";
 import {
   fieldsForMode,
   PROMPT_BODY_FIELD_ID,
