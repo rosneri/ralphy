@@ -30,7 +30,6 @@
     "@types/pdfkit": "^0.17.6",
     "@types/react": "^18.3.18",
     "ink-testing-library": "^4.0.0",
-    "react-devtools-core": "^7.0.1",
-    "xstate-mcp": "^1.0.3"
+    "react-devtools-core": "^7.0.1"
   }
 }

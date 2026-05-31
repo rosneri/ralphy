@@ -1,3 +1,16 @@
+## Resolve PR merge conflicts (2026-05-31T16:46:51.050Z)
+
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+The PR https://github.com/rosneri/ralphy/pull/311 has merge conflicts with `main`.
+
+Steps:
+1. `git fetch origin main` then merge `main` into the current branch (`git merge origin/main`). Do NOT rebase and do NOT amend existing commits.
+2. Resolve conflicts in the files git lists.
+3. Stage and commit the resolution as a new merge commit.
+```
+
 ## Fix failing CI checks (2026-05-31T16:44:38.284Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
