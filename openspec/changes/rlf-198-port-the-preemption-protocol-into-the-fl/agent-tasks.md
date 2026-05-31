@@ -1,3 +1,61 @@
+## Fix failing CI checks (2026-05-31T16:19:43.127Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26717844658 ---
+ci Run ./.github/actions/setup ﻿2026-05-31T16:18:37.1037254Z Prepare all required actions
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.1038700Z Getting action download info
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.3380569Z Download action repository 'actions/setup-node@v6' (SHA:48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e)
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.4288819Z Download action repository 'oven-sh/setup-bun@v2' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.5486740Z Download action repository 'actions/cache@v5' (SHA:27d5ce7f107fe9357f9df03efb73ab90386fccae)
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.6557805Z Download action repository 'nrwl/nx-set-shas@v5' (SHA:afb73a62d26e41464e9254689e1fd6122ee683c1)
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.7918516Z ##[group]Run ./.github/actions/setup
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.7918867Z with:
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.7919089Z nx-shas: true
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.7919315Z ##[endgroup]
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8064339Z ##[group]Run actions/setup-node@v6
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8064680Z with:
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8064891Z node-version: 22
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8065134Z check-latest: false
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8068188Z token: **_
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8068484Z package-manager-cache: true
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.8068763Z ##[endgroup]
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.9770533Z Found in cache @ /opt/hostedtoolcache/node/22.22.3/x64
+ci Run ./.github/actions/setup 2026-05-31T16:18:37.9771612Z ##[group]Environment details
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.3839515Z node: v22.22.3
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.3840580Z npm: 10.9.8
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.3841082Z yarn: 1.22.22
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.3842164Z ##[endgroup]
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.4053875Z ##[group]Run oven-sh/setup-bun@v2
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.4054201Z with:
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.4054423Z bun-version: 1.3.14
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.4054667Z no-cache: false
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.4057776Z token: _**
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.4057997Z ##[endgroup]
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.6359911Z Cache hit for: bun-fR4r1tsFeXfPQkusQwkKD2kGnsE=
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.9124574Z Received 33843769 of 33843769 (100.0%), 141.6 MBs/sec
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.9125938Z Cache Size: ~32 MB (33843769 B)
+ci Run ./.github/actions/setup 2026-05-31T16:18:38.9159718Z [command]/usr/bin/tar -xf /home/runner/work/\_temp/76c35c9d-0b39-4a4d-b21d-2a2946c6376c/cache.tzst -P -C /home/runner/work/ralphy/ralphy --use-compress-program unzstd
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.0842739Z Cache restored successfully
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.0867677Z [command]/home/runner/.bun/bin/bun --revision
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.0920214Z 1.3.14+0d9b296af
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.0927199Z Using a cached version of Bun: 1.3.14+0d9b296af
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.1751651Z ##[group]Run actions/cache@v5
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.1751957Z with:
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.1752175Z path: ~/.bun/install/cache
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.1752631Z key: bun-store-Linux-7d7b0b966892e9e9848d9a4db7c46037a6f56eef347ccc98fcb864674c43d2e8
+ci Run ./.github/actions/setup 2026-05-31T16:18:39.
+…[truncated 3337 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-31T16:14:15.704Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
