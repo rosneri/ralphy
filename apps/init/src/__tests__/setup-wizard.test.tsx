@@ -88,6 +88,60 @@ describe("SetupWizard render", () => {
     expect(config.linear.team).toBe("ENG");
     expect(config.linear.assignee).toBe("me");
   });
+
+  test("space cycles select options and enter confirms (mode picker)", async () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const { stdin, lastFrame, unmount } = render(
+      createElement(SetupWizard, { onComplete: () => {} }),
+    );
+    await tick();
+    stdin.write(" "); // quick -> permissive
+    await tick();
+    stdin.write(" "); // permissive -> customized
+    await tick();
+    stdin.write("\r"); // confirm customized
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("customized setup — step 1");
+    expect(frame).toContain("Project name");
+    unmount();
+  });
+
+  test("arrows navigate back/forward between answered questions and preserve them", async () => {
+    const ENTER = "\r";
+    const LEFT = "[D";
+    const RIGHT = "[C";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    let result: string | null = null;
+    const { stdin, lastFrame, unmount } = render(
+      createElement(SetupWizard, { onComplete: (md: string) => (result = md) }),
+    );
+    await tick();
+    stdin.write(ENTER); // quick
+    await tick();
+    stdin.write("demo"); // project name
+    await tick();
+    stdin.write(ENTER); // commit name -> team
+    await tick();
+    stdin.write(LEFT); // back to name (history should show Q1)
+    await tick();
+    const backFrame = lastFrame() ?? "";
+    expect(backFrame).toContain("quick setup — step 1");
+    stdin.write(RIGHT); // forward to team again (name preserved)
+    await tick();
+    stdin.write(ENTER); // team blank -> assignee
+    await tick();
+    stdin.write("me");
+    await tick();
+    stdin.write(ENTER); // finalize
+    await tick();
+    unmount();
+
+    expect(result).not.toBeNull();
+    const { config } = parseWorkflow(result!);
+    expect(config.project.name).toBe("demo");
+    expect(config.linear.assignee).toBe("me");
+  });
 });
 
 describe("maybeRunSetupWizard gating", () => {

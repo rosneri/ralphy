@@ -68,7 +68,6 @@
       "name": "@ralphy/init",
       "version": "0.0.0",
       "dependencies": {
-        "@inkjs/ui": "^2.0.0",
         "@ralphy/paths": "workspace:*",
         "@ralphy/workflow": "workspace:*",
         "ink": "^5.1.0",

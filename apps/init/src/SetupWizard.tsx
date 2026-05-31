@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { Select, TextInput, ConfirmInput } from "@inkjs/ui";
 import { buildWorkflowMarkdown, type SetupMode, type WizardAnswers } from "@ralphy/workflow/wizard";
 
 type FieldSpec =
   | { kind: "text"; placeholder?: string }
   | { kind: "number"; placeholder?: string }
-  | { kind: "select"; options: { label: string; value: string }[]; defaultValue: string }
+  | { kind: "select"; options: { label: string; value: string }[] }
   | { kind: "confirm"; defaultChoice: "confirm" | "cancel" };
 
 interface Field {
@@ -17,10 +16,20 @@ interface Field {
   spec: FieldSpec;
 }
 
-const MODE_OPTIONS = [
+interface Option {
+  label: string;
+  value: string;
+}
+
+const MODE_OPTIONS: Option[] = [
   { label: "Quick — sensible defaults, only a few questions", value: "quick" },
   { label: "Permissive — defaults + auto-PR / auto-merge / CI auto-fix", value: "permissive" },
   { label: "Customized — walk through every setting group", value: "customized" },
+];
+
+const CONFIRM_OPTIONS: Option[] = [
+  { label: "Yes", value: "true" },
+  { label: "No", value: "false" },
 ];
 
 const PROJECT_NAME: Field = {
@@ -45,7 +54,6 @@ const LINEAR_INDICATORS: Field = {
   label: "Linear lifecycle indicators",
   spec: {
     kind: "select",
-    defaultValue: "none",
     options: [
       { label: "None — configure later in WORKFLOW.md", value: "none" },
       { label: "Status-based (Todo → In Progress → In Review)", value: "status-standard" },
@@ -81,7 +89,6 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Engine",
     spec: {
       kind: "select",
-      defaultValue: "claude",
       options: [
         { label: "claude", value: "claude" },
         { label: "codex", value: "codex" },
@@ -93,7 +100,6 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Model tier",
     spec: {
       kind: "select",
-      defaultValue: "opus",
       options: [
         { label: "opus", value: "opus" },
         { label: "sonnet", value: "sonnet" },
@@ -132,6 +138,13 @@ export function fieldsForMode(mode: SetupMode): Field[] {
 }
 
 type AnswerValue = string | number | boolean;
+type Answers = Record<number, AnswerValue>;
+
+/** The options shown for a select/confirm field. */
+function optionsFor(field: Field): Option[] {
+  if (field.spec.kind === "select") return field.spec.options;
+  return CONFIRM_OPTIONS;
+}
 
 /** Set a one- or two-level dotted path on a plain record. */
 function setPath(target: Record<string, unknown>, path: string, value: AnswerValue): void {
@@ -157,6 +170,38 @@ export function assembleAnswers(
   return { mode, ...collected } as WizardAnswers;
 }
 
+/** Turn the per-step answer map into the final WORKFLOW.md string. */
+function buildFromAnswers(mode: SetupMode, fields: Field[], answers: Answers): string {
+  const collected: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(answers)) {
+    const field = fields[Number(key)];
+    if (field) setPath(collected, field.id, value);
+  }
+  return buildWorkflowMarkdown(assembleAnswers(mode, collected));
+}
+
+/** Human-readable rendering of a recorded answer for the Q/A history list. */
+function formatAnswer(field: Field, value: AnswerValue | undefined): string {
+  if (value === undefined) return "(skipped)";
+  if (field.spec.kind === "confirm") return value ? "Yes" : "No";
+  if (field.spec.kind === "select") {
+    return field.spec.options.find((option) => option.value === value)?.label ?? String(value);
+  }
+  return String(value);
+}
+
+/** Highlighted option index when (re)entering a select/confirm field. */
+function initialOptionIndex(field: Field, stored: AnswerValue | undefined): number {
+  const options = optionsFor(field);
+  if (field.spec.kind === "confirm") {
+    if (stored === undefined) return field.spec.defaultChoice === "confirm" ? 0 : 1;
+    return stored ? 0 : 1;
+  }
+  if (stored === undefined) return 0;
+  const found = options.findIndex((option) => option.value === stored);
+  return found < 0 ? 0 : found;
+}
+
 interface SetupWizardProps {
   /** Called with the finished WORKFLOW.md string. The host writes the file. */
   onComplete: (markdown: string) => void;
@@ -167,13 +212,106 @@ interface SetupWizardProps {
 export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<SetupMode | null>(null);
+  const [modeIndex, setModeIndex] = useState(0);
   const [index, setIndex] = useState(0);
-  const [answers] = useState<Record<string, unknown>>(() => ({}));
+  const [answers, setAnswers] = useState<Answers>({});
+  const [draft, setDraft] = useState("");
+  const [optionIndex, setOptionIndex] = useState(0);
 
-  useInput((_input, key) => {
+  const fields = mode ? fieldsForMode(mode) : [];
+  const lastIndex = fields.length - 1;
+
+  /** Reset the transient editing state when (re)entering a step. */
+  const initEditing = (field: Field, stored: AnswerValue | undefined): void => {
+    if (field.spec.kind === "text" || field.spec.kind === "number") {
+      setDraft(stored === undefined ? "" : String(stored));
+      setOptionIndex(0);
+    } else {
+      setDraft("");
+      setOptionIndex(initialOptionIndex(field, stored));
+    }
+  };
+
+  /** Commit the current step's editing state into a fresh answers map. */
+  const commitCurrent = (): Answers => {
+    const next: Answers = { ...answers };
+    const field = fields[index]!;
+    const { spec } = field;
+    if (spec.kind === "text") {
+      const trimmed = draft.trim();
+      if (trimmed === "") delete next[index];
+      else next[index] = trimmed;
+    } else if (spec.kind === "number") {
+      const parsed = Number.parseInt(draft.trim(), 10);
+      if (Number.isFinite(parsed)) next[index] = parsed;
+      else delete next[index];
+    } else if (spec.kind === "confirm") {
+      next[index] = optionIndex === 0;
+    } else {
+      next[index] = spec.options[optionIndex]!.value;
+    }
+    return next;
+  };
+
+  const goTo = (target: number, src: Answers): void => {
+    setAnswers(src);
+    setIndex(target);
+    initEditing(fields[target]!, src[target]);
+  };
+
+  useInput((input, key) => {
     if (key.escape) {
       onCancel?.();
       exit();
+      return;
+    }
+
+    if (mode === null) {
+      if (input === " ") {
+        setModeIndex((modeIndex + 1) % MODE_OPTIONS.length);
+      } else if (key.return) {
+        const chosen = MODE_OPTIONS[modeIndex]!.value as SetupMode;
+        setMode(chosen);
+        setIndex(0);
+        initEditing(fieldsForMode(chosen)[0]!, undefined);
+      }
+      return;
+    }
+
+    // Arrows move between questions (committing the current edit first).
+    if (key.leftArrow || key.upArrow) {
+      if (index > 0) goTo(index - 1, commitCurrent());
+      return;
+    }
+    if (key.rightArrow || key.downArrow) {
+      if (index < lastIndex) goTo(index + 1, commitCurrent());
+      return;
+    }
+
+    if (key.return) {
+      const next = commitCurrent();
+      if (index >= lastIndex) {
+        onComplete(buildFromAnswers(mode, fields, next));
+        exit();
+      } else {
+        goTo(index + 1, next);
+      }
+      return;
+    }
+
+    const field = fields[index]!;
+    if (field.spec.kind === "select" || field.spec.kind === "confirm") {
+      if (input === " ") setOptionIndex((optionIndex + 1) % optionsFor(field).length);
+      return;
+    }
+
+    // text / number editing
+    if (key.backspace || key.delete) {
+      setDraft(draft.slice(0, -1));
+      return;
+    }
+    if (input && !key.ctrl && !key.meta && !key.tab && !key.return) {
+      setDraft(draft + input);
     }
   });
 
@@ -181,39 +319,21 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
     return (
       <Box flexDirection="column">
         <Text bold>Ralphy setup — no WORKFLOW.md found</Text>
-        <Text dimColor>Choose a setup mode (Esc to cancel):</Text>
+        <Text dimColor>Choose a setup mode:</Text>
         <Box marginTop={1}>
-          <Select options={MODE_OPTIONS} onChange={(value) => setMode(value as SetupMode)} />
+          <OptionList options={MODE_OPTIONS} highlight={modeIndex} />
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>space to select · enter to confirm and continue · esc to cancel</Text>
         </Box>
       </Box>
     );
   }
 
-  const fields = fieldsForMode(mode);
-
-  const advance = (field: Field, raw: string, kind: FieldSpec["kind"]): void => {
-    if (kind === "text" || kind === "select") {
-      const trimmed = raw.trim();
-      if (trimmed !== "") setPath(answers, field.id, trimmed);
-    } else if (kind === "number") {
-      const parsed = Number.parseInt(raw.trim(), 10);
-      if (Number.isFinite(parsed)) setPath(answers, field.id, parsed);
-    } else {
-      // confirm: raw is "true" | "false"
-      setPath(answers, field.id, raw === "true");
-    }
-    const next = index + 1;
-    if (next >= fields.length) {
-      onComplete(buildWorkflowMarkdown(assembleAnswers(mode, answers)));
-      exit();
-      return;
-    }
-    setIndex(next);
-  };
-
   const field = fields[index]!;
   return (
     <Box flexDirection="column">
+      <AnsweredHistory fields={fields} answers={answers} upTo={index} />
       <Text dimColor>
         {mode} setup — step {index + 1}/{fields.length}
       </Text>
@@ -222,40 +342,82 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
         {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
       </Box>
       <Box marginTop={1}>
-        {/* key forces a fresh input per step so prior values don't carry over. */}
-        <FieldInput
-          key={index}
-          field={field}
-          onAnswer={(raw) => advance(field, raw, field.spec.kind)}
-        />
+        <CurrentInput field={field} draft={draft} optionIndex={optionIndex} />
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>{hintFor(field.spec.kind)}</Text>
       </Box>
     </Box>
   );
 }
 
-function FieldInput({ field, onAnswer }: { field: Field; onAnswer: (raw: string) => void }) {
-  const { spec } = field;
-  switch (spec.kind) {
-    case "text":
-    case "number":
-      return (
-        <TextInput placeholder={spec.placeholder ?? ""} onSubmit={(value) => onAnswer(value)} />
-      );
-    case "select":
-      return (
-        <Select
-          options={spec.options}
-          defaultValue={spec.defaultValue}
-          onChange={(value) => onAnswer(value)}
-        />
-      );
-    case "confirm":
-      return (
-        <ConfirmInput
-          defaultChoice={spec.defaultChoice}
-          onConfirm={() => onAnswer("true")}
-          onCancel={() => onAnswer("false")}
-        />
-      );
+function hintFor(kind: FieldSpec["kind"]): string {
+  const nav = "←↑ back · →↓ forward · esc cancel";
+  if (kind === "select" || kind === "confirm") {
+    return `space to select · enter to confirm and continue · ${nav}`;
   }
+  return `type a value · enter to confirm and continue (blank to skip) · ${nav}`;
+}
+
+function OptionList({ options, highlight }: { options: Option[]; highlight: number }) {
+  return (
+    <Box flexDirection="column">
+      {options.map((option, i) => (
+        <Text key={option.value} {...(i === highlight ? { color: "green" } : {})}>
+          {i === highlight ? "❯ " : "  "}
+          {option.label}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+function CurrentInput({
+  field,
+  draft,
+  optionIndex,
+}: {
+  field: Field;
+  draft: string;
+  optionIndex: number;
+}) {
+  if (field.spec.kind === "select" || field.spec.kind === "confirm") {
+    return <OptionList options={optionsFor(field)} highlight={optionIndex} />;
+  }
+  return (
+    <Box>
+      <Text>{"> "}</Text>
+      {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
+      <Text inverse> </Text>
+    </Box>
+  );
+}
+
+function AnsweredHistory({
+  fields,
+  answers,
+  upTo,
+}: {
+  fields: Field[];
+  answers: Answers;
+  upTo: number;
+}) {
+  if (upTo <= 0) return null;
+  const rows = [];
+  for (let i = 0; i < upTo; i++) {
+    const field = fields[i]!;
+    rows.push(
+      <Box key={i} flexDirection="column">
+        <Text dimColor>
+          Q{i + 1}: {field.label}
+        </Text>
+        <Text color="green">A: {formatAnswer(field, answers[i])}</Text>
+      </Box>,
+    );
+  }
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {rows}
+    </Box>
+  );
 }
