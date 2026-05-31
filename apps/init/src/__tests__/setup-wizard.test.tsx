@@ -9,6 +9,7 @@ import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wiz
 import {
   SetupWizard,
   EditOrExitPrompt,
+  MigratePrompt,
   IndicatorBuilder,
   fieldsForMode,
   assembleAnswers,
@@ -167,6 +168,22 @@ describe("SetupWizard render", () => {
     expect(config.linear.assignee).toBe("me");
   });
 
+  test("onlyFields restricts the walkthrough to the migration diff", () => {
+    const { lastFrame, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: () => {},
+        initialMode: "customized",
+        onlyFields: ["stackPrsOnDependencies", "prTracker.enabled"],
+        initialValues: { createPrOnSuccess: true },
+      }),
+    );
+    const plain = (lastFrame() ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+    // First (and only initially-visible) diff field, not the catalogue's first.
+    expect(plain).toContain("step 1/2");
+    expect(plain).toContain("Stack dependent issues' PRs");
+    unmount();
+  });
+
   test("prefills the first question when started in edit mode", () => {
     const { lastFrame, unmount } = render(
       createElement(SetupWizard, {
@@ -176,8 +193,11 @@ describe("SetupWizard render", () => {
       }),
     );
     const frame = lastFrame() ?? "";
-    expect(frame).toContain("customized setup — step 1");
-    expect(frame).toContain("Project name: svc");
+    // Strip ANSI styling — the bold label and the value sit in separate spans.
+    const plain = frame.replace(/\[[0-9;]*m/g, "");
+    expect(plain).toContain("customized setup — step 1");
+    expect(plain).toContain("Project name: svc");
+    expect(plain).toContain("Shown in prompts and logs"); // the new description line
     unmount();
   });
 });
@@ -231,6 +251,32 @@ describe("EditOrExitPrompt", () => {
     await tick();
     unmount();
     expect(choice).toBe("exit");
+  });
+});
+
+describe("MigratePrompt", () => {
+  test("shows the version delta + change descriptions and reports the choice", async () => {
+    const DOWN = "\x1b[B";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    let choice = "";
+    const { stdin, lastFrame, unmount } = render(
+      createElement(MigratePrompt, {
+        fromVersion: 0,
+        toVersion: 1,
+        descriptions: ["Added the confirmation gate and PR tracker."],
+        onChoice: (value: string) => (choice = value),
+      }),
+    );
+    await tick();
+    const plain = (lastFrame() ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+    expect(plain).toContain("out of date (v0 → v1)");
+    expect(plain).toContain("Added the confirmation gate and PR tracker.");
+    stdin.write(DOWN); // diff -> all
+    await tick();
+    stdin.write("\r");
+    await tick();
+    unmount();
+    expect(choice).toBe("all");
   });
 });
 

@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+/**
+ * WORKFLOW.md schema version, stamped into the file by `ralphy init`. A file
+ * with no `version` is treated as legacy (0). Bump this when wizard fields are
+ * added and register the change in the init app's MIGRATIONS list (a test keeps
+ * the two in sync).
+ */
+export const CURRENT_WORKFLOW_VERSION = 1;
+
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
 // Non-label variants are `.strict()` so that a stray `group` on a non-label
@@ -120,6 +128,9 @@ const BoundariesSchema = z
   .default({ never_touch: [], meta_only_files: DEFAULT_META_ONLY_FILES });
 
 export const WorkflowConfigSchema = z.object({
+  /** Schema version stamped by `ralphy init`. Absent / 0 means a legacy file
+   *  written before versioning; `ralphy init` offers to migrate it. */
+  version: z.number().int().nonnegative().default(0),
   project: ProjectSchema,
   commands: CommandsSchema,
   rules: z.array(z.string()).default([]),

@@ -6,7 +6,7 @@ import {
   type WizardAnswers,
   type WizardValue,
 } from "../wizard";
-import { parseWorkflow } from "../workflow";
+import { parseWorkflow, CURRENT_WORKFLOW_VERSION } from "../workflow";
 import { DEFAULT_WORKFLOW_MD } from "../default";
 
 function roundTrip(mode: WizardAnswers["mode"], values: Record<string, WizardValue> = {}) {
@@ -17,6 +17,11 @@ function roundTrip(mode: WizardAnswers["mode"], values: Record<string, WizardVal
 describe("buildWorkflowMarkdown", () => {
   test("quick mode with no answers is byte-identical to the default template", () => {
     expect(buildWorkflowMarkdown({ mode: "quick", values: {} })).toBe(DEFAULT_WORKFLOW_MD);
+  });
+
+  test("stamps the current schema version on the default template", () => {
+    const { config } = roundTrip("quick");
+    expect(config.version).toBe(CURRENT_WORKFLOW_VERSION);
   });
 
   test("output always round-trips through parseWorkflow", () => {
@@ -198,5 +203,30 @@ describe("applyAnswersToWorkflow (editing an existing file)", () => {
     });
     expect(updated).toContain("{{ issue.identifier }}");
     expect(parseWorkflow(updated).config.engine).toBe("codex");
+  });
+
+  test("stamps the current version onto a legacy (unversioned) file", () => {
+    const legacy = [
+      "---",
+      "project:",
+      "  name: legacy",
+      "rules:",
+      "  - keep tests green",
+      "engine: claude",
+      "---",
+      "Custom body for {{ issue.identifier }}.",
+    ].join("\n");
+    const updated = applyAnswersToWorkflow(legacy, {
+      mode: "customized",
+      // Diff path: only the migration's new fields are answered.
+      values: { "linear.confirmationMode.enabled": true },
+    });
+    const { config } = parseWorkflow(updated);
+    expect(config.version).toBe(CURRENT_WORKFLOW_VERSION);
+    expect(config.linear.confirmationMode.enabled).toBe(true);
+    // Everything the answers did not touch survives untouched.
+    expect(config.project.name).toBe("legacy");
+    expect(config.rules).toEqual(["keep tests green"]);
+    expect(updated).toContain("Custom body for {{ issue.identifier }}.");
   });
 });

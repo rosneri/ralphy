@@ -145,6 +145,8 @@ interface SetupWizardProps {
   initialMode?: SetupMode;
   initialValues?: Answers;
   buildMarkdown?: (answers: WizardAnswers) => string;
+  /** Migration diff path: only ask these field ids (their `when` gates still apply). */
+  onlyFields?: string[];
 }
 
 export function SetupWizard({
@@ -153,10 +155,13 @@ export function SetupWizard({
   initialMode,
   initialValues,
   buildMarkdown,
+  onlyFields,
 }: SetupWizardProps) {
   const { exit } = useApp();
   const startValues = initialValues ?? {};
-  const startFields = initialMode ? fieldsForMode(initialMode, startValues) : [];
+  const fieldsFor = (mode: SetupMode, answers: Answers): Field[] =>
+    fieldsForMode(mode, answers, onlyFields);
+  const startFields = initialMode ? fieldsFor(initialMode, startValues) : [];
   const startEditing = startFields[0]
     ? computeEditing(startFields[0]!, startValues[startFields[0]!.id])
     : null;
@@ -172,7 +177,7 @@ export function SetupWizard({
   const [selected, setSelected] = useState<Set<string>>(startEditing?.selected ?? new Set());
   const [building, setBuilding] = useState(false);
 
-  const fields = mode ? fieldsForMode(mode, answers) : [];
+  const fields = mode ? fieldsFor(mode, answers) : [];
   const lastIndex = fields.length - 1;
   const field = fields[index];
 
@@ -218,11 +223,11 @@ export function SetupWizard({
   const goTo = (target: number, source: Answers): void => {
     setAnswers(source);
     setIndex(target);
-    initEditing(fieldsForMode(mode!, source)[target]!, source);
+    initEditing(fieldsFor(mode!, source)[target]!, source);
   };
 
   const advance = (source: Answers): void => {
-    const nextFields = fieldsForMode(mode!, source);
+    const nextFields = fieldsFor(mode!, source);
     if (index >= nextFields.length - 1) {
       onComplete(buildFromAnswers(mode!, source, buildMarkdown));
       exit();
@@ -247,8 +252,8 @@ export function SetupWizard({
           const chosen = MODE_OPTIONS[modeIndex]!.value as SetupMode;
           setMode(chosen);
           setIndex(0);
-          setVisited(new Set([fieldsForMode(chosen, answers)[0]!.id]));
-          initEditing(fieldsForMode(chosen, answers)[0]!, answers);
+          setVisited(new Set([fieldsFor(chosen, answers)[0]!.id]));
+          initEditing(fieldsFor(chosen, answers)[0]!, answers);
         }
         return;
       }
@@ -276,7 +281,7 @@ export function SetupWizard({
       }
       if (key.rightArrow) {
         const committed = commitCurrent();
-        const nextField = fieldsForMode(mode, committed)[index + 1];
+        const nextField = fieldsFor(mode, committed)[index + 1];
         if (index < lastIndex && nextField && visited.has(nextField.id)) {
           goTo(index + 1, committed);
         }
@@ -364,6 +369,11 @@ export function SetupWizard({
       <Text dimColor>
         {mode} setup — step {index + 1}/{fields.length}
       </Text>
+      {field.description ? (
+        <Box marginTop={1}>
+          <Text dimColor>{field.description}</Text>
+        </Box>
+      ) : null}
       <Box marginTop={1}>
         <CurrentQuestion
           field={field}
@@ -537,6 +547,68 @@ export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "ex
       <Text bold>WORKFLOW.md already exists</Text>
       <Box marginTop={1}>
         <OptionList options={EDIT_EXIT_OPTIONS} highlight={choiceIndex} />
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>↑↓ to move · enter to choose · esc to exit</Text>
+      </Box>
+    </Box>
+  );
+}
+
+export type MigrateChoice = "diff" | "all" | "exit";
+
+const MIGRATE_OPTIONS: Option[] = [
+  { label: "Fill in only the new settings", value: "diff" },
+  { label: "Review every setting", value: "all" },
+  { label: "Exit without changes", value: "exit" },
+];
+
+/**
+ * Shown by `ralphy init` when an existing WORKFLOW.md is behind the current
+ * schema version. Lists what each pending version introduced, then offers to
+ * fill in just the new settings, review everything, or exit.
+ */
+export function MigratePrompt({
+  fromVersion,
+  toVersion,
+  descriptions,
+  onChoice,
+}: {
+  fromVersion: number;
+  toVersion: number;
+  descriptions: string[];
+  onChoice: (choice: MigrateChoice) => void;
+}) {
+  const { exit } = useApp();
+  const [choiceIndex, setChoiceIndex] = useState(0);
+  useInput((_input, key) => {
+    if (key.escape) {
+      onChoice("exit");
+      exit();
+      return;
+    }
+    if (key.upArrow) {
+      setChoiceIndex((choiceIndex + MIGRATE_OPTIONS.length - 1) % MIGRATE_OPTIONS.length);
+    } else if (key.downArrow) {
+      setChoiceIndex((choiceIndex + 1) % MIGRATE_OPTIONS.length);
+    } else if (key.return) {
+      onChoice(MIGRATE_OPTIONS[choiceIndex]!.value as MigrateChoice);
+      exit();
+    }
+  });
+  return (
+    <Box flexDirection="column">
+      <Text bold>
+        WORKFLOW.md is out of date (v{fromVersion} → v{toVersion})
+      </Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text dimColor>What changed:</Text>
+        {descriptions.map((description, i) => (
+          <Text key={i}>• {description}</Text>
+        ))}
+      </Box>
+      <Box marginTop={1}>
+        <OptionList options={MIGRATE_OPTIONS} highlight={choiceIndex} />
       </Box>
       <Box marginTop={1}>
         <Text dimColor>↑↓ to move · enter to choose · esc to exit</Text>

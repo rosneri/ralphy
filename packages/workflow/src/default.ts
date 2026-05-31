@@ -5,6 +5,10 @@
  * sit under the state they belong to so get/set/clear read top-to-bottom.
  */
 export const DEFAULT_WORKFLOW_MD = `---
+# WORKFLOW.md schema version — managed by \`ralphy init\`. When a newer version
+# ships, re-running init migrates this file and fills in the new settings.
+version: 1
+
 project:
   name: ralphy
   language: TypeScript

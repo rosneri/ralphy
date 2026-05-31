@@ -1,9 +1,15 @@
 import { render } from "ink";
 import { createElement } from "react";
 import { findProjectRoot } from "@ralphy/paths";
-import { workflowPath, loadWorkflow, type WorkflowConfig } from "@ralphy/workflow";
+import {
+  workflowPath,
+  loadWorkflow,
+  CURRENT_WORKFLOW_VERSION,
+  type WorkflowConfig,
+} from "@ralphy/workflow";
 import { applyAnswersToWorkflow, type WizardAnswers } from "@ralphy/workflow/wizard";
-import { SetupWizard, EditOrExitPrompt } from "./SetupWizard";
+import { SetupWizard, EditOrExitPrompt, MigratePrompt, type MigrateChoice } from "./SetupWizard";
+import { fieldsAddedSince, needsMigration, pendingMigrations } from "./migrations";
 
 const INIT_HELP = [
   "ralphy init — create or edit WORKFLOW.md with an interactive setup wizard",
@@ -21,6 +27,8 @@ interface RunOptions {
   initialMode?: "quick" | "permissive" | "customized";
   /** Field-id keyed values to prefill. */
   initialValues?: Record<string, string | number | boolean>;
+  /** Migration diff path: only ask these field ids. */
+  onlyFields?: string[];
 }
 
 /**
@@ -46,6 +54,7 @@ export async function runSetupWizard(
       },
       ...(options.initialMode ? { initialMode: options.initialMode } : {}),
       ...(options.initialValues ? { initialValues: options.initialValues } : {}),
+      ...(options.onlyFields ? { onlyFields: options.onlyFields } : {}),
       ...(buildMarkdown ? { buildMarkdown } : {}),
     }),
   );
@@ -106,6 +115,41 @@ async function promptEditOrExit(): Promise<"edit" | "exit"> {
   return choice;
 }
 
+/** Ask how to migrate an outdated file: fill the diff, review all, or exit. */
+async function promptMigrate(fromVersion: number): Promise<MigrateChoice> {
+  let choice: MigrateChoice = "exit";
+  const { waitUntilExit } = render(
+    createElement(MigratePrompt, {
+      fromVersion,
+      toVersion: CURRENT_WORKFLOW_VERSION,
+      descriptions: pendingMigrations(fromVersion).map((migration) => migration.description),
+      onChoice: (value: MigrateChoice) => {
+        choice = value;
+      },
+    }),
+  );
+  await waitUntilExit();
+  return choice;
+}
+
+/** Run an edit/migration of the existing file, prefilled from its config. */
+async function editExisting(
+  projectRoot: string,
+  path: string,
+  config: WorkflowConfig,
+  onlyFields?: string[],
+): Promise<number> {
+  const existing = await Bun.file(path).text();
+  const wrote = await runSetupWizard(projectRoot, {
+    existing,
+    initialMode: "customized",
+    initialValues: initialValuesFromConfig(config),
+    ...(onlyFields ? { onlyFields } : {}),
+  });
+  process.stdout.write(wrote ? `\n✓ Updated ${path}\n` : `\nNo changes written.\n`);
+  return 0;
+}
+
 /** Entry point for the `ralphy init` subcommand. */
 export async function main(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -123,20 +167,26 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write(`WORKFLOW.md already exists at ${path} — leaving it unchanged.\n`);
       return 0;
     }
+    const { config } = await loadWorkflow(projectRoot);
+
+    // Outdated file → offer migration (fill the diff / review all / exit).
+    if (needsMigration(config.version)) {
+      const choice = await promptMigrate(config.version);
+      if (choice === "exit") {
+        process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
+        return 0;
+      }
+      const onlyFields = choice === "diff" ? fieldsAddedSince(config.version) : undefined;
+      return editExisting(projectRoot, path, config, onlyFields);
+    }
+
+    // Up-to-date file → plain edit-or-exit.
     const choice = await promptEditOrExit();
     if (choice === "exit") {
       process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
       return 0;
     }
-    const { config } = await loadWorkflow(projectRoot);
-    const existing = await Bun.file(path).text();
-    const wrote = await runSetupWizard(projectRoot, {
-      existing,
-      initialMode: "customized",
-      initialValues: initialValuesFromConfig(config),
-    });
-    process.stdout.write(wrote ? `\n✓ Updated ${path}\n` : `\nNo changes written.\n`);
-    return 0;
+    return editExisting(projectRoot, path, config);
   }
 
   if (!interactive) {

@@ -5,7 +5,7 @@ import { DEFAULT_WORKFLOW_MD } from "./default";
 import { renderTemplate } from "./template";
 
 export type { WorkflowConfig } from "./schema";
-export { WorkflowConfigSchema } from "./schema";
+export { WorkflowConfigSchema, CURRENT_WORKFLOW_VERSION } from "./schema";
 export { renderTemplate } from "./template";
 export { DEFAULT_WORKFLOW_MD } from "./default";
 export {
@@ -22,7 +22,8 @@ export interface ParsedWorkflow {
   path: string;
 }
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+/** Matches a YAML frontmatter block: `[1]` is the YAML, `[2]` is the body. */
+export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 export function parseWorkflow(text: string, path = ""): ParsedWorkflow {
   const m = FRONTMATTER_RE.exec(text);

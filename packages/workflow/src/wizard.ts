@@ -12,6 +12,8 @@
 
 import YAML from "yaml";
 import { DEFAULT_WORKFLOW_MD } from "./default";
+import { CURRENT_WORKFLOW_VERSION } from "./schema";
+import { FRONTMATTER_RE } from "./workflow";
 
 export type SetupMode = "quick" | "permissive" | "customized";
 
@@ -36,8 +38,6 @@ export interface WizardAnswers {
   /** Field-id keyed answers. Each id is a dotted path into the frontmatter. */
   values: Record<string, WizardValue>;
 }
-
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 export function indicatorsForPreset(preset: Exclude<IndicatorPreset, "none">): IndicatorMap {
   if (preset === "status-standard") {
@@ -79,6 +79,10 @@ function applyToMarkdown(markdown: string, values: Record<string, WizardValue>):
   for (const [id, value] of Object.entries(values)) {
     doc.setIn(id.split("."), value);
   }
+  // Always stamp the current schema version so every written/migrated file is
+  // marked. On the default template this key already holds the current value,
+  // so the round-trip stays byte-identical; on a legacy file it adds the key.
+  doc.setIn(["version"], CURRENT_WORKFLOW_VERSION);
   const body = m[2] ?? "";
   const frontmatter = doc.toString({ flowCollectionPadding: false }).replace(/\n+$/, "");
   return `---\n${frontmatter}\n---\n${body}`;
