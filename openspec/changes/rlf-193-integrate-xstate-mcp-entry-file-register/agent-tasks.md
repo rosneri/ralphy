@@ -1,3 +1,58 @@
+## Fix failing CI checks (2026-05-31T13:33:51.355Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26714002391 ---
+ci Unused dependency check ﻿2026-05-31T13:32:41.5895963Z ##[group]Run bun run check:unused:ci
+ci Unused dependency check 2026-05-31T13:32:41.5896337Z ^[[36;1mbun run check:unused:ci^[[0m
+ci Unused dependency check 2026-05-31T13:32:41.5921940Z shell: /usr/bin/bash -e {0}
+ci Unused dependency check 2026-05-31T13:32:41.5922222Z env:
+ci Unused dependency check 2026-05-31T13:32:41.5922477Z NX_BASE: 0e30a6f59e58a0139c844bb6507ed2cfdbd6d1be
+ci Unused dependency check 2026-05-31T13:32:41.5923924Z NX_HEAD: a02f40bd4079efb77d155d86ff474f9109c7060e
+ci Unused dependency check 2026-05-31T13:32:41.5924447Z ##[endgroup]
+ci Unused dependency check 2026-05-31T13:32:41.5990204Z $ knip
+ci Unused dependency check 2026-05-31T13:32:46.1762686Z ^[[93m^[[4mUnused files^[[24m^[[39m (1)
+ci Unused dependency check 2026-05-31T13:32:46.1770955Z apps/agent/src/runtime/machines/inspector.ts
+ci Unused dependency check 2026-05-31T13:32:46.1771802Z ^[[93m^[[4mUnused devDependencies^[[24m^[[39m (1)
+ci Unused dependency check 2026-05-31T13:32:46.1773673Z xstate-mcp apps/agent/package.json:34:6
+ci Unused dependency check 2026-05-31T13:32:46.2084300Z error: script "check:unused:ci" exited with code 1
+ci Unused dependency check 2026-05-31T13:32:46.2094349Z ##[error]Process completed with exit code 1.
+ci Test affected files + coverage ﻿2026-05-31T13:32:46.5184641Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-31T13:32:46.5185090Z ^[[36;1mbun run test:affected-files:coverage:ci^[[0m
+ci Test affected files + coverage 2026-05-31T13:32:46.5212293Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-31T13:32:46.5212588Z env:
+ci Test affected files + coverage 2026-05-31T13:32:46.5213170Z NX_BASE: 0e30a6f59e58a0139c844bb6507ed2cfdbd6d1be
+ci Test affected files + coverage 2026-05-31T13:32:46.5213769Z NX_HEAD: a02f40bd4079efb77d155d86ff474f9109c7060e
+ci Test affected files + coverage 2026-05-31T13:32:46.5214094Z ##[endgroup]
+ci Test affected files + coverage 2026-05-31T13:32:46.5281847Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-31T13:32:46.5514193Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-31T13:32:46.5514645Z
+ci Test affected files + coverage 2026-05-31T13:32:57.1462229Z agent: 1 relevant test file(s)
+ci Test affected files + coverage 2026-05-31T13:32:57.1462772Z apps/agent/src/runtime/machines/**tests**/inspector.test.ts
+ci Test affected files + coverage 2026-05-31T13:32:57.1463310Z
+ci Test affected files + coverage 2026-05-31T13:32:57.1481757Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-31T13:32:57.1626076Z
+ci Test affected files + coverage 2026-05-31T13:32:57.1626860Z ##[group]src/**tests**/pending-tasks.test.ts:
+ci Test affected files + coverage 2026-05-31T13:32:57.4955136Z (pass) parseSubtasks > skips items under a Planning heading and returns the rest in order [1.17ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4967124Z (pass) parseSubtasks > keeps items when there is no Planning section [0.08ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4968324Z (pass) parseSubtasks > treats the Planning heading case-insensitively [0.06ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4969932Z (pass) parseSubtasks > resumes parsing after Planning when a new section begins [0.13ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4971355Z (pass) parseSubtasks > returns an empty array for empty input [0.04ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4972579Z (pass) parseSubtasks > trims whitespace on items [0.07ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4983827Z (pass) parseSubtasks > ignores non-task lines [0.09ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4984868Z (pass) parseSubtasks > skips legacy flow-task sections in tasks.md (backward compat) [0.09ms]
+ci Test affected files + coverage 2026-05-31T13:32:57.4985678Z (pas
+…[truncated 218408 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-31T13:28:05.541Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
