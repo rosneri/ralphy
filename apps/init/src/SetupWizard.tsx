@@ -426,10 +426,10 @@ function AnsweredHistory({
   for (let i = 0; i < upTo; i++) {
     const field = fields[i]!;
     rows.push(
-      <Box key={i} flexDirection="column">
-        <Text dimColor>{field.label}</Text>
+      <Text key={i}>
+        <Text dimColor>{field.label}: </Text>
         <Text color="green">{formatAnswer(field, answers[i])}</Text>
-      </Box>,
+      </Text>,
     );
   }
   return (
