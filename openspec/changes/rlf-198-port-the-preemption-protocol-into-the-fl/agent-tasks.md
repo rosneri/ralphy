@@ -1,3 +1,53 @@
+## Fix failing CI checks (2026-05-31T16:42:00.236Z)
+
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+
+```
+CI is failing on this PR. Investigate and fix:
+
+```
+
+--- run 26718341176 ---
+ci Test affected files + coverage ﻿2026-05-31T16:40:55.7461881Z ##[group]Run bun run test:affected-files:coverage:ci
+ci Test affected files + coverage 2026-05-31T16:40:55.7462533Z ^[[36;1mbun run test:affected-files:coverage:ci^[[0m
+ci Test affected files + coverage 2026-05-31T16:40:55.7488841Z shell: /usr/bin/bash -e {0}
+ci Test affected files + coverage 2026-05-31T16:40:55.7489135Z env:
+ci Test affected files + coverage 2026-05-31T16:40:55.7489397Z NX_BASE: 40bda67b40086084dc16fb9e91732a0a6cedd622
+ci Test affected files + coverage 2026-05-31T16:40:55.7490434Z NX_HEAD: a11575de27d38648765fb9b3e0076ad0a95e90d5
+ci Test affected files + coverage 2026-05-31T16:40:55.7490773Z ##[endgroup]
+ci Test affected files + coverage 2026-05-31T16:40:55.7557289Z $ bun scripts/bun-test-affected-files.ts --coverage
+ci Test affected files + coverage 2026-05-31T16:40:55.7788600Z Detecting affected projects...
+ci Test affected files + coverage 2026-05-31T16:40:55.7788999Z
+ci Test affected files + coverage 2026-05-31T16:41:06.3182253Z agent: no relevant test files
+ci Test affected files + coverage 2026-05-31T16:41:06.3182825Z core: 2 relevant test file(s)
+ci Test affected files + coverage 2026-05-31T16:41:06.3183319Z packages/core/src/machines/**tests**/flow.machine-preempt.test.ts
+ci Test affected files + coverage 2026-05-31T16:41:06.3183929Z packages/core/src/machines/**tests**/flow.machine.test.ts
+ci Test affected files + coverage 2026-05-31T16:41:06.3184260Z
+ci Test affected files + coverage 2026-05-31T16:41:06.3203901Z bun test v1.3.14 (0d9b296a)
+ci Test affected files + coverage 2026-05-31T16:41:06.3287995Z
+ci Test affected files + coverage 2026-05-31T16:41:06.3288760Z ##[group]src/**tests**/openspec-phase.test.ts:
+ci Test affected files + coverage 2026-05-31T16:41:06.3318696Z (pass) isStubArtifact > null is a stub [0.11ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3319739Z (pass) isStubArtifact > empty string is a stub [0.10ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3320466Z (pass) isStubArtifact > headings only is a stub [0.06ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3321205Z (pass) isStubArtifact > italic placeholder is a stub [0.08ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3321878Z (pass) isStubArtifact > real prose is not a stub [0.03ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3322409Z (pass) isStubArtifact > checklist content is not a stub [0.03ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3324180Z (pass) deriveOpenSpecPhase > done when tasks.md has no unchecked items [0.18ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3325912Z (pass) deriveOpenSpecPhase > proposal when proposal.md is a stub even if tasks have unchecked items [0.06ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3327628Z (pass) deriveOpenSpecPhase > design when proposal is filled but design is a stub [0.05ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3329422Z (pass) deriveOpenSpecPhase > implement when proposal+design filled and tasks have unchecked items [0.03ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3331374Z (pass) deriveOpenSpecPhase > tasks when proposal+design filled but tasks.md is missing [0.04ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3332792Z (pass) deriveOpenSpecPhase > proposal when every artifact is missing [0.02ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3334148Z (pass) deriveOpenSpecPhase > done wins regardless of gate state (now decoupled) [0.03ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3336265Z (pass) deriveOpenSpecPhase > review: no findings → done (review enabled, no review run yet triggers review phase) [0.04ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3338122Z (pass) deriveOpenSpecPhase > review: open findings + under cap → design (loop back) [0.14ms]
+ci Test affected files + coverage 2026-05-31T16:41:06.3339961Z (pass) deriveOpenSpecPhase > review: open
+…[truncated 81277 chars]
+
+```
+
+```
+
 ## Fix failing CI checks (2026-05-31T16:35:09.839Z)
 
 - [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
