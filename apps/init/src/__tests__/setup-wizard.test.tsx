@@ -249,6 +249,37 @@ describe("SetupWizard render", () => {
     expect(captured.md).toBe("BODY:default body!");
   });
 
+  test("the prompt-body editor moves the cursor with arrows and inserts there", async () => {
+    const UP = "\x1b[A";
+    const LEFT = "\x1b[D";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const captured: { md: string | null } = { md: null };
+    const { stdin, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: (md: string) => {
+          captured.md = md;
+        },
+        initialMode: "customized",
+        onlyFields: ["promptBody"],
+        initialBody: "abc\ndef", // cursor starts at the end (line 2, col 3)
+        buildMarkdown: (_answers: unknown, body?: string) => `BODY:${body ?? "(none)"}`,
+      }),
+    );
+    await tick();
+    for (let i = 0; i < 3; i++) {
+      stdin.write(LEFT); // to start of line 2
+      await tick();
+    }
+    stdin.write(UP); // up to line 1, col 0 (start of "abc")
+    await tick();
+    stdin.write("X"); // insert at the very start
+    await tick();
+    stdin.write("\x04"); // Ctrl-D
+    await tick();
+    unmount();
+    expect(captured.md).toBe("BODY:Xabc\ndef");
+  });
+
   test("prefills the first question when started in edit mode", () => {
     const { lastFrame, unmount } = render(
       createElement(SetupWizard, {

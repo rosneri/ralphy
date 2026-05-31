@@ -195,6 +195,8 @@ export function SetupWizard({
   const [visited, setVisited] = useState<Set<string>>(() => new Set(startFields.map((f) => f.id)));
   const [answers, setAnswers] = useState<Answers>(startValues);
   const [draft, setDraft] = useState(startEditing?.draft ?? "");
+  /** Cursor offset into `draft` for the multiline (prompt-body) editor. */
+  const [cursor, setCursor] = useState(startEditing?.draft.length ?? 0);
   const [optionIndex, setOptionIndex] = useState(startEditing?.optionIndex ?? 0);
   const [listItems, setListItems] = useState<string[]>(startEditing?.listItems ?? []);
   const [selected, setSelected] = useState<Set<string>>(startEditing?.selected ?? new Set());
@@ -207,6 +209,7 @@ export function SetupWizard({
   const initEditing = (next: Field, source: Answers): void => {
     const editing = computeEditing(next, source[next.id], bodyFallback);
     setDraft(editing.draft);
+    setCursor(editing.draft.length);
     setOptionIndex(editing.optionIndex);
     setListItems(editing.listItems);
     setSelected(editing.selected);
@@ -292,17 +295,31 @@ export function SetupWizard({
 
       const current = fields[index]!;
 
-      // Multiline (prompt body) captures all keys: type to edit, Enter inserts
-      // a newline, Ctrl-D finishes. Esc (handled above) cancels the wizard.
+      // Multiline (prompt body) captures all keys: arrows move the cursor,
+      // type/backspace edit at the cursor, Enter inserts a newline, Ctrl-D
+      // finishes. Esc (handled above) cancels the wizard.
       if (current.spec.kind === "multiline") {
+        const at = Math.min(cursor, draft.length);
+        const replaceAt = (next: string, nextCursor: number): void => {
+          setDraft(next);
+          setCursor(Math.max(0, Math.min(nextCursor, next.length)));
+        };
         if (key.ctrl && input === "d") {
           advance(commitCurrent());
+        } else if (key.leftArrow) {
+          setCursor(Math.max(0, at - 1));
+        } else if (key.rightArrow) {
+          setCursor(Math.min(draft.length, at + 1));
+        } else if (key.upArrow) {
+          setCursor(moveCursorVertically(draft, at, -1));
+        } else if (key.downArrow) {
+          setCursor(moveCursorVertically(draft, at, 1));
         } else if (key.return) {
-          setDraft(`${draft}\n`);
+          replaceAt(`${draft.slice(0, at)}\n${draft.slice(at)}`, at + 1);
         } else if (key.backspace || key.delete) {
-          setDraft(draft.slice(0, -1));
+          if (at > 0) replaceAt(draft.slice(0, at - 1) + draft.slice(at), at - 1);
         } else if (input && !key.ctrl && !key.meta && !key.tab) {
-          setDraft(draft + input);
+          replaceAt(draft.slice(0, at) + input + draft.slice(at), at + input.length);
         }
         return;
       }
@@ -451,6 +468,7 @@ export function SetupWizard({
           <QuestionInput
             field={field}
             draft={draft}
+            cursor={cursor}
             optionIndex={optionIndex}
             listItems={listItems}
             selected={selected}
@@ -496,16 +514,41 @@ function OptionList({ options, highlight }: { options: Option[]; highlight: numb
   );
 }
 
+/** The {line, col} of a character offset within multi-line text. */
+function cursorLineCol(text: string, offset: number): { line: number; col: number } {
+  const lines = text.split("\n");
+  let remaining = offset;
+  for (let line = 0; line < lines.length; line++) {
+    if (remaining <= lines[line]!.length) return { line, col: remaining };
+    remaining -= lines[line]!.length + 1;
+  }
+  const last = lines.length - 1;
+  return { line: last, col: lines[last]!.length };
+}
+
+/** Move a cursor offset up (-1) or down (+1) one line, keeping the column. */
+function moveCursorVertically(text: string, offset: number, direction: -1 | 1): number {
+  const lines = text.split("\n");
+  const { line, col } = cursorLineCol(text, offset);
+  const target = line + direction;
+  if (target < 0 || target >= lines.length) return offset;
+  let result = 0;
+  for (let i = 0; i < target; i++) result += lines[i]!.length + 1;
+  return result + Math.min(col, lines[target]!.length);
+}
+
 /** Renders only the interactive part of a question (options or text input). */
 function QuestionInput({
   field,
   draft,
+  cursor,
   optionIndex,
   listItems,
   selected,
 }: {
   field: Field;
   draft: string;
+  cursor: number;
   optionIndex: number;
   listItems: string[];
   selected: Set<string>;
@@ -547,14 +590,23 @@ function QuestionInput({
   }
   if (field.spec.kind === "multiline") {
     const lines = draft.split("\n");
+    const pos = cursorLineCol(draft, cursor);
     return (
       <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1}>
-        {lines.map((line, i) => (
-          <Text key={i}>
-            {line === "" ? " " : line}
-            {i === lines.length - 1 ? <Text inverse> </Text> : null}
-          </Text>
-        ))}
+        {lines.map((line, i) => {
+          if (i !== pos.line) {
+            return <Text key={i}>{line === "" ? " " : line}</Text>;
+          }
+          // Draw the cursor as an inverse block over the char at the column
+          // (or a trailing space when the cursor sits at end of line).
+          return (
+            <Text key={i}>
+              {line.slice(0, pos.col)}
+              <Text inverse>{line.slice(pos.col, pos.col + 1) || " "}</Text>
+              {line.slice(pos.col + 1)}
+            </Text>
+          );
+        })}
       </Box>
     );
   }
