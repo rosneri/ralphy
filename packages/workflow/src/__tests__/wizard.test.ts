@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { buildWorkflowMarkdown, type WizardAnswers } from "../wizard";
+import { applyAnswersToWorkflow, buildWorkflowMarkdown, type WizardAnswers } from "../wizard";
 import { parseWorkflow } from "../workflow";
 import { DEFAULT_WORKFLOW_MD } from "../default";
 
@@ -125,5 +125,46 @@ describe("buildWorkflowMarkdown", () => {
     const { config } = roundTrip({ mode: "quick", linear: { assignee: "me" } });
     expect(config.linear.assignee).toBe("me");
     expect(config.linear.team).toBeUndefined();
+  });
+});
+
+describe("applyAnswersToWorkflow (editing an existing file)", () => {
+  test("changes only the answered keys and preserves everything else", () => {
+    const existing = buildWorkflowMarkdown({
+      mode: "customized",
+      project: { name: "orig" },
+      linear: { team: "ENG", indicatorsPreset: "status-standard" },
+    });
+    const updated = applyAnswersToWorkflow(existing, { mode: "customized", model: "sonnet" });
+    const { config } = parseWorkflow(updated);
+    expect(config.model).toBe("sonnet"); // changed
+    expect(config.project.name).toBe("orig"); // preserved
+    expect(config.linear.team).toBe("ENG"); // preserved
+    // Existing indicators are preserved when no preset is re-chosen.
+    expect(config.linear.indicators.getTodo?.filter).toEqual([{ type: "status", value: "Todo" }]);
+  });
+
+  test("re-choosing an indicator preset overwrites the block", () => {
+    const existing = buildWorkflowMarkdown({
+      mode: "customized",
+      linear: { indicatorsPreset: "status-standard" },
+    });
+    const updated = applyAnswersToWorkflow(existing, {
+      mode: "customized",
+      linear: { indicatorsPreset: "label-standard" },
+    });
+    const { config } = parseWorkflow(updated);
+    expect(config.linear.indicators.getTodo?.filter).toEqual([
+      { type: "label", value: "ralph:todo" },
+    ]);
+  });
+
+  test("preserves unrelated body content", () => {
+    const updated = applyAnswersToWorkflow(DEFAULT_WORKFLOW_MD, {
+      mode: "customized",
+      engine: "codex",
+    });
+    expect(updated).toContain("{{ issue.identifier }}");
+    expect(parseWorkflow(updated).config.engine).toBe("codex");
   });
 });

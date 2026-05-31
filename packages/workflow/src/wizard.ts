@@ -203,3 +203,44 @@ export function buildWorkflowMarkdown(answers: WizardAnswers): string {
 
   return `---\n${frontmatter}\n---\n${body}`;
 }
+
+/**
+ * Apply wizard answers onto an EXISTING WORKFLOW.md, preserving everything the
+ * wizard does not touch (custom rules, existing indicators, comments, body).
+ * Used when editing a file that already exists. Only keys present in `answers`
+ * are written; the indicator block is rewritten only when a preset is chosen.
+ */
+export function applyAnswersToWorkflow(existing: string, answers: WizardAnswers): string {
+  const m = FRONTMATTER_RE.exec(existing);
+  if (!m) {
+    throw new Error("setup wizard: WORKFLOW.md is missing its YAML frontmatter block");
+  }
+  const body = m[2] ?? "";
+  const doc = YAML.parseDocument(m[1] ?? "");
+
+  const set = (path: string[], value: string | number | boolean): void => doc.setIn(path, value);
+
+  if (answers.project?.name) set(["project", "name"], answers.project.name);
+  if (answers.project?.language) set(["project", "language"], answers.project.language);
+  if (answers.project?.framework) set(["project", "framework"], answers.project.framework);
+  if (answers.commands?.test) set(["commands", "test"], answers.commands.test);
+  if (answers.commands?.lint) set(["commands", "lint"], answers.commands.lint);
+  if (answers.commands?.build) set(["commands", "build"], answers.commands.build);
+  if (answers.commands?.typecheck) set(["commands", "typecheck"], answers.commands.typecheck);
+  if (answers.engine) set(["engine"], answers.engine);
+  if (answers.model) set(["model"], answers.model);
+  if (answers.concurrency !== undefined) set(["concurrency"], answers.concurrency);
+  if (answers.prBaseBranch) set(["prBaseBranch"], answers.prBaseBranch);
+  if (answers.createPrOnSuccess !== undefined)
+    set(["createPrOnSuccess"], answers.createPrOnSuccess);
+  if (answers.fixCiOnFailure !== undefined) set(["fixCiOnFailure"], answers.fixCiOnFailure);
+  if (answers.useWorktree !== undefined) set(["useWorktree"], answers.useWorktree);
+  if (answers.linear?.team) set(["linear", "team"], answers.linear.team);
+  if (answers.linear?.assignee) set(["linear", "assignee"], answers.linear.assignee);
+  const preset = answers.linear?.indicatorsPreset;
+  if (preset && preset !== "none") {
+    doc.setIn(["linear", "indicators"], buildIndicators(preset));
+  }
+
+  return `---\n${doc.toString().replace(/\n+$/, "")}\n---\n${body}`;
+}

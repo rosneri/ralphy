@@ -13,6 +13,8 @@ interface Field {
   id: string;
   label: string;
   hint?: string;
+  /** What to display in the history when the field is left blank. */
+  emptyLabel?: string;
   spec: FieldSpec;
 }
 
@@ -41,12 +43,14 @@ const LINEAR_TEAM: Field = {
   id: "linear.team",
   label: "Linear team key",
   hint: "e.g. ENG — leave blank to match all teams",
+  emptyLabel: "all teams",
   spec: { kind: "text" },
 };
 const LINEAR_ASSIGNEE: Field = {
   id: "linear.assignee",
   label: "Linear assignee",
   hint: "user id, email, or 'me' — blank for unassigned",
+  emptyLabel: "unassigned",
   spec: { kind: "text" },
 };
 const LINEAR_INDICATORS: Field = {
@@ -171,20 +175,26 @@ export function assembleAnswers(
 }
 
 /** Turn the per-step answer map into the final WORKFLOW.md string. */
-function buildFromAnswers(mode: SetupMode, fields: Field[], answers: Answers): string {
+function buildFromAnswers(
+  mode: SetupMode,
+  fields: Field[],
+  answers: Answers,
+  build: (answers: WizardAnswers) => string = buildWorkflowMarkdown,
+): string {
   const collected: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(answers)) {
     const field = fields[Number(key)];
     if (field) setPath(collected, field.id, value);
   }
-  return buildWorkflowMarkdown(assembleAnswers(mode, collected));
+  return build(assembleAnswers(mode, collected));
 }
 
 /** Human-readable rendering of a recorded answer for the history list. */
 function formatAnswer(field: Field, value: AnswerValue | undefined): string {
   if (value === undefined) {
-    // Blank text/number fields fall back to the schema default the
-    // placeholder advertises; show that rather than "(skipped)".
+    // A field-specific word (e.g. "unassigned") wins; otherwise fall back to
+    // the schema default the placeholder advertises.
+    if (field.emptyLabel) return field.emptyLabel;
     if (field.spec.kind === "text" || field.spec.kind === "number") {
       return field.spec.placeholder ?? "(skipped)";
     }
@@ -209,22 +219,58 @@ function initialOptionIndex(field: Field, stored: AnswerValue | undefined): numb
   return found < 0 ? 0 : found;
 }
 
+/** Map field-id keyed values onto the step-index keyed answers map. */
+function indexedAnswers(mode: SetupMode, values: Record<string, AnswerValue>): Answers {
+  const answers: Answers = {};
+  fieldsForMode(mode).forEach((field, i) => {
+    const value = values[field.id];
+    if (value !== undefined) answers[i] = value;
+  });
+  return answers;
+}
+
 interface SetupWizardProps {
   /** Called with the finished WORKFLOW.md string. The host writes the file. */
   onComplete: (markdown: string) => void;
   /** Called when the user aborts (Esc) before finishing. */
   onCancel?: () => void;
+  /** Start directly in this mode (skips the mode picker) — used when editing. */
+  initialMode?: SetupMode;
+  /** Field-id keyed values to prefill (used when editing an existing file). */
+  initialValues?: Record<string, AnswerValue>;
+  /** Override how answers become markdown (editing applies onto the existing file). */
+  buildMarkdown?: (answers: WizardAnswers) => string;
 }
 
-export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
+export function SetupWizard({
+  onComplete,
+  onCancel,
+  initialMode,
+  initialValues,
+  buildMarkdown,
+}: SetupWizardProps) {
   const { exit } = useApp();
-  const [mode, setMode] = useState<SetupMode | null>(null);
+  const startFields = initialMode ? fieldsForMode(initialMode) : [];
+  const startAnswers = initialMode ? indexedAnswers(initialMode, initialValues ?? {}) : {};
+  const [mode, setMode] = useState<SetupMode | null>(initialMode ?? null);
   const [modeIndex, setModeIndex] = useState(0);
   const [index, setIndex] = useState(0);
-  const [maxVisited, setMaxVisited] = useState(0);
-  const [answers, setAnswers] = useState<Answers>({});
-  const [draft, setDraft] = useState("");
-  const [optionIndex, setOptionIndex] = useState(0);
+  const [maxVisited, setMaxVisited] = useState(initialMode ? startFields.length - 1 : 0);
+  const [answers, setAnswers] = useState<Answers>(startAnswers);
+  const [draft, setDraft] = useState(() => {
+    const first = startFields[0];
+    if (first && (first.spec.kind === "text" || first.spec.kind === "number")) {
+      return startAnswers[0] === undefined ? "" : String(startAnswers[0]);
+    }
+    return "";
+  });
+  const [optionIndex, setOptionIndex] = useState(() => {
+    const first = startFields[0];
+    if (first && (first.spec.kind === "select" || first.spec.kind === "confirm")) {
+      return initialOptionIndex(first, startAnswers[0]);
+    }
+    return 0;
+  });
 
   const fields = mode ? fieldsForMode(mode) : [];
   const lastIndex = fields.length - 1;
@@ -313,7 +359,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
     if (key.return) {
       const next = commitCurrent();
       if (index >= lastIndex) {
-        onComplete(buildFromAnswers(mode, fields, next));
+        onComplete(buildFromAnswers(mode, fields, next, buildMarkdown));
         exit();
       } else {
         setMaxVisited(Math.max(maxVisited, index + 1));
@@ -357,11 +403,7 @@ export function SetupWizard({ onComplete, onCancel }: SetupWizardProps) {
         {mode} setup — step {index + 1}/{fields.length}
       </Text>
       <Box marginTop={1}>
-        <Text bold>{field.label}</Text>
-        {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
-      </Box>
-      <Box marginTop={1}>
-        <CurrentInput field={field} draft={draft} optionIndex={optionIndex} />
+        <CurrentQuestion field={field} draft={draft} optionIndex={optionIndex} />
       </Box>
       <Box marginTop={1}>
         <Text dimColor>{hintFor(field.spec.kind)}</Text>
@@ -391,7 +433,7 @@ function OptionList({ options, highlight }: { options: Option[]; highlight: numb
   );
 }
 
-function CurrentInput({
+function CurrentQuestion({
   field,
   draft,
   optionIndex,
@@ -400,14 +442,65 @@ function CurrentInput({
   draft: string;
   optionIndex: number;
 }) {
+  const heading = (
+    <Text>
+      <Text bold>{field.label}:</Text>
+      {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
+    </Text>
+  );
   if (field.spec.kind === "select" || field.spec.kind === "confirm") {
-    return <OptionList options={optionsFor(field)} highlight={optionIndex} />;
+    return (
+      <Box flexDirection="column">
+        {heading}
+        <OptionList options={optionsFor(field)} highlight={optionIndex} />
+      </Box>
+    );
   }
   return (
-    <Box>
-      <Text>{"> "}</Text>
-      {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
-      <Text inverse> </Text>
+    <Box flexDirection="column">
+      <Box>
+        <Text bold>{field.label}: </Text>
+        {draft ? <Text>{draft}</Text> : <Text dimColor>{field.spec.placeholder ?? ""}</Text>}
+        <Text inverse> </Text>
+      </Box>
+      {field.hint ? <Text dimColor> ({field.hint})</Text> : null}
+    </Box>
+  );
+}
+
+const EDIT_EXIT_OPTIONS: Option[] = [
+  { label: "Edit it with the setup wizard", value: "edit" },
+  { label: "Exit without changes", value: "exit" },
+];
+
+/** Shown by `ralphy init` when WORKFLOW.md already exists. */
+export function EditOrExitPrompt({ onChoice }: { onChoice: (choice: "edit" | "exit") => void }) {
+  const { exit } = useApp();
+  const [choiceIndex, setChoiceIndex] = useState(0);
+  useInput((_input, key) => {
+    if (key.escape) {
+      onChoice("exit");
+      exit();
+      return;
+    }
+    if (key.upArrow) {
+      setChoiceIndex((choiceIndex + EDIT_EXIT_OPTIONS.length - 1) % EDIT_EXIT_OPTIONS.length);
+    } else if (key.downArrow) {
+      setChoiceIndex((choiceIndex + 1) % EDIT_EXIT_OPTIONS.length);
+    } else if (key.return) {
+      onChoice(EDIT_EXIT_OPTIONS[choiceIndex]!.value as "edit" | "exit");
+      exit();
+    }
+  });
+  return (
+    <Box flexDirection="column">
+      <Text bold>WORKFLOW.md already exists</Text>
+      <Box marginTop={1}>
+        <OptionList options={EDIT_EXIT_OPTIONS} highlight={choiceIndex} />
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>↑↓ to move · enter to choose · esc to exit</Text>
+      </Box>
     </Box>
   );
 }

@@ -6,7 +6,7 @@ import { createElement } from "react";
 import { render } from "ink-testing-library";
 import { parseWorkflow } from "@ralphy/workflow";
 import { buildWorkflowMarkdown } from "@ralphy/workflow/wizard";
-import { SetupWizard, fieldsForMode, assembleAnswers } from "../SetupWizard";
+import { SetupWizard, EditOrExitPrompt, fieldsForMode, assembleAnswers } from "../SetupWizard";
 import { maybeRunSetupWizard } from "../index";
 
 describe("fieldsForMode", () => {
@@ -142,6 +142,39 @@ describe("SetupWizard render", () => {
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
     expect(config.linear.assignee).toBe("me");
+  });
+
+  test("prefills the first question when started in edit mode", () => {
+    const { lastFrame, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: () => {},
+        initialMode: "customized",
+        initialValues: { "project.name": "svc", engine: "codex" },
+      }),
+    );
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("customized setup — step 1");
+    expect(frame).toContain("Project name: svc");
+    unmount();
+  });
+});
+
+describe("EditOrExitPrompt", () => {
+  test("mounts and reports the chosen option", async () => {
+    const DOWN = "[B";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    let choice = "";
+    const { stdin, lastFrame, unmount } = render(
+      createElement(EditOrExitPrompt, { onChoice: (value: string) => (choice = value) }),
+    );
+    await tick();
+    expect(lastFrame() ?? "").toContain("WORKFLOW.md already exists");
+    stdin.write(DOWN); // edit -> exit
+    await tick();
+    stdin.write("\r");
+    await tick();
+    unmount();
+    expect(choice).toBe("exit");
   });
 });
 
