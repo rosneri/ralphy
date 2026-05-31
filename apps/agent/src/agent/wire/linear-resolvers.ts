@@ -224,5 +224,7 @@ export function fetchDoneCandidatesWith(
   if (!indicators.setDone) return Promise.resolve([]);
   const include = markersOf(indicators.setDone);
   if (include.length === 0) return Promise.resolve([]);
-  return fetchOpenIssues(apiKey, { team, assignee, include, exclude: [] });
+  // Scan all issues in the done state regardless of assignee — conflict/CI
+  // checks should cover PRs opened by any team member, not just unassigned ones.
+  return fetchOpenIssues(apiKey, { team, anyAssignee: true, include, exclude: [] });
 }

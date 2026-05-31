@@ -57,6 +57,8 @@ export interface LinearIssue {
 export interface LinearFilterSpec {
   team?: string | undefined;
   assignee?: string | undefined;
+  /** When true, skip the assignee constraint entirely (fetch regardless of who it's assigned to). */
+  anyAssignee?: boolean | undefined;
   include?: Marker[] | undefined;
   exclude?: Marker[] | undefined;
 }
@@ -113,7 +115,9 @@ const RALPHY_ATTACHMENT_TITLE_FILTER = "Ralphy";
 export function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   if (spec.team) where.team = { key: { eq: spec.team } };
-  if (spec.assignee) {
+  if (spec.anyAssignee) {
+    // no assignee constraint — fetch regardless of who it's assigned to
+  } else if (spec.assignee) {
     if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };
     else if (spec.assignee.includes("@")) where.assignee = { email: { eq: spec.assignee } };
     else where.assignee = { id: { eq: spec.assignee } };
