@@ -1,13 +1,14 @@
 import { join } from "node:path";
 import YAML from "yaml";
 import { WorkflowConfigSchema, type WorkflowConfig } from "./schema";
-import { DEFAULT_WORKFLOW_MD } from "./default";
+import { DEFAULT_WORKFLOW_MD, FRONTMATTER_RE } from "./default";
 import { renderTemplate } from "./template";
+import { buildWorkflowMarkdown } from "./wizard";
 
 export type { WorkflowConfig } from "./schema";
 export { WorkflowConfigSchema, CURRENT_WORKFLOW_VERSION } from "./schema";
 export { renderTemplate } from "./template";
-export { DEFAULT_WORKFLOW_MD } from "./default";
+export { DEFAULT_WORKFLOW_MD, FRONTMATTER_RE } from "./default";
 export {
   computeConfirmationFlags,
   describeApprovalMarker,
@@ -21,9 +22,6 @@ export interface ParsedWorkflow {
   /** Path the workflow was read from. Empty when parsed from a literal string. */
   path: string;
 }
-
-/** Matches a YAML frontmatter block: `[1]` is the YAML, `[2]` is the body. */
-export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 
 export function parseWorkflow(text: string, path = ""): ParsedWorkflow {
   const m = FRONTMATTER_RE.exec(text);
@@ -159,7 +157,8 @@ export async function ensureWorkflow(projectRoot: string): Promise<string> {
   const path = workflowPath(projectRoot);
   const file = Bun.file(path);
   if (await file.exists()) return path;
-  await Bun.write(path, DEFAULT_WORKFLOW_MD);
+  // Write the stamped build so the file carries each setting's description.
+  await Bun.write(path, buildWorkflowMarkdown({ mode: "quick", values: {} }));
   return path;
 }
 

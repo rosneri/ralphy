@@ -15,8 +15,13 @@ function roundTrip(mode: WizardAnswers["mode"], values: Record<string, WizardVal
 }
 
 describe("buildWorkflowMarkdown", () => {
-  test("quick mode with no answers is byte-identical to the default template", () => {
-    expect(buildWorkflowMarkdown({ mode: "quick", values: {} })).toBe(DEFAULT_WORKFLOW_MD);
+  test("quick mode build is idempotent and documents each setting", () => {
+    const md = buildWorkflowMarkdown({ mode: "quick", values: {} });
+    // Stamping descriptions is stable: re-applying no answers changes nothing.
+    expect(applyAnswersToWorkflow(md, { mode: "quick", values: {} })).toBe(md);
+    // Each setting carries its field description as a comment (single source).
+    expect(md).toContain("# How many tasks Ralphy works on at once");
+    expect(md).toContain("concurrency: 1");
   });
 
   test("stamps the current schema version on the default template", () => {
@@ -31,10 +36,11 @@ describe("buildWorkflowMarkdown", () => {
     expect(config.createPrOnSuccess).toBe(false);
   });
 
-  test("preserves the template body and comments", () => {
+  test("preserves the template body and structural comments", () => {
     const { md, body } = roundTrip("quick", { "project.name": "demo" });
     expect(body).toContain("{{ issue.identifier }}");
-    expect(md).toContain("# ─── Engine ─");
+    // version + meta_only_files have no field, so their own comments survive.
+    expect(md).toContain("# WORKFLOW.md schema version");
     expect(md).toContain("meta_only_files:");
   });
 

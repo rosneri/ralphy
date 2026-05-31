@@ -1,9 +1,14 @@
 /**
- * Canonical default `WORKFLOW.md` written by `ralph init` when no file exists.
- * Top-level keys are grouped into thematic sections (scheduling, limits,
- * engine, worktree, PRs, CI, base-branch gate, Linear). Indicator examples
- * sit under the state they belong to so get/set/clear read top-to-bottom.
+ * Canonical default `WORKFLOW.md` skeleton. This holds only the settings and
+ * their values — the explanatory comment above each one is stamped in from the
+ * field catalogue's descriptions at build time (see wizard.ts), so the inline
+ * docs have a single source. Comments here are limited to keys that have no
+ * catalogue field (the schema `version`, `meta_only_files`) plus the indicator
+ * examples block, which `ralphy init`'s indicator builder complements.
  */
+/** Matches a YAML frontmatter block: `[1]` is the YAML, `[2]` is the body. */
+export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+
 export const DEFAULT_WORKFLOW_MD = `---
 # WORKFLOW.md schema version — managed by \`ralphy init\`. When a newer version
 # ships, re-running init migrates this file and fills in the new settings.
@@ -37,223 +42,72 @@ boundaries:
     - "**/tasks.md"
     - "**/MANUAL_TESTING*.md"
 
-# ─── Scheduling ──────────────────────────────────────────────
-# How many tasks to run in parallel.
 concurrency: 1
-# Seconds between polls for new Linear issues (agent mode).
 pollIntervalSeconds: 60
-# Seconds to wait between loop iterations (throttle).
 iterationDelaySeconds: 0
 
-# ─── Per-task limits (0 = unlimited) ─────────────────────────
 maxIterationsPerTask: 0
 maxCostUsdPerTask: 0
 maxRuntimeMinutesPerTask: 0
-# Stop a task after this many consecutive identical failures.
 maxConsecutiveFailuresPerTask: 5
 
-# ─── Engine ──────────────────────────────────────────────────
-# Underlying engine: "claude" or "codex".
 engine: claude
-# Model tier: "haiku", "sonnet", or "opus".
 model: opus
-# Log the raw engine stream to stdout.
 logRawStream: false
-# Pass --verbose to the ralph task sub-process.
 taskVerbose: false
 
-# ─── Worktree ────────────────────────────────────────────────
-# Run each task in an isolated git worktree.
 useWorktree: false
-# Delete the worktree after a successful task.
 cleanupWorktreeOnSuccess: false
 
-# ─── Pull requests ───────────────────────────────────────────
-# Open a pull request after a task succeeds.
 createPrOnSuccess: false
-# Base branch for pull requests.
 prBaseBranch: main
-# When true, stack dependent issues' PRs onto their blocker's open PR.
 stackPrsOnDependencies: false
-# Strategy used when GitHub auto-merge is enabled.
 autoMergeStrategy: squash
 
-# ─── CI auto-fix ─────────────────────────────────────────────
-# Let the agent attempt to fix CI failures after a PR is created.
 fixCiOnFailure: false
-# Maximum number of CI-fix attempts per task.
 maxCiFixAttempts: 5
-# Seconds between CI status polls.
 ciPollIntervalSeconds: 30
 
-# ─── Base-branch health gate ─────────────────────────────────
-# Pre-existing error check: gate the agent when the base branch is already
-# broken. When enabled, the agent runs these commands against the base
-# branch HEAD before scheduling new work; failures open a Linear ticket
-# and pause new pickups.
 preExistingErrorCheck:
   enabled: false
-  # Commands to run against the base branch. When empty, falls back to commands.lint / commands.test.
   commands: []
   baseBranch: main
   label: "ralph:pre-existing-error"
   outputCharLimit: 4000
 
-# ─── OpenSpec review phase ────────────────────────────────────
-# After all tasks complete, spawn a fresh reviewer session that reads the
-# diff and writes findings to review-findings.md. If open findings remain
-# and the round cap hasn't been reached, the loop cycles back to implement.
-# openspec:
-#   reviewPhase:
-#     enabled: false
-#     # Maximum review→fix cycles before the change is archived anyway.
-#     maxRounds: 1
-#     # Model for the review pass. Defaults to the main \`model\` when omitted.
-#     # Set a cheaper model (e.g. "haiku") to save cost on review passes.
-#     # reviewerModel: haiku
-#     # "fresh" starts a new session; "warm" resumes the last task session.
-#     reviewerContextStrategy: fresh
-
-# ─── Linear integration ──────────────────────────────────────
 linear:
-  # Linear team key (e.g. "ENG"). Omit to match all teams.
-  # team: ENG
-
-  # Post progress comments on the Linear issue while a task is running.
   postComments: true
-  # Post a progress update every N iterations. 0 disables.
   updateEveryIterations: 10
-
-  # Watch done-issue comments + linked GitHub PR comments for @ralphy mentions.
   mentionTrigger: true
   mentionHandle: "@ralphy"
-
-  # Watch open tracked PRs for unresolved review-thread comments.
   codeReviewTrigger: true
   codeReviewStaleHours: 24
-
-  # Mirror the loop's tasks.md into a sticky Linear comment (always the
-  # last comment on the issue). Updates on worker launch, on the same
-  # cadence as updateEveryIterations, and on done-transition.
   syncTasksToComment: true
-
-  # Upload openspec proposal.md and design.md as Linear attachments on the
-  # parent issue. Refreshed when file contents change, no-op otherwise.
-  # Requires syncTasksToComment.
   syncSpecsAsAttachments: true
-
-  # Which rendered formats to upload alongside each spec. "md" mirrors
-  # the source file as-is. Add "pdf" to also upload a pdfkit-rendered
-  # PDF as a peer attachment (handy when viewing Linear on mobile).
   specAttachmentFormats: ["md"]
-
-  # Confirmation mode — opt-in human gate between the OpenSpec \`tasks\`
-  # and \`implement\` phases. When \`enabled: true\`, after the agent
-  # finishes drafting tasks it posts a one-shot "📋 Ralphy plan ready"
-  # comment and parks the ticket in \`awaiting-confirmation\` until a
-  # human reacts:
-  #   • Approve  → apply the \`getApproved\` label (Ralphy then strips
-  #                it via \`clearApproved\` and moves on to implement).
-  #   • Revise   → leave a \`@ralphy revise: <reason>\` comment. Ralphy
-  #                writes the reason into steering, bumps the round
-  #                counter, and loops back to \`design\`.
-  #   • Skip     → match the ticket with \`getAutoApprove\` indicator
-  #                to bypass the gate entirely.
-  # confirmationMode:
-  #   enabled: true
-  #   timeoutHours: 48
-  #   maxConfirmationRounds: 3
-
-  # Indicators map Ralph lifecycle events to Linear labels/statuses.
-  #
-  # Filter semantics (per indicator's \`filter:\` list):
-  #   • Entries of the SAME type (e.g. two \`status\` entries) are ORed
-  #     — the issue matches if any value matches.
-  #   • Entries of DIFFERENT types (one \`status\` + one \`label\`) are
-  #     ANDed — the issue must satisfy every type.
-  #   Example: a filter with two statuses + one label matches issues
-  #   where status ∈ {A, B} AND label = L.
-  #
-  # Sections below group one state at a time; its get/set/clear sit
-  # adjacent so the lifecycle reads top-to-bottom.
   indicators:
-    # ── Todo (pickup trigger) ────────────
-    # getTodo:
+    # Indicators map Ralph lifecycle events to Linear labels/statuses. Within an
+    # indicator's \`filter:\` list, entries of the SAME type are ORed and entries
+    # of DIFFERENT types are ANDed. \`ralphy init\` can build these for you; the
+    # blocks below are copy-paste examples (uncomment and edit to use).
+    #
+    # getTodo:           # which issues to pick up
     #   filter:
     #     - type: status
     #       value: Todo
-    #
-    # ── In Progress ──────────────────────
-    # getInProgress:
-    #   filter:
-    #     - type: status
-    #       value: In Progress
-    # setInProgress:
+    # setInProgress:     # status/label to set when work starts
     #   type: status
     #   value: In Progress
-    #
-    # ── Done ─────────────────────────────
-    # setDone:
+    # setDone:           # status/label to set when the PR is opened
     #   type: status
     #   value: In Review
-    #
-    # ── Merge state (conflicted / ci-failed / mergeable) ─
-    # Driven by GitHub directly via \`gh pr view\` — no Linear
-    # indicators here. Tickets whose PR is conflicting or red on CI
-    # are queued for the matching fix flow automatically each poll.
-    #
-    # ── Confirmation gate (opt-in) ───────
-    # Pairs with linear.confirmationMode above. The agent parks gated
-    # tickets in \`awaiting-confirmation\` until \`getApproved\` matches,
-    # then strips the marker via \`clearApproved\` and proceeds.
-    #
-    # getConfirmGate: when set, only gate tickets that match (opt-in mode).
-    # getConfirmGate:
-    #   filter:
-    #     - type: label
-    #       value: "ralph:needs-review"
-    # getAutoApprove: when set, bypass the gate for matching tickets (opt-out mode).
-    # getAutoApprove:
-    #   filter:
-    #     - type: label
-    #       value: "ralph:auto-approve"
-    # getApproved:
-    #   filter:
-    #     - type: label
-    #       value: "ralph:approved"
-    # clearApproved:
+    # setError:          # label applied when a task is quarantined
     #   type: label
-    #   value: "ralph:approved"
-    # # Optional: surface the parked state on the ticket itself. Applied
-    # # once on gate-entry; removed on every release path.
-    # setAwaitingConfirmation:
-    #   type: label
-    #   value: "ralph:awaiting-confirmation"
-    # clearAwaitingConfirmation:
-    #   type: label
-    #   value: "ralph:awaiting-confirmation"
-    #
-    # ── Auto-merge (opt-in) ──────────────
-    # getAutoMerge:
+    #   value: "ralph:error"
+    # getAutoMerge:      # opt-in: only auto-merge issues that match
     #   filter:
     #     - type: label
     #       value: "ralph:auto-merge"
-    #
-    # ── Error quarantine ─────────────────
-    # setError:
-    #   type: label
-    #   value: "ralph:error"
-    #
-    # # Project-based filter / assignment
-    # # getTodo can filter by Linear project name, and setInProgress can
-    # # reassign the issue into a different project.
-    # getTodo:
-    #   filter:
-    #     - type: project
-    #       value: "Ralph Queue"
-    # setInProgress:
-    #   type: project
-    #   value: "Ralph In Progress"
 ---
 You are working on {{ issue.identifier }}: {{ issue.title }}.
 

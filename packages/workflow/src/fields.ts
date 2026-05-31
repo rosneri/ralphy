@@ -640,3 +640,14 @@ export function modelOptionValues(): string[] {
   const field = findField("model");
   return field && field.spec.kind === "select" ? field.spec.options.map((o) => o.value) : [];
 }
+
+/**
+ * Field descriptions keyed by frontmatter path — the single source for the
+ * comment pasted above each setting in a generated WORKFLOW.md. The builder
+ * stamps these onto live keys, so the wizard's on-screen help and the file's
+ * inline docs never drift.
+ */
+export const FIELD_DESCRIPTIONS: { path: string[]; description: string }[] =
+  CUSTOMIZED_FIELDS.filter((field): field is Field & { description: string } =>
+    Boolean(field.description),
+  ).map((field) => ({ path: field.id.split("."), description: field.description }));

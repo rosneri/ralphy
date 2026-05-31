@@ -11,9 +11,9 @@
  */
 
 import YAML from "yaml";
-import { DEFAULT_WORKFLOW_MD } from "./default";
+import { DEFAULT_WORKFLOW_MD, FRONTMATTER_RE } from "./default";
 import { CURRENT_WORKFLOW_VERSION } from "./schema";
-import { FRONTMATTER_RE } from "./workflow";
+import { FIELD_DESCRIPTIONS } from "./fields";
 
 export type SetupMode = "quick" | "permissive" | "customized";
 
@@ -69,6 +69,45 @@ function withPresets(answers: WizardAnswers): Record<string, WizardValue> {
   return values;
 }
 
+/** Wrap a description into space-prefixed comment lines (~74 cols). */
+function toCommentLines(text: string): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line && `${line} ${word}`.length > 74) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.map((l) => ` ${l}`).join("\n");
+}
+
+/**
+ * Stamp each catalogue field's description as a comment above its key, so the
+ * generated file documents every setting from the single source (the wizard
+ * field descriptions). Only live keys are touched; commented-out example
+ * blocks and keys without a field (e.g. `version`) keep their own comments.
+ */
+function stampDescriptions(doc: YAML.Document): void {
+  for (const { path, description } of FIELD_DESCRIPTIONS) {
+    const parent = path.length === 1 ? doc.contents : doc.getIn(path.slice(0, -1), true);
+    if (!YAML.isMap(parent)) continue;
+    const leaf = path[path.length - 1];
+    const pair = parent.items.find(
+      (item) => YAML.isScalar(item.key) && String(item.key.value) === leaf,
+    );
+    if (!pair || !YAML.isScalar(pair.key)) continue;
+    // A comment above the FIRST key of a nested block map round-trips onto the
+    // map node itself, not the key — clear it so re-stamping stays idempotent
+    // (the description is re-applied to the key just below).
+    if (parent !== doc.contents && parent.items[0] === pair) parent.commentBefore = null;
+    pair.key.commentBefore = toCommentLines(description);
+  }
+}
+
 /** Parse `markdown`, set every answered value at its dotted path, re-emit. */
 function applyToMarkdown(markdown: string, values: Record<string, WizardValue>): string {
   const m = FRONTMATTER_RE.exec(markdown);
@@ -80,9 +119,10 @@ function applyToMarkdown(markdown: string, values: Record<string, WizardValue>):
     doc.setIn(id.split("."), value);
   }
   // Always stamp the current schema version so every written/migrated file is
-  // marked. On the default template this key already holds the current value,
-  // so the round-trip stays byte-identical; on a legacy file it adds the key.
+  // marked. On a legacy file this adds the key.
   doc.setIn(["version"], CURRENT_WORKFLOW_VERSION);
+  // Document every live setting with its description (single source).
+  stampDescriptions(doc);
   const body = m[2] ?? "";
   const frontmatter = doc.toString({ flowCollectionPadding: false }).replace(/\n+$/, "");
   return `---\n${frontmatter}\n---\n${body}`;
