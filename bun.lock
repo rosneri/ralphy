@@ -14,7 +14,7 @@
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@nx/devkit": "^22.7.1",
         "@nx/js": "^22.7.1",
-        "@rosneri/xstate-mcp": "^0.1.4",
+        "@rosneri/xstate-mcp": "^0.1.8",
         "@secretlint/secretlint-rule-preset-recommend": "^11.7.1",
         "@swc-node/register": "^1.11.1",
         "@swc/core": "^1.15.33",
@@ -942,7 +942,7 @@
 
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.60.2", "", { "os": "win32", "cpu": "x64" }, "sha512-Nd/SgG27WoA9e+/TdK74KnHz852TLa94ovOYySo/yMPuTmpckK/jIF2jSwS3g7ELSKXK13/cVdmg1Z/DaCWKxA=="],
 
-    "@rosneri/xstate-mcp": ["@rosneri/xstate-mcp@0.1.4", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "xstate": "^5.32.0", "zod": "^4.3.6" }, "bin": { "xstate-mcp": "bin/xstate-mcp.ts" } }, "sha512-agvaRhM6eTXntmgPlnIV+QZ6bCpJeVL7sBA12N/izQ2VQ7/2b1pK0mvrbw9bYYRdBO+e9Loi/V8rYEOTQle2Gg=="],
+    "@rosneri/xstate-mcp": ["@rosneri/xstate-mcp@0.1.8", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.29.0", "xstate": "^5.32.0", "zod": "^4.3.6" }, "bin": { "xstate-mcp": "bin/xstate-mcp.ts" } }, "sha512-+0XI/ZFLIlGLbg6RWmsCZQVGJ+8yblnUImqwbbKxRm2KxPy9OmrITK4GjoMT8YAez6DdLyxwU4/txtLJ4TBX6g=="],
 
     "@secretlint/config-creator": ["@secretlint/config-creator@11.7.1", "", { "dependencies": { "@secretlint/types": "11.7.1" } }, "sha512-ET4EXYzSjl1EgwZRJmU/2NjQVIW4u+2nIZu4hs6Og5ys2MbSEheHNoBXOifQOZDgObleP8S9aU3BV2bUqPEQxw=="],
 
