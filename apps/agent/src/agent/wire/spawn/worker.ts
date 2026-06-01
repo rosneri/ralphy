@@ -13,6 +13,7 @@ import { issueMatchesGetIndicator, type LinearIssue } from "../../linear";
 import { runPostTask, type PostTaskPhase, type PostTaskMode } from "../../post-task";
 import type { QueueTrigger } from "../../coordinator";
 import { defaultSpawn } from "./default";
+import { releaseChangeWorktreeMaps } from "./release-maps";
 import { traceCmdRunner, type AgentRunners } from "../runners";
 import { resolveDependencyBaseBranchImpl } from "../pr-helpers";
 import { waitForMergeability } from "../../../shared/pr/wait-for-mergeability";
@@ -353,10 +354,18 @@ export function createSpawnWorker(
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
         },
       );
-      cwdByChange.delete(changeName);
-      statesDirByChange.delete(changeName);
-      branchByChange.delete(changeName);
-      issueByChange.delete(changeName);
+      // Reaped-for-awaiting exits keep their worktree bookkeeping: the
+      // coordinator's post-reap syncTasks flush still needs `cwdByChange` to
+      // resolve the worktree change dir (otherwise design.md never uploads —
+      // RLF-204). A terminal exit clears everything.
+      const awaitingConfirmation =
+        awaitingChangeSet.has(changeName) ||
+        (coordRef.current?.isAwaitingConfirmation(changeName) ?? false);
+      releaseChangeWorktreeMaps(
+        changeName,
+        { cwdByChange, statesDirByChange, branchByChange, issueByChange },
+        { awaitingConfirmation },
+      );
       onWorkerExited(changeName);
       return effectiveCode;
     });
