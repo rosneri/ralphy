@@ -6,6 +6,7 @@
   "exports": {
     "./state": "./src/state/store.ts",
     "./git": "./src/git.ts",
+    "./repo": "./src/repo/index.ts",
     "./format": "./src/format.ts",
     "./init": "./src/init.ts",
     "./loop": "./src/loop.ts",

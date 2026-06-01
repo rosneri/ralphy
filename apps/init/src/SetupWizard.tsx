@@ -11,9 +11,12 @@ import type {
 import {
   fieldsForMode,
   PROMPT_BODY_FIELD_ID,
+  REPO_LINK_FIELD_ID,
   type Field,
   type FieldSpec,
 } from "@ralphy/workflow/fields";
+
+const REPO_ANSWER_IDS = ["repo.remote", "repo.host", "repo.owner", "repo.name"] as const;
 
 interface Option {
   label: string;
@@ -85,6 +88,15 @@ export function buildFromAnswers(
       map.clearApproved = { type: "label", value: "approved" };
       values["linear.indicators"] = map;
     }
+  }
+  // `repo.link` is a control answer, not a frontmatter key. When confirmed, the
+  // injected `repo.*` identity is written; when declined (or never shown), the
+  // identity is dropped so no `repo` block is emitted. Either way the control
+  // answer itself is removed so it never lands in the file.
+  const linkRepo = values[REPO_LINK_FIELD_ID] === true;
+  delete values[REPO_LINK_FIELD_ID];
+  if (!linkRepo) {
+    for (const id of REPO_ANSWER_IDS) delete values[id];
   }
   // The prompt body is not a frontmatter setting — pull it out and pass it as
   // the body override instead of writing it as a key.
@@ -186,6 +198,8 @@ interface SetupWizardProps {
   onlyFields?: string[];
   /** Current prompt-body text, pre-filled into the "customize prompt" step. */
   initialBody?: string;
+  /** Detected git repo, surfaced above the `repo.link` step. */
+  detectedRepo?: { owner: string; name: string };
 }
 
 export function SetupWizard({
@@ -196,6 +210,7 @@ export function SetupWizard({
   buildMarkdown,
   onlyFields,
   initialBody,
+  detectedRepo,
 }: SetupWizardProps) {
   const { exit } = useApp();
   const startValues = initialValues ?? {};
@@ -274,10 +289,15 @@ export function SetupWizard({
   // In diff mode we prefill every config value so gating works, but only the
   // diff fields should be written back — otherwise a sparse legacy file gains a
   // cluster of materialized defaults it never asked for.
-  const valuesToWrite = (source: Answers): Answers =>
-    onlyFields
-      ? Object.fromEntries(Object.entries(source).filter(([id]) => onlyFields.includes(id)))
-      : source;
+  const valuesToWrite = (source: Answers): Answers => {
+    if (!onlyFields) return source;
+    const allowed = new Set(onlyFields);
+    // The `repo.*` identity is injected, not walked through. When the diff
+    // includes the `repo.link` control field, keep the identity ids so the
+    // builder can write (or drop) the block based on the confirmation.
+    if (allowed.has(REPO_LINK_FIELD_ID)) for (const id of REPO_ANSWER_IDS) allowed.add(id);
+    return Object.fromEntries(Object.entries(source).filter(([id]) => allowed.has(id)));
+  };
 
   const advance = (source: Answers): void => {
     const nextFields = fieldsFor(mode!, source);
@@ -466,6 +486,14 @@ export function SetupWizard({
 
       {/* Current question: title → description → space → input */}
       <Box marginTop={1} flexDirection="column">
+        {field.id === REPO_LINK_FIELD_ID && detectedRepo ? (
+          <Text>
+            <Text dimColor>Detected repo: </Text>
+            <Text color="cyan">
+              {detectedRepo.owner}/{detectedRepo.name}
+            </Text>
+          </Text>
+        ) : null}
         <Text>
           <Text color="cyan">? </Text>
           <Text bold>{field.label}</Text>

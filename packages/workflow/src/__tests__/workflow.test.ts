@@ -154,6 +154,29 @@ describe("parseWorkflow", () => {
     expect(config.linear.codeReviewTrigger).toBe(true);
   });
 
+  test("parses an optional repo block", () => {
+    const { config } = parseWorkflow(
+      `---\nrepo:\n  remote: git@github.com:acme/widgets.git\n  host: github.com\n  owner: acme\n  name: widgets\n---\n`,
+    );
+    expect(config.repo).toEqual({
+      remote: "git@github.com:acme/widgets.git",
+      host: "github.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  test("a file without a repo block still validates (repo is undefined)", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.repo).toBeUndefined();
+  });
+
+  test("rejects an unknown key inside the strict repo block", () => {
+    expect(() =>
+      parseWorkflow(`---\nrepo:\n  owner: acme\n  name: widgets\n  branch: main\n---\n`),
+    ).toThrow();
+  });
+
   test("project marker in getTodo.filter round-trips through parseWorkflow", () => {
     const { config } = parseWorkflow(
       `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: project\n          value: "Ralph Queue"\n---\n`,

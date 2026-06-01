@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@ralphy/core": "workspace:*",
     "@ralphy/paths": "workspace:*",
     "@ralphy/workflow": "workspace:*",
     "ink": "^5.1.0",
