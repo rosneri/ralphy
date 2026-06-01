@@ -37,15 +37,18 @@ function createdAtOf(status: PrStatus | null): string {
 }
 
 /**
- * Sort by (tier asc, issueCreatedAt asc, prCreatedAt asc, bucketOrder asc, identifier asc).
- * `issueCreatedAt` is the Linear issue's createdAt — FIFO within a tier, so
- * older work drains first (RLF-36). The PR createdAt remains as a deeper
- * tiebreaker for legacy cases. Empty strings sort before any ISO timestamp;
- * `bucketOrder` keeps no-PR/no-createdAt rows in their original Linear order.
+ * Sort by (tier asc, bucketOrder asc, issueCreatedAt asc, prCreatedAt asc, identifier asc).
+ * Within a tier, `bucketOrder` is the hierarchical backlog rank (project →
+ * milestone → item) so the list matches the queue's pickup order for the same
+ * input. `issueCreatedAt` (the Linear issue's createdAt) and the PR createdAt
+ * remain as deeper FIFO tiebreakers for rows the hierarchy leaves equal; empty
+ * strings sort before any ISO timestamp. The hierarchical rank already folds in
+ * createdAt among equal-priority items, so older work still drains first.
  */
 export function sortRows<R extends SortableRow>(rows: R[]): R[] {
   const cmp = chain<R>(
     (a, b) => assignTier(a.status) - assignTier(b.status),
+    (a, b) => a.bucketOrder - b.bucketOrder,
     (a, b) => {
       const ia = a.issueCreatedAt;
       const ib = b.issueCreatedAt;
@@ -60,7 +63,6 @@ export function sortRows<R extends SortableRow>(rows: R[]): R[] {
       if (ca === cb) return 0;
       return ca < cb ? -1 : 1;
     },
-    (a, b) => a.bucketOrder - b.bucketOrder,
     (a, b) => a.identifier.localeCompare(b.identifier),
   );
   return [...rows].sort(cmp);

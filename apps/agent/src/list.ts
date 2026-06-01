@@ -13,6 +13,8 @@ import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
+import { orderIssuesHierarchically } from "@ralphy/core/ordering";
+import { linearIssueToOrderable } from "./queue/queue-order";
 import { getPrChecksStatus } from "./agent/ci";
 import { RALPHY_ATTACHMENT_TITLE } from "./shared/capabilities/linear-client";
 import { unionMarkers } from "./agent/wire/indicators";
@@ -222,6 +224,19 @@ export function formatPrStatusMarker(status: PrStatus | null, failedCheckNames?:
   return parts.join(" ");
 }
 
+/**
+ * Compute the hierarchical backlog rank (project → milestone → item) for a set
+ * of issues, keyed by issue id. `agent list` uses this as each row's
+ * `bucketOrder` so the rendered order matches the agent queue's pickup order
+ * for the same input. Pure (no IO); exported for consistency tests.
+ */
+export function backlogRankByIssueId(issues: LinearIssue[]): Map<string, number> {
+  const ordered = orderIssuesHierarchically(issues.map((issue) => linearIssueToOrderable(issue)));
+  const rankById = new Map<string, number>();
+  ordered.forEach((o, i) => rankById.set(o.id, i));
+  return rankById;
+}
+
 async function fetchAndPrintLinear(
   apiKey: string,
   buckets: Bucket[],
@@ -258,17 +273,21 @@ async function fetchAndPrintLinear(
     }
   }
 
-  // Dedupe by issue id, remembering bucket label and original Linear order.
+  // Dedupe by issue id, remembering bucket label and the source issue (the
+  // first bucket wins, as before).
   const seen = new Map<string, UnifiedRow>();
-  let order = 0;
+  const issueById = new Map<string, LinearIssue>();
   for (const { bucket, issues } of bucketResults) {
     for (const issue of issues) {
       if (seen.has(issue.id)) continue;
+      issueById.set(issue.id, issue);
       seen.set(issue.id, {
         issueId: issue.id,
         identifier: issue.identifier,
         status: null,
-        bucketOrder: order++,
+        // Filled in below from the hierarchical backlog order so the list
+        // matches the queue's pickup order for the same input.
+        bucketOrder: 0,
         issueCreatedAt: issue.createdAt,
         bucketLabel: bucket.label,
         stateName: issue.state.name,
@@ -279,6 +298,12 @@ async function fetchAndPrintLinear(
     }
   }
   const rows = [...seen.values()];
+
+  // Order issues hierarchically (project → milestone → item) and use that rank
+  // as each row's bucketOrder, so `agent list` and the agent queue agree on
+  // ordering for the same input.
+  const rankById = backlogRankByIssueId([...issueById.values()]);
+  for (const row of rows) row.bucketOrder = rankById.get(row.issueId) ?? 0;
 
   // Resolve PR URLs via a single bulk attachments query (one Linear request
   // for every row, instead of N parallel calls). Falls back to a per-row

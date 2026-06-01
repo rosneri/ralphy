@@ -298,6 +298,51 @@ describe("fetchOpenIssues", () => {
     expect(issues).toEqual([]);
   });
 
+  test("populates project.priority and milestone when present", async () => {
+    const node = makeIssueNode({
+      project: { id: "proj-1", name: "Platform", priority: 2 },
+      projectMilestone: {
+        id: "ms-1",
+        name: "Beta",
+        sortOrder: 1.5,
+        targetDate: "2026-03-01",
+      },
+    });
+    stubResponses([ok({ issues: { nodes: [node] } })]);
+    const issues = await fetchOpenIssues("k", {});
+    expect(issues[0]!.project).toEqual({ id: "proj-1", name: "Platform", priority: 2 });
+    expect(issues[0]!.milestone).toEqual({
+      id: "ms-1",
+      name: "Beta",
+      sortOrder: 1.5,
+      targetDate: "2026-03-01",
+    });
+  });
+
+  test("leaves project.priority and milestone undefined when absent", async () => {
+    const node = makeIssueNode({
+      project: { id: "proj-1", name: "Platform" },
+      projectMilestone: null,
+    });
+    stubResponses([ok({ issues: { nodes: [node] } })]);
+    const issues = await fetchOpenIssues("k", {});
+    expect(issues[0]!.project).toEqual({ id: "proj-1", name: "Platform" });
+    expect(issues[0]!.project!.priority).toBeUndefined();
+    expect(issues[0]!.milestone).toBeUndefined();
+    // existing blockedByIds mapping unchanged
+    expect(issues[0]!.blockedByIds).toEqual([]);
+  });
+
+  test("omits milestone.targetDate when null", async () => {
+    const node = makeIssueNode({
+      projectMilestone: { id: "ms-1", name: "Beta", sortOrder: 0, targetDate: null },
+    });
+    stubResponses([ok({ issues: { nodes: [node] } })]);
+    const issues = await fetchOpenIssues("k", {});
+    expect(issues[0]!.milestone).toEqual({ id: "ms-1", name: "Beta", sortOrder: 0 });
+    expect(issues[0]!.milestone!.targetDate).toBeUndefined();
+  });
+
   test("includes comments slice when includeComments is true", async () => {
     const node = makeIssueNode({
       comments: {
