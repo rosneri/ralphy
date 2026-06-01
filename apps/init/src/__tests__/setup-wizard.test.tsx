@@ -10,7 +10,7 @@ import {
   buildWorkflowMarkdown,
   indicatorsForPreset,
 } from "@ralphy/workflow/wizard";
-import { fieldsForMode } from "@ralphy/workflow/fields";
+import { AWAITING_STATUS_FIELD_ID, fieldsForMode } from "@ralphy/workflow/fields";
 import {
   SetupWizard,
   EditOrExitPrompt,
@@ -500,6 +500,44 @@ describe("confirmation indicators in the wizard", () => {
     const slots = CONFIRMATION_STATES.flatMap((s) => s.slots);
     expect(slots).not.toContain("getConfirmGate");
     expect(slots).toContain("getApproved");
+  });
+});
+
+describe("awaiting-confirmation park status", () => {
+  test("a park status wires setAwaitingConfirmation and the getInProgress pickup", () => {
+    const md = buildFromAnswers("customized", {
+      "linear.indicators": "status-standard",
+      "linear.confirmationMode.enabled": true,
+      [AWAITING_STATUS_FIELD_ID]: "Planned",
+    });
+    const ind = parseWorkflow(md).config.linear.indicators;
+    expect(ind.setAwaitingConfirmation).toEqual({ type: "status", value: "Planned" });
+    // Parked tickets must stay pollable: the park status joins In Progress.
+    expect(ind.getInProgress?.filter).toContainEqual({ type: "status", value: "Planned" });
+    expect(ind.getInProgress?.filter).toContainEqual({ type: "status", value: "In Progress" });
+    // Approval signal is still injected by the gate.
+    expect(ind.getApproved?.filter).toContainEqual({ type: "label", value: "approved" });
+    // The control field never becomes a frontmatter key.
+    expect(md).not.toContain("awaitingStatus");
+  });
+
+  test("a blank park status leaves indicators untouched and is not persisted", () => {
+    const md = buildFromAnswers("customized", {
+      "linear.indicators": "status-standard",
+      "linear.confirmationMode.enabled": true,
+      [AWAITING_STATUS_FIELD_ID]: "   ",
+    });
+    const ind = parseWorkflow(md).config.linear.indicators;
+    expect(ind.setAwaitingConfirmation).toBeUndefined();
+    expect(ind.getInProgress?.filter).toEqual([{ type: "status", value: "In Progress" }]);
+    expect(md).not.toContain("awaitingStatus");
+  });
+
+  test("the park-status step is gated on the confirmation toggle", () => {
+    expect(fieldsForMode("customized", {}).map((f) => f.id)).not.toContain(AWAITING_STATUS_FIELD_ID);
+    expect(
+      fieldsForMode("customized", { "linear.confirmationMode.enabled": true }).map((f) => f.id),
+    ).toContain(AWAITING_STATUS_FIELD_ID);
   });
 });
 
