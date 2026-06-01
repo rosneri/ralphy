@@ -162,6 +162,11 @@ linear:
   # Leave blank to watch every team.
   team: RLF
 
+  # Which issues to pick up by assignee. `assignee = any` watches every
+  # issue regardless of assignee (including unassigned); `assignee = me`
+  # only picks up issues assigned to the API key's user.
+  filter: assignee = any
+
   # Post progress comments on the Linear issue while a task runs.
   postComments: true
   # Post a progress comment every N loop iterations. 0 turns periodic updates
