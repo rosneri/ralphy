@@ -86,7 +86,7 @@ iterationDelaySeconds: 0
 logRawStream: true
 
 # Run the per-task process with --verbose for extra diagnostic output.
-taskVerbose: true
+taskVerbose: false
 
 # Add a phase that pauses for a human to manually test the change (e.g. in
 # the UI) before the task is marked done.
