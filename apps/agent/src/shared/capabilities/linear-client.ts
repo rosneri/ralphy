@@ -381,6 +381,7 @@ export async function fetchMentionScanIssues(
   spec: {
     team?: string | undefined;
     assignee?: string | undefined;
+    anyAssignee?: boolean | undefined;
     /** RLF-208: when non-empty, constrain the scan to these ticket numbers. */
     numbers?: number[] | undefined;
     indicators: {
@@ -406,8 +407,11 @@ export async function fetchMentionScanIssues(
   const where: Record<string, unknown> =
     branches.length === 1 ? { ...branches[0] } : { or: branches };
   if (spec.team) where.team = { key: { eq: spec.team } };
-  if (spec.assignee) {
+  if (spec.anyAssignee || spec.assignee === "any") {
+    // no assignee constraint — scan regardless of who it's assigned to
+  } else if (spec.assignee) {
     if (spec.assignee === "me") where.assignee = { isMe: { eq: true } };
+    else if (spec.assignee === "unassigned") where.assignee = { null: true };
     else if (spec.assignee.includes("@")) where.assignee = { email: { eq: spec.assignee } };
     else where.assignee = { id: { eq: spec.assignee } };
   }

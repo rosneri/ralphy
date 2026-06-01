@@ -29,7 +29,7 @@ describe("fieldsForMode", () => {
     expect(fieldsForMode("quick").map((f) => f.id)).toEqual([
       "project.name",
       "linear.team",
-      "linear.assignee",
+      "linear.filter",
     ]);
     expect(fieldsForMode("permissive").map((f) => f.id)).toEqual(
       fieldsForMode("quick").map((f) => f.id),
@@ -110,14 +110,14 @@ describe("SetupWizard render", () => {
     await tick();
     await type("demo"); // project name
     await type("ENG"); // linear team
-    await type("me"); // linear assignee
+    await type("assignee = me"); // linear filter
     unmount();
 
     expect(result).not.toBeNull();
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
     expect(config.linear.team).toBe("ENG");
-    expect(config.linear.assignee).toBe("me");
+    expect(config.linear.filter).toBe("assignee = me");
   });
 
   test("down arrow switches options and enter confirms (mode picker)", async () => {
@@ -161,9 +161,9 @@ describe("SetupWizard render", () => {
     expect(backFrame).toContain("quick · step 1");
     stdin.write(RIGHT); // forward to team again (name preserved)
     await tick();
-    stdin.write(ENTER); // team blank -> assignee
+    stdin.write(ENTER); // team blank -> filter
     await tick();
-    stdin.write("me");
+    stdin.write("assignee = me");
     await tick();
     stdin.write(ENTER); // finalize
     await tick();
@@ -172,7 +172,7 @@ describe("SetupWizard render", () => {
     expect(result).not.toBeNull();
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
-    expect(config.linear.assignee).toBe("me");
+    expect(config.linear.filter).toBe("assignee = me");
   });
 
   test("onlyFields restricts the walkthrough to the migration diff", () => {

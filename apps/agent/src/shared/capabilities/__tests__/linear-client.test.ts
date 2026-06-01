@@ -167,6 +167,27 @@ describe("linear-client transport", () => {
     expect(isRateLimitedError(e)).toBe(true);
   });
 
+  test("assignee = me adds an isMe constraint to the mention-scan filter", async () => {
+    const { requests } = stubAndCapture([ok({ issues: { nodes: [] } })]);
+    await fetchMentionScanIssues("k", {
+      assignee: "me",
+      indicators: { getTodo: { filter: [{ type: "status", value: "Todo" }] } },
+    });
+    const where = requests()[0]!.variables.filter as Record<string, unknown>;
+    expect(where.assignee).toEqual({ isMe: { eq: true } });
+  });
+
+  test("anyAssignee omits the assignee constraint from the mention-scan filter", async () => {
+    const { requests } = stubAndCapture([ok({ issues: { nodes: [] } })]);
+    await fetchMentionScanIssues("k", {
+      assignee: "me",
+      anyAssignee: true,
+      indicators: { getTodo: { filter: [{ type: "status", value: "Todo" }] } },
+    });
+    const where = requests()[0]!.variables.filter as Record<string, unknown>;
+    expect(where.assignee).toBeUndefined();
+  });
+
   test("linearRequestInternals.sleep is the retry seam", async () => {
     // If the seam were ignored, the default Bun.sleep would actually delay
     // the test; this case completes synchronously because we replaced it.
@@ -843,6 +864,21 @@ describe("buildIssueFilter", () => {
   test("assignee email uses email filter", () => {
     const f = buildIssueFilter({ assignee: "dev@example.com" });
     expect(f).toMatchObject({ assignee: { email: { eq: "dev@example.com" } } });
+  });
+
+  test("assignee=unassigned uses null filter", () => {
+    const f = buildIssueFilter({ assignee: "unassigned" });
+    expect(f).toMatchObject({ assignee: { null: true } });
+  });
+
+  test("anyAssignee omits the assignee constraint entirely", () => {
+    const f = buildIssueFilter({ anyAssignee: true });
+    expect(f.assignee).toBeUndefined();
+  });
+
+  test("assignee=any omits the assignee constraint entirely", () => {
+    const f = buildIssueFilter({ assignee: "any" });
+    expect(f.assignee).toBeUndefined();
   });
 
   test("include label marker adds labels filter", () => {

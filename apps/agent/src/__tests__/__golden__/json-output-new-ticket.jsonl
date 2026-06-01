@@ -1,4 +1,4 @@
-{"ts":"<TIMESTAMP>","type":"started","version":"<VERSION>","filterDesc":"team=ENG, assignee=*, todo=[status:Todo]","concurrency":1,"pollInterval":60,"configPath":"<CONFIG>"}
+{"ts":"<TIMESTAMP>","type":"started","version":"<VERSION>","filterDesc":"team=ENG, assignee=me, todo=[status:Todo]","concurrency":1,"pollInterval":60,"configPath":"<CONFIG>"}
 {"ts":"<TIMESTAMP>","type":"poll_start"}
 {"ts":"<TIMESTAMP>","type":"log","text":"  ↳ ENG-1 queued (fresh)","color":"gray"}
 {"ts":"<TIMESTAMP>","type":"poll_done","found":1,"added":1,"buckets":{"todo":1,"inProgress":0,"conflicted":0,"ciFailed":0,"review":0,"mentions":0,"awaiting":0},"prStatus":{"mergeable":0,"conflicted":0,"ciFailed":0},"phase":{},"flow":{}}

@@ -55,6 +55,16 @@ export const MIGRATIONS: Migration[] = [
       "linking it to your Linear team. Confirm the detected repo to adopt it.",
     fields: ["repo.link"],
   },
+  {
+    version: 3,
+    description:
+      "The per-workflow `linear.assignee` setting is replaced by a global " +
+      "`linear.filter` expression (e.g. `assignee = me`) applied to every " +
+      "ticket fetch. Existing `assignee` values are folded in automatically; " +
+      "note that an empty filter now defaults to `assignee = me` (it previously " +
+      "meant unassigned-only).",
+    fields: ["linear.filter"],
+  },
 ];
 
 /** The highest version any migration lands on. Asserted to equal CURRENT. */

@@ -16,6 +16,9 @@ export type AgentMode = "agent" | "list" | "stop" | "status";
 export interface AgentParsedArgs extends CommonArgs {
   mode: AgentMode;
   linearTeam: string;
+  /** Global Linear filter expression (e.g. "assignee = me"); overrides config. */
+  linearFilter: string;
+  /** @deprecated Use `--linear-filter "assignee = <value>"` instead. */
   linearAssignee: string;
   pollInterval: number;
   concurrency: number;
@@ -99,7 +102,8 @@ const HELP_TEXT = [
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
   "  --linear-team <key>     Linear team key (e.g. ENG)",
-  "  --linear-assignee <id>  Filter by assignee (user id, email, or 'me')",
+  "  --linear-filter <expr>  Global Linear filter (e.g. 'assignee = me', 'assignee = any')",
+  "  --linear-assignee <id>  [deprecated] Filter by assignee; use --linear-filter instead",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
   "  --worktree              Run each task in its own git worktree",
@@ -195,6 +199,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     ...common,
     mode: "agent",
     linearTeam: "",
+    linearFilter: "",
     linearAssignee: "",
     pollInterval: 0,
     concurrency: 0,
@@ -216,6 +221,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
 
   const state = emptyParseState();
   let expectLinearTeam = false;
+  let expectLinearFilter = false;
   let expectLinearAssignee = false;
   let expectPollInterval = false;
   let expectConcurrency = false;
@@ -228,6 +234,11 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     if (expectLinearTeam) {
       result.linearTeam = arg;
       expectLinearTeam = false;
+      continue;
+    }
+    if (expectLinearFilter) {
+      result.linearFilter = arg;
+      expectLinearFilter = false;
       continue;
     }
     if (expectLinearAssignee) {
@@ -274,6 +285,9 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     switch (arg) {
       case "--linear-team":
         expectLinearTeam = true;
+        break;
+      case "--linear-filter":
+        expectLinearFilter = true;
         break;
       case "--linear-assignee":
         expectLinearAssignee = true;

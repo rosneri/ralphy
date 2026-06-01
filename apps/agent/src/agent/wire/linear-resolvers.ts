@@ -21,6 +21,8 @@ interface LinearResolversInput {
   apiKey: string;
   team: string | undefined;
   assignee: string | undefined;
+  /** When true, fetch regardless of assignee (`assignee = any`). */
+  anyAssignee?: boolean | undefined;
   diag: (area: string, message: string, color?: string) => void;
   /** RLF-208: when non-empty, every `fetchByGet` query is constrained to these
    *  Linear ticket numbers (from `--ticket`). */
@@ -45,7 +47,7 @@ interface LinearResolvers {
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
-  const { apiKey, team, assignee, diag } = input;
+  const { apiKey, team, assignee, anyAssignee, diag } = input;
   const ticketNumbers = input.ticketNumbers ?? [];
 
   const stateCache = new Map<string, Map<string, string>>();
@@ -190,6 +192,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     const spec: LinearFilterSpec = {
       team,
       assignee,
+      anyAssignee,
       include,
       exclude: excl,
       ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),

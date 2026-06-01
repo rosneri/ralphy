@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { Indicators } from "@ralphy/types";
+import { parseLinearFilter } from "@ralphy/workflow";
 import { createBus, subscribeAgentDiag } from "@ralphy/events";
 import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
@@ -123,7 +124,13 @@ export function buildAgentCoordinator(
     args.indicators,
   );
   const team = args.linearTeam || cfg.linear.team;
-  const assignee = args.linearAssignee || cfg.linear.assignee;
+  // Resolve the effective filter: --linear-filter wins over the deprecated
+  // --linear-assignee (converted to a clause) over the WORKFLOW.md value.
+  const effectiveFilter =
+    args.linearFilter ||
+    (args.linearAssignee ? `assignee = ${args.linearAssignee}` : "") ||
+    cfg.linear.filter;
+  const { assignee, anyAssignee } = parseLinearFilter(effectiveFilter);
 
   // RLF-208: resolve --ticket tokens to a deduped set of Linear ticket numbers,
   // validated against the configured team. Throws a clean CLI error on a bare
@@ -176,6 +183,7 @@ export function buildAgentCoordinator(
     apiKey,
     team,
     assignee,
+    anyAssignee,
     diag,
     ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
   });
@@ -226,6 +234,7 @@ export function buildAgentCoordinator(
     cfg,
     team,
     assignee,
+    anyAssignee,
     indicators,
     projectRoot,
     useWorktree,
@@ -399,7 +408,7 @@ export function buildAgentCoordinator(
 
   coordRef.current = coord;
 
-  const filterDesc = describeIndicators(indicators, team, assignee);
+  const filterDesc = describeIndicators(indicators, team, assignee, anyAssignee);
 
   const runBaselineGateOnce = createBaselineGateRunner({
     args,

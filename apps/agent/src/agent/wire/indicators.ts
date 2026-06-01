@@ -41,10 +41,11 @@ export function describeIndicators(
   indicators: Indicators,
   team: string | undefined,
   assignee: string | undefined,
+  anyAssignee?: boolean,
 ): string {
   const parts: string[] = [];
   parts.push(`team=${team ?? "*"}`);
-  parts.push(`assignee=${assignee ?? "*"}`);
+  parts.push(`assignee=${anyAssignee ? "any" : (assignee ?? "*")}`);
   if (indicators.getTodo) {
     parts.push(`todo=[${indicators.getTodo.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`);
   }

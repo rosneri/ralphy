@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 2;
+export const CURRENT_WORKFLOW_VERSION = 3;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -85,6 +85,27 @@ const IndicatorsSchema = z.preprocess(
       }
     }),
 );
+
+/**
+ * Fold a legacy `linear.assignee` string into the new global `linear.filter`
+ * expression (RLF-206), then drop the `assignee` key so `.strict()` validation
+ * does not reject it. A blank/`unassigned` legacy value maps to
+ * `assignee = unassigned` to preserve the old "blank means unassigned" meaning;
+ * any other value maps to `assignee = <value>`. An explicit `filter` always
+ * wins — the legacy `assignee` is discarded.
+ */
+function foldLegacyAssignee(v: unknown): unknown {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+  const obj = v as Record<string, unknown>;
+  if (!("assignee" in obj)) return v;
+  const { assignee, ...rest } = obj;
+  if (rest["filter"] === undefined) {
+    const raw = typeof assignee === "string" ? assignee.trim() : "";
+    const value = raw === "" || raw.toLowerCase() === "unassigned" ? "unassigned" : raw;
+    rest["filter"] = `assignee = ${value}`;
+  }
+  return rest;
+}
 
 const ProjectSchema = z
   .object({
@@ -180,41 +201,48 @@ export const WorkflowConfigSchema = z.object({
   engine: z.enum(["claude", "codex"]).default("claude"),
   model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
   linear: z
-    .object({
-      team: z.string().optional(),
-      assignee: z.string().optional(),
-      postComments: z.boolean().default(true),
-      updateEveryIterations: z.number().int().nonnegative().default(10),
-      mentionTrigger: z.boolean().default(true),
-      mentionHandle: z.string().default("@ralphy"),
-      codeReviewTrigger: z.boolean().default(true),
-      codeReviewStaleHours: z.number().nonnegative().default(24),
-      syncTasksToComment: z.boolean().default(true),
-      syncSpecsAsAttachments: z.boolean().default(true),
-      /** Which rendered formats to upload for proposal.md / design.md.
-       *  "md" mirrors the source file as-is. "pdf" additionally
-       *  renders a pure-JS PDF (pdfkit) and uploads it as a peer
-       *  attachment. Default keeps the prior behaviour ("md" only). */
-      specAttachmentFormats: z
-        .array(z.enum(["md", "pdf"]))
-        .nonempty()
-        .default(["md"]),
-      confirmationMode: z
+    .preprocess(
+      foldLegacyAssignee,
+      z
         .object({
-          enabled: z.boolean().default(false),
-          timeoutHours: z.number().positive().default(48),
-          maxConfirmationRounds: z.number().int().positive().default(3),
+          team: z.string().optional(),
+          /** Global Linear ticket filter expression (e.g. `assignee = me`). RLF-206:
+           *  replaces the former `assignee` string. Parsed by `parseLinearFilter`. */
+          filter: z.string().default("assignee = me"),
+          postComments: z.boolean().default(true),
+          updateEveryIterations: z.number().int().nonnegative().default(10),
+          mentionTrigger: z.boolean().default(true),
+          mentionHandle: z.string().default("@ralphy"),
+          codeReviewTrigger: z.boolean().default(true),
+          codeReviewStaleHours: z.number().nonnegative().default(24),
+          syncTasksToComment: z.boolean().default(true),
+          syncSpecsAsAttachments: z.boolean().default(true),
+          /** Which rendered formats to upload for proposal.md / design.md.
+           *  "md" mirrors the source file as-is. "pdf" additionally
+           *  renders a pure-JS PDF (pdfkit) and uploads it as a peer
+           *  attachment. Default keeps the prior behaviour ("md" only). */
+          specAttachmentFormats: z
+            .array(z.enum(["md", "pdf"]))
+            .nonempty()
+            .default(["md"]),
+          confirmationMode: z
+            .object({
+              enabled: z.boolean().default(false),
+              timeoutHours: z.number().positive().default(48),
+              maxConfirmationRounds: z.number().int().positive().default(3),
+            })
+            .strict()
+            .default({
+              enabled: false,
+              timeoutHours: 48,
+              maxConfirmationRounds: 3,
+            }),
+          indicators: IndicatorsSchema.default({}),
         })
-        .strict()
-        .default({
-          enabled: false,
-          timeoutHours: 48,
-          maxConfirmationRounds: 3,
-        }),
-      indicators: IndicatorsSchema.default({}),
-    })
-    .strict()
+        .strict(),
+    )
     .default({
+      filter: "assignee = me",
       postComments: true,
       updateEveryIterations: 10,
       mentionTrigger: true,

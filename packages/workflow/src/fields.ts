@@ -78,17 +78,17 @@ const REPO_LINK: Field = {
   spec: yes(),
   when: (answers) => typeof answers["repo.name"] === "string" && answers["repo.name"] !== "",
 };
-const LINEAR_ASSIGNEE: Field = {
-  id: "linear.assignee",
-  label: "Linear assignee",
-  hint: "user id, email, 'me', 'any', or 'unassigned' — blank means unassigned",
+const LINEAR_FILTER: Field = {
+  id: "linear.filter",
+  label: "Linear filter",
+  hint: "e.g. 'assignee = me', 'assignee = any', 'assignee = unassigned', or an email/user-id",
   description:
-    "Which issues to pick up by assignee. Use a Linear user id, email, or 'me' for a specific person; 'any' to pick up issues regardless of who they're assigned to; 'unassigned' (or blank) to pick up only unassigned issues.",
-  emptyLabel: "unassigned",
-  spec: { kind: "text" },
+    "Global filter applied to every Linear ticket fetch. The only clause today is 'assignee = <value>', where <value> is 'me' (issues assigned to you), 'any' (regardless of assignee), 'unassigned', a Linear user id, or an email. Blank defaults to 'assignee = me'.",
+  emptyLabel: "assignee = me",
+  spec: { kind: "text", placeholder: "assignee = me" },
 };
 
-const QUICK_FIELDS: Field[] = [PROJECT_NAME, LINEAR_TEAM, REPO_LINK, LINEAR_ASSIGNEE];
+const QUICK_FIELDS: Field[] = [PROJECT_NAME, LINEAR_TEAM, REPO_LINK, LINEAR_FILTER];
 
 const isOn =
   (id: string) =>
@@ -387,7 +387,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
   // ── Linear team / comments / sync ──
   LINEAR_TEAM,
   REPO_LINK,
-  LINEAR_ASSIGNEE,
+  LINEAR_FILTER,
   {
     id: "linear.postComments",
     label: "Post progress comments on the Linear issue?",

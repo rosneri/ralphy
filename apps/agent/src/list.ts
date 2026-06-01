@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { getStorage, getLayout } from "@ralphy/context";
+import { parseLinearFilter } from "@ralphy/workflow";
 import type { GetIndicator, Indicators, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
@@ -153,17 +154,34 @@ async function fetchBucketIssues(
   bucket: Bucket,
   team: string | undefined,
   assignee: string | undefined,
+  anyAssignee: boolean | undefined,
   ticketNumbers: number[],
 ): Promise<LinearIssue[]> {
   if (!bucket.indicator || bucket.indicator.filter.length === 0) return [];
   const spec: LinearFilterSpec = {
     team,
     assignee,
+    anyAssignee,
     include: bucket.indicator.filter,
     exclude: bucket.exclude,
     ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
   };
   return fetchOpenIssues(apiKey, spec);
+}
+
+/**
+ * Resolve the effective Linear filter from CLI overrides and config, then parse
+ * it. `--linear-filter` wins over the deprecated `--linear-assignee` (converted
+ * to a clause) over the WORKFLOW.md `linear.filter`.
+ */
+function resolveLinearFilter(
+  filterOverride: string,
+  assigneeOverride: string,
+  configFilter: string,
+): { assignee?: string; anyAssignee?: boolean } {
+  const effective =
+    filterOverride || (assigneeOverride ? `assignee = ${assigneeOverride}` : "") || configFilter;
+  return parseLinearFilter(effective);
 }
 
 interface UnifiedRow extends SortableRow {
@@ -250,6 +268,7 @@ async function fetchAndPrintLinear(
   buckets: Bucket[],
   team: string | undefined,
   assignee: string | undefined,
+  anyAssignee: boolean | undefined,
   cwd: string,
   runner: CmdRunner,
   ignoreCiChecks: string[] = [],
@@ -264,7 +283,14 @@ async function fetchAndPrintLinear(
         return { bucket, issues: [] as LinearIssue[], error: null as string | null };
       }
       try {
-        const issues = await fetchBucketIssues(apiKey, bucket, team, assignee, ticketNumbers);
+        const issues = await fetchBucketIssues(
+          apiKey,
+          bucket,
+          team,
+          assignee,
+          anyAssignee,
+          ticketNumbers,
+        );
         return { bucket, issues, error: null };
       } catch (err) {
         return {
@@ -414,6 +440,7 @@ async function fetchAndPrintLinear(
 
 interface RunListInput {
   linearTeamOverride: string;
+  linearFilterOverride: string;
   linearAssigneeOverride: string;
   debug: boolean;
   name: string;
@@ -437,6 +464,7 @@ export async function runList(input: RunListInput): Promise<void> {
       identifier: name,
       projectRoot,
       linearTeamOverride: input.linearTeamOverride,
+      linearFilterOverride: input.linearFilterOverride,
       linearAssigneeOverride: input.linearAssigneeOverride,
     });
     return;
@@ -449,7 +477,11 @@ export async function runList(input: RunListInput): Promise<void> {
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
-  const assignee = input.linearAssigneeOverride || cfg.linear.assignee;
+  const { assignee, anyAssignee } = resolveLinearFilter(
+    input.linearFilterOverride,
+    input.linearAssigneeOverride,
+    cfg.linear.filter,
+  );
   const buckets = buildBuckets(indicators);
   const anyConfigured = buckets.some((b) => b.indicator && b.indicator.filter.length > 0);
 
@@ -482,7 +514,7 @@ export async function runList(input: RunListInput): Promise<void> {
   }
 
   if (team) process.stdout.write(`\nteam: ${team}\n`);
-  if (assignee) process.stdout.write(`assignee: ${assignee}\n`);
+  process.stdout.write(`assignee: ${anyAssignee ? "any" : (assignee ?? "*")}\n`);
   if (ticketNumbers.length > 0) process.stdout.write(`ticket: ${ticketNumbers.join(", ")}\n`);
 
   await fetchAndPrintLinear(
@@ -490,6 +522,7 @@ export async function runList(input: RunListInput): Promise<void> {
     buckets,
     team,
     assignee,
+    anyAssignee,
     projectRoot,
     localCmdRunner,
     cfg.ignoreCiChecks,
@@ -507,6 +540,7 @@ interface DebugInput {
   identifier: string;
   projectRoot: string;
   linearTeamOverride: string;
+  linearFilterOverride: string;
   linearAssigneeOverride: string;
 }
 
@@ -599,8 +633,13 @@ function markerMatches(issue: RawIssue, marker: Marker): boolean {
   return false;
 }
 
-function assigneeMatches(issue: RawIssue, assignee: string | undefined): boolean {
-  if (!assignee) return issue.assignee === null;
+function assigneeMatches(
+  issue: RawIssue,
+  assignee: string | undefined,
+  anyAssignee: boolean | undefined,
+): boolean {
+  if (anyAssignee) return true;
+  if (!assignee || assignee === "unassigned") return issue.assignee === null;
   const a = issue.assignee;
   if (!a) return false;
   if (assignee === "me") return true; // can't verify without `me` query
@@ -620,7 +659,12 @@ async function runListDebug(input: DebugInput): Promise<void> {
   const cfg = await loadRalphyConfig(projectRoot);
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
-  const assignee = input.linearAssigneeOverride || cfg.linear.assignee;
+  const { assignee, anyAssignee } = resolveLinearFilter(
+    input.linearFilterOverride,
+    input.linearAssigneeOverride,
+    cfg.linear.filter,
+  );
+  const assigneeLabel = anyAssignee ? "any" : (assignee ?? "*");
 
   const normalized = normalizeIdentifier(identifier);
   if (!normalized) {
@@ -670,9 +714,9 @@ async function runListDebug(input: DebugInput): Promise<void> {
     if (team && issue.team?.key && issue.team.key !== team) {
       reasons.push(`team mismatch: issue=${issue.team.key}, config=${team}`);
     }
-    if (!assigneeMatches(issue, assignee)) {
+    if (!assigneeMatches(issue, assignee, anyAssignee)) {
       reasons.push(
-        `assignee mismatch: issue=${issue.assignee ? (issue.assignee.email ?? issue.assignee.id) : "unassigned"}, config=${assignee}`,
+        `assignee mismatch: issue=${issue.assignee ? (issue.assignee.email ?? issue.assignee.id) : "unassigned"}, config=${assigneeLabel}`,
       );
     }
 

@@ -48,11 +48,11 @@ describe("buildWorkflowMarkdown", () => {
     const { config } = roundTrip("quick", {
       "project.name": "my-project",
       "linear.team": "ENG",
-      "linear.assignee": "me",
+      "linear.filter": "assignee = me",
     });
     expect(config.project.name).toBe("my-project");
     expect(config.linear.team).toBe("ENG");
-    expect(config.linear.assignee).toBe("me");
+    expect(config.linear.filter).toBe("assignee = me");
     expect(config.createPrOnSuccess).toBe(false);
   });
 
@@ -180,11 +180,11 @@ describe("buildWorkflowMarkdown", () => {
     const { config } = roundTrip("customized", {
       "project.name": "app: the sequel",
       "commands.test": "bun test --filter '*: smoke'",
-      "linear.assignee": "dev@example.com",
+      "linear.filter": "assignee = dev@example.com",
     });
     expect(config.project.name).toBe("app: the sequel");
     expect(config.commands.test).toBe("bun test --filter '*: smoke'");
-    expect(config.linear.assignee).toBe("dev@example.com");
+    expect(config.linear.filter).toBe("assignee = dev@example.com");
   });
 });
 
