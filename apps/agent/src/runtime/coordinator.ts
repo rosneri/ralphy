@@ -1,7 +1,7 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "../agent/linear";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
-import { compareQueueEntries, defaultPriorityFor, type QueueEntry } from "../queue/queue-order";
+import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
 import type { Bus, EmitInput, RalphEvent } from "@ralphy/events";
@@ -547,7 +547,7 @@ export class AgentCoordinator {
     const prStatus = await this.scanPrMergeStates();
 
     if (this.queue.length > 0) {
-      this.queue.sort(compareQueueEntries(this.opts.getAutoMerge));
+      this.queue = orderQueueEntries(this.queue, this.opts.getAutoMerge);
     }
 
     this.spawnNext();
