@@ -867,6 +867,33 @@ describe("buildIssueFilter", () => {
     const f = buildIssueFilter({ exclude: [{ type: "label", value: "skip-me" }] });
     expect(f).toMatchObject({ labels: { every: { name: { nin: ["skip-me"] } } } });
   });
+
+  test("numbers spec adds a top-level number.in clause (RLF-208)", () => {
+    const f = buildIssueFilter({ numbers: [208, 210] });
+    expect(f).toMatchObject({ number: { in: [208, 210] } });
+  });
+
+  test("number clause composes with include and exclude markers", () => {
+    const f = buildIssueFilter({
+      team: "RLF",
+      numbers: [208],
+      include: [{ type: "label", value: "ready" }],
+      exclude: [{ type: "label", value: "skip-me" }],
+    });
+    expect(f).toMatchObject({
+      team: { key: { eq: "RLF" } },
+      number: { in: [208] },
+    });
+    // include + exclude still produce their label clauses alongside `number`.
+    const andClauses = f.and as Record<string, unknown>[] | undefined;
+    expect(andClauses).toContainEqual({ labels: { some: { name: { in: ["ready"] } } } });
+    expect(andClauses).toContainEqual({ labels: { every: { name: { nin: ["skip-me"] } } } });
+  });
+
+  test("omitting numbers adds no number key (regression guard)", () => {
+    expect(buildIssueFilter({}).number).toBeUndefined();
+    expect(buildIssueFilter({ numbers: [] }).number).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

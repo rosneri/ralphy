@@ -30,6 +30,8 @@ interface MentionScanInput {
   cfg: RalphyConfig;
   team: string | undefined;
   assignee: string | undefined;
+  /** RLF-208: when non-empty, constrain the mention scan to these ticket numbers. */
+  ticketNumbers?: number[] | undefined;
   indicators: Indicators;
   projectRoot: string;
   useWorktree: boolean;
@@ -61,6 +63,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
     onLog,
     diag,
     cwdByChange,
+    ticketNumbers,
     stalePingedAt,
     lastHandledReviewActivity,
     resolvePrUrlForIssue,
@@ -78,6 +81,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
       candidates = await fetchMentionScanIssues(apiKey, {
         team,
         assignee,
+        ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
         indicators: {
           ...(indicators.getTodo !== undefined ? { getTodo: indicators.getTodo } : {}),
           ...(indicators.getInProgress !== undefined
