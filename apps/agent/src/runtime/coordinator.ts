@@ -1,4 +1,5 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
+import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../agent/linear";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
@@ -93,6 +94,12 @@ export interface PollBuckets {
   ciFailed: number;
   review: number;
   mentions: number;
+  /** Conflicting / CI-failed PRs the pr-tracker has bailed on (exhausted
+   *  auto-recovery attempts). They are NOT auto-retried — they need a human,
+   *  so they are surfaced separately rather than hidden inside `conflicted`
+   *  (which would read as "Ralph is on it"). Cleared when the ticket is moved
+   *  back to Todo to retry, or the PR becomes mergeable. */
+  quarantined: number;
   /** In-progress issues whose OpenSpec phase is `awaiting-confirmation`. They
    *  are excluded from the resumable bucket — the coordinator never enqueues
    *  them and they do not consume `concurrency` slots. The poll loop still
@@ -107,6 +114,10 @@ export interface PrStatusCounts {
   mergeable: number;
   conflicted: number;
   ciFailed: number;
+  /** Conflicting / CI-failed PRs the pr-tracker has bailed on — counted as a
+   *  standing level each scan (not a one-shot delta) so the dashboard shows
+   *  how many PRs are stuck needing a human. */
+  quarantined: number;
 }
 export type PrStatusBucket = "mergeable" | "conflicted" | "ci_failed" | "unknown";
 export type Flow = "awaiting" | "working" | "conflict-fix" | "ci-fix" | "review";
@@ -124,7 +135,12 @@ export interface PollResult {
    *  did not derive any. */
   flow: Record<string, Flow>;
 }
-const emptyPrStatus = (): PrStatusCounts => ({ mergeable: 0, conflicted: 0, ciFailed: 0 });
+const emptyPrStatus = (): PrStatusCounts => ({
+  mergeable: 0,
+  conflicted: 0,
+  ciFailed: 0,
+  quarantined: 0,
+});
 
 /** Pull the PR number out of a GitHub pull URL, e.g.
  *  `https://github.com/owner/repo/pull/376` → `376`. Returns null when the
@@ -143,6 +159,7 @@ const emptyPollResult = (): PollResult => ({
     ciFailed: 0,
     review: 0,
     mentions: 0,
+    quarantined: 0,
     awaiting: 0,
   },
   prStatus: emptyPrStatus(),
@@ -446,6 +463,7 @@ export class AgentCoordinator {
         ciFailed: 0,
         review: 0,
         mentions: mentions.length,
+        quarantined: 0,
         awaiting: awaitingCount,
       };
       const found = buckets.todo + buckets.inProgress + buckets.mentions + buckets.awaiting;
@@ -561,6 +579,7 @@ export class AgentCoordinator {
       ciFailed: prStatus.ciFailed,
       review: 0,
       mentions: mentions.length,
+      quarantined: prStatus.quarantined,
       awaiting: awaitingCount,
     };
     const found =
@@ -854,10 +873,30 @@ export class AgentCoordinator {
     const preQueue = this.queue.map((q) => ({ id: q.issue.id, trigger: q.trigger }));
     const preWorkers = this.workers.map((w) => ({ id: w.issueId, trigger: w.trigger }));
 
+    const tracker = this.opts.prTracker;
     for (const issue of candidates) {
       if (this.workers.some((w) => w.issueId === issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
       if (this.queue.some((q) => q.issue.id === issue.id)) continue;
+
+      // pr-tracker retry (fix): a human cleared the `setError` quarantine label
+      // to ask for a retry. Clear the bail so the merge-state scan re-engages
+      // conflict/CI recovery instead of skipping it forever. Without this, a bail
+      // only ever cleared when the PR became mergeable — which a conflicting PR
+      // can never reach on its own — so the ticket was stuck. Non-looping: a
+      // subsequent re-bail re-applies setError, so it won't reset again until a
+      // human clears the label once more.
+      if (tracker?.isBailed(issue.identifier) && this.errorMarkerCleared(issue)) {
+        await tracker.clear(issue.identifier).catch(() => {});
+        this.conflictNotified.delete(issue.id);
+        this.ciFailedNotified.delete(issue.id);
+        this.conflictPromoted.delete(issue.id);
+        this.deps.onLog(
+          `  ${issue.identifier}: pr-tracker bail cleared (ticket back in Todo) — retrying recovery`,
+          "cyan",
+        );
+      }
+
       let pr: { url: string; status: PrStatusBucket } | null;
       try {
         pr = await this.deps.checkPrStatus(issue);
@@ -886,8 +925,22 @@ export class AgentCoordinator {
       }
 
       if (pr.status === "conflicted") {
-        if (this.conflictNotified.has(issue.id)) continue;
-        if (await this.prTrackerBail(issue, pr.url, "conflicting")) continue;
+        // Standing level (fix): count every currently-conflicting PR each scan,
+        // not just freshly-detected ones, so the counter reflects reality rather
+        // than a one-poll delta. Bailed PRs are surfaced as `quarantined`.
+        if (tracker?.isBailed(issue.identifier)) {
+          counts.quarantined += 1;
+          continue;
+        }
+        counts.conflicted += 1;
+        if (this.conflictNotified.has(issue.id)) continue; // already queued; counted above
+        if (await this.prTrackerBail(issue, pr.url, "conflicting")) {
+          // This detection just tipped the ticket into bail — reclassify it
+          // from "Ralph is recovering" to "needs a human".
+          counts.conflicted -= 1;
+          counts.quarantined += 1;
+          continue;
+        }
         emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
         this.conflictNotified.add(issue.id);
         this.deps.onLog(
@@ -918,15 +971,23 @@ export class AgentCoordinator {
           trigger: "conflict-fix",
           priority: defaultPriorityFor("conflict-fix"),
         });
-        // Count this freshly-detected conflict; pre-existing queue/worker
-        // entries are added from the snapshot below (no double-counting).
-        counts.conflicted += 1;
+        // (counts.conflicted already incremented above as a standing level)
         continue;
       }
 
       if (pr.status === "ci_failed") {
-        if (this.ciFailedNotified.has(issue.id)) continue;
-        if (await this.prTrackerBail(issue, pr.url, "ci_failed")) continue;
+        // Standing level + quarantine surfacing (fix) — mirrors conflicted above.
+        if (tracker?.isBailed(issue.identifier)) {
+          counts.quarantined += 1;
+          continue;
+        }
+        counts.ciFailed += 1;
+        if (this.ciFailedNotified.has(issue.id)) continue; // already queued; counted above
+        if (await this.prTrackerBail(issue, pr.url, "ci_failed")) {
+          counts.ciFailed -= 1;
+          counts.quarantined += 1;
+          continue;
+        }
         emitCapture(this.bus, "agent_ci_failed_detected", { issue_identifier: issue.identifier });
         this.ciFailedNotified.add(issue.id);
         this.deps.onLog(
@@ -957,9 +1018,7 @@ export class AgentCoordinator {
           trigger: "ci-fix",
           priority: defaultPriorityFor("ci-fix"),
         });
-        // Count this freshly-detected CI failure; pre-existing queue/worker
-        // entries are added from the snapshot below (no double-counting).
-        counts.ciFailed += 1;
+        // (counts.ciFailed already incremented above as a standing level)
       }
     }
 
@@ -990,6 +1049,21 @@ export class AgentCoordinator {
    * when the tracker itself throws — the legacy behavior should never
    * regress on tracker failures.
    */
+  /** True when `setError` is configured (a quarantine label) but the issue no
+   *  longer carries it — i.e. a human cleared the label to request a retry.
+   *  Used to release a pr-tracker bail. Returns false when no label-type
+   *  setError is configured (then a bail only clears on a mergeable PR). */
+  private errorMarkerCleared(issue: LinearIssue): boolean {
+    const se = this.opts.setError;
+    if (!se) return false;
+    const wantLabels = markersOf(se)
+      .filter((m) => m.type === "label")
+      .map((m) => m.value.toLowerCase());
+    if (wantLabels.length === 0) return false;
+    const have = new Set(issue.labels.map((l) => l.toLowerCase()));
+    return !wantLabels.some((v) => have.has(v));
+  }
+
   private async prTrackerBail(
     issue: LinearIssue,
     prUrl: string,

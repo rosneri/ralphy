@@ -433,12 +433,14 @@ export function AgentMode({
       conflicted: number;
       review: number;
       mentions: number;
+      quarantined: number;
       awaiting: number;
     } | null;
     lastPrStatus: {
       mergeable: number;
       conflicted: number;
       ciFailed: number;
+      quarantined: number;
     } | null;
   }>({
     state: "idle",
@@ -1016,6 +1018,11 @@ export function AgentMode({
                 <Text dimColor>ci-failed</Text>
                 <Text color={pollStatus.lastPrStatus.ciFailed > 0 ? "red" : "white"}>
                   {pollStatus.lastPrStatus.ciFailed}
+                </Text>
+                <Text dimColor>·</Text>
+                <Text dimColor>quarantined</Text>
+                <Text color={pollStatus.lastPrStatus.quarantined > 0 ? "magenta" : "white"} bold>
+                  {pollStatus.lastPrStatus.quarantined}
                 </Text>
               </Box>
             )}

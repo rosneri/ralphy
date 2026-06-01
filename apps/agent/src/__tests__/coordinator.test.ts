@@ -9,6 +9,10 @@ import type { LinearIssue } from "../agent/linear";
 import type { SetIndicator } from "@ralphy/types";
 import type { FeatureCtx } from "../features/types";
 import { createNoopBus } from "@ralphy/events";
+import { PrTracker } from "../features/pr-tracker/tracker";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** Build a `buildFeatureCtx` factory that makes the confirmation feature
  *  claim issues whose ids appear in `gatedIds`. Used to exercise the
@@ -269,6 +273,7 @@ describe("AgentCoordinator — todo polling", () => {
       ciFailed: 0,
       review: 0,
       mentions: 0,
+      quarantined: 0,
       awaiting: 0,
     });
     expect(ctx.logs.some((l) => l.text.includes("Linear poll failed: network down"))).toBe(true);
@@ -346,6 +351,7 @@ describe("AgentCoordinator — todo polling", () => {
       ciFailed: 0,
       review: 0,
       mentions: 1,
+      quarantined: 0,
       awaiting: 0,
     });
     expect(r.found).toBe(4);
@@ -371,6 +377,7 @@ describe("AgentCoordinator — todo polling", () => {
       ciFailed: 0,
       review: 0,
       mentions: 0,
+      quarantined: 0,
       awaiting: 1,
     });
     expect(r.found).toBe(3);
@@ -782,7 +789,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
     await coord.init();
     const r = await coord.pollOnce();
-    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 1 });
+    expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 1, quarantined: 0 });
     expect(r.buckets.ciFailed).toBe(1);
     expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("failing CI"))).toBe(true);
     expect(coord.queuedCount).toBe(1);
@@ -803,9 +810,75 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
     await coord.init();
     const r = await coord.pollOnce();
-    expect(r.prStatus).toEqual({ mergeable: 2, conflicted: 1, ciFailed: 1 });
+    expect(r.prStatus).toEqual({ mergeable: 2, conflicted: 1, ciFailed: 1, quarantined: 0 });
     expect(r.buckets.conflicted).toBe(1);
     expect(r.buckets.ciFailed).toBe(1);
+  });
+
+  test("bailed conflicting PR is surfaced as quarantined, not conflicted, and not re-queued", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "prtracker-q-"));
+    const tracker = new PrTracker({ projectRoot: dir, maxRecoveryAttempts: 1 });
+    const setError: SetIndicator = { type: "label", value: "error" };
+    const ctx = makeDeps();
+    const tk = issue("a", "ENG-1");
+    tk.labels = ["error"]; // quarantine label still on the ticket
+    ctx.setDoneCandidates([tk]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, prTracker: tracker, setError });
+    await coord.init();
+
+    // Poll 1: first failure tips it over maxRecoveryAttempts=1 → bail → quarantined.
+    const r1 = await coord.pollOnce();
+    expect(r1.prStatus.quarantined).toBe(1);
+    expect(r1.prStatus.conflicted).toBe(0);
+    expect(coord.queuedCount).toBe(0);
+
+    // Poll 2: still bailed + label present → stays quarantined, never re-queued.
+    const r2 = await coord.pollOnce();
+    expect(r2.prStatus.quarantined).toBe(1);
+    expect(r2.prStatus.conflicted).toBe(0);
+    expect(coord.queuedCount).toBe(0);
+  });
+
+  test("clearing the setError label releases a bail and re-queues conflict-fix", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "prtracker-r-"));
+    const tracker = new PrTracker({ projectRoot: dir, maxRecoveryAttempts: 3 });
+    // Pre-seed a bail (3 failures → bailed).
+    await tracker.recordFailure("ENG-1", "conflicting");
+    await tracker.recordFailure("ENG-1", "conflicting");
+    await tracker.recordFailure("ENG-1", "conflicting");
+    expect(tracker.isBailed("ENG-1")).toBe(true);
+
+    const setError: SetIndicator = { type: "label", value: "error" };
+    const ctx = makeDeps();
+    const tk = issue("a", "ENG-1");
+    tk.labels = []; // human cleared the quarantine label → retry intent
+    ctx.setDoneCandidates([tk]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, prTracker: tracker, setError });
+    await coord.init();
+
+    const r = await coord.pollOnce();
+    expect(tracker.isBailed("ENG-1")).toBe(false); // bail released
+    expect(r.prStatus.conflicted).toBe(1); // re-detected as a standing conflict
+    expect(r.prStatus.quarantined).toBe(0);
+    expect(coord.queuedCount).toBe(1); // conflict-fix re-queued
+  });
+
+  test("conflicted count is a standing level — survives across polls without re-detection", async () => {
+    const ctx = makeDeps();
+    const tk = issue("a", "ENG-1");
+    ctx.setDoneCandidates([tk]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    // concurrency 0 so the queued conflict-fix never drains.
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    await coord.init();
+
+    const r1 = await coord.pollOnce();
+    expect(r1.prStatus.conflicted).toBe(1);
+    // Second poll: already notified + queued. Must STILL report 1 (not a delta-0).
+    const r2 = await coord.pollOnce();
+    expect(r2.prStatus.conflicted).toBe(1);
   });
 
   test("in-progress ticket with CONFLICTING PR is promoted, not resumed", async () => {

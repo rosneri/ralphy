@@ -280,6 +280,9 @@ describe("AgentCoordinator + PrTracker integration", () => {
       setError: SET_ERROR,
       prTracker: tracker,
     });
+    // Poll 1 applied the setError label; on the next poll the issue carries it,
+    // so the bail stays in effect (a cleared label is what releases it).
+    i.labels = ["ralph:error"];
     ctx.applies.length = 0;
     ctx.comments.length = 0;
     await coord2.pollOnce();
