@@ -126,7 +126,7 @@ export function resolveTicketNumbers(tokens: string[], team: string | undefined)
       if (teamKey !== null && parsedTeam !== teamKey) {
         const err = new Error("--ticket identifier is not in the configured team") as Error & {
           ticket?: string;
-          team?: string;
+          team?: string | undefined;
         };
         err.ticket = token;
         err.team = team;

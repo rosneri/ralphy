@@ -74,6 +74,7 @@ const baseArgs: ParsedArgs = {
   name: "",
   linearTeam: "RLF",
   linearAssignee: "me",
+  ticketTokens: [],
   pollInterval: 0,
   concurrency: 0,
   worktree: false,
