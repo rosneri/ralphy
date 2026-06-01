@@ -393,6 +393,86 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  test("comment-type getApproved releases the gate when a human comment matches", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-approve-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg = {
+        ...deps.cfg,
+        linear: {
+          ...deps.cfg.linear,
+          indicators: { getApproved: { filter: [{ type: "comment", value: "approve" }] } },
+        },
+      };
+      const fetchSpy = spyOn(linear, "fetchIssueComments").mockResolvedValue([
+        {
+          id: "c1",
+          body: "LGTM, I approve this plan",
+          createdAt: "2026-05-20T02:00:00.000Z",
+          user: { name: "Human", email: null },
+        },
+      ]);
+
+      // approved via comment → gate releases (returns false = not awaiting).
+      const result = await processAwaitingForIssue(issue, deps);
+      expect(result).toBe(false);
+      fetchSpy.mockResolvedValue([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("Ralphy's own reminder comment does not self-approve a comment-type getApproved", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-self-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg = {
+        ...deps.cfg,
+        linear: {
+          ...deps.cfg.linear,
+          indicators: { getApproved: { filter: [{ type: "comment", value: "approve" }] } },
+        },
+      };
+      // Ralphy's own reminder contains the word "Approve" — must be ignored.
+      const fetchSpy = spyOn(linear, "fetchIssueComments").mockResolvedValue([
+        {
+          id: "r1",
+          body: "⏰ Ralphy: still awaiting confirmation on this plan — approve to continue.",
+          createdAt: "2026-05-20T02:00:00.000Z",
+          user: null,
+        },
+      ]);
+
+      const result = await processAwaitingForIssue(issue, deps);
+      expect(result).toBe(true); // self-comment ignored → stays awaiting
+      fetchSpy.mockResolvedValue([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("plan-ready comment body includes configured marker AND revise syntax", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-"));
     try {

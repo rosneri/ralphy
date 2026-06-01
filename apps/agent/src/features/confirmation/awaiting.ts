@@ -6,6 +6,7 @@ import { isStubArtifact } from "@ralphy/core/openspec-phase";
 import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
+import { isRalphComment } from "../../shared/utils/ralph-comment";
 import type { LinearIssue } from "../../agent/linear";
 import type { RalphyConfig } from "../../agent/config";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
@@ -205,6 +206,17 @@ async function releaseAwaitingMarker(
   }
 }
 
+/** True when any confirmation indicator (`getApproved` / `getAutoApprove` /
+ *  `getConfirmGate`) is a `comment`-type marker. Only then must we fetch the
+ *  issue's comments to evaluate the gate — label/status/project indicators read
+ *  straight off the issue, so the comments round-trip is skipped otherwise. */
+function confirmationUsesCommentIndicator(cfg: RalphyConfig): boolean {
+  const { getApproved, getAutoApprove, getConfirmGate } = cfg.linear.indicators;
+  return [getApproved, getAutoApprove, getConfirmGate].some((g) =>
+    g?.filter.some((m) => m.type === "comment"),
+  );
+}
+
 /**
  * Per in-progress issue, derive the OpenSpec phase against the change
  * directory on disk and the workflow's confirmation-mode config.
@@ -232,10 +244,32 @@ export async function processAwaitingForIssue(
     const tasks = await readTextOrNull(join(changeDir, "tasks.md"));
     const proposal = await readTextOrNull(join(changeDir, "proposal.md"));
     const design = await readTextOrNull(join(changeDir, "design.md"));
+    // Fetch the issue's comments at most once per poll, shared between the
+    // approve-by-comment gate check below and `inspectAwaitingTicket`'s revise
+    // detection further down.
+    let commentsCache: { id: string; body: string; createdAt: string }[] | null = null;
+    const getComments = async () => {
+      if (commentsCache) return commentsCache;
+      if (!apiKey) return (commentsCache = []);
+      try {
+        const cs = await fetchIssueComments(apiKey, issue.id);
+        commentsCache = cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
+      } catch {
+        commentsCache = [];
+      }
+      return commentsCache;
+    };
+    // A `comment`-type getApproved/getAutoApprove/getConfirmGate matches against
+    // human (non-Ralph) comment bodies — populate them so the gate can clear on
+    // an approval comment. Skipped entirely when no comment indicator is set.
+    const commentBodies = confirmationUsesCommentIndicator(cfg)
+      ? (await getComments()).filter((c) => !isRalphComment(c.body)).map((c) => c.body)
+      : undefined;
     const ticketView: ConfirmationTicketView = {
       labels: issue.labels,
       state: issue.state,
       project: issue.project,
+      ...(commentBodies ? { commentBodies } : {}),
     };
     const { approved: approvalMatches, confirmationGated } = computeConfirmationFlags(
       cfg,
@@ -328,15 +362,7 @@ export async function processAwaitingForIssue(
       },
       {
         approvalMatches,
-        fetchComments: async () => {
-          if (!apiKey) return [];
-          try {
-            const cs = await fetchIssueComments(apiKey, issue.id);
-            return cs.map((c) => ({ id: c.id, body: c.body, createdAt: c.createdAt }));
-          } catch {
-            return [];
-          }
-        },
+        fetchComments: getComments,
         ...(indicators.clearApproved ? { clearApproved: indicators.clearApproved } : {}),
         applyIndicator: (ind) => deps.applyIndicator(issue, ind),
         postComment: async (body) => {
