@@ -173,7 +173,17 @@ async function applyAwaitingMarkerOnce(
 }
 
 /** Apply `clearAwaitingConfirmation` if configured and the stamp is set;
- *  always null the stamp afterward (defence in depth — mirrors clearApproved). */
+ *  always null the stamp afterward (defence in depth — mirrors clearApproved).
+ *
+ *  When `setAwaitingConfirmation` is a *status* marker (e.g. a "Design Review"
+ *  status), `clearAwaitingConfirmation` cannot undo it — the schema only allows
+ *  label removal there, and the resume path skips `setInProgress` for
+ *  `trigger === "resume"`. So once a ticket has actually been parked
+ *  (`awaitingMarkerAppliedAt` set), re-assert `setInProgress` here so the ticket
+ *  returns to In Progress when the gate releases (approved / revised / timeout)
+ *  instead of stranding in the awaiting status while implementation runs. When
+ *  the awaiting marker was a label and status was already In Progress this is a
+ *  harmless no-op. */
 async function releaseAwaitingMarker(
   issue: LinearIssue,
   statePath: string,
@@ -191,6 +201,16 @@ async function releaseAwaitingMarker(
     } catch (err) {
       deps.onLog(
         `! clearAwaitingConfirmation failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+  }
+  if (deps.indicators.setInProgress) {
+    try {
+      await deps.applyIndicator(issue, deps.indicators.setInProgress);
+    } catch (err) {
+      deps.onLog(
+        `! restore setInProgress after awaiting release failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
     }

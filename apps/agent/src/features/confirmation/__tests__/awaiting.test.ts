@@ -393,6 +393,60 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  test("setInProgress is re-applied on approve when awaiting marker is a status", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-restore-inprogress-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      // Awaiting marker is a STATUS (Design Review). clearAwaitingConfirmation
+      // cannot undo a status, so the gate release must re-assert setInProgress
+      // to pull the ticket back out of Design Review.
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "status", value: "Design Review" },
+        setInProgress: { type: "status", value: "In Progress" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: {
+          ...deps.cfg.linear,
+          indicators: deps.indicators,
+        },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      // Poll 1: gate active → Design Review status applied.
+      await processAwaitingForIssue(issue, deps);
+      // Poll 2: approval label present → approved outcome releases the gate.
+      issue.labels = ["ralph:approved"];
+      await processAwaitingForIssue(issue, deps);
+
+      const setDesignReview = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "Design Review",
+      );
+      const restoreInProgress = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "In Progress",
+      );
+      expect(setDesignReview.length).toBe(1);
+      expect(restoreInProgress.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("comment-type getApproved releases the gate when a human comment matches", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-approve-"));
     try {

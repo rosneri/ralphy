@@ -32,6 +32,15 @@ export const PROMPT_BODY_FIELD_ID = "promptBody";
  */
 export const REPO_LINK_FIELD_ID = "repo.link";
 
+/**
+ * Control field id: the Linear status to park awaiting-approval tickets in while
+ * the confirmation gate is open. Its own value is never written as a frontmatter
+ * key — the builder strips it and translates a non-blank answer into the
+ * `setAwaitingConfirmation` indicator plus a matching `getInProgress` entry (so
+ * the parked, reaped ticket keeps being polled). See `buildFromAnswers`.
+ */
+export const AWAITING_STATUS_FIELD_ID = "linear.confirmationMode.awaitingStatus";
+
 export interface Field {
   id: string;
   label: string;
@@ -480,6 +489,15 @@ const CUSTOMIZED_FIELDS: Field[] = [
     description:
       "How many times the plan can be revised and re-submitted for approval before Ralphy gives up.",
     spec: { kind: "number", placeholder: "3" },
+    when: isOn("linear.confirmationMode.enabled"),
+  },
+  {
+    id: AWAITING_STATUS_FIELD_ID,
+    label: "Park awaiting-approval tickets in a status?",
+    hint: "e.g. Planned — blank keeps them In Progress",
+    description:
+      "When the confirmation gate opens, move the ticket to this Linear status so the board shows it waiting on a human (it must be a real status in your team). Ralphy also adds it to the in-progress pickup filter so the parked ticket keeps being polled, and re-asserts In Progress on approval. Leave blank to keep parked tickets in In Progress. Pairs with status-based indicators.",
+    spec: { kind: "text", placeholder: "Planned" },
     when: isOn("linear.confirmationMode.enabled"),
   },
 
