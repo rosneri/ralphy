@@ -72,6 +72,9 @@ export const HistoryEntrySchema = z.object({
   engine: z.string(),
   model: z.string(),
   result: z.string(),
+  /** Ralphy version that ran this iteration (from `@ralphy/version`). Lets a
+   *  mid-run restart/upgrade be traced to the exact iteration. */
+  appVersion: z.string().optional(),
   usage: IterationUsageSchema.partial().optional(),
 });
 

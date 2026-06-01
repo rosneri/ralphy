@@ -1,5 +1,6 @@
 import { mkdir, appendFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { VERSION } from "@ralphy/version";
 
 interface JsonLogFileSink {
   emit(event: Record<string, unknown>): void;
@@ -29,7 +30,7 @@ export function createJsonLogFileSink(path: string | undefined): JsonLogFileSink
 
   return {
     emit(event: Record<string, unknown>): void {
-      const line = JSON.stringify({ ts: Date.now(), ...event }) + "\n";
+      const line = JSON.stringify({ ts: Date.now(), v: VERSION, ...event }) + "\n";
       chain = chain.then(async () => {
         try {
           await appendFile(path, line);

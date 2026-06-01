@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { VERSION } from "@ralphy/version";
 import type { State, IterationUsage } from "@ralphy/types";
 import type { ChangeStatus } from "@ralphy/change-store";
 import { updateState } from "./state";
@@ -698,6 +699,7 @@ export function updateStateIteration(
           engine,
           model,
           result,
+          appVersion: VERSION,
           usage: usage
             ? {
                 cost_usd: usage.cost_usd,

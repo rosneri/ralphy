@@ -5,5 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/log.ts"
+  },
+  "dependencies": {
+    "@ralphy/version": "workspace:*"
   }
 }

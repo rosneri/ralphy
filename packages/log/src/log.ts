@@ -2,6 +2,7 @@ import { appendFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { mkdir } from "node:fs/promises";
+import { VERSION } from "@ralphy/version";
 
 const jsonLogChains: Map<string, Promise<void>> = new Map();
 
@@ -14,7 +15,7 @@ export const AGENT_LOG_PATH = join(homedir(), ".ralph", "agent-mode.log");
 mkdir(dirname(AGENT_LOG_PATH), { recursive: true }).catch(() => undefined);
 
 function fmt(type: LogType, text: string): string {
-  return `[${new Date().toISOString()}] [${type}] ${text}\n`;
+  return `[${new Date().toISOString()}] [v${VERSION}] [${type}] ${text}\n`;
 }
 
 function write(path: string, line: string): void {
@@ -59,7 +60,7 @@ export function logOutput(workerLogFile: string, text: string): void {
 
 /** Append a JSON event to a `.jsonl` log file, injecting a `ts` timestamp field. */
 export function logJsonEvent(logFile: string, event: Record<string, unknown>): void {
-  const line = JSON.stringify({ ts: new Date().toISOString(), ...event }) + "\n";
+  const line = JSON.stringify({ ts: new Date().toISOString(), v: VERSION, ...event }) + "\n";
   const prev = jsonLogChains.get(logFile) ?? Promise.resolve();
   const next = prev.then(() => appendFile(logFile, line)).catch(() => undefined);
   jsonLogChains.set(logFile, next);

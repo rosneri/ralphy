@@ -6,7 +6,7 @@ import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
 import { addIssueComment, fetchIssueComments, type LinearIssue } from "./linear";
-import { projectLayout } from "@ralphy/core/layout";
+import { projectLayout, GAVEUP_COUNT_FILE } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
 import type { FeatureCtx } from "../features/types";
@@ -74,6 +74,11 @@ interface BuildAgentCoordinatorResult {
   getWorkerCwd: (changeName: string) => string | undefined;
   syncTasksEnabled: boolean;
   runBaselineGate: () => Promise<void>;
+  /** Durable sum of `gaveUpCount` across every change this session knows
+   *  about (read from each change's `.ralph-state.json`). Survives agent
+   *  restarts: in-progress changes are re-prepared on boot, so their
+   *  persisted give-up tallies are counted again rather than reset. */
+  getGaveUpTotal: () => Promise<number>;
 }
 
 export function buildAgentCoordinator(
@@ -381,5 +386,20 @@ export function buildAgentCoordinator(
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
     syncTasksEnabled: commentSync.enabled,
     runBaselineGate: runBaselineGateOnce,
+    getGaveUpTotal: async () => {
+      let total = 0;
+      for (const [changeName, root] of cwdByChange) {
+        const file = Bun.file(
+          join(projectLayout(root).taskStateDir(changeName), GAVEUP_COUNT_FILE),
+        );
+        if (!(await file.exists())) continue;
+        try {
+          total += Number.parseInt(await file.text(), 10) || 0;
+        } catch {
+          /* skip unreadable sidecar */
+        }
+      }
+      return total;
+    },
   };
 }

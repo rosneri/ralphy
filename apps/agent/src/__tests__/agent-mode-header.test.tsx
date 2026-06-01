@@ -55,6 +55,7 @@ function makeBuilder(concurrency: number, pollInterval: number): AgentModeBuildC
     pollInterval,
     getWorkerCwd: () => undefined,
     runBaselineGate: async () => {},
+    getGaveUpTotal: async () => 0,
   });
 }
 

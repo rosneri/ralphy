@@ -22,6 +22,7 @@
     "@ralphy/context": "workspace:*",
     "@ralphy/events": "workspace:*",
     "@ralphy/types": "workspace:*",
+    "@ralphy/version": "workspace:*",
     "xstate": "^5"
   }
 }

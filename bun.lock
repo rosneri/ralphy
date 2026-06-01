@@ -198,6 +198,7 @@
         "@ralphy/context": "workspace:*",
         "@ralphy/events": "workspace:*",
         "@ralphy/types": "workspace:*",
+        "@ralphy/version": "workspace:*",
         "xstate": "^5",
       },
     },
@@ -220,6 +221,9 @@
     "packages/log": {
       "name": "@ralphy/log",
       "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/version": "workspace:*",
+      },
     },
     "packages/openspec": {
       "name": "@ralphy/openspec",
