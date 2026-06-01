@@ -534,7 +534,9 @@ describe("awaiting-confirmation park status", () => {
   });
 
   test("the park-status step is gated on the confirmation toggle", () => {
-    expect(fieldsForMode("customized", {}).map((f) => f.id)).not.toContain(AWAITING_STATUS_FIELD_ID);
+    expect(fieldsForMode("customized", {}).map((f) => f.id)).not.toContain(
+      AWAITING_STATUS_FIELD_ID,
+    );
     expect(
       fieldsForMode("customized", { "linear.confirmationMode.enabled": true }).map((f) => f.id),
     ).toContain(AWAITING_STATUS_FIELD_ID);
