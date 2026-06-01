@@ -51,6 +51,13 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 2,
     description:
+      "Ralphy now detects the current git repo and records it in WORKFLOW.md, " +
+      "linking it to your Linear team. Confirm the detected repo to adopt it.",
+    fields: ["repo.link"],
+  },
+  {
+    version: 3,
+    description:
       "The per-workflow `linear.assignee` setting is replaced by a global " +
       "`linear.filter` expression (e.g. `assignee = me`) applied to every " +
       "ticket fetch. Existing `assignee` values are folded in automatically; " +

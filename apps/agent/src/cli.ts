@@ -54,6 +54,10 @@ export interface AgentParsedArgs extends CommonArgs {
   checks: boolean;
   /** List mode: show unresolved review comment count per PR. */
   review: boolean;
+  /** RLF-208: raw `--ticket` tokens (identifiers or bare numbers). Resolved to
+   *  ticket numbers + validated against the configured team in the wire layer.
+   *  Empty array = no ticket constraint (default behaviour). */
+  ticketTokens: string[];
 }
 
 // allow-duplicate
@@ -114,6 +118,7 @@ const HELP_TEXT = [
   "  --stack-prs             Base the PR on a blocker issue's open-PR head branch when present (needs --create-pr)",
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
+  "  --ticket <id>           Restrict issue discovery to specific ticket(s); repeatable or comma-separated (e.g. RLF-208 or 208)",
   "  --no-tmux               Disable tmux session management; run agent in the foreground directly",
   "  --no-pr-tracker         Disable RLF-173 pr-tracker bail / recovery counter for this run",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
@@ -211,6 +216,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     noTmux: false,
     checks: false,
     review: false,
+    ticketTokens: [],
   };
 
   const state = emptyParseState();
@@ -222,6 +228,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   let expectMaxTickets = false;
   let expectIndicator = false;
   let expectJsonLogFile = false;
+  let expectTicket = false;
 
   for (const arg of argv) {
     if (expectLinearTeam) {
@@ -265,6 +272,13 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
       expectJsonLogFile = false;
       continue;
     }
+    if (expectTicket) {
+      for (const token of arg.split(",").map((t) => t.trim())) {
+        if (token) result.ticketTokens.push(token);
+      }
+      expectTicket = false;
+      continue;
+    }
 
     if (parseCommonArg(arg, result, state)) continue;
 
@@ -286,6 +300,9 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--max-tickets":
         expectMaxTickets = true;
+        break;
+      case "--ticket":
+        expectTicket = true;
         break;
       case "--worktree":
         result.worktree = true;

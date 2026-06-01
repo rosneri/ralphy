@@ -177,10 +177,47 @@ describe("parseWorkflow", () => {
     expect(config.linear.filter).toBe("assignee = any");
   });
 
+  test("metaPrompt.effort defaults to auto", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.metaPrompt.effort).toBe("auto");
+  });
+
+  test("metaPrompt.effort accepts an explicit tier", () => {
+    const { config } = parseWorkflow(`---\nmetaPrompt:\n  effort: light\n---\n`);
+    expect(config.metaPrompt.effort).toBe("light");
+  });
+
+  test("metaPrompt.effort rejects an unknown value", () => {
+    expect(() => parseWorkflow(`---\nmetaPrompt:\n  effort: gigantic\n---\n`)).toThrow();
+  });
+
   test("linear.mentionTrigger / codeReviewTrigger default to true", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
     expect(config.linear.mentionTrigger).toBe(true);
     expect(config.linear.codeReviewTrigger).toBe(true);
+  });
+
+  test("parses an optional repo block", () => {
+    const { config } = parseWorkflow(
+      `---\nrepo:\n  remote: git@github.com:acme/widgets.git\n  host: github.com\n  owner: acme\n  name: widgets\n---\n`,
+    );
+    expect(config.repo).toEqual({
+      remote: "git@github.com:acme/widgets.git",
+      host: "github.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  test("a file without a repo block still validates (repo is undefined)", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.repo).toBeUndefined();
+  });
+
+  test("rejects an unknown key inside the strict repo block", () => {
+    expect(() =>
+      parseWorkflow(`---\nrepo:\n  owner: acme\n  name: widgets\n  branch: main\n---\n`),
+    ).toThrow();
   });
 
   test("project marker in getTodo.filter round-trips through parseWorkflow", () => {

@@ -12,18 +12,25 @@ import { fieldsForMode } from "@ralphy/workflow/fields";
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
     expect(LATEST_MIGRATION_VERSION).toBe(CURRENT_WORKFLOW_VERSION);
-    expect(CURRENT_WORKFLOW_VERSION).toBe(2);
+    expect(CURRENT_WORKFLOW_VERSION).toBe(3);
   });
 
-  test("version 2 introduces linear.filter", () => {
+  test("version 2 introduces repo.link", () => {
     const v2 = MIGRATIONS.find((m) => m.version === 2);
-    expect(v2?.fields).toContain("linear.filter");
+    expect(v2?.fields).toContain("repo.link");
+  });
+
+  test("version 3 introduces linear.filter", () => {
+    const v3 = MIGRATIONS.find((m) => m.version === 3);
+    expect(v3?.fields).toContain("linear.filter");
   });
 
   test("every migration field id exists in the customized catalogue", () => {
-    // Reveal nested gated children by enabling every field to a fixpoint.
+    // Reveal nested gated children by enabling every field to a fixpoint. Seed
+    // an injected repo identity so the `repo.link` step (gated on a detected
+    // repo, not a walkthrough toggle) is also revealed.
     const known = new Set<string>();
-    const answers: Record<string, boolean> = {};
+    const answers: Record<string, boolean | string> = { "repo.name": "widgets" };
     for (let pass = 0; pass < 5; pass++) {
       for (const field of fieldsForMode("customized", answers)) {
         known.add(field.id);

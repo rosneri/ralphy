@@ -10,6 +10,7 @@ import {
 } from "@ralphy/workflow";
 import { applyAnswersToWorkflow, workflowBody } from "@ralphy/workflow/wizard";
 import type { WizardAnswers } from "@ralphy/workflow/wizard-types";
+import { detectRepoIdentity, type RepoIdentity } from "@ralphy/core/repo";
 import {
   SetupWizard,
   EditOrExitPrompt,
@@ -37,6 +38,29 @@ interface RunOptions {
   initialValues?: Record<string, string | number | boolean>;
   /** Migration diff path: only ask these field ids. */
   onlyFields?: string[];
+  /** Detected git repo — injects `repo.*` values and the link step. */
+  detectedRepo?: RepoIdentity;
+}
+
+/**
+ * Merge a detected repo into the wizard's initial values: inject the `repo.*`
+ * identity (so the builder can write the block on confirm) and prefill
+ * `project.name` from the repo name only when no project name is already set
+ * (a fresh file, or an edit where it is blank). Returns the original values
+ * untouched when nothing was detected.
+ */
+function withDetectedRepo(
+  initial: Record<string, string | number | boolean> | undefined,
+  repo: RepoIdentity | undefined,
+): Record<string, string | number | boolean> | undefined {
+  if (!repo) return initial;
+  const values = { ...initial };
+  values["repo.remote"] = repo.remote;
+  values["repo.host"] = repo.host;
+  values["repo.owner"] = repo.owner;
+  values["repo.name"] = repo.name;
+  if (!values["project.name"]) values["project.name"] = repo.name;
+  return values;
 }
 
 /**
@@ -64,6 +88,7 @@ export async function runSetupWizard(
     : undefined;
   // Pre-fill the "customize prompt" step with the body that would be written.
   const initialBody = workflowBody(options.existing ?? DEFAULT_WORKFLOW_MD);
+  const initialValues = withDetectedRepo(options.initialValues, options.detectedRepo);
   clearScreen();
   const { waitUntilExit } = render(
     createElement(SetupWizard, {
@@ -75,8 +100,11 @@ export async function runSetupWizard(
       },
       initialBody,
       ...(options.initialMode ? { initialMode: options.initialMode } : {}),
-      ...(options.initialValues ? { initialValues: options.initialValues } : {}),
+      ...(initialValues ? { initialValues } : {}),
       ...(options.onlyFields ? { onlyFields: options.onlyFields } : {}),
+      ...(options.detectedRepo
+        ? { detectedRepo: { owner: options.detectedRepo.owner, name: options.detectedRepo.name } }
+        : {}),
       ...(buildMarkdown ? { buildMarkdown } : {}),
     }),
   );
@@ -179,10 +207,14 @@ async function editExisting(
   onlyFields?: string[],
 ): Promise<number> {
   const existing = await Bun.file(path).text();
+  // Re-detect so a repo-less existing file is offered the link step (backfill);
+  // `withDetectedRepo` won't clobber a user-set project name.
+  const detectedRepo = await detectRepoIdentity(projectRoot);
   const wrote = await runSetupWizard(projectRoot, {
     existing,
     initialMode: "customized",
     initialValues: initialValuesFromConfig(config),
+    ...(detectedRepo ? { detectedRepo } : {}),
     ...(onlyFields ? { onlyFields } : {}),
   });
   process.stdout.write(wrote ? `\n✓ Updated ${path}\n` : `\nNo changes written.\n`);
@@ -216,7 +248,8 @@ export async function main(argv: string[]): Promise<number> {
         process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
         return 0;
       }
-      const wrote = await runSetupWizard(projectRoot);
+      const detectedRepo = await detectRepoIdentity(projectRoot);
+      const wrote = await runSetupWizard(projectRoot, detectedRepo ? { detectedRepo } : {});
       process.stdout.write(
         wrote ? `\n✓ Recreated ${path}\n` : `\nSetup cancelled — no file written.\n`,
       );
@@ -251,7 +284,8 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const wrote = await runSetupWizard(projectRoot);
+  const detectedRepo = await detectRepoIdentity(projectRoot);
+  const wrote = await runSetupWizard(projectRoot, detectedRepo ? { detectedRepo } : {});
   process.stdout.write(wrote ? `\n✓ Created ${path}\n` : `\nSetup cancelled — no file written.\n`);
   return 0;
 }

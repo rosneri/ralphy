@@ -319,6 +319,51 @@ describe("fetchOpenIssues", () => {
     expect(issues).toEqual([]);
   });
 
+  test("populates project.priority and milestone when present", async () => {
+    const node = makeIssueNode({
+      project: { id: "proj-1", name: "Platform", priority: 2 },
+      projectMilestone: {
+        id: "ms-1",
+        name: "Beta",
+        sortOrder: 1.5,
+        targetDate: "2026-03-01",
+      },
+    });
+    stubResponses([ok({ issues: { nodes: [node] } })]);
+    const issues = await fetchOpenIssues("k", {});
+    expect(issues[0]!.project).toEqual({ id: "proj-1", name: "Platform", priority: 2 });
+    expect(issues[0]!.milestone).toEqual({
+      id: "ms-1",
+      name: "Beta",
+      sortOrder: 1.5,
+      targetDate: "2026-03-01",
+    });
+  });
+
+  test("leaves project.priority and milestone undefined when absent", async () => {
+    const node = makeIssueNode({
+      project: { id: "proj-1", name: "Platform" },
+      projectMilestone: null,
+    });
+    stubResponses([ok({ issues: { nodes: [node] } })]);
+    const issues = await fetchOpenIssues("k", {});
+    expect(issues[0]!.project).toEqual({ id: "proj-1", name: "Platform" });
+    expect(issues[0]!.project!.priority).toBeUndefined();
+    expect(issues[0]!.milestone).toBeUndefined();
+    // existing blockedByIds mapping unchanged
+    expect(issues[0]!.blockedByIds).toEqual([]);
+  });
+
+  test("omits milestone.targetDate when null", async () => {
+    const node = makeIssueNode({
+      projectMilestone: { id: "ms-1", name: "Beta", sortOrder: 0, targetDate: null },
+    });
+    stubResponses([ok({ issues: { nodes: [node] } })]);
+    const issues = await fetchOpenIssues("k", {});
+    expect(issues[0]!.milestone).toEqual({ id: "ms-1", name: "Beta", sortOrder: 0 });
+    expect(issues[0]!.milestone!.targetDate).toBeUndefined();
+  });
+
   test("includes comments slice when includeComments is true", async () => {
     const node = makeIssueNode({
       comments: {
@@ -857,6 +902,33 @@ describe("buildIssueFilter", () => {
   test("exclude label marker adds labels.every filter", () => {
     const f = buildIssueFilter({ exclude: [{ type: "label", value: "skip-me" }] });
     expect(f).toMatchObject({ labels: { every: { name: { nin: ["skip-me"] } } } });
+  });
+
+  test("numbers spec adds a top-level number.in clause (RLF-208)", () => {
+    const f = buildIssueFilter({ numbers: [208, 210] });
+    expect(f).toMatchObject({ number: { in: [208, 210] } });
+  });
+
+  test("number clause composes with include and exclude markers", () => {
+    const f = buildIssueFilter({
+      team: "RLF",
+      numbers: [208],
+      include: [{ type: "label", value: "ready" }],
+      exclude: [{ type: "label", value: "skip-me" }],
+    });
+    expect(f).toMatchObject({
+      team: { key: { eq: "RLF" } },
+      number: { in: [208] },
+    });
+    // include + exclude still produce their label clauses alongside `number`.
+    const andClauses = f.and as Record<string, unknown>[] | undefined;
+    expect(andClauses).toContainEqual({ labels: { some: { name: { in: ["ready"] } } } });
+    expect(andClauses).toContainEqual({ labels: { every: { name: { nin: ["skip-me"] } } } });
+  });
+
+  test("omitting numbers adds no number key (regression guard)", () => {
+    expect(buildIssueFilter({}).number).toBeUndefined();
+    expect(buildIssueFilter({ numbers: [] }).number).toBeUndefined();
   });
 });
 

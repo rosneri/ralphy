@@ -13,6 +13,13 @@ import {
 import { buildMetaPrompt, type MetaPromptOptions, type TaskPhase } from "./prompt/meta-prompt";
 
 export type { MetaPromptOptions, TaskPhase } from "./prompt/meta-prompt";
+export {
+  detectEffort,
+  resolveEffortOverride,
+  EFFORT_GUIDANCE,
+  type Effort,
+  type DetectEffortOptions,
+} from "./prompt/effort";
 
 export type LoopPassType = "normal" | "confirmation" | "ci-fix" | "conflict-resolution";
 

@@ -51,6 +51,7 @@ export async function main(argv: string[]): Promise<number> {
         name: args.name,
         checks: args.checks,
         review: args.review,
+        ticketTokens: args.ticketTokens,
       });
     });
     return typeof process.exitCode === "number" ? process.exitCode : 0;
@@ -70,6 +71,22 @@ export async function main(argv: string[]): Promise<number> {
     const s = getSessionStatus(name);
     process.stdout.write(JSON.stringify(s) + "\n");
     return 0;
+  }
+
+  // RLF-208: validate --ticket up front so a bad identifier fails cleanly
+  // before the TUI renders (the wire layer re-runs the same resolution).
+  if (args.ticketTokens.length > 0) {
+    const { loadRalphyConfig } = await import("./agent/config");
+    const { resolveTicketNumbers, formatTicketError } =
+      await import("./shared/capabilities/linear-client");
+    const cfg = await loadRalphyConfig(projectRoot);
+    const team = args.linearTeam || cfg.linear.team;
+    try {
+      resolveTicketNumbers(args.ticketTokens, team);
+    } catch (err) {
+      process.stderr.write(formatTicketError(err) + "\n");
+      return 1;
+    }
   }
 
   await mkdir(statesDir, { recursive: true });

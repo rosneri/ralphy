@@ -503,6 +503,63 @@ describe("confirmation indicators in the wizard", () => {
   });
 });
 
+describe("repo linking", () => {
+  const REPO_VALUES = {
+    "repo.remote": "git@github.com:acme/widgets.git",
+    "repo.host": "github.com",
+    "repo.owner": "acme",
+    "repo.name": "widgets",
+  };
+  const REPO_BLOCK = {
+    remote: "git@github.com:acme/widgets.git",
+    host: "github.com",
+    owner: "acme",
+    name: "widgets",
+  };
+
+  test("the repo.link step is hidden until a repo is injected", () => {
+    expect(fieldsForMode("customized", {}).map((f) => f.id)).not.toContain("repo.link");
+    expect(fieldsForMode("customized", { "repo.name": "widgets" }).map((f) => f.id)).toContain(
+      "repo.link",
+    );
+  });
+
+  test("confirming the link writes the repo block (control field is not persisted)", () => {
+    const md = buildFromAnswers("customized", { ...REPO_VALUES, "repo.link": true });
+    expect(parseWorkflow(md).config.repo).toEqual(REPO_BLOCK);
+  });
+
+  test("declining the link drops the injected repo identity", () => {
+    const md = buildFromAnswers("customized", { ...REPO_VALUES, "repo.link": false });
+    expect(parseWorkflow(md).config.repo).toBeUndefined();
+  });
+
+  test("link step surfaces the detected repo and writes the block on confirm", async () => {
+    const ENTER = "\r";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    let result: string | null = null;
+    const { stdin, lastFrame, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: (md: string) => (result = md),
+        initialMode: "customized",
+        onlyFields: ["repo.link"],
+        initialValues: REPO_VALUES,
+        detectedRepo: { owner: "acme", name: "widgets" },
+      }),
+    );
+    await tick();
+    const plain = (lastFrame() ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+    expect(plain).toContain("Detected repo: acme/widgets");
+    expect(plain).toContain("Link this repository");
+    stdin.write(ENTER); // confirm (default Yes) -> complete
+    await tick();
+    unmount();
+
+    expect(result).not.toBeNull();
+    expect(parseWorkflow(result!).config.repo).toEqual(REPO_BLOCK);
+  });
+});
+
 describe("maybeRunSetupWizard gating", () => {
   let dir: string;
   beforeEach(() => {

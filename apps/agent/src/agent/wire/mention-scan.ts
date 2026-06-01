@@ -32,6 +32,8 @@ interface MentionScanInput {
   assignee: string | undefined;
   /** When true, scan regardless of assignee (`assignee = any`). */
   anyAssignee?: boolean | undefined;
+  /** RLF-208: when non-empty, constrain the mention scan to these ticket numbers. */
+  ticketNumbers?: number[] | undefined;
   indicators: Indicators;
   projectRoot: string;
   useWorktree: boolean;
@@ -64,6 +66,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
     onLog,
     diag,
     cwdByChange,
+    ticketNumbers,
     stalePingedAt,
     lastHandledReviewActivity,
     resolvePrUrlForIssue,
@@ -82,6 +85,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
         team,
         assignee,
         anyAssignee,
+        ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
         indicators: {
           ...(indicators.getTodo !== undefined ? { getTodo: indicators.getTodo } : {}),
           ...(indicators.getInProgress !== undefined

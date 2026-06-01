@@ -6,6 +6,7 @@
   "exports": {
     "./state": "./src/state/store.ts",
     "./git": "./src/git.ts",
+    "./repo": "./src/repo/index.ts",
     "./format": "./src/format.ts",
     "./init": "./src/init.ts",
     "./loop": "./src/loop.ts",
@@ -14,7 +15,8 @@
     "./progress": "./src/progress.ts",
     "./openspec-phase": "./src/openspec/phase.ts",
     "./detections": "./src/detections/index.ts",
-    "./machines": "./src/machines/index.ts"
+    "./machines": "./src/machines/index.ts",
+    "./ordering": "./src/ordering/index.ts"
   },
   "dependencies": {
     "@ralphy/change-store": "workspace:*",

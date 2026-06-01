@@ -14,8 +14,16 @@ import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
+import { orderIssuesHierarchically } from "@ralphy/core/ordering";
+import { linearIssueToOrderable } from "./queue/queue-order";
 import { getPrChecksStatus } from "./agent/ci";
-import { RALPHY_ATTACHMENT_TITLE } from "./shared/capabilities/linear-client";
+import {
+  RALPHY_ATTACHMENT_TITLE,
+  parseTicketIdentifier,
+  resolveTicketNumbers,
+  formatTicketError,
+  type ParsedTicketIdentifier,
+} from "./shared/capabilities/linear-client";
 import { unionMarkers } from "./agent/wire/indicators";
 import { fetchPrReviewSummary } from "./shared/pr/review-state";
 
@@ -147,6 +155,7 @@ async function fetchBucketIssues(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
+  ticketNumbers: number[],
 ): Promise<LinearIssue[]> {
   if (!bucket.indicator || bucket.indicator.filter.length === 0) return [];
   const spec: LinearFilterSpec = {
@@ -155,6 +164,7 @@ async function fetchBucketIssues(
     anyAssignee,
     include: bucket.indicator.filter,
     exclude: bucket.exclude,
+    ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
   };
   return fetchOpenIssues(apiKey, spec);
 }
@@ -240,6 +250,19 @@ export function formatPrStatusMarker(status: PrStatus | null, failedCheckNames?:
   return parts.join(" ");
 }
 
+/**
+ * Compute the hierarchical backlog rank (project → milestone → item) for a set
+ * of issues, keyed by issue id. `agent list` uses this as each row's
+ * `bucketOrder` so the rendered order matches the agent queue's pickup order
+ * for the same input. Pure (no IO); exported for consistency tests.
+ */
+export function backlogRankByIssueId(issues: LinearIssue[]): Map<string, number> {
+  const ordered = orderIssuesHierarchically(issues.map((issue) => linearIssueToOrderable(issue)));
+  const rankById = new Map<string, number>();
+  ordered.forEach((o, i) => rankById.set(o.id, i));
+  return rankById;
+}
+
 async function fetchAndPrintLinear(
   apiKey: string,
   buckets: Bucket[],
@@ -251,6 +274,7 @@ async function fetchAndPrintLinear(
   ignoreCiChecks: string[] = [],
   checks = false,
   review = false,
+  ticketNumbers: number[] = [],
 ): Promise<void> {
   // Fan out across buckets in parallel.
   const bucketResults = await Promise.all(
@@ -259,7 +283,14 @@ async function fetchAndPrintLinear(
         return { bucket, issues: [] as LinearIssue[], error: null as string | null };
       }
       try {
-        const issues = await fetchBucketIssues(apiKey, bucket, team, assignee, anyAssignee);
+        const issues = await fetchBucketIssues(
+          apiKey,
+          bucket,
+          team,
+          assignee,
+          anyAssignee,
+          ticketNumbers,
+        );
         return { bucket, issues, error: null };
       } catch (err) {
         return {
@@ -277,17 +308,21 @@ async function fetchAndPrintLinear(
     }
   }
 
-  // Dedupe by issue id, remembering bucket label and original Linear order.
+  // Dedupe by issue id, remembering bucket label and the source issue (the
+  // first bucket wins, as before).
   const seen = new Map<string, UnifiedRow>();
-  let order = 0;
+  const issueById = new Map<string, LinearIssue>();
   for (const { bucket, issues } of bucketResults) {
     for (const issue of issues) {
       if (seen.has(issue.id)) continue;
+      issueById.set(issue.id, issue);
       seen.set(issue.id, {
         issueId: issue.id,
         identifier: issue.identifier,
         status: null,
-        bucketOrder: order++,
+        // Filled in below from the hierarchical backlog order so the list
+        // matches the queue's pickup order for the same input.
+        bucketOrder: 0,
         issueCreatedAt: issue.createdAt,
         bucketLabel: bucket.label,
         stateName: issue.state.name,
@@ -298,6 +333,12 @@ async function fetchAndPrintLinear(
     }
   }
   const rows = [...seen.values()];
+
+  // Order issues hierarchically (project → milestone → item) and use that rank
+  // as each row's bucketOrder, so `agent list` and the agent queue agree on
+  // ordering for the same input.
+  const rankById = backlogRankByIssueId([...issueById.values()]);
+  for (const row of rows) row.bucketOrder = rankById.get(row.issueId) ?? 0;
 
   // Resolve PR URLs via a single bulk attachments query (one Linear request
   // for every row, instead of N parallel calls). Falls back to a per-row
@@ -405,6 +446,8 @@ interface RunListInput {
   name: string;
   checks: boolean;
   review: boolean;
+  /** RLF-208: raw `--ticket` tokens to restrict the listing to. */
+  ticketTokens?: string[];
 }
 
 export async function runList(input: RunListInput): Promise<void> {
@@ -461,8 +504,18 @@ export async function runList(input: RunListInput): Promise<void> {
     return;
   }
 
+  let ticketNumbers: number[] = [];
+  try {
+    ticketNumbers = resolveTicketNumbers(input.ticketTokens ?? [], team);
+  } catch (err) {
+    process.stderr.write(`Error: ${formatTicketError(err)}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (team) process.stdout.write(`\nteam: ${team}\n`);
   process.stdout.write(`assignee: ${anyAssignee ? "any" : (assignee ?? "*")}\n`);
+  if (ticketNumbers.length > 0) process.stdout.write(`ticket: ${ticketNumbers.join(", ")}\n`);
 
   await fetchAndPrintLinear(
     apiKey,
@@ -475,6 +528,7 @@ export async function runList(input: RunListInput): Promise<void> {
     cfg.ignoreCiChecks,
     input.checks,
     input.review,
+    ticketNumbers,
   );
 }
 
@@ -514,12 +568,18 @@ interface RawIssue {
  *   - a raw Linear identifier in any case ("DOO-6", "doo-6")
  *   - a local change-name slug produced by changeNameForIssue
  *     ("doo-6-test2") — the leading `<team>-<number>` is extracted.
- * Returns null when the input cannot be coerced into a Linear identifier.
+ * Returns null when the input cannot be coerced into a Linear identifier
+ * (including a bare number, which carries no team key).
  */
 function normalizeIdentifier(input: string): string | null {
-  const match = input.match(/^([A-Za-z]+)-(\d+)(?:-.*)?$/);
-  if (!match) return null;
-  return `${match[1]!.toUpperCase()}-${match[2]}`;
+  let parsed: ParsedTicketIdentifier;
+  try {
+    parsed = parseTicketIdentifier(input);
+  } catch {
+    return null;
+  }
+  if (parsed.teamKey === null) return null;
+  return `${parsed.teamKey}-${parsed.number}`;
 }
 
 async function fetchIssueByIdentifier(

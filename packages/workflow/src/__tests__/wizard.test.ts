@@ -155,6 +155,27 @@ describe("buildWorkflowMarkdown", () => {
     });
   });
 
+  test("emits a repo block from repo.* answers", () => {
+    const { config } = roundTrip("customized", {
+      "project.name": "widgets",
+      "repo.remote": "git@github.com:acme/widgets.git",
+      "repo.host": "github.com",
+      "repo.owner": "acme",
+      "repo.name": "widgets",
+    });
+    expect(config.repo).toEqual({
+      remote: "git@github.com:acme/widgets.git",
+      host: "github.com",
+      owner: "acme",
+      name: "widgets",
+    });
+  });
+
+  test("omits the repo block when no repo.* answers are present", () => {
+    const { config } = roundTrip("customized", { "project.name": "widgets" });
+    expect(config.repo).toBeUndefined();
+  });
+
   test("values with YAML-special characters are quoted safely", () => {
     const { config } = roundTrip("customized", {
       "project.name": "app: the sequel",

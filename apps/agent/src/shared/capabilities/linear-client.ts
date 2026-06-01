@@ -23,7 +23,12 @@ export interface LinearIssue {
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
   /** Linear project the issue belongs to, or null when unassigned. */
-  project: { id: string; name: string } | null;
+  project: { id: string; name: string; priority?: number } | null;
+  /**
+   * Project milestone the issue is assigned to, or undefined when none.
+   * `sortOrder` reflects the milestone's manual ordering within its project.
+   */
+  milestone?: { id: string; name: string; sortOrder: number; targetDate?: string };
   labels: string[];
   /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
@@ -61,9 +66,106 @@ export interface LinearFilterSpec {
   anyAssignee?: boolean | undefined;
   include?: Marker[] | undefined;
   exclude?: Marker[] | undefined;
+  /** RLF-208: when non-empty, restrict to issues whose Linear `number` is in
+   *  this set (ANDed with team/assignee/include/exclude). Set by `--ticket`. */
+  numbers?: number[] | undefined;
 }
 
 const LINEAR_API = "https://api.linear.app/graphql";
+
+// ---------------------------------------------------------------------------
+// Ticket-identifier parsing for the `--ticket` flag (RLF-208)
+// ---------------------------------------------------------------------------
+
+export interface ParsedTicketIdentifier {
+  /** Uppercased team key (e.g. "RLF"), or null when a bare number was given. */
+  teamKey: string | null;
+  /** The Linear issue number (e.g. 208). */
+  number: number;
+}
+
+const TICKET_IDENTIFIER_RE = /^([A-Za-z]+)-(\d+)(?:-.*)?$/;
+const TICKET_BARE_NUMBER_RE = /^(\d+)$/;
+
+/**
+ * Parse a single ticket identifier token. Accepts the full identifier form
+ * (`RLF-208` / `rlf-208`, case-insensitive), a bare number (`208`), and a
+ * change-name slug (`rlf-208-some-slug`, whose leading `<team>-<number>` is
+ * extracted). Throws a descriptive `Error` on malformed input.
+ */
+export function parseTicketIdentifier(raw: string): ParsedTicketIdentifier {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("--ticket value cannot be empty");
+  }
+  const bare = TICKET_BARE_NUMBER_RE.exec(trimmed);
+  if (bare) {
+    return { teamKey: null, number: Number(bare[1]) };
+  }
+  const match = TICKET_IDENTIFIER_RE.exec(trimmed);
+  if (!match) {
+    const err = new Error(
+      "--ticket value is not a Linear ticket (expected e.g. RLF-208 or 208)",
+    ) as Error & { value?: string };
+    err.value = raw;
+    throw err;
+  }
+  return { teamKey: match[1]!.toUpperCase(), number: Number(match[2]) };
+}
+
+/**
+ * Resolve a list of raw `--ticket` tokens to a deduped set of Linear ticket
+ * numbers, validated against the configured `team`.
+ *
+ * Throws when a full identifier's team key disagrees with `team`
+ * (case-insensitive), or when a bare number is given but no `team` is
+ * configured. Returns an empty array when `tokens` is empty (no constraint).
+ */
+export function resolveTicketNumbers(tokens: string[], team: string | undefined): number[] {
+  const teamKey = team?.trim() ? team.trim().toUpperCase() : null;
+  const seen = new Set<number>();
+  const out: number[] = [];
+  for (const token of tokens) {
+    const { teamKey: parsedTeam, number } = parseTicketIdentifier(token);
+    if (parsedTeam !== null) {
+      if (teamKey !== null && parsedTeam !== teamKey) {
+        const err = new Error("--ticket identifier is not in the configured team") as Error & {
+          ticket?: string;
+          team?: string | undefined;
+        };
+        err.ticket = token;
+        err.team = team;
+        throw err;
+      }
+    } else if (teamKey === null) {
+      const err = new Error(
+        "--ticket bare number needs a configured team; pass --linear-team or set linear.team in config",
+      ) as Error & { ticket?: string };
+      err.ticket = token;
+      throw err;
+    }
+    if (!seen.has(number)) {
+      seen.add(number);
+      out.push(number);
+    }
+  }
+  return out;
+}
+
+/**
+ * Render a `--ticket` validation error for the operator: the static `message`
+ * plus any attached context (offending ticket / configured team), so the CLI
+ * line is both searchable and actionable.
+ */
+export function formatTicketError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const e = err as Error & { ticket?: string; team?: string; value?: string };
+  const detail = e.ticket ?? e.value;
+  const parts: string[] = [];
+  if (detail) parts.push(`ticket: ${detail}`);
+  if (e.team) parts.push(`configured team: ${e.team}`);
+  return parts.length > 0 ? `${e.message} (${parts.join(", ")})` : e.message;
+}
 
 interface LinearNode {
   id: string;
@@ -73,7 +175,13 @@ interface LinearNode {
   url: string;
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
-  project: { id: string; name: string } | null;
+  project: { id: string; name: string; priority?: number } | null;
+  projectMilestone: {
+    id: string;
+    name: string;
+    sortOrder: number;
+    targetDate: string | null;
+  } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
   createdAt: string;
@@ -128,6 +236,13 @@ export function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown
   } else {
     // Default: unassigned only — the agent never grabs work assigned to a human.
     where.assignee = { null: true };
+  }
+
+  // RLF-208: top-level `number` filter narrows the query to specific tickets.
+  // Linear ANDs `number` with the rest of `where`, so it composes cleanly with
+  // both the include branches and the open-state default below.
+  if (spec.numbers && spec.numbers.length > 0) {
+    where.number = { in: spec.numbers };
   }
 
   const inc = spec.include ?? [];
@@ -226,12 +341,49 @@ export function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | 
   return Object.keys(parts).length > 0 ? parts : null;
 }
 
+/** Map a node's `project` to the `LinearIssue.project` shape, preserving the
+ *  optional `priority` and leaving it off when absent. */
+function mapNodeProject(node: LinearNode): LinearIssue["project"] {
+  if (!node.project) return null;
+  return {
+    id: node.project.id,
+    name: node.project.name,
+    ...(node.project.priority !== undefined && node.project.priority !== null
+      ? { priority: node.project.priority }
+      : {}),
+  };
+}
+
+/** Map a node's `projectMilestone` to the `LinearIssue.milestone` shape,
+ *  returning undefined when the issue has no milestone. */
+function mapNodeMilestone(node: LinearNode): LinearIssue["milestone"] {
+  const m = node.projectMilestone;
+  if (!m) return undefined;
+  return {
+    id: m.id,
+    name: m.name,
+    sortOrder: m.sortOrder,
+    ...(m.targetDate != null ? { targetDate: m.targetDate } : {}),
+  };
+}
+
+/** Spread `{ milestone }` only when the node has one. Typed so the optional
+ *  `milestone` field never receives `undefined` (exactOptionalPropertyTypes). */
+function milestoneSpread(
+  node: LinearNode,
+): { milestone: NonNullable<LinearIssue["milestone"]> } | Record<string, never> {
+  const m = mapNodeMilestone(node);
+  return m ? { milestone: m } : {};
+}
+
 export async function fetchMentionScanIssues(
   apiKey: string,
   spec: {
     team?: string | undefined;
     assignee?: string | undefined;
     anyAssignee?: boolean | undefined;
+    /** RLF-208: when non-empty, constrain the scan to these ticket numbers. */
+    numbers?: number[] | undefined;
     indicators: {
       getTodo?: GetIndicator | undefined;
       getInProgress?: GetIndicator | undefined;
@@ -263,6 +415,9 @@ export async function fetchMentionScanIssues(
     else if (spec.assignee.includes("@")) where.assignee = { email: { eq: spec.assignee } };
     else where.assignee = { id: { eq: spec.assignee } };
   }
+  if (spec.numbers && spec.numbers.length > 0) {
+    where.number = { in: spec.numbers };
+  }
 
   const query = `query MentionScanIssues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {
@@ -270,7 +425,8 @@ export async function fetchMentionScanIssues(
         id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
-        project { id name }
+        project { id name priority }
+        projectMilestone { id name sortOrder targetDate }
         labels { nodes { name } }
         relations(first: 50) {
           nodes { type relatedIssue { id identifier state { type } } }
@@ -295,7 +451,8 @@ export async function fetchMentionScanIssues(
     url: n.url,
     state: n.state,
     assignee: n.assignee,
-    project: n.project ?? null,
+    project: mapNodeProject(n),
+    ...milestoneSpread(n),
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
@@ -329,7 +486,8 @@ export async function fetchOpenIssues(
         id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
-        project { id name }
+        project { id name priority }
+        projectMilestone { id name sortOrder targetDate }
         labels { nodes { name } }
         relations(first: 50) {
           nodes {
@@ -355,7 +513,8 @@ export async function fetchOpenIssues(
     url: n.url,
     state: n.state,
     assignee: n.assignee,
-    project: n.project ?? null,
+    project: mapNodeProject(n),
+    ...milestoneSpread(n),
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
