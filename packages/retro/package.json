@@ -7,7 +7,6 @@
     ".": "./src/retro.ts"
   },
   "dependencies": {
-    "@ralphy/engine": "workspace:*",
     "@ralphy/types": "workspace:*"
   }
 }
