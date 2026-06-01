@@ -451,3 +451,142 @@ describe("createCommentSyncHooks — syncTasks: plan comment suppression with sp
     expect((s.linearComments as { planCommentId?: string | null }).planCommentId).toBeTruthy();
   });
 });
+
+describe("createCommentSyncHooks — spec attachments decoupled from syncTasksToComment", () => {
+  let savedFetch: typeof globalThis.fetch;
+  let uploadCalls: number;
+  let attachmentCreateCalls: number;
+
+  function makeWireConfig(opts: {
+    syncTasksToComment: boolean;
+    syncSpecsAsAttachments: boolean;
+  }): RalphyConfig {
+    return WorkflowConfigSchema.parse({
+      linear: {
+        syncTasksToComment: opts.syncTasksToComment,
+        syncSpecsAsAttachments: opts.syncSpecsAsAttachments,
+        specAttachmentFormats: ["pdf"],
+      },
+    });
+  }
+
+  function installFetchStub(): void {
+    let cmt = 0;
+    let att = 0;
+    uploadCalls = 0;
+    attachmentCreateCalls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PUT") {
+        return new Response("", { status: 200 });
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as { query?: string };
+      const q = body.query ?? "";
+      if (q.includes("commentCreate")) {
+        return new Response(
+          JSON.stringify({
+            data: { commentCreate: { success: true, comment: { id: `cmt-${++cmt}` } } },
+          }),
+        );
+      }
+      if (q.includes("fileUpload")) {
+        uploadCalls++;
+        return new Response(
+          JSON.stringify({
+            data: {
+              fileUpload: {
+                uploadFile: {
+                  uploadUrl: "https://upload.example.com/put",
+                  assetUrl: "https://assets.example.com/file.pdf",
+                  headers: [],
+                },
+              },
+            },
+          }),
+        );
+      }
+      if (q.includes("IssueAttachmentByTitle") || q.includes("attachments(first")) {
+        return new Response(JSON.stringify({ data: { issue: { attachments: { nodes: [] } } } }));
+      }
+      if (q.includes("CreateAttachment") || q.includes("attachmentCreate")) {
+        attachmentCreateCalls++;
+        return new Response(
+          JSON.stringify({
+            data: { attachmentCreate: { success: true, attachment: { id: `att-${++att}` } } },
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ data: {} }));
+    }) as typeof fetch;
+  }
+
+  function writeChangeFiles(): void {
+    writeFileSync(
+      join(changeDir, "tasks.md"),
+      "## Planning\n\n- [x] design approved\n\n## Implementation\n\n- [ ] task one\n",
+      "utf-8",
+    );
+    writeFileSync(
+      join(changeDir, "proposal.md"),
+      "# Title\n\n## Why\n\nBecause reasons.\n\n## What Changes\n\n- Change item\n",
+      "utf-8",
+    );
+    writeFileSync(join(changeDir, "design.md"), "# Design\n\nDesign paragraph here.\n", "utf-8");
+  }
+
+  function makeHooks(cfg: RalphyConfig) {
+    return createCommentSyncHooks({
+      apiKey: "test-key",
+      cfg,
+      projectRoot: tempDir,
+      onLog: () => {},
+      diag: () => {},
+      cwdByChange: new Map(),
+      issueByChange: new Map(),
+    });
+  }
+
+  beforeEach(() => {
+    savedFetch = globalThis.fetch;
+    installFetchStub();
+    writeChangeFiles();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = savedFetch;
+  });
+
+  test("fix_case: syncTasks is wired when only syncSpecsAsAttachments is on", () => {
+    const hooks = makeHooks(
+      makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: true }),
+    );
+    expect(hooks.enabled).toBe(true);
+    expect(typeof hooks.syncTasks).toBe("function");
+  });
+
+  test("fix_case: design attachment is uploaded with syncTasksToComment off", async () => {
+    const hooks = makeHooks(
+      makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: true }),
+    );
+    await hooks.syncTasks!({ changeName: "demo", issueId: "issue-1" }, 1);
+    expect(uploadCalls).toBeGreaterThan(0);
+    expect(attachmentCreateCalls).toBeGreaterThan(0);
+  });
+
+  test("no tasks comment is posted when syncTasksToComment is off", async () => {
+    const hooks = makeHooks(
+      makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: true }),
+    );
+    await hooks.syncTasks!({ changeName: "demo", issueId: "issue-1" }, 1);
+    const s = await readState();
+    const lc = (s.linearComments ?? {}) as { tasksCommentId?: string | null };
+    expect(lc.tasksCommentId ?? null).toBeNull();
+  });
+
+  test("hooks stay disabled when both comment sync and spec attachments are off", () => {
+    const hooks = makeHooks(
+      makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: false }),
+    );
+    expect(hooks.enabled).toBe(false);
+    expect(hooks.syncTasks).toBeUndefined();
+  });
+});

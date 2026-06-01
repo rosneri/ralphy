@@ -36,7 +36,14 @@ interface CommentSyncHooks {
 
 export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHooks {
   const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
-  const enabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
+  // The tasks-comment mirror and the spec-attachment (proposal/design, incl.
+  // PDF) upload are independent features that share one `syncTasks` hook.
+  // Wire the hook when *either* is on — gating spec attachments behind
+  // `syncTasksToComment` previously left `syncSpecsAsAttachments: true` dead
+  // whenever the sticky comment was disabled (no design PDF on the issue).
+  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
+  const specAttachmentsEnabled = Boolean(cfg.linear.syncSpecsAsAttachments && apiKey);
+  const enabled = commentsEnabled || specAttachmentsEnabled;
   if (!enabled) return { enabled: false };
 
   const commentMutations: CommentMutations = {
@@ -50,7 +57,6 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
     deleteAttachment,
     findIssueAttachmentByTitle,
   };
-  const specAttachmentsEnabled = Boolean(cfg.linear.syncSpecsAsAttachments);
 
   return {
     enabled,
@@ -59,27 +65,29 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
       const layout = projectLayout(root);
       const changeDir = layout.changeDir(worker.changeName);
       const statePath = layout.stateFile(worker.changeName);
-      if (!specAttachmentsEnabled) {
-        await postPlanCommentOnce({
+      if (commentsEnabled) {
+        if (!specAttachmentsEnabled) {
+          await postPlanCommentOnce({
+            apiKey,
+            issueId: worker.issueId,
+            statePath,
+            changeDir,
+            changeName: worker.changeName,
+            log: onLog,
+            mutations: commentMutations,
+          });
+        }
+        await postOrUpdateTasksComment({
           apiKey,
           issueId: worker.issueId,
           statePath,
           changeDir,
           changeName: worker.changeName,
+          iteration,
           log: onLog,
           mutations: commentMutations,
         });
       }
-      await postOrUpdateTasksComment({
-        apiKey,
-        issueId: worker.issueId,
-        statePath,
-        changeDir,
-        changeName: worker.changeName,
-        iteration,
-        log: onLog,
-        mutations: commentMutations,
-      });
       if (specAttachmentsEnabled) {
         await syncSpecAttachments({
           apiKey,
@@ -93,42 +101,48 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
         });
       }
     },
-    onSteeringAppended: async (changeName, message) => {
-      const root = cwdByChange.get(changeName) ?? projectRoot;
-      const layout = projectLayout(root);
-      const changeDir = layout.changeDir(changeName);
-      const statePath = layout.stateFile(changeName);
-      const issue = issueByChange.get(changeName) ?? null;
-      const issueId = issue?.id ?? null;
-      if (!issueId) {
-        diag(
-          "comment-sync",
-          `  comment-sync: no Linear issue cached for ${changeName}; skipping steering refresh`,
-          "gray",
-        );
-        return;
-      }
-      let iteration = 0;
-      try {
-        const f = Bun.file(statePath);
-        if (await f.exists()) {
-          const json = (await f.json()) as { iteration?: number };
-          iteration = json.iteration ?? 0;
+    // Steering acknowledgement + tasks-comment refresh is part of the
+    // tasks-comment mirror, so it only runs when that feature is on.
+    ...(commentsEnabled
+      ? {
+          onSteeringAppended: async (changeName: string, message: string) => {
+            const root = cwdByChange.get(changeName) ?? projectRoot;
+            const layout = projectLayout(root);
+            const changeDir = layout.changeDir(changeName);
+            const statePath = layout.stateFile(changeName);
+            const issue = issueByChange.get(changeName) ?? null;
+            const issueId = issue?.id ?? null;
+            if (!issueId) {
+              diag(
+                "comment-sync",
+                `  comment-sync: no Linear issue cached for ${changeName}; skipping steering refresh`,
+                "gray",
+              );
+              return;
+            }
+            let iteration = 0;
+            try {
+              const f = Bun.file(statePath);
+              if (await f.exists()) {
+                const json = (await f.json()) as { iteration?: number };
+                iteration = json.iteration ?? 0;
+              }
+            } catch {
+              /* ignore */
+            }
+            await postSteeringAndRefreshTasks({
+              apiKey,
+              issueId,
+              statePath,
+              changeDir,
+              changeName,
+              iteration,
+              message,
+              log: onLog,
+              mutations: commentMutations,
+            });
+          },
         }
-      } catch {
-        /* ignore */
-      }
-      await postSteeringAndRefreshTasks({
-        apiKey,
-        issueId,
-        statePath,
-        changeDir,
-        changeName,
-        iteration,
-        message,
-        log: onLog,
-        mutations: commentMutations,
-      });
-    },
+      : {}),
   };
 }
