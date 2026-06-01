@@ -17,6 +17,9 @@ interface PrReviewThread {
   isResolved: boolean;
   path?: string;
   line?: number;
+  /** True when GitHub reports `subjectType === "FILE"` (whole-file comment).
+   *  Such threads carry a bogus `line` (often `1`, sometimes `null`). */
+  isFileLevel: boolean;
   comments: PrReviewThreadComment[];
 }
 interface PrReviewState {
@@ -84,7 +87,7 @@ async function fetchPrReviewState(
         reviewRequests(first:5){nodes{requestedReviewer{... on User{login}}}}
         latestReviews(first:5){nodes{author{login} state submittedAt}}
         reviewThreads(first:50){nodes{
-          isResolved path line
+          isResolved subjectType path line
           comments(first:20){nodes{body author{login} createdAt url}}
         }}
       }
@@ -121,6 +124,7 @@ async function fetchPrReviewState(
             reviewThreads?: {
               nodes: {
                 isResolved: boolean;
+                subjectType?: string | null;
                 path?: string | null;
                 line?: number | null;
                 comments: {
@@ -154,6 +158,7 @@ async function fetchPrReviewState(
       approved: pr.reviewDecision === "APPROVED",
       threads: (pr.reviewThreads?.nodes ?? []).map((t) => ({
         isResolved: t.isResolved,
+        isFileLevel: t.subjectType === "FILE",
         ...(t.path ? { path: t.path } : {}),
         ...(t.line != null ? { line: t.line } : {}),
         comments: t.comments.nodes.map((c) => ({
@@ -249,7 +254,11 @@ export async function scanCodeReview(
   if (!effectiveLastHandled || newestReviewerActivity > effectiveLastHandled) {
     const body = unresolved
       .map((t) => {
-        const head = t.path ? `_${t.path}${t.line ? `:${t.line}` : ""}_` : "_(general)_";
+        const head = t.path
+          ? t.isFileLevel
+            ? `_${t.path} (whole file)_`
+            : `_${t.path}${t.line ? `:${t.line}` : ""}_`
+          : "_(general)_";
         const lines = t.comments.map(
           (c) =>
             `> **${c.author ?? "reviewer"}** (${c.createdAt})\n>\n> ${c.body.trim().replace(/\n/g, "\n> ")}`,

@@ -51,6 +51,25 @@ describe("fetchPrReviewSummary", () => {
     expect(result).toEqual({ unresolved: 2 });
   });
 
+  test("counts an unresolved file-level thread (RLF-209)", async () => {
+    const payload = JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                { isResolved: false, subjectType: "FILE" },
+                { isResolved: true, subjectType: "LINE" },
+              ],
+            },
+          },
+        },
+      },
+    });
+    const result = await fetchPrReviewSummary(BASE_URL, makeRunner(payload), "/cwd");
+    expect(result).toEqual({ unresolved: 1 });
+  });
+
   test("returns 0 for empty threads array", async () => {
     const payload = JSON.stringify({
       data: {
