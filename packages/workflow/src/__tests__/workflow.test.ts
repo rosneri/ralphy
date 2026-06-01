@@ -148,6 +148,20 @@ describe("parseWorkflow", () => {
     expect(config.linear.syncTasksToComment).toBe(false);
   });
 
+  test("metaPrompt.effort defaults to auto", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.metaPrompt.effort).toBe("auto");
+  });
+
+  test("metaPrompt.effort accepts an explicit tier", () => {
+    const { config } = parseWorkflow(`---\nmetaPrompt:\n  effort: light\n---\n`);
+    expect(config.metaPrompt.effort).toBe("light");
+  });
+
+  test("metaPrompt.effort rejects an unknown value", () => {
+    expect(() => parseWorkflow(`---\nmetaPrompt:\n  effort: gigantic\n---\n`)).toThrow();
+  });
+
   test("linear.mentionTrigger / codeReviewTrigger default to true", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
     expect(config.linear.mentionTrigger).toBe(true);

@@ -288,9 +288,14 @@ export const WorkflowConfigSchema = z.object({
     .object({
       /** Set to false to disable the task-level meta-prompt layer for all phases. */
       enabled: z.boolean().default(true),
+      /**
+       * Effort tier for the meta-prompt's per-ticket guidance. `auto` runs the
+       * heuristic classifier; a concrete tier pins every ticket to that tier.
+       */
+      effort: z.enum(["auto", "light", "standard", "heavy"]).default("auto"),
     })
     .strict()
-    .default({ enabled: true }),
+    .default({ enabled: true, effort: "auto" }),
   openspec: z
     .object({
       reviewPhase: z

@@ -1,10 +1,15 @@
 import type { State } from "@ralphy/types";
+import { detectEffort, EFFORT_GUIDANCE, type Effort } from "./effort";
 
 export type TaskPhase = "research" | "plan" | "execute" | "review";
 
 export interface MetaPromptOptions {
   /** Set to false to opt out of the meta-prompt entirely. Defaults to true. */
   enabled?: boolean;
+  /** Explicit effort override; when omitted the tier is detected heuristically. */
+  effort?: Effort;
+  /** Raw `tasks.md` content, forwarded to effort detection as a signal. */
+  tasksContent?: string;
   maxIterations?: number;
   maxCostUsd?: number;
   maxRuntimeMinutes?: number;
@@ -63,12 +68,18 @@ export function buildMetaPrompt(
 ): string {
   if (options.enabled === false) return "";
 
+  const effort = detectEffort(state, {
+    ...(options.effort !== undefined ? { override: options.effort } : {}),
+    ...(options.tasksContent !== undefined ? { tasksContent: options.tasksContent } : {}),
+  });
+
   let out = "---\n\n## Task Context\n\n";
 
   // Section 1: Always-on preamble
   out += `**Change:** \`${state.name}\`\n`;
   out += `**Engine/Model:** ${state.engine} / ${state.model}\n`;
   out += `**Phase:** ${phase}\n`;
+  out += `**Effort:** ${effort}\n`;
   out += `**Iteration:** ${state.iteration + 1}`;
   if (options.maxIterations && options.maxIterations > 0) {
     out += ` of ${options.maxIterations}`;
@@ -86,6 +97,10 @@ export function buildMetaPrompt(
   // Section 2: Phase-specific guidance
   out += `### Phase Guidance\n\n`;
   out += PHASE_GUIDANCE[phase] + "\n\n";
+
+  // Section 2b: Effort-specific guidance (right-sizes behavior per ticket)
+  out += `### Effort Guidance\n\n`;
+  out += EFFORT_GUIDANCE[effort] + "\n\n";
 
   // Section 3: Dynamic flags (only emit notable non-default flags)
   const flags: string[] = [];
