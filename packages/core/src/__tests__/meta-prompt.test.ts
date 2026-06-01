@@ -158,4 +158,40 @@ describe("buildMetaPrompt", () => {
     const result = buildMetaPrompt(makeState(), "execute", { createPr: true });
     expect(result).toContain("Active Flags");
   });
+
+  describe("effort layer", () => {
+    test("emits an **Effort:** line with a known tier", () => {
+      const result = buildMetaPrompt(makeState(), "execute");
+      expect(result).toMatch(/\*\*Effort:\*\* (light|standard|heavy)\n/);
+    });
+
+    test("emits an Effort Guidance section", () => {
+      const result = buildMetaPrompt(makeState(), "execute");
+      expect(result).toContain("### Effort Guidance");
+    });
+
+    test("each tier produces a distinct guidance block", () => {
+      const blocks = (["light", "standard", "heavy"] as const).map((effort) => {
+        const out = buildMetaPrompt(makeState(), "execute", { effort });
+        return out.split("### Effort Guidance")[1];
+      });
+      expect(new Set(blocks).size).toBe(3);
+    });
+
+    test("the effort line reflects an explicit override", () => {
+      const result = buildMetaPrompt(makeState(), "execute", { effort: "heavy" });
+      expect(result).toContain("**Effort:** heavy");
+    });
+
+    test("disabled meta-prompt emits no effort layer", () => {
+      const result = buildMetaPrompt(makeState(), "execute", { enabled: false });
+      expect(result).toBe("");
+      expect(result).not.toContain("**Effort:**");
+    });
+
+    test("standard tier preserves the existing phase guidance", () => {
+      const result = buildMetaPrompt(makeState(), "plan", { effort: "standard" });
+      expect(result).toContain("Do NOT write implementation code yet");
+    });
+  });
 });

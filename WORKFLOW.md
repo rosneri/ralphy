@@ -249,6 +249,10 @@ metaPrompt:
   # Add Ralphy's task-level 'meta-prompt' layer (extra framing instructions)
   # to each phase. Leave on unless you want raw prompts.
   enabled: true
+  # How much effort the meta-prompt nudges the agent toward per ticket. 'auto'
+  # detects it from the ticket; 'light'/'standard'/'heavy' pin every ticket to
+  # that tier.
+  effort: auto
 openspec:
   reviewPhase:
     # After all tasks finish, spawn a separate reviewer agent that reads the

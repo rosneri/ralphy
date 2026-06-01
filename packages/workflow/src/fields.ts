@@ -530,6 +530,22 @@ const CUSTOMIZED_FIELDS: Field[] = [
     spec: yes(),
   },
   {
+    id: "metaPrompt.effort",
+    label: "Per-ticket effort tier",
+    description:
+      "How much effort the meta-prompt nudges the agent toward per ticket. 'auto' detects it from the ticket; 'light'/'standard'/'heavy' pin every ticket to that tier.",
+    spec: {
+      kind: "select",
+      options: [
+        { label: "auto", value: "auto" },
+        { label: "light", value: "light" },
+        { label: "standard", value: "standard" },
+        { label: "heavy", value: "heavy" },
+      ],
+    },
+    when: isOn("metaPrompt.enabled"),
+  },
+  {
     id: "openspec.reviewPhase.enabled",
     label: "Enable the OpenSpec review phase?",
     description:
