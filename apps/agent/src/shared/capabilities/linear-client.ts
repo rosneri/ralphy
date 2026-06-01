@@ -263,6 +263,15 @@ function mapNodeMilestone(node: LinearNode): LinearIssue["milestone"] {
   };
 }
 
+/** Spread `{ milestone }` only when the node has one. Typed so the optional
+ *  `milestone` field never receives `undefined` (exactOptionalPropertyTypes). */
+function milestoneSpread(
+  node: LinearNode,
+): { milestone: NonNullable<LinearIssue["milestone"]> } | Record<string, never> {
+  const m = mapNodeMilestone(node);
+  return m ? { milestone: m } : {};
+}
+
 export async function fetchMentionScanIssues(
   apiKey: string,
   spec: {
@@ -330,7 +339,7 @@ export async function fetchMentionScanIssues(
     state: n.state,
     assignee: n.assignee,
     project: mapNodeProject(n),
-    ...(mapNodeMilestone(n) ? { milestone: mapNodeMilestone(n) } : {}),
+    ...milestoneSpread(n),
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
@@ -392,7 +401,7 @@ export async function fetchOpenIssues(
     state: n.state,
     assignee: n.assignee,
     project: mapNodeProject(n),
-    ...(mapNodeMilestone(n) ? { milestone: mapNodeMilestone(n) } : {}),
+    ...milestoneSpread(n),
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",

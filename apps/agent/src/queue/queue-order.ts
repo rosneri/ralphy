@@ -57,21 +57,21 @@ function isAutoMergeBoost(e: QueueEntry, getAutoMerge?: GetIndicator | undefined
   return e.trigger === "conflict-fix" && issueMatchesGetIndicator(e.issue, getAutoMerge);
 }
 
-/** `OrderableIssue` carrying its source `QueueEntry`, so the hierarchical
- *  order can be mapped straight back to entries. */
-interface QueueOrderable extends OrderableIssue {
-  entry: QueueEntry;
-}
-
-/** Project the queue entry's Linear issue onto the {@link OrderableIssue}
- *  shape, threading the trigger `priority` as the item-level tiebreak so
- *  resume/conflict-fix beat fresh among items of equal Linear priority. */
-function toOrderable(entry: QueueEntry): QueueOrderable {
-  const { issue } = entry;
+/** Project a {@link LinearIssue} onto the pure {@link OrderableIssue} shape
+ *  consumed by `orderIssuesHierarchically`. Shared by the queue builder and the
+ *  `agent list` command so both order issues identically. `tiebreak`, when
+ *  provided, is threaded as the item-level sub-tiebreak (the queue passes the
+ *  trigger `priority`); the list omits it. */
+export function linearIssueToOrderable(issue: LinearIssue, tiebreak?: number): OrderableIssue {
   return {
     id: issue.id,
     ...(issue.project
-      ? { project: { id: issue.project.id, priority: issue.project.priority } }
+      ? {
+          project: {
+            id: issue.project.id,
+            ...(issue.project.priority !== undefined ? { priority: issue.project.priority } : {}),
+          },
+        }
       : {}),
     ...(issue.milestone
       ? {
@@ -83,11 +83,23 @@ function toOrderable(entry: QueueEntry): QueueOrderable {
         }
       : {}),
     priority: issue.priority,
-    tiebreak: entry.priority,
+    ...(tiebreak !== undefined ? { tiebreak } : {}),
     blockedByIds: issue.blockedByIds,
     createdAt: issue.createdAt,
-    entry,
   };
+}
+
+/** `OrderableIssue` carrying its source `QueueEntry`, so the hierarchical
+ *  order can be mapped straight back to entries. */
+interface QueueOrderable extends OrderableIssue {
+  entry: QueueEntry;
+}
+
+/** Project the queue entry's Linear issue onto the {@link OrderableIssue}
+ *  shape, threading the trigger `priority` as the item-level tiebreak so
+ *  resume/conflict-fix beat fresh among items of equal Linear priority. */
+function toOrderable(entry: QueueEntry): QueueOrderable {
+  return { ...linearIssueToOrderable(entry.issue, entry.priority), entry };
 }
 
 /**
