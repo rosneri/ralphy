@@ -56,6 +56,8 @@
     "check:duplicates": "bun scripts/check-duplicate-declarations.ts --diff",
     "check:duplicates:all": "bun scripts/check-duplicate-declarations.ts --all",
     "build:architecture": "bun run apps/agent/src/scripts/generate-architecture.ts",
+    "build:state-diagrams": "bun scripts/export-state-diagrams.ts",
+    "check:state-diagrams:ci": "bun scripts/export-state-diagrams.ts --check",
     "prepare": "bunx husky",
     "build:publish": "bunx nx run-many --target=build --projects=shell,mcp --output-style stream && bun run copy-assets",
     "copy-assets": "bun scripts/copy-assets.ts",
