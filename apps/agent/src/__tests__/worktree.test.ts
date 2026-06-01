@@ -159,6 +159,32 @@ describe("worktree helpers", () => {
     expect(st.isFile()).toBe(true);
   });
 
+  test("createWorktree serializes concurrent provisioning for the same repo", async () => {
+    // Regression: the coordinator prepares queued issues concurrently. Without
+    // a per-repo lock, parallel createWorktree calls run git against the same
+    // `.git` at once and contend on its on-disk locks. Assert that two
+    // concurrent calls for one projectRoot never overlap their git commands.
+    const proj = await uniqueProject("serial");
+    let active = 0;
+    let maxActive = 0;
+    const runner: GitRunner = {
+      run: async (args) => {
+        active++;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        active--;
+        // Force the fresh-branch path (fetch + worktree add) for both calls.
+        if (args[0] === "rev-parse") throw new Error("no such branch");
+        return { stdout: "", stderr: "" };
+      },
+    };
+    await Promise.all([
+      createWorktree(proj, "eng-a", "main", runner),
+      createWorktree(proj, "eng-b", "main", runner),
+    ]);
+    expect(maxActive).toBe(1);
+  });
+
   test("removeWorktree shells out to git worktree remove --force", async () => {
     const { runner, calls } = makeRunner();
     const path = join(expectedWtRoot("/proj"), "eng-4");

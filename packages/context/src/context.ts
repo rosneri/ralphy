@@ -4,6 +4,7 @@ import {
   writeFileSync,
   existsSync,
   unlinkSync,
+  renameSync,
   mkdirSync,
   readdirSync,
 } from "node:fs";
@@ -16,13 +17,35 @@ export type { ProjectLayout } from "@ralphy/types";
 export type { CommonArgs } from "@ralphy/cli-args";
 
 class FileSystemProvider implements StorageProvider {
+  // Monotonic counter for temp-file names. Combined with the pid this keeps
+  // concurrent atomic writes from colliding on the same temp path without
+  // relying on Date.now()/Math.random().
+  private writeSeq = 0;
+
   read(path: string): string | null {
     if (!existsSync(path)) return null;
     return readFileSync(path, "utf-8");
   }
+  // Writes are atomic: content is written to a sibling temp file and then
+  // renamed over the target. POSIX rename is atomic, so a concurrent reader
+  // always sees either the old or the new complete file — never a truncated
+  // one. This prevents "Unterminated string" JSON.parse crashes when a reader
+  // (e.g. the loop polling `.ralph-state.json`) races a writer mid-write.
   write(path: string, content: string): void {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content, "utf-8");
+    const dir = dirname(path);
+    mkdirSync(dir, { recursive: true });
+    const tmp = `${path}.tmp-${process.pid}-${this.writeSeq++}`;
+    try {
+      writeFileSync(tmp, content, "utf-8");
+      renameSync(tmp, path);
+    } catch (err) {
+      try {
+        if (existsSync(tmp)) unlinkSync(tmp);
+      } catch {
+        // best-effort cleanup; surface the original error
+      }
+      throw err;
+    }
   }
   remove(path: string): void {
     if (!existsSync(path)) return;

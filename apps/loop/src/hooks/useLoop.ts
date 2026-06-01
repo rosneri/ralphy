@@ -4,7 +4,6 @@ import { join } from "node:path";
 import type { State } from "@ralphy/types";
 import type { FeedEvent } from "@ralphy/engine/feed-events";
 import {
-  readState,
   writeState,
   updateState,
   buildInitialState,
@@ -203,7 +202,13 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       });
 
       while (!cancelled) {
-        currentState = readState(stateDir);
+        // Defense-in-depth: writes are atomic now, but if a partial or
+        // schema-invalid `.ralph-state.json` is ever observed here, keep the
+        // last known good `currentState` and retry on the next tick rather
+        // than throwing out of this effect (an uncaught throw wedges the
+        // worker — it never transitions to error/done and hangs as "working").
+        const { state: polled } = tryReadStateRaw(stateDir);
+        if (polled !== null) currentState = polled;
         setState(currentState);
 
         if (!actor.getSnapshot().matches("running")) break;
