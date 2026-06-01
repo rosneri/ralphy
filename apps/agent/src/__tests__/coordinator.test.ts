@@ -1221,8 +1221,12 @@ describe("AgentCoordinator — task sync on every poll", () => {
   });
 
   test("syncTasks is NOT re-invoked when iteration count is unchanged between polls", async () => {
+    // Now driven through the fingerprint gate: a stable fingerprint means the
+    // poll loop syncs once to capture the launch-time state (the marker starts
+    // null) and then skips every subsequent poll.
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
     ctx.deps.getIterationCount = async () => 0;
+    ctx.deps.getTasksFingerprint = async () => "fp-stable";
     const syncCalls: number[] = [];
     ctx.deps.syncTasks = async (_w, iteration) => {
       syncCalls.push(iteration);
@@ -1231,12 +1235,172 @@ describe("AgentCoordinator — task sync on every poll", () => {
     await coord.init();
     await coord.pollOnce();
     await tick();
-    // launch syncs iteration 0; poll-loop sync sees count===lastSynced and skips.
+    // The first pollOnce spawns the worker (launch sync, iteration 0) AFTER
+    // the poll-loop sync has already walked the still-empty worker set.
     expect(syncCalls).toEqual([0]);
 
+    // Next poll: marker starts null, so the launch-time fingerprint is captured
+    // and synced once. Subsequent polls see the unchanged fingerprint and skip.
     await coord.pollOnce();
+    await coord.pollOnce();
+    expect(syncCalls).toEqual([0, 0]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("bug_case: a changed fingerprint re-fires syncTasks even though the iteration count is constant", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.getIterationCount = async () => 0; // constant across every poll
+    // The launch sync is direct (no fingerprint read); the poll loop reads it.
+    // The first poll-loop read sees "fp1", the next sees "fp2".
+    let fpCall = 0;
+    ctx.deps.getTasksFingerprint = async () => (++fpCall === 1 ? "fp1" : "fp2");
+    const syncCalls: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      syncCalls.push(iteration);
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // launch sync only (worker spawned after the empty-set sync).
+    expect(syncCalls.length).toBe(1);
+
+    // First poll-loop sync over the worker: null → "fp1" → fires.
+    await coord.pollOnce();
+    expect(syncCalls.length).toBe(2);
+
+    // Next poll: iteration count is still 0, but the fingerprint flipped
+    // "fp1" → "fp2", so the gate must re-fire. The legacy iteration-count gate
+    // would have skipped here (0 === lastSyncedIteration).
+    await coord.pollOnce();
+    expect(syncCalls.length).toBe(3);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("fix_case: syncTasks is NOT re-invoked when the fingerprint is unchanged across polls", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.getIterationCount = async () => 0;
+    ctx.deps.getTasksFingerprint = async () => "fp-stable";
+    const syncCalls: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      syncCalls.push(iteration);
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(syncCalls.length).toBe(1); // launch sync only
+
+    // First poll-loop sync captures the fingerprint (null → "fp-stable").
+    await coord.pollOnce();
+    expect(syncCalls.length).toBe(2);
+
+    // Fingerprint never changes → the gate skips every subsequent poll.
+    await coord.pollOnce();
+    await coord.pollOnce();
+    expect(syncCalls.length).toBe(2);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("fingerprint sync throws on a changed fingerprint, then the next poll with the same fingerprint retries and warns", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.getIterationCount = async () => 0;
+    // Stable fingerprint that never advances past the failure.
+    ctx.deps.getTasksFingerprint = async () => "fp1";
+    const seen: number[] = [];
+    let call = 0;
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      seen.push(iteration);
+      // launch (call 1) succeeds so we exercise the *poll* failure path.
+      if (++call >= 2) throw new Error("upload failed");
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(seen).toEqual([0]); // launch ok
+
+    // First poll-loop sync fires on "fp1" (null → "fp1") and throws.
+    await coord.pollOnce();
+    expect(seen).toEqual([0, 0]);
+    expect(
+      ctx.logs.some((l) => l.text.includes("sync-tasks (poll) failed") && l.color === "yellow"),
+    ).toBe(true);
+
+    // lastSyncedTasksFingerprint stayed null → the same "fp1" retries next poll.
+    await coord.pollOnce();
+    expect(seen).toEqual([0, 0, 0]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("fallback: without getTasksFingerprint, the iteration-count gate still governs", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    let count = 0;
+    ctx.deps.getIterationCount = async () => count;
+    // No getTasksFingerprint dep wired → legacy iteration-count gate.
+    const syncCalls: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      syncCalls.push(iteration);
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // launch syncs 0; first poll sees count(0) === lastSyncedIteration(0) → skip.
+    expect(syncCalls).toEqual([0]);
+
+    // Unchanged count → no re-invoke.
     await coord.pollOnce();
     expect(syncCalls).toEqual([0]);
+
+    // Advanced count → invoke.
+    count = 4;
+    await coord.pollOnce();
+    expect(syncCalls).toEqual([0, 4]);
+
+    // Holds at the new count → no re-invoke.
+    await coord.pollOnce();
+    expect(syncCalls).toEqual([0, 4]);
+
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+  });
+
+  test("design.md edit changes the combined fingerprint and re-fires syncTasks even when tasks.md is unchanged", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.deps.getIterationCount = async () => 0; // iteration constant
+    // Combined fingerprint = tasks.md ⊕ proposal.md ⊕ design.md. The tasks.md
+    // and proposal.md components are stable; design.md flips on the second poll.
+    let poll = 0;
+    ctx.deps.getTasksFingerprint = async () => {
+      const designPart = ++poll <= 1 ? "designA" : "designB";
+      return `tasksA|proposalA|${designPart}`;
+    };
+    const syncCalls: number[] = [];
+    ctx.deps.syncTasks = async (_w, iteration) => {
+      syncCalls.push(iteration);
+    };
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    expect(syncCalls.length).toBe(1); // launch sync only
+
+    // First poll-loop sync captures the combined fingerprint (null → designA).
+    await coord.pollOnce();
+    expect(syncCalls.length).toBe(2);
+
+    // design.md edited → combined fingerprint changes though tasks.md didn't.
+    await coord.pollOnce();
+    expect(syncCalls.length).toBe(3);
 
     ctx.workers.get("change-eng-1")!.resolve(0);
     await tick();
