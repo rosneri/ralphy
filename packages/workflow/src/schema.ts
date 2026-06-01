@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 1;
+export const CURRENT_WORKFLOW_VERSION = 2;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -132,6 +132,18 @@ export const WorkflowConfigSchema = z.object({
    *  written before versioning; `ralphy init` offers to migrate it. */
   version: z.number().int().nonnegative().default(0),
   project: ProjectSchema,
+  /** Identity of the git repo this WORKFLOW.md is bound to, detected from the
+   *  `origin` remote by `ralphy init`. Optional so remote-less and pre-v2 files
+   *  still validate. */
+  repo: z
+    .object({
+      remote: z.string().optional(),
+      host: z.string().optional(),
+      owner: z.string().optional(),
+      name: z.string().optional(),
+    })
+    .strict()
+    .optional(),
   commands: CommandsSchema,
   rules: z.array(z.string()).default([]),
   boundaries: BoundariesSchema,

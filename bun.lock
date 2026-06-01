@@ -70,6 +70,7 @@
       "name": "@ralphy/init",
       "version": "0.0.0",
       "dependencies": {
+        "@ralphy/core": "workspace:*",
         "@ralphy/paths": "workspace:*",
         "@ralphy/workflow": "workspace:*",
         "ink": "^5.1.0",

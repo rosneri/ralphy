@@ -48,6 +48,13 @@ export const MIGRATIONS: Migration[] = [
       "openspec.reviewPhase.reviewerContextStrategy",
     ],
   },
+  {
+    version: 2,
+    description:
+      "Ralphy now detects the current git repo and records it in WORKFLOW.md, " +
+      "linking it to your Linear team. Confirm the detected repo to adopt it.",
+    fields: ["repo.link"],
+  },
 ];
 
 /** The highest version any migration lands on. Asserted to equal CURRENT. */

@@ -25,6 +25,13 @@ export type FieldSpec =
 /** Reserved field id whose value is the prompt body, not a frontmatter setting. */
 export const PROMPT_BODY_FIELD_ID = "promptBody";
 
+/**
+ * Control field id: a confirm that decides whether the detected `repo` block is
+ * written. Its own value is never persisted — the builder strips it and uses it
+ * to gate the `repo.*` answers (see `buildFromAnswers`).
+ */
+export const REPO_LINK_FIELD_ID = "repo.link";
+
 export interface Field {
   id: string;
   label: string;
@@ -52,9 +59,24 @@ const LINEAR_TEAM: Field = {
   label: "Linear team key",
   hint: "e.g. ENG — leave blank to match all teams",
   description:
-    "Only pick up issues from this Linear team, given by its key (e.g. ENG). Leave blank to watch every team.",
+    "The Linear team this repository is linked to, given by its key (e.g. ENG). Ralphy only picks up issues from this team. Leave blank to watch every team.",
   emptyLabel: "all teams",
   spec: { kind: "text" },
+};
+/**
+ * Shown only when `ralphy init` detected the current git repo (its `repo.name`
+ * is injected as an initial value). Confirming records the detected repo in
+ * WORKFLOW.md and links it to the Linear team; declining omits the `repo` block.
+ * `repo.link` is a control answer — it is never written to the file (see
+ * `buildFromAnswers`), so it carries a description without a real frontmatter key.
+ */
+const REPO_LINK: Field = {
+  id: "repo.link",
+  label: "Link this repository to the team?",
+  description:
+    "Record the detected git repository in WORKFLOW.md and link it to the Linear team above. Confirm to adopt the detected repo; decline to leave it out.",
+  spec: yes(),
+  when: (answers) => typeof answers["repo.name"] === "string" && answers["repo.name"] !== "",
 };
 const LINEAR_ASSIGNEE: Field = {
   id: "linear.assignee",
@@ -66,7 +88,7 @@ const LINEAR_ASSIGNEE: Field = {
   spec: { kind: "text" },
 };
 
-const QUICK_FIELDS: Field[] = [PROJECT_NAME, LINEAR_TEAM, LINEAR_ASSIGNEE];
+const QUICK_FIELDS: Field[] = [PROJECT_NAME, LINEAR_TEAM, REPO_LINK, LINEAR_ASSIGNEE];
 
 const isOn =
   (id: string) =>
@@ -364,6 +386,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
 
   // ── Linear team / comments / sync ──
   LINEAR_TEAM,
+  REPO_LINK,
   LINEAR_ASSIGNEE,
   {
     id: "linear.postComments",

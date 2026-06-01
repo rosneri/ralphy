@@ -15,9 +15,11 @@ describe("migrations registry", () => {
   });
 
   test("every migration field id exists in the customized catalogue", () => {
-    // Reveal nested gated children by enabling every field to a fixpoint.
+    // Reveal nested gated children by enabling every field to a fixpoint. Seed
+    // an injected repo identity so the `repo.link` step (gated on a detected
+    // repo, not a walkthrough toggle) is also revealed.
     const known = new Set<string>();
-    const answers: Record<string, boolean> = {};
+    const answers: Record<string, boolean | string> = { "repo.name": "widgets" };
     for (let pass = 0; pass < 5; pass++) {
       for (const field of fieldsForMode("customized", answers)) {
         known.add(field.id);
