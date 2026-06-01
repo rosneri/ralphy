@@ -23,7 +23,12 @@ export interface LinearIssue {
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
   /** Linear project the issue belongs to, or null when unassigned. */
-  project: { id: string; name: string } | null;
+  project: { id: string; name: string; priority?: number } | null;
+  /**
+   * Project milestone the issue is assigned to, or undefined when none.
+   * `sortOrder` reflects the milestone's manual ordering within its project.
+   */
+  milestone?: { id: string; name: string; sortOrder: number; targetDate?: string };
   labels: string[];
   /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
@@ -73,7 +78,13 @@ interface LinearNode {
   url: string;
   state: { name: string; type: string };
   assignee: { id: string; email: string | null; name: string } | null;
-  project: { id: string; name: string } | null;
+  project: { id: string; name: string; priority?: number } | null;
+  projectMilestone: {
+    id: string;
+    name: string;
+    sortOrder: number;
+    targetDate: string | null;
+  } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
   createdAt: string;
@@ -226,6 +237,32 @@ export function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | 
   return Object.keys(parts).length > 0 ? parts : null;
 }
 
+/** Map a node's `project` to the `LinearIssue.project` shape, preserving the
+ *  optional `priority` and leaving it off when absent. */
+function mapNodeProject(node: LinearNode): LinearIssue["project"] {
+  if (!node.project) return null;
+  return {
+    id: node.project.id,
+    name: node.project.name,
+    ...(node.project.priority !== undefined && node.project.priority !== null
+      ? { priority: node.project.priority }
+      : {}),
+  };
+}
+
+/** Map a node's `projectMilestone` to the `LinearIssue.milestone` shape,
+ *  returning undefined when the issue has no milestone. */
+function mapNodeMilestone(node: LinearNode): LinearIssue["milestone"] {
+  const m = node.projectMilestone;
+  if (!m) return undefined;
+  return {
+    id: m.id,
+    name: m.name,
+    sortOrder: m.sortOrder,
+    ...(m.targetDate != null ? { targetDate: m.targetDate } : {}),
+  };
+}
+
 export async function fetchMentionScanIssues(
   apiKey: string,
   spec: {
@@ -266,7 +303,8 @@ export async function fetchMentionScanIssues(
         id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
-        project { id name }
+        project { id name priority }
+        projectMilestone { id name sortOrder targetDate }
         labels { nodes { name } }
         relations(first: 50) {
           nodes { type relatedIssue { id identifier state { type } } }
@@ -291,7 +329,8 @@ export async function fetchMentionScanIssues(
     url: n.url,
     state: n.state,
     assignee: n.assignee,
-    project: n.project ?? null,
+    project: mapNodeProject(n),
+    ...(mapNodeMilestone(n) ? { milestone: mapNodeMilestone(n) } : {}),
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
@@ -325,7 +364,8 @@ export async function fetchOpenIssues(
         id identifier title description url priority createdAt
         state { name type }
         assignee { id email name }
-        project { id name }
+        project { id name priority }
+        projectMilestone { id name sortOrder targetDate }
         labels { nodes { name } }
         relations(first: 50) {
           nodes {
@@ -351,7 +391,8 @@ export async function fetchOpenIssues(
     url: n.url,
     state: n.state,
     assignee: n.assignee,
-    project: n.project ?? null,
+    project: mapNodeProject(n),
+    ...(mapNodeMilestone(n) ? { milestone: mapNodeMilestone(n) } : {}),
     labels: n.labels.nodes.map((l) => l.name),
     priority: n.priority,
     createdAt: n.createdAt ?? "",
