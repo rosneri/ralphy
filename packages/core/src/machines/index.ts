@@ -14,3 +14,4 @@ export {
 export { FlowActorStore, type FlowActorDeps } from "./flow-actor-store";
 export { loopMachine, stoppedStateToReason } from "./loop.machine";
 export type { LoopMachineContext, LoopMachineEvent, LoopMachineOptions } from "./loop.machine";
+export { mcpMachineRegistry, type McpMachineEntry } from "./mcp-registry";
