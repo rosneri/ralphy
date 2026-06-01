@@ -17,6 +17,7 @@ import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
 import { createLinearResolvers, fetchDoneCandidatesWith } from "./wire/linear-resolvers";
+import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
 import { createMentionScanner, isChangeArchivedForIssue } from "./wire/mention-scan";
@@ -124,6 +125,11 @@ export function buildAgentCoordinator(
   const team = args.linearTeam || cfg.linear.team;
   const assignee = args.linearAssignee || cfg.linear.assignee;
 
+  // RLF-208: resolve --ticket tokens to a deduped set of Linear ticket numbers,
+  // validated against the configured team. Throws a clean CLI error on a bare
+  // number without a team or an identifier whose team disagrees.
+  const ticketNumbers = resolveTicketNumbers(args.ticketTokens, team);
+
   const excludeFromTodo = unionMarkers(indicators.setDone, indicators.setError);
 
   const gitRunner = input.runners?.git ?? bunGitRunner;
@@ -166,7 +172,29 @@ export function buildAgentCoordinator(
       return code;
     });
 
-  const resolvers = createLinearResolvers({ apiKey, team, assignee, diag });
+  const resolvers = createLinearResolvers({
+    apiKey,
+    team,
+    assignee,
+    diag,
+    ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+  });
+
+  // RLF-208: when a ticket is targeted but it matches none of the configured
+  // get-indicator buckets, the loop will pick up nothing — surface that so the
+  // operator isn't left wondering why the run is idle.
+  if (ticketNumbers.length > 0) {
+    const hasGetIndicator = [indicators.getTodo, indicators.getInProgress].some(
+      (ind) => ind && ind.filter.length > 0,
+    );
+    if (!hasGetIndicator) {
+      diag(
+        "ticket",
+        `! --ticket set (${ticketNumbers.join(", ")}) but no getTodo/getInProgress indicator is configured — nothing will be picked up`,
+        "yellow",
+      );
+    }
+  }
 
   const prDiscovery = createPrDiscovery({
     apiKey,
@@ -205,6 +233,7 @@ export function buildAgentCoordinator(
     onLog,
     diag,
     cwdByChange,
+    ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
     stalePingedAt,
     lastHandledReviewActivity,
     resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
@@ -316,7 +345,14 @@ export function buildAgentCoordinator(
       fetchInProgress: () =>
         resolvers.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
       fetchMentions,
-      fetchDoneCandidates: () => fetchDoneCandidatesWith(apiKey, team, assignee, indicators),
+      fetchDoneCandidates: () =>
+        fetchDoneCandidatesWith(
+          apiKey,
+          team,
+          assignee,
+          indicators,
+          ticketNumbers.length > 0 ? ticketNumbers : undefined,
+        ),
       prepare: prep.prepare,
       prepareTaskForTrigger: prep.prepareTaskForTrigger,
       spawnWorker,

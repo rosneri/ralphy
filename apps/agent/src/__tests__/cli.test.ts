@@ -186,6 +186,31 @@ describe("agent parseArgs", () => {
       "expects key:type:value",
     );
   });
+
+  test("--ticket defaults to an empty token list", async () => {
+    const result = await parseArgs([]);
+    expect(result.ticketTokens).toEqual([]);
+  });
+
+  test("--ticket parses a single identifier", async () => {
+    const result = await parseArgs(["--ticket", "RLF-208"]);
+    expect(result.ticketTokens).toEqual(["RLF-208"]);
+  });
+
+  test("--ticket is repeatable and accumulates tokens", async () => {
+    const result = await parseArgs(["--ticket", "RLF-208", "--ticket", "RLF-210"]);
+    expect(result.ticketTokens).toEqual(["RLF-208", "RLF-210"]);
+  });
+
+  test("--ticket splits comma-separated values, trimming and dropping empties", async () => {
+    const result = await parseArgs(["--ticket", "RLF-208, RLF-210 ,,208"]);
+    expect(result.ticketTokens).toEqual(["RLF-208", "RLF-210", "208"]);
+  });
+
+  test("--ticket combines repeated and comma forms", async () => {
+    const result = await parseArgs(["--ticket", "RLF-208,RLF-210", "--ticket", "211"]);
+    expect(result.ticketTokens).toEqual(["RLF-208", "RLF-210", "211"]);
+  });
 });
 
 describe("agent printHelp", () => {
@@ -202,5 +227,6 @@ describe("agent printHelp", () => {
     const output = logs.join("\n");
     expect(output).toContain("Usage: ralphy agent");
     expect(output).toContain(`ralphy agent v${VERSION}`);
+    expect(output).toContain("--ticket <id>");
   });
 });

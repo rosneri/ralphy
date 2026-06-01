@@ -22,6 +22,9 @@ interface LinearResolversInput {
   team: string | undefined;
   assignee: string | undefined;
   diag: (area: string, message: string, color?: string) => void;
+  /** RLF-208: when non-empty, every `fetchByGet` query is constrained to these
+   *  Linear ticket numbers (from `--ticket`). */
+  ticketNumbers?: number[] | undefined;
 }
 
 interface LinearResolvers {
@@ -43,6 +46,7 @@ interface LinearResolvers {
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
   const { apiKey, team, assignee, diag } = input;
+  const ticketNumbers = input.ticketNumbers ?? [];
 
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
@@ -183,7 +187,13 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     if (include.length === 0) return [];
     const hasCommentMarker = include.some((m) => m.type === "comment");
-    const spec: LinearFilterSpec = { team, assignee, include, exclude: excl };
+    const spec: LinearFilterSpec = {
+      team,
+      assignee,
+      include,
+      exclude: excl,
+      ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
+    };
     const fetched = await fetchOpenIssues(
       apiKey,
       spec,
@@ -226,6 +236,7 @@ export async function fetchDoneCandidatesWith(
   team: string | undefined,
   _assignee: string | undefined,
   indicators: Indicators,
+  ticketNumbers?: number[] | undefined,
 ): Promise<LinearIssue[]> {
   const getIndicators: GetIndicator[] = [
     indicators.getTodo,
@@ -254,6 +265,7 @@ export async function fetchDoneCandidatesWith(
         anyAssignee: true,
         include,
         exclude: [],
+        ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
       });
       for (const issue of issues) {
         if (!seen.has(issue.id)) {

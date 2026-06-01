@@ -14,7 +14,13 @@ import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
 import { getPrChecksStatus } from "./agent/ci";
-import { RALPHY_ATTACHMENT_TITLE } from "./shared/capabilities/linear-client";
+import {
+  RALPHY_ATTACHMENT_TITLE,
+  parseTicketIdentifier,
+  resolveTicketNumbers,
+  formatTicketError,
+  type ParsedTicketIdentifier,
+} from "./shared/capabilities/linear-client";
 import { unionMarkers } from "./agent/wire/indicators";
 import { fetchPrReviewSummary } from "./shared/pr/review-state";
 
@@ -145,6 +151,7 @@ async function fetchBucketIssues(
   bucket: Bucket,
   team: string | undefined,
   assignee: string | undefined,
+  ticketNumbers: number[],
 ): Promise<LinearIssue[]> {
   if (!bucket.indicator || bucket.indicator.filter.length === 0) return [];
   const spec: LinearFilterSpec = {
@@ -152,6 +159,7 @@ async function fetchBucketIssues(
     assignee,
     include: bucket.indicator.filter,
     exclude: bucket.exclude,
+    ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
   };
   return fetchOpenIssues(apiKey, spec);
 }
@@ -232,6 +240,7 @@ async function fetchAndPrintLinear(
   ignoreCiChecks: string[] = [],
   checks = false,
   review = false,
+  ticketNumbers: number[] = [],
 ): Promise<void> {
   // Fan out across buckets in parallel.
   const bucketResults = await Promise.all(
@@ -240,7 +249,7 @@ async function fetchAndPrintLinear(
         return { bucket, issues: [] as LinearIssue[], error: null as string | null };
       }
       try {
-        const issues = await fetchBucketIssues(apiKey, bucket, team, assignee);
+        const issues = await fetchBucketIssues(apiKey, bucket, team, assignee, ticketNumbers);
         return { bucket, issues, error: null };
       } catch (err) {
         return {
@@ -385,6 +394,8 @@ interface RunListInput {
   name: string;
   checks: boolean;
   review: boolean;
+  /** RLF-208: raw `--ticket` tokens to restrict the listing to. */
+  ticketTokens?: string[];
 }
 
 export async function runList(input: RunListInput): Promise<void> {
@@ -436,8 +447,18 @@ export async function runList(input: RunListInput): Promise<void> {
     return;
   }
 
+  let ticketNumbers: number[] = [];
+  try {
+    ticketNumbers = resolveTicketNumbers(input.ticketTokens ?? [], team);
+  } catch (err) {
+    process.stderr.write(`Error: ${formatTicketError(err)}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (team) process.stdout.write(`\nteam: ${team}\n`);
   if (assignee) process.stdout.write(`assignee: ${assignee}\n`);
+  if (ticketNumbers.length > 0) process.stdout.write(`ticket: ${ticketNumbers.join(", ")}\n`);
 
   await fetchAndPrintLinear(
     apiKey,
@@ -449,6 +470,7 @@ export async function runList(input: RunListInput): Promise<void> {
     cfg.ignoreCiChecks,
     input.checks,
     input.review,
+    ticketNumbers,
   );
 }
 
@@ -487,12 +509,18 @@ interface RawIssue {
  *   - a raw Linear identifier in any case ("DOO-6", "doo-6")
  *   - a local change-name slug produced by changeNameForIssue
  *     ("doo-6-test2") — the leading `<team>-<number>` is extracted.
- * Returns null when the input cannot be coerced into a Linear identifier.
+ * Returns null when the input cannot be coerced into a Linear identifier
+ * (including a bare number, which carries no team key).
  */
 function normalizeIdentifier(input: string): string | null {
-  const match = input.match(/^([A-Za-z]+)-(\d+)(?:-.*)?$/);
-  if (!match) return null;
-  return `${match[1]!.toUpperCase()}-${match[2]}`;
+  let parsed: ParsedTicketIdentifier;
+  try {
+    parsed = parseTicketIdentifier(input);
+  } catch {
+    return null;
+  }
+  if (parsed.teamKey === null) return null;
+  return `${parsed.teamKey}-${parsed.number}`;
 }
 
 async function fetchIssueByIdentifier(
