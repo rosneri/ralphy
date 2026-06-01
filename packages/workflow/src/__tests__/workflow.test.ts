@@ -148,6 +148,35 @@ describe("parseWorkflow", () => {
     expect(config.linear.syncTasksToComment).toBe(false);
   });
 
+  test("linear.filter defaults to 'assignee = me'", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.linear.filter).toBe("assignee = me");
+    expect((config.linear as Record<string, unknown>)["assignee"]).toBeUndefined();
+  });
+
+  test("legacy linear.assignee folds into linear.filter", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  assignee: me\n---\n`);
+    expect(config.linear.filter).toBe("assignee = me");
+    expect((config.linear as Record<string, unknown>)["assignee"]).toBeUndefined();
+  });
+
+  test("legacy blank assignee folds to assignee = unassigned", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  assignee: ""\n---\n`);
+    expect(config.linear.filter).toBe("assignee = unassigned");
+  });
+
+  test("legacy assignee email folds into a filter clause", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  assignee: dev@example.com\n---\n`);
+    expect(config.linear.filter).toBe("assignee = dev@example.com");
+  });
+
+  test("explicit linear.filter wins over a legacy assignee", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  assignee: me\n  filter: assignee = any\n---\n`,
+    );
+    expect(config.linear.filter).toBe("assignee = any");
+  });
+
   test("linear.mentionTrigger / codeReviewTrigger default to true", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
     expect(config.linear.mentionTrigger).toBe(true);

@@ -13,7 +13,7 @@ describe("fieldsForMode", () => {
     expect(fieldsForMode("quick").map((f) => f.id)).toEqual([
       "project.name",
       "linear.team",
-      "linear.assignee",
+      "linear.filter",
     ]);
     expect(fieldsForMode("permissive").map((f) => f.id)).toEqual(
       fieldsForMode("quick").map((f) => f.id),

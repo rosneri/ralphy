@@ -19,6 +19,17 @@ describe("agent parseArgs", () => {
     expect(result.concurrency).toBe(4);
   });
 
+  test("parses --linear-filter", async () => {
+    const result = await parseArgs(["--linear-filter", "assignee = any"]);
+    expect(result.linearFilter).toBe("assignee = any");
+  });
+
+  test("--linear-assignee is still parsed (deprecated)", async () => {
+    const result = await parseArgs(["--linear-assignee", "dev@example.com"]);
+    expect(result.linearAssignee).toBe("dev@example.com");
+    expect(result.linearFilter).toBe("");
+  });
+
   test("parses --worktree flag", async () => {
     const result = await parseArgs(["--worktree"]);
     expect(result.worktree).toBe(true);

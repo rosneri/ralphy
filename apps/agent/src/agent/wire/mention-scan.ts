@@ -30,6 +30,8 @@ interface MentionScanInput {
   cfg: RalphyConfig;
   team: string | undefined;
   assignee: string | undefined;
+  /** When true, scan regardless of assignee (`assignee = any`). */
+  anyAssignee?: boolean | undefined;
   indicators: Indicators;
   projectRoot: string;
   useWorktree: boolean;
@@ -54,6 +56,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
     cfg,
     team,
     assignee,
+    anyAssignee,
     indicators,
     projectRoot,
     useWorktree,
@@ -78,6 +81,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
       candidates = await fetchMentionScanIssues(apiKey, {
         team,
         assignee,
+        anyAssignee,
         indicators: {
           ...(indicators.getTodo !== undefined ? { getTodo: indicators.getTodo } : {}),
           ...(indicators.getInProgress !== undefined

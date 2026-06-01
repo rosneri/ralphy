@@ -15,6 +15,7 @@ export {
   matchesIndicator,
   type ConfirmationTicketView,
 } from "./confirmation";
+export { parseLinearFilter, type LinearFilterResult } from "./linear-filter";
 
 export interface ParsedWorkflow {
   config: WorkflowConfig;

@@ -119,7 +119,7 @@ function initialValuesFromConfig(
   values["fixCiOnFailure"] = config.fixCiOnFailure;
   values["useWorktree"] = config.useWorktree;
   if (config.linear.team) values["linear.team"] = config.linear.team;
-  if (config.linear.assignee) values["linear.assignee"] = config.linear.assignee;
+  if (config.linear.filter) values["linear.filter"] = config.linear.filter;
   return values;
 }
 

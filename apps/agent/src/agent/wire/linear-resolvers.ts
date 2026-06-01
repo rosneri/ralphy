@@ -21,6 +21,8 @@ interface LinearResolversInput {
   apiKey: string;
   team: string | undefined;
   assignee: string | undefined;
+  /** When true, fetch regardless of assignee (`assignee = any`). */
+  anyAssignee?: boolean | undefined;
   diag: (area: string, message: string, color?: string) => void;
 }
 
@@ -42,7 +44,7 @@ interface LinearResolvers {
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
-  const { apiKey, team, assignee, diag } = input;
+  const { apiKey, team, assignee, anyAssignee, diag } = input;
 
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
@@ -183,7 +185,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     if (include.length === 0) return [];
     const hasCommentMarker = include.some((m) => m.type === "comment");
-    const spec: LinearFilterSpec = { team, assignee, include, exclude: excl };
+    const spec: LinearFilterSpec = { team, assignee, anyAssignee, include, exclude: excl };
     const fetched = await fetchOpenIssues(
       apiKey,
       spec,

@@ -12,6 +12,12 @@ import { fieldsForMode } from "@ralphy/workflow/fields";
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
     expect(LATEST_MIGRATION_VERSION).toBe(CURRENT_WORKFLOW_VERSION);
+    expect(CURRENT_WORKFLOW_VERSION).toBe(2);
+  });
+
+  test("version 2 introduces linear.filter", () => {
+    const v2 = MIGRATIONS.find((m) => m.version === 2);
+    expect(v2?.fields).toContain("linear.filter");
   });
 
   test("every migration field id exists in the customized catalogue", () => {
