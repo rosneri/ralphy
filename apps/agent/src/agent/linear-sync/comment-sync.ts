@@ -13,7 +13,7 @@
  */
 
 import { dirname, join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, unlink } from "node:fs/promises";
 import { renderTasksBlock } from "./index";
 import { type LogFn, sha256Hex } from "./utils";
 
@@ -69,9 +69,25 @@ async function readStateJson(statePath: string): Promise<PersistedState | null> 
   }
 }
 
+// Monotonic counter for temp-file names so concurrent linear-sync writes
+// don't collide on the same temp path.
+let writeStateSeq = 0;
+
+// Atomic write: stage to a sibling temp file then rename over the target.
+// linear-sync is an *external* writer of `.ralph-state.json` — the loop polls
+// the same file. A non-atomic Bun.write can be observed mid-write as a
+// truncated file, crashing the loop's JSON.parse with "Unterminated string".
+// rename is atomic, so readers only ever see a complete file.
 async function writeStateJson(statePath: string, state: PersistedState): Promise<void> {
   await mkdir(dirname(statePath), { recursive: true });
-  await Bun.write(statePath, JSON.stringify(state, null, 2) + "\n");
+  const tmp = `${statePath}.tmp-${process.pid}-${writeStateSeq++}`;
+  try {
+    await Bun.write(tmp, JSON.stringify(state, null, 2) + "\n");
+    await rename(tmp, statePath);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
 }
 
 function readComments(state: PersistedState | null): LinearCommentsState {

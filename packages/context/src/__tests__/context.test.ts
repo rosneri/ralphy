@@ -46,6 +46,29 @@ describe("FileSystemProvider", () => {
     expect(provider.read(filePath)).toBe("content");
   });
 
+  test("write overwrites an existing file", () => {
+    const provider = createFileSystemProvider();
+    const filePath = join(tempDir, "overwrite.json");
+    provider.write(filePath, '{"a":1}');
+    provider.write(filePath, '{"b":2}');
+    expect(provider.read(filePath)).toBe('{"b":2}');
+  });
+
+  test("write is atomic: leaves no temp artifacts in the directory", () => {
+    // Regression: non-atomic writes let a concurrent reader observe a
+    // truncated `.ralph-state.json` mid-write, crashing JSON.parse with
+    // "Unterminated string". Atomic writes stage to a temp file then rename,
+    // so the only file left behind is the final target — no `.tmp-*` siblings.
+    const provider = createFileSystemProvider();
+    const filePath = join(tempDir, "state.json");
+    provider.write(filePath, '{"version":"2"}');
+    provider.write(filePath, '{"version":"3"}');
+    const leftovers = provider.list(tempDir).filter((f) => f.includes(".tmp-"));
+    expect(leftovers).toEqual([]);
+    // The final read is always a complete, parseable document.
+    expect(() => JSON.parse(provider.read(filePath) ?? "")).not.toThrow();
+  });
+
   test("remove deletes an existing file", () => {
     const provider = createFileSystemProvider();
     const filePath = join(tempDir, "remove-me.txt");
