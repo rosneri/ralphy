@@ -35,6 +35,9 @@
       "path": "../../packages/workflow"
     },
     {
+      "path": "../../packages/retro"
+    },
+    {
       "path": "../../packages/ui-shared"
     }
   ]

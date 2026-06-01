@@ -188,6 +188,11 @@ describe("agent parseArgs", () => {
     expect((await parseArgs(["list"])).review).toBe(false);
   });
 
+  test("parses --agent-debug flag; defaults to false", async () => {
+    expect((await parseArgs(["--agent-debug"])).agentDebug).toBe(true);
+    expect((await parseArgs([])).agentDebug).toBe(false);
+  });
+
   test("rejects unknown argument with helpful hint", async () => {
     await expect(parseArgs(["--no-such-flag"])).rejects.toThrow("Unknown argument");
   });

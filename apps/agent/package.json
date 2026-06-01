@@ -15,6 +15,7 @@
     "@ralphy/log": "workspace:*",
     "@ralphy/output": "workspace:*",
     "@ralphy/paths": "workspace:*",
+    "@ralphy/retro": "workspace:*",
     "@ralphy/telemetry": "workspace:*",
     "@ralphy/types": "workspace:*",
     "@ralphy/ui-shared": "workspace:*",

@@ -61,6 +61,9 @@
     "packages/engine": {
       "entry": ["src/**/*.ts"]
     },
+    "packages/retro": {
+      "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
+    },
     "packages/adapter-codex": {
       "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
     },
