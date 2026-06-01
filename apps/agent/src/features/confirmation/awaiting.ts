@@ -1,5 +1,4 @@
-import { join, dirname } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
 import { gateActive, hasUnchecked, planningComplete } from "@ralphy/core/detections";
 import { isStubArtifact } from "@ralphy/core/openspec-phase";
@@ -86,23 +85,8 @@ async function postPlanReadyCommentOnce(
 ): Promise<void> {
   if (!deps.apiKey) return;
   if (deps.cfg.linear.postComments === false) return;
-  let stateObj: Record<string, unknown> = {};
-  const f = Bun.file(statePath);
-  if (await f.exists()) {
-    try {
-      stateObj = (await f.json()) as Record<string, unknown>;
-    } catch {
-      stateObj = {};
-    }
-  }
-  const confirmation =
-    (stateObj.confirmation as {
-      askedAt?: string | null;
-      lastReminderAt?: string | null;
-      confirmedAt?: string | null;
-      rounds?: number;
-    } | null) ?? null;
-  if (confirmation?.askedAt) return;
+  const { confirmation } = await readConfirmationState(statePath);
+  if (confirmation.askedAt) return;
   const approvalSentence = describeApprovalMarker(deps.cfg.linear.indicators.getApproved);
   const handle = deps.cfg.linear.mentionHandle;
   const body =
@@ -118,17 +102,11 @@ async function postPlanReadyCommentOnce(
     );
     return;
   }
-  const nextConfirmation = {
-    askedAt: new Date().toISOString(),
-    lastReminderAt: confirmation?.lastReminderAt ?? null,
-    confirmedAt: confirmation?.confirmedAt ?? null,
-    rounds: confirmation?.rounds ?? 0,
-  };
   try {
-    await mkdir(dirname(statePath), { recursive: true });
-    await Bun.write(
+    await writeConfirmationState(
       statePath,
-      JSON.stringify({ ...stateObj, confirmation: nextConfirmation }, null, 2) + "\n",
+      {},
+      { ...confirmation, askedAt: new Date().toISOString() },
     );
   } catch (err) {
     deps.onLog(

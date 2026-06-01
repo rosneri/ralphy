@@ -1,6 +1,6 @@
 import { createActor, type Actor, type SnapshotFrom } from "xstate";
 import { flowMachine, type FlowAssignment, type FlowInput } from "./flow.machine";
-import { writeField } from "../state/store";
+import { writeField, readSlotSidecar } from "../state/store";
 import type { Bus } from "@ralphy/events";
 
 const STATE_FILE = ".ralph-state.json";
@@ -117,6 +117,14 @@ export class FlowActorStore {
   }
 
   private async loadSnapshot(changeDir: string): Promise<unknown> {
+    // Authoritative copy lives in the `.ralph-state.flow.json` sidecar
+    // (written via `writeField` → single-writer, clobber-free).
+    const sidecar = await readSlotSidecar(changeDir, "flow");
+    if (sidecar && typeof sidecar === "object") {
+      const snap = (sidecar as Record<string, unknown>).actorSnapshot;
+      if (snap !== undefined && snap !== null) return snap;
+    }
+    // Migration: fall back to the legacy inline `flow.actorSnapshot`.
     const filePath = `${changeDir}/${STATE_FILE}`;
     const file = Bun.file(filePath);
     if (!(await file.exists())) return null;

@@ -1,5 +1,5 @@
 import { dirname, join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { readSlotSidecar, writeSlotField } from "@ralphy/core/state";
 import { fsChange } from "../../shared/capabilities/fs-change";
 import { runCapability } from "../../shared/capabilities/run-capability";
 
@@ -36,20 +36,38 @@ export function defaultConfirmation(): ConfirmationState {
   };
 }
 
+/** Read the inline `confirmation` slot from the legacy core `.ralph-state.json`.
+ *  Used once to migrate a change written before confirmation moved to its own
+ *  sidecar; returns null when the file is missing/malformed or has no slot. */
+async function readInlineConfirmation(
+  statePath: string,
+): Promise<Partial<ConfirmationState> | null> {
+  const f = Bun.file(statePath);
+  if (!(await f.exists())) return null;
+  try {
+    const obj = (await f.json()) as Record<string, unknown>;
+    return (obj.confirmation ?? null) as Partial<ConfirmationState> | null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the confirmation slot. The authoritative copy lives in the
+ * `.ralph-state.confirmation.json` sidecar (single-writer, no cross-process
+ * clobber). Falls back to the inline core-file slot for changes written
+ * before the sidecar split. `stateObj` is retained in the return shape for
+ * call-site compatibility but is no longer used for writes.
+ */
 export async function readConfirmationState(statePath: string): Promise<{
   stateObj: Record<string, unknown>;
   confirmation: ConfirmationState;
 }> {
-  const f = Bun.file(statePath);
-  let stateObj: Record<string, unknown> = {};
-  if (await f.exists()) {
-    try {
-      stateObj = (await f.json()) as Record<string, unknown>;
-    } catch {
-      stateObj = {};
-    }
-  }
-  const existing = (stateObj.confirmation ?? null) as Partial<ConfirmationState> | null;
+  const changeDir = dirname(statePath);
+  const sidecar = await readSlotSidecar(changeDir, "confirmation");
+  const existing = (sidecar ??
+    (await readInlineConfirmation(statePath)) ??
+    null) as Partial<ConfirmationState> | null;
   const confirmation: ConfirmationState = {
     askedAt: existing?.askedAt ?? null,
     lastReminderAt: existing?.lastReminderAt ?? null,
@@ -59,16 +77,21 @@ export async function readConfirmationState(statePath: string): Promise<{
     lastReviseConsumedAt: existing?.lastReviseConsumedAt ?? null,
     awaitingMarkerAppliedAt: existing?.awaitingMarkerAppliedAt ?? null,
   };
-  return { stateObj, confirmation };
+  return { stateObj: {}, confirmation };
 }
 
+/**
+ * Write the confirmation slot to its sidecar. The whole slot is written
+ * atomically to `.ralph-state.confirmation.json`; the core `.ralph-state.json`
+ * is never touched, so this can no longer clobber the loop's state. The
+ * `stateObj` parameter is accepted for call-site compatibility and ignored.
+ */
 export async function writeConfirmationState(
   statePath: string,
-  stateObj: Record<string, unknown>,
+  _stateObj: Record<string, unknown>,
   confirmation: ConfirmationState,
 ): Promise<void> {
-  await mkdir(dirname(statePath), { recursive: true });
-  await Bun.write(statePath, JSON.stringify({ ...stateObj, confirmation }, null, 2) + "\n");
+  await writeSlotField(dirname(statePath), "confirmation", confirmation);
 }
 
 /** Re-stub `design.md` and delete `tasks.md` so the deriver returns to

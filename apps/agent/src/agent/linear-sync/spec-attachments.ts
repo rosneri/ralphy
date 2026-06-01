@@ -16,7 +16,7 @@
  */
 
 import { dirname, join } from "node:path";
-import { writeField } from "@ralphy/core/state";
+import { writeField, readSlotSidecar } from "@ralphy/core/state";
 import { isCommentNotFoundError } from "./comment-sync";
 import { renderMarkdownToPdf } from "./render-pdf";
 import { type LogFn, sha256Hex } from "./utils";
@@ -155,13 +155,16 @@ function stateDirOf(statePath: string): string {
   return dirname(statePath);
 }
 
-async function readRawState(statePath: string): Promise<Record<string, unknown>> {
+async function readInlineSpecAttachments(statePath: string): Promise<Record<string, unknown>> {
   const file = Bun.file(statePath);
   if (!(await file.exists())) return {};
   try {
     const parsed: unknown = await file.json();
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
+      const sa = (parsed as Record<string, unknown>).specAttachments;
+      return sa && typeof sa === "object" && !Array.isArray(sa)
+        ? (sa as Record<string, unknown>)
+        : {};
     }
     return {};
   } catch {
@@ -169,12 +172,18 @@ async function readRawState(statePath: string): Promise<Record<string, unknown>>
   }
 }
 
+/** Read the `specAttachments` slot subtree. Authoritative copy is the
+ *  `.ralph-state.specAttachments.json` sidecar (single-writer); falls back to
+ *  the inline core-file slot for changes written before the sidecar split. */
+async function readSpecAttachmentsSubtree(statePath: string): Promise<Record<string, unknown>> {
+  const sidecar = await readSlotSidecar(dirname(statePath), "specAttachments");
+  return sidecar ?? (await readInlineSpecAttachments(statePath));
+}
+
 async function readSpecAttachments(statePath: string): Promise<SpecAttachmentsState> {
-  const raw = await readRawState(statePath);
-  const sa =
-    (raw.specAttachments as
-      | Partial<Record<Slot | LegacySlot, Partial<SpecAttachmentSlot>>>
-      | undefined) ?? {};
+  const sa = (await readSpecAttachmentsSubtree(statePath)) as Partial<
+    Record<Slot | LegacySlot, Partial<SpecAttachmentSlot>>
+  >;
   return {
     proposal: {
       attachmentId: sa.proposal?.attachmentId ?? null,
@@ -404,8 +413,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
  *  per change: persists `legacyProposalPurged: true` in state so the
  *  Linear lookup is not repeated every sync. */
 async function purgeLegacyProposalSlots(deps: SpecAttachmentsDeps): Promise<void> {
-  const raw = await readRawState(deps.statePath);
-  const sa = (raw.specAttachments as Record<string, unknown> | undefined) ?? {};
+  const sa = await readSpecAttachmentsSubtree(deps.statePath);
   if (sa.legacyProposalPurged === true) return;
   const state = await readSpecAttachments(deps.statePath);
   for (const slot of ["proposal", "proposalPdf"] as LegacySlot[]) {

@@ -136,7 +136,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
       } else {
         if (rawState !== null) {
           addInfo(
-            `.ralph-state.json was malformed — reinitialising. External fields (linearComments, specAttachments) preserved.`,
+            `.ralph-state.json was malformed — reinitialising. Feature-owned slots (linearComments, specAttachments, …) live in their own sidecar files and are unaffected.`,
           );
         }
         currentState = buildInitialState({
@@ -147,16 +147,10 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
           manualTest: opts.manualTest,
           createPr: opts.createPr ?? false,
         });
-        // Carry over linearComments / specAttachments if linear-sync wrote
-        // them before the loop could scaffold full state — otherwise we'd
-        // orphan the sticky comment + attachment ids and create duplicates
-        // on the next sync.
-        if (rawState !== null && rawState.linearComments) {
-          (currentState as Record<string, unknown>).linearComments = rawState.linearComments;
-        }
-        if (rawState !== null && rawState.specAttachments) {
-          (currentState as Record<string, unknown>).specAttachments = rawState.specAttachments;
-        }
+        // Feature-owned slots (linearComments, specAttachments, confirmation,
+        // …) are no longer stored in `.ralph-state.json` — each lives in its
+        // own `.ralph-state.<slot>.json` sidecar, so reinitialising the core
+        // file cannot orphan them. They are overlaid back on the next read.
         writeState(stateDir, currentState);
       }
 

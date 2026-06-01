@@ -13,7 +13,7 @@
  */
 
 import { dirname, join } from "node:path";
-import { mkdir, rename, unlink } from "node:fs/promises";
+import { readSlotSidecar, writeSlotField } from "@ralphy/core/state";
 import { renderTasksBlock } from "./index";
 import { type LogFn, sha256Hex } from "./utils";
 
@@ -59,55 +59,49 @@ interface SteeringDeps extends BaseDeps {
   message: string;
 }
 
-async function readStateJson(statePath: string): Promise<PersistedState | null> {
+/** Read the inline `linearComments` slot from the legacy core
+ *  `.ralph-state.json` — used once to migrate a change written before the
+ *  slot moved to its own sidecar. */
+async function readInlineLinearComments(
+  statePath: string,
+): Promise<Partial<LinearCommentsState> | undefined> {
   const file = Bun.file(statePath);
-  if (!(await file.exists())) return null;
+  if (!(await file.exists())) return undefined;
   try {
-    return (await file.json()) as PersistedState;
+    const obj = (await file.json()) as PersistedState;
+    return (obj.linearComments ?? undefined) as Partial<LinearCommentsState> | undefined;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
-// Monotonic counter for temp-file names so concurrent linear-sync writes
-// don't collide on the same temp path.
-let writeStateSeq = 0;
-
-// Atomic write: stage to a sibling temp file then rename over the target.
-// linear-sync is an *external* writer of `.ralph-state.json` — the loop polls
-// the same file. A non-atomic Bun.write can be observed mid-write as a
-// truncated file, crashing the loop's JSON.parse with "Unterminated string".
-// rename is atomic, so readers only ever see a complete file.
-async function writeStateJson(statePath: string, state: PersistedState): Promise<void> {
-  await mkdir(dirname(statePath), { recursive: true });
-  const tmp = `${statePath}.tmp-${process.pid}-${writeStateSeq++}`;
-  try {
-    await Bun.write(tmp, JSON.stringify(state, null, 2) + "\n");
-    await rename(tmp, statePath);
-  } catch (err) {
-    await unlink(tmp).catch(() => {});
-    throw err;
-  }
-}
-
-function readComments(state: PersistedState | null): LinearCommentsState {
-  const raw = state?.linearComments ?? {};
+/** Read the linearComments slot. Authoritative copy lives in the
+ *  `.ralph-state.linearComments.json` sidecar (single-writer, clobber-free);
+ *  falls back to the inline core-file slot for pre-sidecar changes. */
+async function readComments(statePath: string): Promise<LinearCommentsState> {
+  const changeDir = dirname(statePath);
+  const raw =
+    (await readSlotSidecar(changeDir, "linearComments")) ??
+    (await readInlineLinearComments(statePath)) ??
+    {};
+  const r = raw as Partial<LinearCommentsState>;
   return {
-    planCommentId: raw?.planCommentId ?? null,
-    tasksCommentId: raw?.tasksCommentId ?? null,
-    planPostedAt: raw?.planPostedAt ?? null,
-    tasksCommentSha256: raw?.tasksCommentSha256 ?? null,
+    planCommentId: r.planCommentId ?? null,
+    tasksCommentId: r.tasksCommentId ?? null,
+    planPostedAt: r.planPostedAt ?? null,
+    tasksCommentSha256: r.tasksCommentSha256 ?? null,
   };
 }
 
+/** Patch the linearComments slot in its sidecar. The whole slot is written
+ *  atomically; the core `.ralph-state.json` is never touched. */
 async function patchComments(
   statePath: string,
   patch: Partial<LinearCommentsState>,
 ): Promise<void> {
-  const existing = (await readStateJson(statePath)) ?? {};
-  const current = readComments(existing);
+  const current = await readComments(statePath);
   const next: LinearCommentsState = { ...current, ...patch };
-  await writeStateJson(statePath, { ...existing, linearComments: next });
+  await writeSlotField(dirname(statePath), "linearComments", next);
 }
 
 /** Linear surfaces "entity not found" / "not found" via the
@@ -158,8 +152,7 @@ export async function postOrUpdateTasksComment(deps: TasksCommentDeps): Promise<
   const body = renderTasksCommentBody(tasksMd, deps.changeName, deps.iteration);
   const hash = sha256Hex(tasksMd);
 
-  const state = await readStateJson(deps.statePath);
-  const comments = readComments(state);
+  const comments = await readComments(deps.statePath);
 
   if (comments.tasksCommentId) {
     if (comments.tasksCommentSha256 === hash) {
@@ -258,8 +251,7 @@ async function readSection(path: string, heading: string): Promise<string | null
  * missing. Persists the new comment id + planPostedAt on success.
  */
 export async function postPlanCommentOnce(deps: BaseDeps): Promise<string | null> {
-  const state = await readStateJson(deps.statePath);
-  const comments = readComments(state);
+  const comments = await readComments(deps.statePath);
   if (comments.planCommentId) return null;
 
   const tasksMd = await readTasksMd(deps.changeDir, deps.log);
@@ -323,8 +315,7 @@ export async function postSteeringAndRefreshTasks(deps: SteeringDeps): Promise<v
     // Don't bail — still try to refresh tasks comment.
   }
 
-  const state = await readStateJson(deps.statePath);
-  const comments = readComments(state);
+  const comments = await readComments(deps.statePath);
 
   if (comments.tasksCommentId) {
     try {

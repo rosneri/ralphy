@@ -2,17 +2,32 @@ import { join } from "node:path";
 import { StateSchema, type State } from "@ralphy/types";
 import { getStorage } from "@ralphy/context";
 import { formatTaskName } from "./format";
+import { ALL_OWNED_SLOTS } from "./state/schema";
+import { overlaySidecarsSync } from "./state/sidecar";
 
 const STATE_FILE = ".ralph-state.json";
 
+/** Strip feature-owned slots from a state object before writing the core
+ *  file. Each owned slot lives in its own sidecar (see `state/sidecar.ts`),
+ *  so the core `.ralph-state.json` carries only loop-owned fields. */
+function stripOwnedSlots(state: State): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...state };
+  for (const slot of ALL_OWNED_SLOTS) delete out[slot];
+  return out;
+}
+
 /**
- * Read and parse .ralph-state.json from a change directory.
+ * Read and parse .ralph-state.json from a change directory. Feature-owned
+ * slots are overlaid from their sidecar files, so the returned State reflects
+ * the authoritative slot values regardless of any stale inline copy.
  */
 export function readState(changeDir: string): State {
   const filePath = join(changeDir, STATE_FILE);
   const raw = getStorage().read(filePath);
   if (raw === null) throw new Error(".ralph-state.json not found");
-  return StateSchema.parse(JSON.parse(raw));
+  const base = JSON.parse(raw) as Record<string, unknown>;
+  overlaySidecarsSync(changeDir, base, (p) => getStorage().read(p));
+  return StateSchema.parse(base);
 }
 
 /**
@@ -39,7 +54,11 @@ export function tryReadStateRaw(changeDir: string): {
     return { state: null, raw: null };
   }
   const raw = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>;
-  const result = StateSchema.safeParse(parsed);
+  // Overlay sidecar slots onto the raw object so callers that read
+  // out-of-schema slots (e.g. `ci`, `pr`, `flow`) off `.raw` see the
+  // authoritative sidecar value, and in-schema slots survive `safeParse`.
+  overlaySidecarsSync(changeDir, raw, (p) => getStorage().read(p));
+  const result = StateSchema.safeParse(raw);
   return { state: result.success ? result.data : null, raw };
 }
 
@@ -48,7 +67,8 @@ export function tryReadStateRaw(changeDir: string): {
  */
 export function writeState(changeDir: string, state: State): void {
   const filePath = join(changeDir, STATE_FILE);
-  getStorage().write(filePath, JSON.stringify(state, null, 2) + "\n");
+  const core = stripOwnedSlots(state);
+  getStorage().write(filePath, JSON.stringify(core, null, 2) + "\n");
 }
 
 /**

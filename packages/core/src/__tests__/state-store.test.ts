@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OwnershipError, writeField } from "../state/store";
+import { OwnershipError, writeField, slotSidecarPath } from "../state/store";
 
 let changeDir: string;
 let statePath: string;
@@ -16,33 +16,34 @@ afterEach(() => {
   rmSync(changeDir, { recursive: true, force: true });
 });
 
+/** Read a slot's sidecar file contents (or undefined when absent). */
+async function readSidecar(slot: string): Promise<Record<string, unknown> | undefined> {
+  const f = Bun.file(slotSidecarPath(changeDir, slot));
+  if (!(await f.exists())) return undefined;
+  return JSON.parse(await f.text()) as Record<string, unknown>;
+}
+
 describe("writeField", () => {
-  test("owner writes succeed and preserve unrelated slots", async () => {
-    writeFileSync(
-      statePath,
-      JSON.stringify({
-        linearComments: { planCommentId: "c-1" },
-        confirmation: { askedAt: "2026-01-01T00:00:00Z" },
-      }),
-    );
+  test("writes to the slot sidecar, never the core .ralph-state.json", async () => {
+    writeFileSync(statePath, JSON.stringify({ iteration: 7, status: "active" }));
     await writeField(changeDir, "linear-attachments", "specAttachments.proposal", {
       attachmentId: "att-1",
       sha256: "h",
     });
-    const after = JSON.parse(await Bun.file(statePath).text()) as Record<string, unknown>;
-    expect(after.linearComments).toEqual({ planCommentId: "c-1" });
-    expect(after.confirmation).toEqual({ askedAt: "2026-01-01T00:00:00Z" });
-    expect(after.specAttachments).toEqual({ proposal: { attachmentId: "att-1", sha256: "h" } });
+    // Core file is left exactly as it was — the loop's fields are untouched.
+    const core = JSON.parse(await Bun.file(statePath).text()) as Record<string, unknown>;
+    expect(core).toEqual({ iteration: 7, status: "active" });
+    // The slot lives in its own sidecar.
+    expect(await readSidecar("specAttachments")).toEqual({
+      proposal: { attachmentId: "att-1", sha256: "h" },
+    });
   });
 
-  test("non-owner throws OwnershipError and leaves the file untouched", async () => {
-    const before = JSON.stringify({ specAttachments: { proposal: { attachmentId: "a" } } });
-    writeFileSync(statePath, before);
+  test("non-owner throws OwnershipError and writes nothing", async () => {
     await expect(
       writeField(changeDir, "linear-comments", "specAttachments.proposal", { attachmentId: "b" }),
     ).rejects.toBeInstanceOf(OwnershipError);
-    const after = await Bun.file(statePath).text();
-    expect(after).toBe(before);
+    expect(await readSidecar("specAttachments")).toBeUndefined();
   });
 
   test("unregistered feature name throws OwnershipError", async () => {
@@ -51,8 +52,7 @@ describe("writeField", () => {
     ).rejects.toBeInstanceOf(OwnershipError);
   });
 
-  test("writing into a slot the file doesn't yet contain creates the parent object", async () => {
-    // No file on disk yet.
+  test("writing a slot with no pre-existing file creates the sidecar", async () => {
     expect(await Bun.file(statePath).exists()).toBe(false);
     await writeField(
       changeDir,
@@ -60,33 +60,39 @@ describe("writeField", () => {
       "review.lastConsumedCommentAt",
       "2026-05-15T10:00:00Z",
     );
-    const after = JSON.parse(await Bun.file(statePath).text()) as Record<string, unknown>;
-    expect(after.review).toEqual({ lastConsumedCommentAt: "2026-05-15T10:00:00Z" });
+    expect(await readSidecar("review")).toEqual({ lastConsumedCommentAt: "2026-05-15T10:00:00Z" });
+    // The core file is not created as a side effect of a slot write.
+    expect(await Bun.file(statePath).exists()).toBe(false);
   });
 
-  test("creates a nested parent when the slot is missing on an existing file", async () => {
-    writeFileSync(statePath, JSON.stringify({ unrelated: 1 }));
-    await writeField(changeDir, "linear-attachments", "specAttachments.designPdf", {
-      attachmentId: "att-pdf",
-      sha256: null,
+  test("migrates a pre-existing inline slot value into the sidecar on first write", async () => {
+    // Legacy layout: specAttachments lived inline in the core file with a
+    // sibling field. The first sidecar write must preserve that sibling.
+    writeFileSync(
+      statePath,
+      JSON.stringify({
+        iteration: 3,
+        specAttachments: { legacyProposalPurged: true, design: { attachmentId: "old" } },
+      }),
+    );
+    await writeField(changeDir, "linear-attachments", "specAttachments.design", {
+      attachmentId: "new",
+      sha256: "h",
     });
-    const after = JSON.parse(await Bun.file(statePath).text()) as Record<string, unknown>;
-    expect(after.unrelated).toBe(1);
-    expect((after.specAttachments as Record<string, unknown>).designPdf).toEqual({
-      attachmentId: "att-pdf",
-      sha256: null,
+    expect(await readSidecar("specAttachments")).toEqual({
+      legacyProposalPurged: true,
+      design: { attachmentId: "new", sha256: "h" },
     });
   });
 
   test("creates the changeDir if missing", async () => {
     const nested = join(changeDir, "nested", "deep");
     mkdirSync(join(changeDir, "nested"), { recursive: true });
-    // nested/deep does not exist yet; writeField should `mkdir -p` it.
     await writeField(nested, "review-followup", "review.lastConsumedCommentAt", "x");
-    const after = JSON.parse(await Bun.file(join(nested, ".ralph-state.json")).text()) as Record<
+    const after = JSON.parse(await Bun.file(slotSidecarPath(nested, "review")).text()) as Record<
       string,
       unknown
     >;
-    expect(after.review).toEqual({ lastConsumedCommentAt: "x" });
+    expect(after).toEqual({ lastConsumedCommentAt: "x" });
   });
 });

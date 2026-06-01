@@ -1,6 +1,8 @@
-import { dirname, join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { OWNERSHIP } from "./schema";
+import { writeSlotField } from "./sidecar";
+
+export { readSlotSidecar, writeSlotField, slotSidecarPath } from "./sidecar";
 
 export {
   readState,
@@ -44,35 +46,20 @@ async function readJson(filePath: string): Promise<Record<string, unknown>> {
   }
 }
 
-function deepSet(target: Record<string, unknown>, path: string, value: unknown): void {
-  const segments = path.split(".");
-  let cursor: Record<string, unknown> = target;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const key = segments[i] as string;
-    const existing = cursor[key];
-    if (
-      existing === undefined ||
-      existing === null ||
-      typeof existing !== "object" ||
-      Array.isArray(existing)
-    ) {
-      const next: Record<string, unknown> = {};
-      cursor[key] = next;
-      cursor = next;
-    } else {
-      cursor = existing as Record<string, unknown>;
-    }
-  }
-  cursor[segments[segments.length - 1] as string] = value;
-}
-
 /**
- * Write a single feature-owned field to `.ralph-state.json` in `changeDir`.
+ * Write a single feature-owned field to its slot sidecar next to
+ * `.ralph-state.json` in `changeDir`.
  *
  * `path` is a dotted slot path (e.g. `specAttachments.proposal`). The
  * top-level segment must appear in `OWNERSHIP[featureName]` or this
- * throws `OwnershipError` BEFORE touching disk. Unrelated slots are
- * preserved verbatim across the read-merge-write.
+ * throws `OwnershipError` BEFORE touching disk.
+ *
+ * The write lands in `.ralph-state.<slot>.json`, NOT the shared
+ * `.ralph-state.json`. Because each slot has exactly one owner, the sidecar
+ * has exactly one writer and the cross-process lost-update that used to
+ * truncate the shared file is impossible. See `./sidecar.ts` for the full
+ * rationale. On the first write for a slot, any pre-existing inline value in
+ * the core file is migrated into the sidecar so sibling fields are not lost.
  */
 export async function writeField(
   changeDir: string,
@@ -96,9 +83,10 @@ export async function writeField(
       `feature '${featureName}' may not write '${path}' (owns ${allowed.join(", ")})`,
     );
   }
-  const filePath = join(changeDir, STATE_FILE);
-  const existing = await readJson(filePath);
-  deepSet(existing, path, value);
-  await mkdir(dirname(filePath), { recursive: true });
-  await Bun.write(filePath, JSON.stringify(existing, null, 2) + "\n");
+  const inline = (await readJson(join(changeDir, STATE_FILE)))[topSlot];
+  const seed =
+    inline && typeof inline === "object" && !Array.isArray(inline)
+      ? (inline as Record<string, unknown>)
+      : undefined;
+  await writeSlotField(changeDir, path, value, seed);
 }

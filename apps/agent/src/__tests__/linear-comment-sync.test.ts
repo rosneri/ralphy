@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   postOrUpdateTasksComment,
   postPlanCommentOnce,
@@ -63,10 +63,22 @@ function makeMutations(initialId = 1): FakeMutations {
   return m;
 }
 
+// linearComments now lives in its own sidecar (`.ralph-state.linearComments.json`),
+// written single-writer via writeField. Prefer the sidecar; fall back to a
+// legacy inline copy in the core file.
 async function readState(): Promise<{ linearComments?: Record<string, unknown> }> {
-  return JSON.parse(await Bun.file(statePath).text()) as {
-    linearComments?: Record<string, unknown>;
-  };
+  const sidecar = join(dirname(statePath), ".ralph-state.linearComments.json");
+  if (await Bun.file(sidecar).exists()) {
+    return {
+      linearComments: JSON.parse(await Bun.file(sidecar).text()) as Record<string, unknown>,
+    };
+  }
+  if (await Bun.file(statePath).exists()) {
+    return JSON.parse(await Bun.file(statePath).text()) as {
+      linearComments?: Record<string, unknown>;
+    };
+  }
+  return {};
 }
 
 describe("parsePlanningSection", () => {

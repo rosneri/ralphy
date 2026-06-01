@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   syncSpecAttachments,
   type SpecAttachmentMutations,
@@ -104,10 +104,22 @@ function makeLog(): { fn: (text: string, color?: string) => void; entries: strin
   };
 }
 
+// specAttachments now lives in its own sidecar (`.ralph-state.specAttachments.json`),
+// written single-writer via writeField. Prefer the sidecar; fall back to a
+// legacy inline copy in the core file for the migration-seeding cases.
 async function readState(): Promise<{ specAttachments?: Record<string, unknown> }> {
-  return JSON.parse(await Bun.file(statePath).text()) as {
-    specAttachments?: Record<string, unknown>;
-  };
+  const sidecar = join(dirname(statePath), ".ralph-state.specAttachments.json");
+  if (await Bun.file(sidecar).exists()) {
+    return {
+      specAttachments: JSON.parse(await Bun.file(sidecar).text()) as Record<string, unknown>,
+    };
+  }
+  if (await Bun.file(statePath).exists()) {
+    return JSON.parse(await Bun.file(statePath).text()) as {
+      specAttachments?: Record<string, unknown>;
+    };
+  }
+  return {};
 }
 
 function writeDesign(text = "# design\n\ndesign body content here.\n"): void {
