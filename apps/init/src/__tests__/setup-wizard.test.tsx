@@ -18,6 +18,8 @@ import {
   RecreateOrExitPrompt,
   IndicatorBuilder,
   assembleAnswers,
+  buildFromAnswers,
+  CONFIRMATION_STATES,
 } from "../SetupWizard";
 import type { IndicatorMap } from "@ralphy/workflow/wizard-types";
 import { maybeRunSetupWizard } from "../index";
@@ -447,6 +449,57 @@ describe("MigratePrompt", () => {
     await tick();
     unmount();
     expect(choice).toBe("all");
+  });
+});
+
+describe("confirmation indicators in the wizard", () => {
+  test("fix_case: preset + confirmation gate injects a getApproved approval signal", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.indicators": "status-standard",
+      "linear.confirmationMode.enabled": true,
+    });
+    const { config } = parseWorkflow(md);
+    expect(config.linear.indicators.getApproved?.filter?.[0]).toMatchObject({
+      type: "label",
+      value: "approved",
+    });
+    expect(config.linear.indicators.clearApproved).toMatchObject({
+      type: "label",
+      value: "approved",
+    });
+  });
+
+  test("no getApproved injected when the confirmation gate is off", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.indicators": "status-standard",
+      "linear.confirmationMode.enabled": false,
+    });
+    const { config } = parseWorkflow(md);
+    expect(config.linear.indicators.getApproved).toBeUndefined();
+  });
+
+  test("a custom getApproved is preserved, not overwritten", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.indicators": {
+        getTodo: { filter: [{ type: "status", value: "Todo" }] },
+        getApproved: { filter: [{ type: "status", value: "Approved" }] },
+      },
+      "linear.confirmationMode.enabled": true,
+    });
+    const { config } = parseWorkflow(md);
+    expect(config.linear.indicators.getApproved?.filter?.[0]).toMatchObject({
+      type: "status",
+      value: "Approved",
+    });
+  });
+
+  test("getConfirmGate is no longer offered as a confirmation indicator", () => {
+    const slots = CONFIRMATION_STATES.flatMap((s) => s.slots);
+    expect(slots).not.toContain("getConfirmGate");
+    expect(slots).toContain("getApproved");
   });
 });
 

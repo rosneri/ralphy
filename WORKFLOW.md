@@ -196,10 +196,9 @@ linear:
     - pdf
 
   # Confirmation mode — human gate between the OpenSpec `tasks` and
-  # `implement` phases. Approve via `getApproved`, revise via
-  # `@ralphy revise: <reason>`.
-  # Use getConfirmGate indicator (opt-in mode) and getAutoApprove indicator
-  # (opt-out/bypass mode) in the indicators section below.
+  # `implement` phases. Approve via the `getApproved` indicator (apply the
+  # `approved` label), revise via `@ralphy revise: <reason>`. Add an optional
+  # `getAutoApprove` indicator to let matching issues skip the gate.
   confirmationMode:
     # Pause after the agent finishes planning and wait for a human to approve
     # before it writes any code (a confirmation gate).
@@ -223,6 +222,11 @@ linear:
       filter:
         - type: status
           value: In Progress
+    getApproved:
+      filter:
+        - type: label
+          value: approved
+          group: Ralphy
     setInProgress:
       type: status
       value: In Progress
@@ -231,7 +235,8 @@ linear:
       value: In Review
     setError:
       type: label
-      value: ralph:error
+      value: error
+      group: Ralphy
 prDraft: true
 manualMergeWhenAutoMergeDisabled: true
 finalizeNoOpAsDone: true

@@ -419,7 +419,6 @@ const CUSTOMIZED_FIELDS: Field[] = [
     description:
       "Upload the OpenSpec planning docs (proposal.md, design.md) to the issue as attachments. OpenSpec is Ralphy's spec-driven planning format.",
     spec: yes(),
-    when: isOn("linear.syncTasksToComment"),
   },
   {
     id: "linear.specAttachmentFormats",

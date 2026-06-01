@@ -57,7 +57,7 @@ function resolveIndicators(value: WizardValue | undefined): IndicatorMap | undef
   return value as IndicatorMap;
 }
 
-function buildFromAnswers(
+export function buildFromAnswers(
   mode: SetupMode,
   answers: Answers,
   build: (answers: WizardAnswers, bodyOverride?: string) => string = buildWorkflowMarkdown,
@@ -67,6 +67,24 @@ function buildFromAnswers(
     const indicators = resolveIndicators(values["linear.indicators"]);
     if (indicators) values["linear.indicators"] = indicators;
     else delete values["linear.indicators"];
+  }
+  // When the confirmation gate is on, ensure the indicators carry an approval
+  // signal. Without `getApproved` a human can never clear the gate (only the
+  // timeout can) — and the preset paths don't include it. Add a sensible
+  // `approved`-label default unless the custom editor already supplied one.
+  // Only augments an indicators map already being written, so diff-mode runs
+  // that don't touch indicators are untouched.
+  if (
+    values["linear.confirmationMode.enabled"] === true &&
+    values["linear.indicators"] &&
+    typeof values["linear.indicators"] === "object"
+  ) {
+    const map = { ...(values["linear.indicators"] as IndicatorMap) };
+    if (!("getApproved" in map)) {
+      map.getApproved = { filter: [{ type: "label", value: "approved" }] };
+      map.clearApproved = { type: "label", value: "approved" };
+      values["linear.indicators"] = map;
+    }
   }
   // The prompt body is not a frontmatter setting — pull it out and pass it as
   // the body override instead of writing it as a key.
@@ -848,13 +866,7 @@ const CORE_STATES: IndicatorState[] = [
   },
 ];
 
-const CONFIRMATION_STATES: IndicatorState[] = [
-  {
-    key: "confirmGate",
-    label: "Confirmation gate",
-    description: "Opt-in: only require human approval for issues that match this.",
-    slots: ["getConfirmGate"],
-  },
+export const CONFIRMATION_STATES: IndicatorState[] = [
   {
     key: "autoApprove",
     label: "Auto-approve",
