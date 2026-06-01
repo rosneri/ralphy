@@ -43,6 +43,7 @@ const fakeWorker: ActiveWorker = {
   kill: () => {},
   lastReportedIteration: 0,
   lastSyncedIteration: 0,
+  lastSyncedTasksFingerprint: null,
   restarting: false,
   reapedForAwaiting: false,
 };

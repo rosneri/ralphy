@@ -232,6 +232,13 @@ export interface CoordinatorDeps {
   /** Returns the current iteration count for an active worker (for
    *  periodic progress comments). */
   getIterationCount?: (changeName: string) => Promise<number>;
+  /** Returns a cheap stat-based fingerprint (`mtime:size` per file) covering
+   *  the artifacts `syncTasks` consumes — `tasks.md`, `proposal.md`, and
+   *  `design.md` — or `null` when none exist. When wired, it gates the
+   *  per-poll tasks sync on artifact *content* rather than on the iteration
+   *  counter, so mid-iteration checkbox ticks reach Linear at poll cadence
+   *  instead of waiting for the iteration to end. */
+  getTasksFingerprint?: (changeName: string) => Promise<string | null>;
   /** Optional hook: mirror tasks.md into the issue description. Invoked on
    *  worker launch, on each milestone (same cadence as progress comments),
    *  and on done-transition. Failures are swallowed by the impl. */
@@ -301,6 +308,12 @@ export interface ActiveWorker {
    *  re-syncing when the worker hasn't ticked a new iteration. Initialized
    *  to 0 on spawn since the launch path syncs iteration 0 immediately. */
   lastSyncedIteration: number;
+  /** Artifact fingerprint last passed to `syncTasks` (via
+   *  `getTasksFingerprint`). The poll loop gates on this when the dep is
+   *  wired, so mid-iteration `tasks.md` ticks sync at poll cadence. Left
+   *  unchanged on sync failure so the next poll retries. Initialized to
+   *  `null`; the first poll captures the launch-time fingerprint. */
+  lastSyncedTasksFingerprint: string | null;
   /** Set by `restartWorker` so the exit handler skips notifyExited and
    *  re-queues the worker as a resume instead of finalizing the issue. */
   restarting: boolean;
@@ -818,14 +831,59 @@ export class AgentCoordinator {
     }
   }
 
-  /** Refresh the tasks comment for every active worker whose iteration
-   *  count has advanced since the last sync. Runs every poll (independent
+  /** Refresh the tasks comment for every active worker whose synced
+   *  artifacts have changed since the last sync. Runs every poll (independent
    *  of the progress-comment cadence) so the tasks list reflects each
-   *  checked-off item promptly. Best-effort: failures log a yellow warning
-   *  and leave `lastSyncedIteration` unchanged so the next poll retries. */
+   *  checked-off item promptly — including mid-iteration ticks, which the
+   *  fingerprint gate catches but the legacy iteration-count gate did not.
+   *  Best-effort: failures log a yellow warning and leave the stored marker
+   *  unchanged so the next poll retries. */
   private async syncWorkerTasks(): Promise<void> {
     if (!this.deps.syncTasks || !this.deps.getIterationCount) return;
     for (const w of this.workers) {
+      if (this.deps.getTasksFingerprint) {
+        // Preferred path: gate on artifact content so mid-iteration ticks
+        // reach Linear at poll cadence.
+        let fingerprint: string | null;
+        try {
+          fingerprint = await this.deps.getTasksFingerprint(w.changeName);
+        } catch (err) {
+          this.deps.onLog(
+            `! tasks fingerprint read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+          continue;
+        }
+        // No artifacts on disk yet, or nothing changed since the last sync.
+        if (fingerprint === null || fingerprint === w.lastSyncedTasksFingerprint) {
+          continue;
+        }
+        let iteration: number;
+        try {
+          iteration = await this.deps.getIterationCount(w.changeName);
+        } catch (err) {
+          this.deps.onLog(
+            `! iteration count read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+          continue;
+        }
+        try {
+          await this.deps.syncTasks(w, iteration);
+          // Only advance the marker after a successful sync, so a throw
+          // leaves the fingerprint stale and the next poll retries.
+          w.lastSyncedTasksFingerprint = fingerprint;
+        } catch (err) {
+          this.deps.onLog(
+            `! sync-tasks (poll) failed for ${w.issueIdentifier}: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+        continue;
+      }
+
+      // Legacy fallback: gate on the iteration counter when the fingerprint
+      // dep is not wired (preserves prior behavior for those callers).
       let count: number;
       try {
         count = await this.deps.getIterationCount(w.changeName);
@@ -1267,6 +1325,7 @@ export class AgentCoordinator {
       kill: handle.kill,
       lastReportedIteration: 0,
       lastSyncedIteration: 0,
+      lastSyncedTasksFingerprint: null,
       restarting: false,
       reapedForAwaiting: false,
     };
@@ -1491,6 +1550,7 @@ export class AgentCoordinator {
         kill: () => {},
         lastReportedIteration: 0,
         lastSyncedIteration: 0,
+        lastSyncedTasksFingerprint: null,
         restarting: false,
         reapedForAwaiting: false,
       };
