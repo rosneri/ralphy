@@ -386,6 +386,17 @@ export function buildAgentCoordinator(
         const json = (await file.json()) as { iteration?: number };
         return json.iteration ?? 0;
       },
+      getTasksFingerprint: async (changeName) => {
+        const root = cwdByChange.get(changeName) ?? projectRoot;
+        const changeDir = projectLayout(root).changeDir(changeName);
+        const parts: string[] = [];
+        for (const name of ["tasks.md", "proposal.md", "design.md"]) {
+          const file = Bun.file(join(changeDir, name));
+          if (!(await file.exists())) continue;
+          parts.push(`${name}:${file.lastModified}:${file.size}`);
+        }
+        return parts.length > 0 ? parts.join("|") : null;
+      },
       ...(commentSync.enabled && commentSync.syncTasks ? { syncTasks: commentSync.syncTasks } : {}),
       ...(commentSync.enabled && commentSync.onSteeringAppended
         ? { onSteeringAppended: commentSync.onSteeringAppended }
