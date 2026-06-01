@@ -43,6 +43,10 @@ export interface AgentParsedArgs extends CommonArgs {
   manualTest: boolean;
   /** List mode: enable per-ticket diagnostics for --name <identifier>. */
   debug: boolean;
+  /** Opt-in: after each ticket reaches a terminal disposition, spawn a one-shot
+   *  engine pass that self-reviews the run and writes a markdown report to
+   *  `~/.ralph/retro/`. Off by default; adds cost only when set. */
+  agentDebug: boolean;
   /** Force-enable the pre-existing-error baseline gate (overrides config). */
   preExistingErrorCheck?: boolean;
   /** Disable tmux session management; run agent in the foreground directly. */
@@ -128,6 +132,7 @@ const HELP_TEXT = [
   "  --checks                List mode: show failing CI check names per PR",
   "  --review                List mode: show unresolved review comment count per PR",
   "  --debug                 List mode: explain why a Linear ticket was not picked up (use with --name)",
+  "  --agent-debug           After each ticket finishes, run a one-shot self-review and write a report to ~/.ralph/retro/",
   "  --help, -h              Show this help message",
   "",
   "Examples:",
@@ -216,6 +221,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     noTmux: false,
     checks: false,
     review: false,
+    agentDebug: false,
     ticketTokens: [],
   };
 
@@ -339,6 +345,9 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--debug":
         result.debug = true;
+        break;
+      case "--agent-debug":
+        result.agentDebug = true;
         break;
       case "--pre-existing-error-check":
         result.preExistingErrorCheck = true;

@@ -9,14 +9,61 @@ import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
 import type { GitRunner } from "../../worktree";
-import { issueMatchesGetIndicator, type LinearIssue } from "../../linear";
-import { runPostTask, type PostTaskPhase, type PostTaskMode } from "../../post-task";
+import {
+  fetchIssueComments,
+  issueMatchesGetIndicator,
+  type LinearComment,
+  type LinearIssue,
+} from "../../linear";
+import {
+  runPostTask,
+  type PostTaskPhase,
+  type PostTaskMode,
+  type RetroDispositionInfo,
+} from "../../post-task";
 import type { QueueTrigger } from "../../coordinator";
 import { defaultSpawn } from "./default";
 import { traceCmdRunner, type AgentRunners } from "../runners";
 import { resolveDependencyBaseBranchImpl } from "../pr-helpers";
 import { waitForMergeability } from "../../../shared/pr/wait-for-mergeability";
+import { agentRunStatePath } from "../../state/agent-run-state";
+import { runRetrospective, type RetroContext } from "@ralphy/retro";
+import { runEngine } from "@ralphy/engine/engine";
 import type { Indicators } from "@ralphy/types";
+
+/** Local `YYYY-MM-DD` for the retrospective filename + dedupe key. */
+function localDateStamp(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Build a compact ticket digest from the issue + its comments for the retro. */
+function buildTicketDigest(issue: LinearIssue | null, comments: LinearComment[]): string {
+  if (!issue) return "(ticket details unavailable)";
+  const lines = [`Title: ${issue.title}`, "", issue.description?.trim() || "(no description)"];
+  if (comments.length > 0) {
+    lines.push("", "Comments:");
+    for (const c of comments) {
+      lines.push(`- ${c.user?.name ?? "unknown"}: ${c.body}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Decide the retrospective dep handed to `runPostTask`. The hook is wired only
+ * when `--agent-debug` is set; otherwise an empty object is returned so the dep
+ * is omitted entirely (zero cost on normal runs). Exported for unit testing the
+ * wiring decision in isolation.
+ */
+export function retroDepEntry(
+  agentDebug: boolean,
+  hook: (info: RetroDispositionInfo) => Promise<void>,
+): { runRetrospective?: (info: RetroDispositionInfo) => Promise<void> } {
+  return agentDebug ? { runRetrospective: hook } : {};
+}
 
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
@@ -146,6 +193,54 @@ export function createSpawnWorker(
     c.push("--from-agent");
     return c;
   }
+
+  // --agent-debug: one in-memory dedupe set shared across every worker this
+  // run spawns. The closure is built once and passed to `runPostTask` only
+  // when the flag is set; otherwise the dep is omitted entirely (zero cost).
+  const retroSeen = new Set<string>();
+  const runRetrospectiveHook = async (info: RetroDispositionInfo): Promise<void> => {
+    try {
+      const identifier = info.issue?.identifier ?? info.changeName;
+      const prUrl = prByChange?.get(info.changeName) ?? null;
+      let digest = "(ticket details unavailable)";
+      if (info.issue) {
+        let comments: LinearComment[] = [];
+        try {
+          comments = await fetchIssueComments(apiKey, info.issue.id);
+        } catch {
+          // Best-effort: a Linear fetch failure must not abort the retro.
+        }
+        digest = buildTicketDigest(info.issue, comments);
+      }
+      const engine = args.engineSet ? args.engine : cfg.engine;
+      const model = args.engineSet ? args.model : cfg.model;
+      const ctx: RetroContext = {
+        identifier,
+        changeName: info.changeName,
+        cwd: info.cwd,
+        engine,
+        model,
+        exitCode: info.effectiveCode,
+        prUrl,
+        date: localDateStamp(new Date()),
+        ticketDigest: digest,
+        paths: {
+          changeDir: info.changeDir,
+          stateFilePath: info.stateFilePath,
+          logFile: join(logsDir, `${info.changeName}.log`),
+          jsonLogFile: args.jsonLogFile ?? null,
+          agentStateFile: agentRunStatePath(projectRoot),
+        },
+      };
+      await runRetrospective(ctx, {
+        runEngine: (opts) => runEngine(opts),
+        log: onLog,
+        seen: retroSeen,
+      });
+    } catch (err) {
+      onLog(`! retrospective failed: ${(err as Error).message}`, "yellow");
+    }
+  };
 
   return function spawnWorker(
     changeName: string,
@@ -327,6 +422,7 @@ export function createSpawnWorker(
           git: gitRunner,
           log: onLog,
           runScript,
+          ...retroDepEntry(args.agentDebug, runRetrospectiveHook),
           registerPr: (cn, url) => onPrRegistered(cn, url),
           ...(onWorkerPhase && {
             onPhase: (phase: PostTaskPhase, detail?: string) =>

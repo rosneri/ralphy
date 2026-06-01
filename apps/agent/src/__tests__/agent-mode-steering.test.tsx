@@ -127,6 +127,7 @@ const baseArgs: ParsedArgs = {
   prompt: "",
   manualTest: false,
   debug: false,
+  agentDebug: false,
   checks: false,
   review: false,
 };

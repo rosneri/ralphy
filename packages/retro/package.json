@@ -1,0 +1,13 @@
+{
+  "name": "@ralphy/retro",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/retro.ts"
+  },
+  "dependencies": {
+    "@ralphy/engine": "workspace:*",
+    "@ralphy/types": "workspace:*"
+  }
+}

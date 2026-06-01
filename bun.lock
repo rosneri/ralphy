@@ -48,6 +48,7 @@
         "@ralphy/log": "workspace:*",
         "@ralphy/output": "workspace:*",
         "@ralphy/paths": "workspace:*",
+        "@ralphy/retro": "workspace:*",
         "@ralphy/telemetry": "workspace:*",
         "@ralphy/types": "workspace:*",
         "@ralphy/ui-shared": "workspace:*",
@@ -241,6 +242,14 @@
     "packages/paths": {
       "name": "@ralphy/paths",
       "version": "0.0.0",
+    },
+    "packages/retro": {
+      "name": "@ralphy/retro",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/engine": "workspace:*",
+        "@ralphy/types": "workspace:*",
+      },
     },
     "packages/telemetry": {
       "name": "@ralphy/telemetry",
@@ -899,6 +908,8 @@
     "@ralphy/output": ["@ralphy/output@workspace:packages/output"],
 
     "@ralphy/paths": ["@ralphy/paths@workspace:packages/paths"],
+
+    "@ralphy/retro": ["@ralphy/retro@workspace:packages/retro"],
 
     "@ralphy/shell": ["@ralphy/shell@workspace:apps/shell"],
 

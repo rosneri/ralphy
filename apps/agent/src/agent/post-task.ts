@@ -19,8 +19,10 @@ import { runFeaturePostTask } from "../features/run-feature";
 import type { FeatureCtx } from "../features/types";
 
 /** Worker exited 0 but the CI fix loop never reached green. */
+// allow-duplicate
 const CI_FAILED_EXIT = 70;
 /** Worker exited 0 but the residual-commit / push / PR-create path failed. */
+// allow-duplicate
 const PR_FAILED_EXIT = 71;
 /**
  * Worker exited 0 and finished its tasks, but the branch never touched a
@@ -133,10 +135,33 @@ export type PostTaskPhase =
   | "gave-up"
   | "teardown";
 
+/**
+ * Info handed to the optional `runRetrospective` hook when a ticket reaches a
+ * terminal disposition on the main post-task path. The dep (when wired) reads
+ * these to drive a one-shot self-review pass. See `@ralphy/retro`.
+ */
+export interface RetroDispositionInfo {
+  changeName: string;
+  cwd: string;
+  changeDir: string;
+  stateFilePath: string;
+  branch: string | null;
+  issue: LinearIssue | null;
+  /** The effective exit code after all post-task phases. */
+  effectiveCode: number;
+}
+
 interface PostTaskDeps {
   cmd: CmdRunner;
   git: GitRunner;
   log: (text: string, color?: string) => void;
+  /**
+   * Optional opt-in (`--agent-debug`): run a one-shot retrospective self-review
+   * after the ticket reaches its terminal disposition and before worktree
+   * cleanup (so the worktree artifacts are still readable). The dep owns its
+   * own error isolation and must never throw. Omitted on normal runs.
+   */
+  runRetrospective?: (info: RetroDispositionInfo) => Promise<void>;
   /** Run a shell command and surface non-zero exit via `log`, never throw. */
   runScript: (label: string, cmd: string, cwd: string) => Promise<void>;
   /** Optional: record the URL of the PR opened (or surfaced) for this
@@ -1520,6 +1545,19 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
   const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
   emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
   if (!succeeded) await recordGaveUp(stateFilePath, log, changeName);
+
+  // Retrospective (opt-in, --agent-debug): runs before worktree cleanup so the
+  // worktree artifacts + state file are still readable. The dep never throws;
+  // `effectiveCode` is left unchanged.
+  await deps.runRetrospective?.({
+    changeName,
+    cwd,
+    changeDir,
+    stateFilePath,
+    branch,
+    issue,
+    effectiveCode,
+  });
 
   // Phase 2: worktree cleanup
   await runWorktreeCleanupPhase(
