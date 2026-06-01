@@ -45,6 +45,34 @@ export function worktreeDirNameForIssue(issue: { identifier: string }): string {
 }
 
 /**
+ * Serializes worktree provisioning per repository. {@link createWorktree} runs
+ * repo-mutating git commands (`fetch`, `worktree add`, `config`) against the
+ * shared `projectRoot/.git`. The agent coordinator prepares queued issues
+ * concurrently, so without this lock several `createWorktree` calls hit the
+ * same repo at once and git's on-disk locks (`.git/worktrees`, `config.lock`,
+ * `index.lock`) collide — one invocation then fails with a generic lock error
+ * and the issue is spuriously quarantined. A per-`projectRoot` promise chain
+ * forces provisioning to run one repo-operation at a time.
+ */
+const repoWorktreeLocks = new Map<string, Promise<unknown>>();
+
+function withRepoLock<T>(projectRoot: string, fn: () => Promise<T>): Promise<T> {
+  const prev = repoWorktreeLocks.get(projectRoot) ?? Promise.resolve();
+  // Run fn after the previous holder settles — regardless of whether it
+  // resolved or rejected — so one failure never wedges the queue.
+  const result = prev.then(fn, fn);
+  // The lock tail swallows outcomes so the next waiter chains cleanly.
+  repoWorktreeLocks.set(
+    projectRoot,
+    result.then(
+      () => {},
+      () => {},
+    ),
+  );
+  return result;
+}
+
+/**
  * Create a new git worktree at `~/.ralph/<project>/worktrees/<changeName>` checked out
  * onto a fresh branch `ralph/<changeName>`. When the branch is being created,
  * `git fetch origin <baseBranch>` runs first and the new branch is rooted at
@@ -56,10 +84,24 @@ export function worktreeDirNameForIssue(issue: { identifier: string }): string {
  * resume). If the branch already exists locally, it is checked out as-is
  * with no fetch and no silent rebase.
  *
+ * Provisioning is serialized per `projectRoot` (see {@link withRepoLock}) so
+ * concurrent prepares don't contend on the shared repo's git locks.
+ *
  * Fails loudly when the fetch fails — better to surface a missing remote
  * than to silently fall back to local HEAD.
  */
-export async function createWorktree(
+export function createWorktree(
+  projectRoot: string,
+  changeName: string,
+  baseBranch: string,
+  runner: GitRunner,
+): Promise<WorktreeHandle> {
+  return withRepoLock(projectRoot, () =>
+    provisionWorktree(projectRoot, changeName, baseBranch, runner),
+  );
+}
+
+async function provisionWorktree(
   projectRoot: string,
   changeName: string,
   baseBranch: string,

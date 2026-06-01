@@ -8,7 +8,12 @@ export const bunGitRunner: GitRunner = {
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
     if (code !== 0) {
-      const err = new Error("git command failed") as Error & {
+      // Fold the first stderr line into the message (like bunCmdRunner) so a
+      // failure is actionable in logs — otherwise concurrent `.git` lock
+      // contention surfaces only as a bare "git command failed".
+      const firstStderrLine = stderr.trim().split("\n")[0] ?? "";
+      const summary = firstStderrLine ? `: ${firstStderrLine}` : "";
+      const err = new Error(`git \`${args.join(" ")}\` failed${summary}`) as Error & {
         stderr?: string;
         code?: number;
       };
