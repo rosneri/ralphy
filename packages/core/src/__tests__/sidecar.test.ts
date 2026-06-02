@@ -10,11 +10,20 @@
  * matter the interleaving — and a read composes them back together.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+  chmodSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { writeField, slotSidecarPath } from "../state/store";
+import { readSlotSidecar, writeSlotField } from "../state/sidecar";
 import { readState, writeState, tryReadStateRaw, buildInitialState } from "../state";
 
 let changeDir: string;
@@ -129,4 +138,51 @@ describe("migration fallback", () => {
       // No sidecar → inline value is used.
       expect(readState(changeDir).specAttachments.design.attachmentId).toBe("inline-design");
     }));
+});
+
+describe("sidecar read/write internals", () => {
+  test("readSlotSidecar returns undefined when the sidecar holds invalid JSON", async () => {
+    writeFileSync(slotSidecarPath(changeDir, "flow"), "{ not json");
+    expect(await readSlotSidecar(changeDir, "flow")).toBeUndefined();
+  });
+
+  test("readSlotSidecar returns undefined when the sidecar holds a non-object (array)", async () => {
+    writeFileSync(slotSidecarPath(changeDir, "flow"), JSON.stringify([1, 2, 3]));
+    expect(await readSlotSidecar(changeDir, "flow")).toBeUndefined();
+  });
+
+  test("writeSlotField creates nested intermediates and descends into existing ones", async () => {
+    await writeSlotField(changeDir, "flow.a.b", 1);
+    // `a` now exists as an object → the second write must descend, not clobber.
+    await writeSlotField(changeDir, "flow.a.c", 2);
+    expect(await readSlotSidecar(changeDir, "flow")).toEqual({ a: { b: 1, c: 2 } });
+  });
+
+  test("writeSlotField replaces a non-object intermediate with a fresh object", async () => {
+    await writeSlotField(changeDir, "flow.x", "scalar");
+    await writeSlotField(changeDir, "flow.x.y", 9);
+    expect(await readSlotSidecar(changeDir, "flow")).toEqual({ x: { y: 9 } });
+  });
+
+  // Skipped under root, where file permissions are ignored and the read succeeds.
+  test.skipIf(process.getuid?.() === 0)(
+    "readSlotSidecar returns undefined when the sidecar exists but cannot be read",
+    async () => {
+      const path = slotSidecarPath(changeDir, "flow");
+      writeFileSync(path, '{"a":1}');
+      chmodSync(path, 0o000);
+      try {
+        expect(await readSlotSidecar(changeDir, "flow")).toBeUndefined();
+      } finally {
+        chmodSync(path, 0o600); // restore so afterEach cleanup can remove it
+      }
+    },
+  );
+
+  test("writeSlotField rejects and leaves no temp file when the rename target is unwritable", async () => {
+    // Occupy the sidecar path with a directory so the atomic rename fails.
+    mkdirSync(slotSidecarPath(changeDir, "flow"));
+    await expect(writeSlotField(changeDir, "flow", { a: 1 })).rejects.toThrow();
+    expect(readdirSync(changeDir).filter((f) => f.includes(".tmp-"))).toHaveLength(0);
+  });
 });
