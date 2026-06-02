@@ -1168,12 +1168,14 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Confirmation state on disk reflects rounds=1 and a non-null
     // lastReviseConsumedAt watermark so a duplicate revise comment
     // wouldn't be re-consumed.
-    const statePath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.json");
-    const stateAfterRevise = JSON.parse(readFileSync(statePath, "utf-8")) as {
-      confirmation?: { rounds?: number; lastReviseConsumedAt?: string | null };
+    // confirmation now lives in its own sidecar (.ralph-state.confirmation.json).
+    const confPath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.confirmation.json");
+    const stateAfterRevise = JSON.parse(readFileSync(confPath, "utf-8")) as {
+      rounds?: number;
+      lastReviseConsumedAt?: string | null;
     };
-    expect(stateAfterRevise.confirmation?.rounds).toBe(1);
-    expect(stateAfterRevise.confirmation?.lastReviseConsumedAt).not.toBeNull();
+    expect(stateAfterRevise.rounds).toBe(1);
+    expect(stateAfterRevise.lastReviseConsumedAt).not.toBeNull();
 
     // Simulate the worker re-completing planning after revise: refill
     // design.md so the deriver re-gates.
@@ -1826,11 +1828,11 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 3: revise consumed → rounds=1, design restubbed.
     await coord.pollOnce();
     await tick();
-    const statePath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.json");
-    const stateAfterRevise1 = JSON.parse(readFileSync(statePath, "utf-8")) as {
-      confirmation?: { rounds?: number };
+    const confPath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.confirmation.json");
+    const stateAfterRevise1 = JSON.parse(readFileSync(confPath, "utf-8")) as {
+      rounds?: number;
     };
-    expect(stateAfterRevise1.confirmation?.rounds).toBe(1);
+    expect(stateAfterRevise1.rounds).toBe(1);
 
     // Worker re-fills design for round 2.
     await fillDesign("v2");
@@ -1849,10 +1851,10 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 5: revise consumed → rounds=2 (== cap), design restubbed.
     await coord.pollOnce();
     await tick();
-    const stateAfterRevise2 = JSON.parse(readFileSync(statePath, "utf-8")) as {
-      confirmation?: { rounds?: number };
+    const stateAfterRevise2 = JSON.parse(readFileSync(confPath, "utf-8")) as {
+      rounds?: number;
     };
-    expect(stateAfterRevise2.confirmation?.rounds).toBe(2);
+    expect(stateAfterRevise2.rounds).toBe(2);
 
     // Worker re-fills design — but the next poll's gate will trip the cap
     // BEFORE any revise/approval logic runs.
@@ -1876,11 +1878,11 @@ describe("agent characterization — Stage-0 regression net", () => {
     expect(linear.comments.some((c) => c.body.includes("confirmation gate stuck"))).toBe(true);
 
     // `stuckPostedAt` watermark persisted so subsequent polls don't re-post.
-    const stateAfterStuck = JSON.parse(readFileSync(statePath, "utf-8")) as {
-      confirmation?: { stuckPostedAt?: string | null };
+    const stateAfterStuck = JSON.parse(readFileSync(confPath, "utf-8")) as {
+      stuckPostedAt?: string | null;
     };
-    expect(stateAfterStuck.confirmation?.stuckPostedAt).not.toBeNull();
-    expect(typeof stateAfterStuck.confirmation?.stuckPostedAt).toBe("string");
+    expect(stateAfterStuck.stuckPostedAt).not.toBeNull();
+    expect(typeof stateAfterStuck.stuckPostedAt).toBe("string");
 
     // No new spawn was issued on this poll — the ticket is parked, no
     // implement / resume / revise worker fires while stuck.

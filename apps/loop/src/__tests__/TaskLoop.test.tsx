@@ -947,22 +947,24 @@ describe("TaskLoop", () => {
     });
   });
 
-  test("recovers from a partial-write .ralph-state.json (linear-sync race)", async () => {
+  test("malformed core .ralph-state.json reinit leaves the linearComments sidecar intact", async () => {
     await withLayout(async () => {
       const taskDir = join(tempDir, "partial-state");
       mkdirSync(taskDir, { recursive: true });
-      // Simulate the linear-sync race: a state file exists but only carries
-      // the linearComments patch — no version/name/prompt/createdAt.
+      // A malformed core state file (missing required fields) forces reinit.
       writeFileSync(
         join(taskDir, ".ralph-state.json"),
+        JSON.stringify({ status: "active", lastModified: "2026-05-18T17:43:45.968Z" }),
+        "utf-8",
+      );
+      // linear-sync owns the linearComments slot in its own sidecar file — a
+      // core-file reinit must not be able to erase it (the LIT-379 fix).
+      writeFileSync(
+        join(taskDir, ".ralph-state.linearComments.json"),
         JSON.stringify({
-          linearComments: {
-            planCommentId: null,
-            tasksCommentId: "preserve-me-123",
-            planPostedAt: null,
-          },
-          status: "active",
-          lastModified: "2026-05-18T17:43:45.968Z",
+          planCommentId: null,
+          tasksCommentId: "preserve-me-123",
+          planPostedAt: null,
         }),
         "utf-8",
       );
@@ -993,14 +995,20 @@ describe("TaskLoop", () => {
       // "all tasks completed" path run normally instead of crashing.
       expect(allText).toContain("All tasks completed");
 
-      // linearComments id must survive recovery to avoid duplicate comments.
+      // The linearComments sidecar is a separate file — untouched by the core
+      // reinit, so the comment id survives and duplicate comments are avoided.
+      const sidecar = JSON.parse(
+        require("node:fs").readFileSync(join(taskDir, ".ralph-state.linearComments.json"), "utf-8"),
+      );
+      expect(sidecar.tasksCommentId).toBe("preserve-me-123");
+      // The reinitialised core file is valid and carries no owned slots.
       const rewritten = JSON.parse(
         require("node:fs").readFileSync(join(taskDir, ".ralph-state.json"), "utf-8"),
       );
-      expect(rewritten.linearComments?.tasksCommentId).toBe("preserve-me-123");
       expect(rewritten.version).toBe("2");
       expect(typeof rewritten.prompt).toBe("string");
       expect(typeof rewritten.createdAt).toBe("string");
+      expect(rewritten.linearComments).toBeUndefined();
     });
   });
 
@@ -1176,23 +1184,25 @@ describe("TaskLoop", () => {
     });
   });
 
-  test("recovers specAttachments from partial-write state (malformed + specAttachments)", async () => {
+  test("malformed core reinit leaves the specAttachments sidecar intact", async () => {
     await withLayout(async () => {
       const taskDir = join(tempDir, "spec-attach-task");
       mkdirSync(taskDir, { recursive: true });
-      // Write a malformed state (missing required fields) that has a valid specAttachments entry
+      // Malformed core state file (missing required fields) → forces reinit.
       const knownAttachId = "attach-id-999";
       writeFileSync(
         join(taskDir, ".ralph-state.json"),
+        JSON.stringify({ status: "active", lastModified: "2026-05-18T17:43:45.968Z" }),
+        "utf-8",
+      );
+      // spec-attachments owns specAttachments in its own sidecar file.
+      writeFileSync(
+        join(taskDir, ".ralph-state.specAttachments.json"),
         JSON.stringify({
-          specAttachments: {
-            proposal: { attachmentId: knownAttachId, sha256: "abc123" },
-            design: { attachmentId: null, sha256: null },
-            proposalPdf: { attachmentId: null, sha256: null },
-            designPdf: { attachmentId: null, sha256: null },
-          },
-          status: "active",
-          lastModified: "2026-05-18T17:43:45.968Z",
+          proposal: { attachmentId: knownAttachId, sha256: "abc123" },
+          design: { attachmentId: null, sha256: null },
+          proposalPdf: { attachmentId: null, sha256: null },
+          designPdf: { attachmentId: null, sha256: null },
         }),
         "utf-8",
       );
@@ -1220,10 +1230,13 @@ describe("TaskLoop", () => {
       const allText = frames.join("\n");
       expect(allText).toContain("malformed");
 
-      const rewritten = JSON.parse(
-        require("node:fs").readFileSync(join(taskDir, ".ralph-state.json"), "utf-8"),
+      const sidecar = JSON.parse(
+        require("node:fs").readFileSync(
+          join(taskDir, ".ralph-state.specAttachments.json"),
+          "utf-8",
+        ),
       );
-      expect(rewritten.specAttachments?.proposal?.attachmentId).toBe(knownAttachId);
+      expect(sidecar.proposal?.attachmentId).toBe(knownAttachId);
     });
   });
 

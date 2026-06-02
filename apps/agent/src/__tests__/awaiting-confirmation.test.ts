@@ -242,14 +242,17 @@ describe("readConfirmationState / writeConfirmationState", () => {
         askedAt: "2026-05-20T01:00:00.000Z",
         lastReminderAt: null,
         confirmedAt: null,
+        earlyDraftPrAt: null,
         rounds: 2,
         stuckPostedAt: null,
         lastReviseConsumedAt: "2026-05-20T02:00:00.000Z",
         awaitingMarkerAppliedAt: null,
       };
-      await writeConfirmationState(path, { other: "field" }, next);
+      // The confirmation slot now lives in its own sidecar; writeConfirmationState
+      // no longer carries an arbitrary stateObj (its second arg is ignored).
+      await writeConfirmationState(path, {}, next);
       const { stateObj, confirmation } = await readConfirmationState(path);
-      expect(stateObj.other).toBe("field");
+      expect(stateObj).toEqual({});
       expect(confirmation).toEqual(next);
     } finally {
       rmSync(dir, { recursive: true, force: true });

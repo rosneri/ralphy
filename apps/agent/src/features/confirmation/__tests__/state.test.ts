@@ -20,9 +20,11 @@ describe("confirmation/state — smoke", () => {
         rounds: 1,
         lastReviseConsumedAt: "2026-05-21T02:00:00.000Z",
       };
-      await writeConfirmationState(path, { iteration: 7 }, seed);
+      // The confirmation slot lives in its own sidecar now; the stateObj arg
+      // is ignored (the slot no longer drags the whole state file along).
+      await writeConfirmationState(path, {}, seed);
       const { stateObj, confirmation } = await readConfirmationState(path);
-      expect(stateObj.iteration).toBe(7);
+      expect(stateObj).toEqual({});
       expect(confirmation).toEqual(seed);
     } finally {
       rmSync(dir, { recursive: true, force: true });

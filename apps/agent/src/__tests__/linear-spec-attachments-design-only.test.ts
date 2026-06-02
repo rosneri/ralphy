@@ -77,7 +77,9 @@ function writeProposal(text = "# proposal\n\nproposal body content here.\n"): vo
 function writeDesign(text = "# design\n\ndesign body content here.\n"): void {
   writeFileSync(join(changeDir, "design.md"), text);
 }
-function writeTasks(text = "- [ ] task one\n- [ ] task two\n"): void {
+function writeTasks(
+  text = "# Tasks for demo\n\n## Planning\n\n- [ ] plan the work\n\n## Implementation\n\n- [ ] task one\n- [ ] task two\n",
+): void {
   writeFileSync(join(changeDir, "tasks.md"), text);
 }
 
@@ -88,7 +90,9 @@ describe("syncSpecAttachments — upload design (with tasks) only, drop proposal
   test("fix_case: uploads only design.md (with tasks embedded) and purges legacy proposal attachment", async () => {
     writeProposal("# proposal\n\nproposal prose.\n");
     writeDesign("# design\n\ndesign prose.\n");
-    writeTasks("- [ ] do thing\n- [ ] do other thing\n");
+    writeTasks(
+      "# Tasks for demo\n\n## Planning\n\n- [ ] plan the work\n\n## Implementation\n\n- [ ] do thing\n- [ ] do other thing\n",
+    );
 
     // Pre-seed state as if a previous run had uploaded a proposal attachment.
     mkdirSync(join(tempDir, ".ralph", "tasks", "demo"), { recursive: true });
@@ -124,6 +128,9 @@ describe("syncSpecAttachments — upload design (with tasks) only, drop proposal
     expect(designText).toContain("design prose.");
     expect(designText).toContain("do thing");
     expect(designText).toContain("do other thing");
+    // Only the Implementation tasks are embedded — never the Planning checklist.
+    expect(designText).not.toContain("## Planning");
+    expect(designText).not.toContain("plan the work");
 
     // Legacy proposal attachment in state is deleted from Linear.
     expect(m.deletes.map((d) => d.attachmentId)).toContain("att-legacy-proposal");

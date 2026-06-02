@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
-import { writeField } from "@ralphy/core/state";
+import { writeField, readSlotSidecar } from "@ralphy/core/state";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { worktreesDir } from "../../agent/worktree";
 import type { LinearIssue } from "../../agent/linear";
@@ -57,9 +57,14 @@ async function resolveReviewStateDir(
   return null;
 }
 
-/** Read `review.lastConsumedCommentAt` from `.ralph-state.json` in the
- *  given dir. */
+/** Read `review.lastConsumedCommentAt` for the change in `stateDir`. The
+ *  authoritative copy is the `.ralph-state.review.json` sidecar (single
+ *  writer); falls back to the legacy inline core-file slot. */
 async function readReviewWatermark(stateDir: string): Promise<string | null> {
+  const sidecar = (await readSlotSidecar(stateDir, "review")) as
+    | { lastConsumedCommentAt?: string | null }
+    | undefined;
+  if (sidecar) return sidecar.lastConsumedCommentAt ?? null;
   const file = Bun.file(join(stateDir, ".ralph-state.json"));
   if (!(await file.exists())) return null;
   try {
