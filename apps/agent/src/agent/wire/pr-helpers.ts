@@ -152,7 +152,7 @@ export async function resolveDependencyBaseBranchImpl(
 
 /** Collaborators for {@link createOpenDraftPr}. Plain values + maps so the
  *  factory is unit-testable with a mocked command runner. */
-export interface OpenDraftPrDeps {
+interface OpenDraftPrDeps {
   /** changeName → worktree branch. A draft PR needs a tracked branch. */
   branchByChange: Map<string, string>;
   /** changeName → PR URL cache; the opened PR is registered here so the
