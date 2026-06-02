@@ -9,6 +9,7 @@ import { addIssueComment, addReactionToComment, fetchIssueComments } from "../..
 import { isRalphComment } from "../../shared/utils/ralph-comment";
 import type { LinearIssue } from "../../agent/linear";
 import type { RalphyConfig } from "../../agent/config";
+import { markersOf } from "@ralphy/types";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import {
   computeConfirmationFlags,
@@ -172,6 +173,22 @@ async function applyAwaitingMarkerOnce(
   }
 }
 
+/** True when the issue's current Linear status matches a `status`-type marker
+ *  in `setAwaitingConfirmation` — i.e. the ticket is *observably* parked in the
+ *  awaiting status right now, regardless of whether this process recorded the
+ *  `awaitingMarkerAppliedAt` watermark. Used so the gate release can re-assert
+ *  In Progress after an agent restart, when the park was stamped in a prior
+ *  process. Label/comment/project awaiting markers are intentionally excluded:
+ *  only a status park strands the ticket, and only `setInProgress` (a status)
+ *  can undo it. */
+function issueInAwaitingStatus(issue: LinearIssue, indicators: Indicators): boolean {
+  const set = indicators.setAwaitingConfirmation;
+  if (!set) return false;
+  const current = issue.state?.name;
+  if (!current) return false;
+  return markersOf(set).some((m) => m.type === "status" && m.value === current);
+}
+
 /** Apply `clearAwaitingConfirmation` if configured and the stamp is set;
  *  always null the stamp afterward (defence in depth — mirrors clearApproved).
  *
@@ -194,7 +211,15 @@ async function releaseAwaitingMarker(
   },
 ): Promise<void> {
   const { stateObj, confirmation } = await readConfirmationState(statePath);
-  if (!confirmation.awaitingMarkerAppliedAt) return;
+  // Normally the local `awaitingMarkerAppliedAt` watermark tells us the ticket
+  // was parked and needs restoring. But that stamp is per-process: if the park
+  // happened in a *previous* run (agent restart between parking and approval),
+  // this process has no stamp even though the ticket is visibly sitting in the
+  // awaiting status on Linear. Fall back to the issue's current status so the
+  // gate release still pulls it back to In Progress instead of stranding it.
+  if (!confirmation.awaitingMarkerAppliedAt && !issueInAwaitingStatus(issue, deps.indicators)) {
+    return;
+  }
   if (deps.indicators.clearAwaitingConfirmation) {
     try {
       await deps.applyIndicator(issue, deps.indicators.clearAwaitingConfirmation);

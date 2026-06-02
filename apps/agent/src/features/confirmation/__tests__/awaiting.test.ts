@@ -447,6 +447,106 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  // bug_case: documents the CURRENT (broken) behavior — approval across a
+  // restart leaves the ticket stranded in the park status because
+  // `releaseAwaitingMarker` early-returns on the missing local stamp.
+  // Flipped to the fixed assertion (>= 1) after the production fix lands.
+  test("setInProgress IS re-applied on approve when parked-by-status without a local stamp (regression guard)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-restart-bug-"));
+    try {
+      const issue = makeIssue();
+      issue.state = { name: "Design Review", type: "started" };
+      issue.labels = ["ralph:approved"];
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName); // no awaitingMarkerAppliedAt
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "status", value: "Design Review" },
+        setInProgress: { type: "status", value: "In Progress" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: { ...deps.cfg.linear, indicators: deps.indicators },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      await processAwaitingForIssue(issue, deps);
+
+      const restoreInProgress = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "In Progress",
+      );
+      // Post-fix: the gate release restores In Progress even with no local
+      // stamp. (Before the fix this was 0 — the ticket stranded in the status.)
+      expect(restoreInProgress.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Regression: a ticket parked in a *status* (e.g. "Planned"/"Design Review")
+  // and approved across an agent restart. The park status persists on Linear,
+  // but `awaitingMarkerAppliedAt` was stamped in the *previous* process, so this
+  // process's state file has no stamp. Approval must still pull the ticket back
+  // to In Progress — keyed off the issue's current status, not the local stamp.
+  test("setInProgress is re-applied on approve when parked-by-status without a local marker stamp (restart)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-restart-restore-"));
+    try {
+      const issue = makeIssue();
+      // Simulate the restart: the ticket is already sitting in the park status
+      // on Linear, with the approval label freshly added.
+      issue.state = { name: "Design Review", type: "started" };
+      issue.labels = ["ralph:approved"];
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName); // state file has NO awaitingMarkerAppliedAt
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "status", value: "Design Review" },
+        setInProgress: { type: "status", value: "In Progress" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: { ...deps.cfg.linear, indicators: deps.indicators },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      // Single poll: approval already present, no prior parking poll in this
+      // process → no `awaitingMarkerAppliedAt` stamp.
+      await processAwaitingForIssue(issue, deps);
+
+      const restoreInProgress = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "In Progress",
+      );
+      // fix_case: the gate release must restore In Progress even without a stamp.
+      expect(restoreInProgress.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("comment-type getApproved releases the gate when a human comment matches", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-approve-"));
     try {
