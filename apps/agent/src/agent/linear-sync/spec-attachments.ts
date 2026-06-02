@@ -263,6 +263,25 @@ function hasMeaningfulContent(bytes: Uint8Array): boolean {
   return false;
 }
 
+/** Pull only the `## Implementation` section out of a tasks.md document for
+ *  the Linear design attachment. Everything else is dropped: the `## Planning`
+ *  process checklist (the agent's own planning tasks), the `# Tasks for …`
+ *  title, and any other sections. Reviewers on Linear should see only the real
+ *  implementation tasks — not the agent scaffolding. Capture runs from the
+ *  `## Implementation` H2 up to (but not including) the next H2. Returns "" when
+ *  no Implementation section exists yet (e.g. mid-planning), signalling the
+ *  caller to upload design.md without any tasks section. */
+export function extractImplementationSection(tasksMarkdown: string): string {
+  const captured: string[] = [];
+  let capturing = false;
+  for (const line of tasksMarkdown.split(/\r?\n/)) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line)?.[1];
+    if (heading !== undefined) capturing = heading.trim().toLowerCase() === "implementation";
+    if (capturing) captured.push(line);
+  }
+  return captured.join("\n").trim();
+}
+
 async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   const spec = SLOT_SPECS[slot];
   const [primaryName, ...trailingNames] = spec.sourceFiles;
@@ -289,22 +308,29 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   // Compose the upload payload by appending any present trailing source
   // files (e.g. tasks.md after design.md), separated by a markdown rule
   // so reviewers can tell the sections apart inside one attachment.
+  // tasks.md is special-cased: only its `## Implementation` section is
+  // published — the `## Planning` checklist (agent process tasks) must
+  // never reach the Linear design attachment.
   const parts: Uint8Array[] = [primaryBytes];
   const enc = new TextEncoder();
   for (const name of trailingNames) {
     const f = Bun.file(join(deps.changeDir, name));
     if (!(await f.exists())) continue;
+    let raw: Uint8Array;
     try {
-      const bytes = await f.bytes();
-      if (bytes.length === 0) continue;
-      parts.push(enc.encode(`\n\n---\n\n# ${name}\n\n`));
-      parts.push(bytes);
+      raw = await f.bytes();
     } catch (err) {
       deps.log(
         `! spec-attachments: read ${name} failed (continuing without it): ${(err as Error).message}`,
         "yellow",
       );
+      continue;
     }
+    if (raw.length === 0) continue;
+    const decoded = new TextDecoder().decode(raw);
+    const body = name === "tasks.md" ? extractImplementationSection(decoded) : decoded.trim();
+    if (!body) continue;
+    parts.push(enc.encode(`\n\n---\n\n${body}\n`));
   }
   const totalLen = parts.reduce((n, p) => n + p.length, 0);
   const sourceBytes = new Uint8Array(totalLen);

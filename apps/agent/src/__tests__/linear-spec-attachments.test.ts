@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  extractImplementationSection,
   syncSpecAttachments,
   type SpecAttachmentMutations,
 } from "../agent/linear-sync/spec-attachments";
@@ -125,7 +126,9 @@ async function readState(): Promise<{ specAttachments?: Record<string, unknown> 
 function writeDesign(text = "# design\n\ndesign body content here.\n"): void {
   writeFileSync(join(changeDir, "design.md"), text);
 }
-function writeTasks(text = "- [ ] task one\n- [ ] task two\n"): void {
+function writeTasks(
+  text = "# Tasks for demo\n\n## Planning\n\n- [ ] research the codebase\n\n## Implementation\n\n- [ ] task one\n- [ ] task two\n",
+): void {
   writeFileSync(join(changeDir, "tasks.md"), text);
 }
 
@@ -148,6 +151,10 @@ describe("syncSpecAttachments", () => {
     const designText = new TextDecoder().decode(m.uploads[0]!.bytes);
     expect(designText).toContain("design body content");
     expect(designText).toContain("task one");
+    // Only the `## Implementation` section is embedded — the `## Planning`
+    // checklist (agent process tasks) must never reach the attachment.
+    expect(designText).not.toContain("## Planning");
+    expect(designText).not.toContain("research the codebase");
     expect(m.creates).toHaveLength(1);
     expect(m.deletes).toHaveLength(0);
     const state = await readState();
@@ -596,5 +603,54 @@ describe("syncSpecAttachments", () => {
       design: { attachmentId: string; sha256: string };
     };
     expect(sa.design.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("extractImplementationSection", () => {
+  const TASKS = [
+    "# Tasks for TST-1",
+    "",
+    "## Planning",
+    "",
+    "- [ ] Read the Linear issue and research the codebase",
+    "- [ ] Fill in design.md with the technical design",
+    "",
+    "## Implementation",
+    "",
+    "- [ ] Add the feature flag",
+    "### sub-area",
+    "- [ ] Wire the route",
+    "",
+    "## Verification",
+    "",
+    "- [ ] Run lint and tests",
+    "",
+  ].join("\n");
+
+  test("returns only the Implementation section, dropping Planning and the title", () => {
+    const out = extractImplementationSection(TASKS);
+    expect(out.startsWith("## Implementation")).toBe(true);
+    expect(out).toContain("Add the feature flag");
+    expect(out).toContain("### sub-area");
+    expect(out).toContain("Wire the route");
+    expect(out).not.toContain("## Planning");
+    expect(out).not.toContain("research the codebase");
+    expect(out).not.toContain("# Tasks for TST-1");
+  });
+
+  test("stops at the next H2 — does not bleed into later sections", () => {
+    const out = extractImplementationSection(TASKS);
+    expect(out).not.toContain("## Verification");
+    expect(out).not.toContain("Run lint and tests");
+  });
+
+  test("returns empty string when there is no Implementation section (mid-planning)", () => {
+    const planningOnly = "# Tasks for TST-1\n\n## Planning\n\n- [ ] research\n";
+    expect(extractImplementationSection(planningOnly)).toBe("");
+  });
+
+  test("matches the heading case-insensitively", () => {
+    const lower = "## implementation\n\n- [ ] do it\n";
+    expect(extractImplementationSection(lower)).toContain("do it");
   });
 });

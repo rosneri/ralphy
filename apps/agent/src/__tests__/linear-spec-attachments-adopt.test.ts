@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  extractImplementationSection,
   syncSpecAttachments,
   type SpecAttachmentMutations,
 } from "../agent/linear-sync/spec-attachments";
@@ -73,15 +74,13 @@ function makeMutations(seed: Map<string, { id: string; sha256: string }>): Conte
 }
 
 /** Build the same composed bytes the production code uploads for the
- *  design slot: design.md followed by a separator and tasks.md. Used to
- *  pre-seed the on-disk hash so the adopt + hash-skip path matches. */
-function composedDesignBytes(designBody: string, tasksBody: string): Uint8Array {
+ *  design slot: design.md, a separator, then only the `## Implementation`
+ *  section of tasks.md. Used to pre-seed the on-disk hash so the adopt +
+ *  hash-skip path matches. */
+function composedDesignBytes(designBody: string, tasksMarkdown: string): Uint8Array {
   const enc = new TextEncoder();
-  const parts = [
-    enc.encode(designBody),
-    enc.encode(`\n\n---\n\ntasks.md\n\n`.replace("tasks.md", "# tasks.md")),
-    enc.encode(tasksBody),
-  ];
+  const impl = extractImplementationSection(tasksMarkdown);
+  const parts = [enc.encode(designBody), enc.encode(`\n\n---\n\n${impl}\n`)];
   const total = parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(total);
   let offset = 0;
@@ -95,7 +94,8 @@ function composedDesignBytes(designBody: string, tasksBody: string): Uint8Array 
 describe("syncSpecAttachments — adopt() invariant (RLF-92)", () => {
   test("design and designPdf attachments adopted from Linear with matching content do not duplicate across polls", async () => {
     const designBody = "# design\n\nbody\n";
-    const tasksBody = "- [ ] do thing\n";
+    const tasksBody =
+      "# Tasks for demo\n\n## Planning\n\n- [ ] plan\n\n## Implementation\n\n- [ ] do thing\n";
     writeFileSync(join(changeDir, "design.md"), designBody);
     writeFileSync(join(changeDir, "tasks.md"), tasksBody);
 
