@@ -998,10 +998,7 @@ describe("TaskLoop", () => {
       // The linearComments sidecar is a separate file — untouched by the core
       // reinit, so the comment id survives and duplicate comments are avoided.
       const sidecar = JSON.parse(
-        require("node:fs").readFileSync(
-          join(taskDir, ".ralph-state.linearComments.json"),
-          "utf-8",
-        ),
+        require("node:fs").readFileSync(join(taskDir, ".ralph-state.linearComments.json"), "utf-8"),
       );
       expect(sidecar.tasksCommentId).toBe("preserve-me-123");
       // The reinitialised core file is valid and carries no owned slots.
