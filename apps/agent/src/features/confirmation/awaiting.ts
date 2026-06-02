@@ -8,6 +8,7 @@ import { addIssueComment, addReactionToComment, fetchIssueComments } from "../..
 import { isRalphComment } from "../../shared/utils/ralph-comment";
 import type { LinearIssue } from "../../agent/linear";
 import type { RalphyConfig } from "../../agent/config";
+import { markersOf } from "@ralphy/types";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import {
   computeConfirmationFlags,
@@ -34,6 +35,11 @@ interface AwaitingDeps {
   reapForAwaiting: (changeName: string) => void;
   applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;
+  /** Opens the early draft PR for the design once the gate parks the ticket
+   *  (prDraft mode). Returns the PR URL, or null when there is nothing to PR
+   *  yet (e.g. the design isn't committed). Omitted ⇒ no early PR is opened
+   *  and the PR is created at the end of the run as usual. */
+  openDraftPr?: (issue: LinearIssue, changeName: string, cwd: string) => Promise<string | null>;
   onAwaitingTicket?: (info: {
     changeName: string;
     issueIdentifier: string;
@@ -150,8 +156,77 @@ async function applyAwaitingMarkerOnce(
   }
 }
 
+/** Open the early draft PR once per gate-entry (prDraft mode). The PR is opened
+ *  at the design-ready/park point — carrying just the committed design so it is
+ *  reviewable in GitHub while implementation streams in — and flipped from draft
+ *  to ready at the end of the run by the post-task PR phase. No-op unless
+ *  `cfg.prDraft` is set and an `openDraftPr` dep is wired. Best-effort: a null
+ *  result (nothing to PR yet) or a failure leaves the stamp set so we don't
+ *  retry every poll; the end-of-run PR phase still opens/readies the PR. */
+async function openDraftPrOnce(
+  issue: LinearIssue,
+  statePath: string,
+  changeName: string,
+  cwd: string,
+  state: { stateObj: Record<string, unknown>; confirmation: ConfirmationState },
+  deps: {
+    cfg: RalphyConfig;
+    openDraftPr?: AwaitingDeps["openDraftPr"];
+    onLog: AwaitingDeps["onLog"];
+  },
+): Promise<void> {
+  if (deps.cfg.prDraft !== true) return;
+  if (!deps.openDraftPr) return;
+  if (state.confirmation.earlyDraftPrAt) return;
+  let url: string | null = null;
+  try {
+    url = await deps.openDraftPr(issue, changeName, cwd);
+  } catch (err) {
+    deps.onLog(
+      `! early draft PR open failed for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+  }
+  state.confirmation.earlyDraftPrAt = new Date().toISOString();
+  try {
+    await writeConfirmationState(statePath, state.stateObj, state.confirmation);
+  } catch (err) {
+    deps.onLog(
+      `! persist earlyDraftPrAt for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+  }
+  if (url) deps.onLog(`  ${issue.identifier}: opened draft PR for design — ${url}`, "gray");
+}
+
+/** True when the issue's current Linear status matches a `status`-type marker
+ *  in `setAwaitingConfirmation` — i.e. the ticket is *observably* parked in the
+ *  awaiting status right now, regardless of whether this process recorded the
+ *  `awaitingMarkerAppliedAt` watermark. Used so the gate release can re-assert
+ *  In Progress after an agent restart, when the park was stamped in a prior
+ *  process. Label/comment/project awaiting markers are intentionally excluded:
+ *  only a status park strands the ticket, and only `setInProgress` (a status)
+ *  can undo it. */
+function issueInAwaitingStatus(issue: LinearIssue, indicators: Indicators): boolean {
+  const set = indicators.setAwaitingConfirmation;
+  if (!set) return false;
+  const current = issue.state?.name;
+  if (!current) return false;
+  return markersOf(set).some((m) => m.type === "status" && m.value === current);
+}
+
 /** Apply `clearAwaitingConfirmation` if configured and the stamp is set;
- *  always null the stamp afterward (defence in depth — mirrors clearApproved). */
+ *  always null the stamp afterward (defence in depth — mirrors clearApproved).
+ *
+ *  When `setAwaitingConfirmation` is a *status* marker (e.g. a "Design Review"
+ *  status), `clearAwaitingConfirmation` cannot undo it — the schema only allows
+ *  label removal there, and the resume path skips `setInProgress` for
+ *  `trigger === "resume"`. So once a ticket has actually been parked
+ *  (`awaitingMarkerAppliedAt` set), re-assert `setInProgress` here so the ticket
+ *  returns to In Progress when the gate releases (approved / revised / timeout)
+ *  instead of stranding in the awaiting status while implementation runs. When
+ *  the awaiting marker was a label and status was already In Progress this is a
+ *  harmless no-op. */
 async function releaseAwaitingMarker(
   issue: LinearIssue,
   statePath: string,
@@ -162,13 +237,31 @@ async function releaseAwaitingMarker(
   },
 ): Promise<void> {
   const { stateObj, confirmation } = await readConfirmationState(statePath);
-  if (!confirmation.awaitingMarkerAppliedAt) return;
+  // Normally the local `awaitingMarkerAppliedAt` watermark tells us the ticket
+  // was parked and needs restoring. But that stamp is per-process: if the park
+  // happened in a *previous* run (agent restart between parking and approval),
+  // this process has no stamp even though the ticket is visibly sitting in the
+  // awaiting status on Linear. Fall back to the issue's current status so the
+  // gate release still pulls it back to In Progress instead of stranding it.
+  if (!confirmation.awaitingMarkerAppliedAt && !issueInAwaitingStatus(issue, deps.indicators)) {
+    return;
+  }
   if (deps.indicators.clearAwaitingConfirmation) {
     try {
       await deps.applyIndicator(issue, deps.indicators.clearAwaitingConfirmation);
     } catch (err) {
       deps.onLog(
         `! clearAwaitingConfirmation failed for ${issue.identifier}: ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+  }
+  if (deps.indicators.setInProgress) {
+    try {
+      await deps.applyIndicator(issue, deps.indicators.setInProgress);
+    } catch (err) {
+      deps.onLog(
+        `! restore setInProgress after awaiting release failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
     }
@@ -328,6 +421,17 @@ export async function processAwaitingForIssue(
       cfg,
       onLog: deps.onLog,
     });
+    // prDraft: open the draft PR now so the design is reviewable in GitHub while
+    // implementation streams into the same branch. The post-task PR phase flips
+    // it from draft to ready once the work is done and CI is green.
+    await openDraftPrOnce(
+      issue,
+      statePath,
+      changeName,
+      cwd,
+      { stateObj, confirmation },
+      { cfg, openDraftPr: deps.openDraftPr, onLog: deps.onLog },
+    );
     const { stateObj: state2, confirmation: confirmation2 } =
       await readConfirmationState(statePath);
     const { outcome, next } = await inspectAwaitingTicket(

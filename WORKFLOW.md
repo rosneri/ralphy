@@ -223,10 +223,18 @@ linear:
       filter:
         - type: status
           value: Todo
+    # NOTE: "Planned" is included here as well as "In Progress". When a ticket
+    # parks at the confirmation gate it is moved to the Planned status
+    # (setAwaitingConfirmation below), and the worker is killed. Ralphy
+    # re-discovers parked tickets only through this getInProgress fetch, so the
+    # Planned status MUST be listed here — otherwise an approved ticket is never
+    # re-polled and the `approved` label is never seen.
     getInProgress:
       filter:
         - type: status
           value: In Progress
+        - type: status
+          value: Planned
     getApproved:
       filter:
         - type: label
@@ -235,6 +243,14 @@ linear:
     setInProgress:
       type: status
       value: In Progress
+    # When the gate opens (planning done, awaiting human approval) move the
+    # ticket to the Planned status so it's visible on the board as "waiting on
+    # me". On release (approved / revised / timeout) Ralphy re-asserts
+    # setInProgress, so the ticket returns to In Progress for implementation
+    # rather than coding under Planned.
+    setAwaitingConfirmation:
+      type: status
+      value: Planned
     setDone:
       type: status
       value: In Review

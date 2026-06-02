@@ -13,7 +13,11 @@ import type { ConfirmationCaps } from "../features/confirmation";
 import type { FeatureCtx } from "../features/types";
 import { processAwaitingForIssue } from "../features/confirmation/awaiting";
 
-import { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl } from "./wire/pr-helpers";
+import {
+  pickOpenPrUrlFromAttachments,
+  resolveDependencyBaseBranchImpl,
+  createOpenDraftPr,
+} from "./wire/pr-helpers";
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
@@ -284,6 +288,14 @@ export function buildAgentCoordinator(
     ...(onWorkerCmd ? { onWorkerCmd } : {}),
   });
 
+  const openDraftPr = createOpenDraftPr({
+    branchByChange,
+    prByChange,
+    cmdRunner,
+    prBaseBranch: cfg.prBaseBranch,
+    invalidatePrUrlForIssue: (issueId) => prDiscovery.invalidatePrUrlForIssue(issueId),
+  });
+
   const confirmationCaps: ConfirmationCaps = {
     detect: (issue) =>
       processAwaitingForIssue(issue, {
@@ -297,6 +309,10 @@ export function buildAgentCoordinator(
         reapForAwaiting: (cn) => coordRef.current?.reapForAwaiting(cn),
         applyIndicator: resolvers.applyIndicator,
         applyMarker: resolvers.applyMarker,
+        // prDraft: open the draft PR at the design-ready/park point. See
+        // createOpenDraftPr — reuses the idempotent createPullRequest and skips
+        // the meta-only guard so a design-only PR isn't blocked.
+        openDraftPr,
         ...(onAwaitingTicket ? { onAwaitingTicket } : {}),
         onLog,
       }),

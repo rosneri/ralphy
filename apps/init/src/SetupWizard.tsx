@@ -9,6 +9,7 @@ import type {
   WizardValue,
 } from "@ralphy/workflow/wizard-types";
 import {
+  AWAITING_STATUS_FIELD_ID,
   fieldsForMode,
   PROMPT_BODY_FIELD_ID,
   REPO_LINK_FIELD_ID,
@@ -89,6 +90,34 @@ export function buildFromAnswers(
       values["linear.indicators"] = map;
     }
   }
+  // Park-status answer (a control field): when the gate is on and a status name
+  // was given, move awaiting-approval tickets to that status
+  // (`setAwaitingConfirmation`) and ensure it is in `getInProgress`. A parked
+  // ticket's worker is killed and re-discovered only through the in-progress
+  // poll, so the park status MUST be a pickup filter or the `approved` label is
+  // never seen. On release the agent re-asserts `setInProgress`, so the ticket
+  // returns to In Progress for implementation rather than coding under the park
+  // status. Only augments an indicators map already being written.
+  const parkStatusRaw = values[AWAITING_STATUS_FIELD_ID];
+  const parkStatus = typeof parkStatusRaw === "string" ? parkStatusRaw.trim() : "";
+  if (
+    values["linear.confirmationMode.enabled"] === true &&
+    parkStatus &&
+    values["linear.indicators"] &&
+    typeof values["linear.indicators"] === "object"
+  ) {
+    const map: IndicatorMap = { ...(values["linear.indicators"] as IndicatorMap) };
+    map.setAwaitingConfirmation = { type: "status", value: parkStatus };
+    const existing = map.getInProgress;
+    const filter: IndicatorMarker[] =
+      existing && !Array.isArray(existing) && "filter" in existing ? [...existing.filter] : [];
+    if (!filter.some((m) => m.type === "status" && m.value === parkStatus)) {
+      filter.push({ type: "status", value: parkStatus });
+    }
+    map.getInProgress = { filter };
+    values["linear.indicators"] = map;
+  }
+  delete values[AWAITING_STATUS_FIELD_ID];
   // `repo.link` is a control answer, not a frontmatter key. When confirmed, the
   // injected `repo.*` identity is written; when declined (or never shown), the
   // identity is dropped so no `repo` block is emitted. Either way the control

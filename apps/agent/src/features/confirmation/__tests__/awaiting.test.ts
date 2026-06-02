@@ -393,6 +393,222 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  test("setInProgress is re-applied on approve when awaiting marker is a status", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-restore-inprogress-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      // Awaiting marker is a STATUS (Design Review). clearAwaitingConfirmation
+      // cannot undo a status, so the gate release must re-assert setInProgress
+      // to pull the ticket back out of Design Review.
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "status", value: "Design Review" },
+        setInProgress: { type: "status", value: "In Progress" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: {
+          ...deps.cfg.linear,
+          indicators: deps.indicators,
+        },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      // Poll 1: gate active → Design Review status applied.
+      await processAwaitingForIssue(issue, deps);
+      // Poll 2: approval label present → approved outcome releases the gate.
+      issue.labels = ["ralph:approved"];
+      await processAwaitingForIssue(issue, deps);
+
+      const setDesignReview = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "Design Review",
+      );
+      const restoreInProgress = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "In Progress",
+      );
+      expect(setDesignReview.length).toBe(1);
+      expect(restoreInProgress.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // bug_case: documents the CURRENT (broken) behavior — approval across a
+  // restart leaves the ticket stranded in the park status because
+  // `releaseAwaitingMarker` early-returns on the missing local stamp.
+  // Flipped to the fixed assertion (>= 1) after the production fix lands.
+  test("setInProgress IS re-applied on approve when parked-by-status without a local stamp (regression guard)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-restart-bug-"));
+    try {
+      const issue = makeIssue();
+      issue.state = { name: "Design Review", type: "started" };
+      issue.labels = ["ralph:approved"];
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName); // no awaitingMarkerAppliedAt
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "status", value: "Design Review" },
+        setInProgress: { type: "status", value: "In Progress" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: { ...deps.cfg.linear, indicators: deps.indicators },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      await processAwaitingForIssue(issue, deps);
+
+      const restoreInProgress = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "In Progress",
+      );
+      // Post-fix: the gate release restores In Progress even with no local
+      // stamp. (Before the fix this was 0 — the ticket stranded in the status.)
+      expect(restoreInProgress.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Regression: a ticket parked in a *status* (e.g. "Planned"/"Design Review")
+  // and approved across an agent restart. The park status persists on Linear,
+  // but `awaitingMarkerAppliedAt` was stamped in the *previous* process, so this
+  // process's state file has no stamp. Approval must still pull the ticket back
+  // to In Progress — keyed off the issue's current status, not the local stamp.
+  test("setInProgress is re-applied on approve when parked-by-status without a local marker stamp (restart)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-restart-restore-"));
+    try {
+      const issue = makeIssue();
+      // Simulate the restart: the ticket is already sitting in the park status
+      // on Linear, with the approval label freshly added.
+      issue.state = { name: "Design Review", type: "started" };
+      issue.labels = ["ralph:approved"];
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName); // state file has NO awaitingMarkerAppliedAt
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const applied: SetIndicator[] = [];
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "status", value: "Design Review" },
+        setInProgress: { type: "status", value: "In Progress" },
+        getApproved: { filter: [{ type: "label", value: "ralph:approved" }] },
+        clearApproved: { type: "label", value: "ralph:approved" },
+      };
+      deps.cfg = {
+        ...deps.cfg,
+        linear: { ...deps.cfg.linear, indicators: deps.indicators },
+      };
+      deps.applyIndicator = async (_issue, ind) => {
+        applied.push(ind);
+      };
+
+      // Single poll: approval already present, no prior parking poll in this
+      // process → no `awaitingMarkerAppliedAt` stamp.
+      await processAwaitingForIssue(issue, deps);
+
+      const restoreInProgress = applied.filter(
+        (a) => !Array.isArray(a) && a.type === "status" && a.value === "In Progress",
+      );
+      // fix_case: the gate release must restore In Progress even without a stamp.
+      expect(restoreInProgress.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prDraft: opens the early draft PR exactly once when the gate parks", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-early-pr-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.cfg = { ...deps.cfg, prDraft: true };
+      const openCalls: Array<{ changeName: string; cwd: string }> = [];
+      deps.openDraftPr = async (_issue, cn, cwd) => {
+        openCalls.push({ changeName: cn, cwd });
+        return "https://github.com/owner/repo/pull/900";
+      };
+
+      // Poll 1: gate active + design ready → early draft PR opened.
+      await processAwaitingForIssue(issue, deps);
+      // Poll 2: earlyDraftPrAt stamp set → not re-opened.
+      await processAwaitingForIssue(issue, deps);
+
+      expect(openCalls.length).toBe(1);
+      expect(openCalls[0]!.changeName).toBe(changeName);
+      expect(openCalls[0]!.cwd).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prDraft off: never opens an early draft PR", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-no-early-pr-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured); // cfg.prDraft defaults to false
+      let opened = 0;
+      deps.openDraftPr = async () => {
+        opened += 1;
+        return null;
+      };
+
+      await processAwaitingForIssue(issue, deps);
+
+      expect(opened).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("comment-type getApproved releases the gate when a human comment matches", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-approve-"));
     try {
