@@ -1,5 +1,5 @@
-import { fetchAttachmentsForIssues, type LinearIssue } from "../linear";
-import type { CmdRunner } from "../pr";
+import { fetchAttachmentsForIssues, baseBranchFromLabels, type LinearIssue } from "../linear";
+import { createPullRequest, type CmdRunner } from "../pr";
 
 const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 
@@ -148,4 +148,51 @@ export async function resolveDependencyBaseBranchImpl(
     );
   }
   return null;
+}
+
+/** Collaborators for {@link createOpenDraftPr}. Plain values + maps so the
+ *  factory is unit-testable with a mocked command runner. */
+export interface OpenDraftPrDeps {
+  /** changeName → worktree branch. A draft PR needs a tracked branch. */
+  branchByChange: Map<string, string>;
+  /** changeName → PR URL cache; the opened PR is registered here so the
+   *  conflict/merge scans and post-task pick it up. */
+  prByChange: Map<string, string>;
+  cmdRunner: CmdRunner;
+  /** Default base branch (overridden per-issue by a `ralph:branch:<name>` label). */
+  prBaseBranch: string;
+  /** Drop the per-issue PR-URL discovery cache so it re-resolves to the new PR. */
+  invalidatePrUrlForIssue: (issueId: string) => void;
+  /** Injectable for tests; defaults to the real {@link createPullRequest}. */
+  createPr?: typeof createPullRequest;
+}
+
+/**
+ * Build the `openDraftPr` callback handed to the confirmation feature. Opens
+ * (or surfaces) a **draft** PR for the change's design at the gate-park point.
+ *
+ * Notes:
+ * - Returns `null` when no branch is tracked (e.g. non-worktree runs) — the
+ *   caller falls back to opening the PR at the end of the run.
+ * - `metaOnlyFiles` is intentionally **omitted**: at design time the PR carries
+ *   only the (meta) design files, so the meta-only guard must not block it.
+ * - Reuses the idempotent `createPullRequest`, so a second call (or the
+ *   end-of-run post-task phase) surfaces the existing PR instead of duplicating.
+ */
+export function createOpenDraftPr(
+  deps: OpenDraftPrDeps,
+): (issue: LinearIssue, changeName: string, cwd: string) => Promise<string | null> {
+  const create = deps.createPr ?? createPullRequest;
+  return async (issue, changeName, cwd) => {
+    const branch = deps.branchByChange.get(changeName);
+    if (!branch) return null;
+    const base = baseBranchFromLabels(issue.labels) ?? deps.prBaseBranch;
+    const result = await create({ cwd, branch, issue, base, draft: true }, deps.cmdRunner);
+    const url = result?.url ?? null;
+    if (url) {
+      deps.prByChange.set(changeName, url);
+      deps.invalidatePrUrlForIssue(issue.id);
+    }
+    return url;
+  };
 }
