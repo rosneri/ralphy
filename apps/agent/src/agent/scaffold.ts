@@ -94,8 +94,8 @@ export async function scaffoldChangeForIssue(
     `- [ ] Refine proposal.md with the problem statement, approach, and acceptance criteria derived from the research`,
     `- [ ] Fill in \`## Why\` and \`## What Changes\` in proposal.md so \`openspec validate\` passes (these sections are required by the validator)`,
     `- [ ] Add at least one spec delta under \`specs/<capability>/spec.md\` describing the behavior added/modified/removed by this change`,
-    `- [ ] Fill in design.md with the technical design (files to touch, data flow, edge cases)`,
-    `- [ ] Append an \`## Implementation\` section below with concrete mission-specific tasks derived from the plan, including tests and \`bun run lint\` / \`bun run test\`. Every item in the new section MUST start as \`- [ ]\` (unchecked) — do not pre-check items even if you already did the work during planning. The loop ticks them off in later iterations after each one is verified.`,
+    `- [ ] Fill in design.md with the technical design (files to touch, data flow, edge cases). design.md holds prose and tables ONLY — never a task checklist; the implementation tasks belong in this tasks.md file (next item).`,
+    `- [ ] Append an \`## Implementation\` section to **this tasks.md file** (below the \`## Planning\` section above — NOT in design.md) with concrete mission-specific tasks derived from the plan, including tests and \`bun run lint\` / \`bun run test\`. Every item in the new section MUST start as \`- [ ]\` (unchecked) — do not pre-check items even if you already did the work during planning. The loop ticks them off in later iterations after each one is verified.`,
     `- [ ] Is there anything else to add? Review the complete change context and document any additional edge cases, constraints, or open questions not captured above.`,
     "",
   ].join("\n");

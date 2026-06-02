@@ -38,6 +38,29 @@ async function readProposal(changeName: string): Promise<string> {
   return Bun.file(join(tasksDir, changeName, "proposal.md")).text();
 }
 
+async function readTasks(changeName: string): Promise<string> {
+  return Bun.file(join(tasksDir, changeName, "tasks.md")).text();
+}
+
+describe("scaffoldChangeForIssue — Implementation tasks target tasks.md, not design.md", () => {
+  test("the Implementation planning item points the agent at this tasks.md file", async () => {
+    const name = await scaffoldChangeForIssue(tasksDir, statesDir, BASE_ISSUE);
+    const tasks = await readTasks(name);
+    // Prefix preserved for the existing agent.test.ts assertion.
+    expect(tasks).toContain("Append an `## Implementation` section");
+    // Regression: the instruction must explicitly anchor the section to tasks.md
+    // and warn against appending it to design.md (the bug this guards against).
+    expect(tasks).toContain("this tasks.md file");
+    expect(tasks).toContain("NOT in design.md");
+  });
+
+  test("the design.md planning item forbids putting a task checklist in design.md", async () => {
+    const name = await scaffoldChangeForIssue(tasksDir, statesDir, BASE_ISSUE);
+    const tasks = await readTasks(name);
+    expect(tasks).toContain("design.md holds prose and tables ONLY — never a task checklist");
+  });
+});
+
 describe("scaffoldChangeForIssue — ticket attachments", () => {
   test("no Ticket Attachments section when no attachments provided", async () => {
     const name = await scaffoldChangeForIssue(tasksDir, statesDir, BASE_ISSUE);
