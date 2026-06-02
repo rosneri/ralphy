@@ -6,7 +6,13 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import { addIssueComment, fetchIssueComments, type LinearIssue } from "./linear";
+import {
+  addIssueComment,
+  fetchIssueComments,
+  baseBranchFromLabels,
+  type LinearIssue,
+} from "./linear";
+import { createPullRequest } from "./pr";
 import { projectLayout, GAVEUP_COUNT_FILE } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -297,6 +303,26 @@ export function buildAgentCoordinator(
         reapForAwaiting: (cn) => coordRef.current?.reapForAwaiting(cn),
         applyIndicator: resolvers.applyIndicator,
         applyMarker: resolvers.applyMarker,
+        // prDraft: open the draft PR at the design-ready/park point. Reuses the
+        // idempotent createPullRequest (it pushes the branch + opens the PR, or
+        // returns an existing one). metaOnlyFiles is intentionally omitted: at
+        // design time the PR carries only the (meta) design files, so the
+        // meta-only guard must not block it. Needs a tracked branch (worktree).
+        openDraftPr: async (issue, changeName, cwd) => {
+          const branch = branchByChange.get(changeName);
+          if (!branch) return null;
+          const base = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
+          const result = await createPullRequest(
+            { cwd, branch, issue, base, draft: true },
+            cmdRunner,
+          );
+          const url = result?.url ?? null;
+          if (url) {
+            prByChange.set(changeName, url);
+            prDiscovery.invalidatePrUrlForIssue(issue.id);
+          }
+          return url;
+        },
         ...(onAwaitingTicket ? { onAwaitingTicket } : {}),
         onLog,
       }),

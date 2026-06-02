@@ -22,6 +22,11 @@ export interface ConfirmationState {
    *  gate-entry. Guards against re-applying on every poll. Cleared back to
    *  null whenever the gate releases. */
   awaitingMarkerAppliedAt?: string | null;
+  /** Set once the early draft PR has been opened for this change (prDraft
+   *  mode — the PR is opened at the design-ready/park point so the design is
+   *  reviewable in GitHub, then flipped to ready at the end of the run).
+   *  Guards against re-opening on every poll. */
+  earlyDraftPrAt?: string | null;
 }
 
 export function defaultConfirmation(): ConfirmationState {
@@ -33,6 +38,7 @@ export function defaultConfirmation(): ConfirmationState {
     stuckPostedAt: null,
     lastReviseConsumedAt: null,
     awaitingMarkerAppliedAt: null,
+    earlyDraftPrAt: null,
   };
 }
 
@@ -58,6 +64,7 @@ export async function readConfirmationState(statePath: string): Promise<{
     stuckPostedAt: existing?.stuckPostedAt ?? null,
     lastReviseConsumedAt: existing?.lastReviseConsumedAt ?? null,
     awaitingMarkerAppliedAt: existing?.awaitingMarkerAppliedAt ?? null,
+    earlyDraftPrAt: existing?.earlyDraftPrAt ?? null,
   };
   return { stateObj, confirmation };
 }

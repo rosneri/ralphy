@@ -547,6 +547,68 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  test("prDraft: opens the early draft PR exactly once when the gate parks", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-early-pr-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.cfg = { ...deps.cfg, prDraft: true };
+      const openCalls: Array<{ changeName: string; cwd: string }> = [];
+      deps.openDraftPr = async (_issue, cn, cwd) => {
+        openCalls.push({ changeName: cn, cwd });
+        return "https://github.com/owner/repo/pull/900";
+      };
+
+      // Poll 1: gate active + design ready → early draft PR opened.
+      await processAwaitingForIssue(issue, deps);
+      // Poll 2: earlyDraftPrAt stamp set → not re-opened.
+      await processAwaitingForIssue(issue, deps);
+
+      expect(openCalls.length).toBe(1);
+      expect(openCalls[0]!.changeName).toBe(changeName);
+      expect(openCalls[0]!.cwd).toBe(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prDraft off: never opens an early draft PR", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-no-early-pr-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured); // cfg.prDraft defaults to false
+      let opened = 0;
+      deps.openDraftPr = async () => {
+        opened += 1;
+        return null;
+      };
+
+      await processAwaitingForIssue(issue, deps);
+
+      expect(opened).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("comment-type getApproved releases the gate when a human comment matches", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-comment-approve-"));
     try {
