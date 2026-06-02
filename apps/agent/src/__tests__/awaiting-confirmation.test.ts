@@ -242,6 +242,7 @@ describe("readConfirmationState / writeConfirmationState", () => {
         askedAt: "2026-05-20T01:00:00.000Z",
         lastReminderAt: null,
         confirmedAt: null,
+        earlyDraftPrAt: null,
         rounds: 2,
         stuckPostedAt: null,
         lastReviseConsumedAt: "2026-05-20T02:00:00.000Z",
