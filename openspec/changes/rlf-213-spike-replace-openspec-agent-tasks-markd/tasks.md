@@ -12,15 +12,15 @@
 
 ## Setup
 
-- [ ] Install `bd` (beads CLI) and record the install method + version + binary footprint in `design.md`
-- [ ] Initialize a throwaway `.beads/` for the spike and confirm JSONL is git-tracked while the local DB is gitignored
+- [x] Install `bd` (beads CLI) and record the install method + version + binary footprint in `design.md`
+- [x] Initialize a throwaway `.beads/` for the spike and confirm JSONL is git-tracked while the local DB is gitignored
 
 ## Backend evaluation
 
-- [ ] In `spike/beads/`, create a change modeled as a `bd` epic with ≥3 task children and ≥1 `blocks` dependency
-- [ ] Confirm `bd ready --json --limit 1` returns the same next task `firstUnchecked` would pick from the equivalent `tasks.md`; record the comparison
-- [ ] Add a high-priority flow bead that `blocks` a mission task and confirm it preempts mission work in `bd ready --json`
-- [ ] Verify "blocked but not done" is distinguishable from "all complete" (open-children count vs. empty `bd ready`)
+- [x] In `spike/beads/`, create a change modeled as a `bd` epic with ≥3 task children and ≥1 `blocks` dependency
+- [x] Confirm `bd ready --json --limit 1` returns the same next task `firstUnchecked` would pick from the equivalent `tasks.md`; record the comparison
+- [x] Add a high-priority flow bead that `blocks` a mission task and confirm it preempts mission work in `bd ready --json`
+- [x] Verify "blocked but not done" is distinguishable from "all complete" (open-children count vs. empty `bd ready`)
 - [ ] Test two concurrent worktrees sharing one main-repo `.beads/`: both read ready work, one runs `bd claim`, confirm no double-claim / no JSONL corruption; paste commands + output into `design.md`
 
 ## Prototype BeadsChangeStore (read-path)

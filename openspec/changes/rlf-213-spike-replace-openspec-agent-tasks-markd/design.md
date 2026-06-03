@@ -98,6 +98,84 @@ For the spike, the write/completion path may be stubbed or driven manually via
   land in the same commits Ralphy already makes — otherwise state drifts between
   the DB and what git records. Record the chosen commit hook in the decision.
 
+## Spike findings (filled as the spike runs)
+
+### Setup: install method, version, footprint
+
+- **Install method:** `brew install beads` (Homebrew formula `beads`). No
+  `@beads/cli` npm package exists under that name (npm 404), so the npm-install
+  path assumed in the proposal does not hold for this version. Also available
+  via `go install`.
+- **Version:** `bd version` → `1.0.5 (Homebrew)`.
+- **Binary:** `/opt/homebrew/bin/bd` → `…/Cellar/beads/1.0.5/bin/beads`,
+  Mach-O 64-bit arm64.
+- **Footprint — bigger than assumed.** beads is **not** a single self-contained
+  static Go binary. The Homebrew formula pulls in **`dolt` (~110 MB)** — a
+  Git-for-data SQL database — plus `icu4c`, for a combined install of
+  **~250 MB+** (`beads` 127 MB + `dolt` 110 MB + ICU). bd uses dolt as its
+  storage/versioning engine, which is what gives it the git-tracked, mergeable
+  data model — but it means adopting beads adds a heavyweight transitive
+  dependency, not a lightweight binary. **This directly informs open question
+  #5:** the install footprint is material and a preflight check (mirroring the
+  Bun preflight) plus a documented install story would be required if we go.
+
+### Init model: Dolt-backed, not "DB + JSONL", and invasive
+
+`bd init` (1.0.5) does **not** create the lightweight "gitignored SQLite DB +
+git-tracked JSONL" the proposal assumed. It provisions an **embedded Dolt**
+store at `.beads/embeddeddolt/` (Dolt = Git-for-data SQL), which `.beads/.gitignore`
+**ignores**. The durable task graph lives in Dolt, versioned by Dolt's own
+mechanism — not as a single committed JSONL the way the proposal pictured.
+Implications for open question #2/#5 and the JSONL-commit-discipline edge case:
+the "git-tracked JSONL" sync story must be re-examined against the Dolt model
+(there is an `interactions.jsonl`, but it is not the task graph).
+
+`bd init` is also **invasive**: in one shot it writes/overwrites `AGENTS.md`,
+`CLAUDE.md` (with beads integration text), `.claude/settings.json` (registers a
+SessionStart hook), `.codex/`, a `.agents/skills/beads/` skill, and git hooks
+into `.beads/hooks/`. For Ralphy — which already owns `CLAUDE.md`, `.claude/`,
+and its own hooks — a raw `bd init` would clobber project files. Any adoption
+must drive bd with a scoped, non-interactive init (or hand-author `.beads/`)
+rather than the default wizard.
+
+### Backend evaluation: `bd ready` reproduces the selection rules
+
+Throwaway harness in `/tmp/bd-spike` (git repo, `bd init`), epic `Change: demo`
+with children Task A/B/C wired via `bd dep add <child> <epic> -t parent-child`,
+and `bd dep add B A -t blocks` (A precedes B). Observed:
+
+- **Ordering / `firstUnchecked` parity** — `bd ready --json` returned Task A and
+  Task C (priority-sorted) but **withheld Task B** (blocked by A), matching what
+  `firstUnchecked` picks from the equivalent `tasks.md`. ✅
+- **Flow preemption / `prependFixTask` parity** — created a flow bead
+  `bd create "FLOW: fix CI" -t task -p 0` and `bd dep add A FLOW -t blocks`.
+  `bd ready` then put **`FLOW: fix CI` first** (p0) and withheld Task A. This is
+  the bd equivalent of `agent-tasks.md` jumping the queue — priority + `blocks`
+  reproduces flow-preempts-mission. ✅
+- **`allCompleted` parity (native!)** — `bd close <epic>` is **refused** while
+  children are open: `cannot close epic … 1 open child issue(s); close children
+first or use --force`. The epic-open-children guard _is_ `allCompleted` /
+  `bothFilesCompleted`, enforced by bd rather than by re-parsing markdown. ✅
+- **blocked-but-not-done vs done** — after closing A, B became ready; an open
+  epic with open children is distinguishable from "done" via
+  `bd list --status open` count, independent of whether `bd ready` is momentarily
+  empty. ✅
+- **Epic-in-ready wart + scoping** — `bd ready` returns the **epic itself** as
+  ready work (parent-child does not exclude the parent). Both the wart and
+  change-scoping are solved by flags: `bd ready --parent <epic>
+--exclude-type=epic --limit 1` is the precise `firstUnchecked` +
+  `pickActiveTasksFile` equivalent. A `BeadsChangeStore` would always pass these.
+- **Linear-sync nag** — nearly every command prints `⚠ Linear data has never
+been pulled — run 'bd linear sync --pull'` to **stderr/stdout**, so the JSON
+  parser must read `--json` cleanly (the warning is not inside the JSON, but it
+  is noisy). Relevant to open question #3: bd actively expects a Linear sync.
+
+**Net:** every `tasks-md.ts` selection primitive has a confirmed clean `bd`
+equivalent (`bd ready --parent <epic> --exclude-type=epic --limit 1` for
+selection, the epic-children guard for completion, priority+`blocks` for
+preemption). The open risks are now operational (Dolt footprint, invasive init,
+JSONL/commit story, Linear-sync expectation), not "can the graph express it".
+
 ## Open questions → decision record
 
 Each must be answered in this section before the spike closes (go/no-go):
