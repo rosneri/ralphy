@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import { VERSION } from "@ralphy/version";
 import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
 import type {
   IndicatorMap,
@@ -507,6 +508,7 @@ export function SetupWizard({
         <Text>
           <Text color="cyan">◆ </Text>
           <Text bold>Ralphy setup</Text>
+          <Text dimColor>{"  ·  "}v{VERSION}</Text>
         </Text>
         <Text dimColor>{"  "}No WORKFLOW.md found — choose a setup mode</Text>
         <Box marginTop={1} marginLeft={2}>
@@ -543,6 +545,7 @@ export function SetupWizard({
         <Text color="cyan">◆ </Text>
         <Text bold>Ralphy setup</Text>
         <Text dimColor>
+          {"  ·  "}v{VERSION}
           {"  ·  "}
           {mode} · step {index + 1}/{fields.length}
         </Text>

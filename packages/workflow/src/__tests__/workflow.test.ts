@@ -274,6 +274,41 @@ describe("loadWorkflow / ensureWorkflow", () => {
     expect(text2).toBe(text1);
   });
 
+  test("loadWorkflow normalizes in-memory but does NOT write the file by default", async () => {
+    const customPath = join(tempDir, "incomplete.md");
+    const original = `---\nconcurrency: 7\n---\nbody\n`;
+    await Bun.write(customPath, original);
+    const { config } = await loadWorkflow(tempDir, customPath);
+    // in-memory heal: defaults are present to the runtime
+    expect(config.model).toBe("opus");
+    expect(config.prTracker.maxRecoveryAttempts).toBe(3);
+    // but the file on disk is untouched (no hot-path / worktree churn)
+    expect(await Bun.file(customPath).text()).toBe(original);
+  });
+
+  test("loadWorkflow with persist:true rewrites the healed file on disk", async () => {
+    const customPath = join(tempDir, "persist.md");
+    const original = `---\nconcurrency: 7\n---\nbody\n`;
+    await Bun.write(customPath, original);
+    await loadWorkflow(tempDir, customPath, { persist: true });
+    const written = await Bun.file(customPath).text();
+    expect(written).not.toBe(original);
+    expect(written).toContain("model:");
+    // idempotent: a second persist load makes no further change
+    const afterFirst = written;
+    await loadWorkflow(tempDir, customPath, { persist: true });
+    expect(await Bun.file(customPath).text()).toBe(afterFirst);
+  });
+
+  test("loadWorkflow injects getApproved for an enabled gate (in-memory)", async () => {
+    const gatePath = join(tempDir, "gate.md");
+    await Bun.write(gatePath, `---\nlinear:\n  confirmationMode:\n    enabled: true\n---\nbody\n`);
+    const { config } = await loadWorkflow(tempDir, gatePath);
+    expect(config.linear.indicators.getApproved?.filter).toEqual([
+      { type: "label", value: "approved" },
+    ]);
+  });
+
   test("loadWorkflow reads from an explicit workflowFile override", async () => {
     const customPath = join(tempDir, "custom-workflow.md");
     await Bun.write(customPath, `---\nconcurrency: 7\n---\nbody\n`);

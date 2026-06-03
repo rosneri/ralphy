@@ -5,6 +5,7 @@ import { parseWorkflowPathArgs } from "@ralphy/cli-args";
 import {
   workflowPath,
   loadWorkflow,
+  normalizeWorkflowMarkdown,
   CURRENT_WORKFLOW_VERSION,
   DEFAULT_WORKFLOW_MD,
   type WorkflowConfig,
@@ -183,7 +184,13 @@ export async function runSetupWizard(
   );
   await waitUntilExit();
   if (markdown === null) return false;
-  await Bun.write(workflowPath(projectRoot, options.workflowFile), markdown);
+  // Self-heal on write: backfill every default-bearing key and enforce the
+  // confirmation-gate invariant, so a file produced by `ralphy init` always
+  // carries the full key set. This is the one deliberate, single-working-copy
+  // entrypoint where persisting the heal is safe (never the agent/worktree
+  // hot path).
+  const { markdown: healed } = normalizeWorkflowMarkdown(markdown);
+  await Bun.write(workflowPath(projectRoot, options.workflowFile), healed);
   // A WORKFLOW.md now exists — discard any in-progress backup so a later run
   // doesn't offer to resume a session that already finished.
   await clearSetupBackup();
