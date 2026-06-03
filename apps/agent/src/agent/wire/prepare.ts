@@ -158,7 +158,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
       }
       let workflowPrompt = "";
       try {
-        const workflow = await loadWorkflow(projectRoot);
+        const workflow = await loadWorkflow(projectRoot, args.workflowFile);
         workflowPrompt = renderWorkflowPrompt(workflow, {
           issue: {
             identifier: issue.identifier,

@@ -79,7 +79,7 @@ export async function main(argv: string[]): Promise<number> {
     const { loadRalphyConfig } = await import("./agent/config");
     const { resolveTicketNumbers, formatTicketError } =
       await import("./shared/capabilities/linear-client");
-    const cfg = await loadRalphyConfig(projectRoot);
+    const cfg = await loadRalphyConfig(projectRoot, args.workflowFile);
     const team = args.linearTeam || cfg.linear.team;
     try {
       resolveTicketNumbers(args.ticketTokens, team);

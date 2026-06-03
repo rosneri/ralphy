@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getStorage, getLayout } from "@ralphy/context";
+import { getStorage, getLayout, getArgs } from "@ralphy/context";
 import { parseLinearFilter } from "@ralphy/workflow";
 import type { GetIndicator, Indicators, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
@@ -473,7 +473,7 @@ export async function runList(input: RunListInput): Promise<void> {
   const rows = buildLocalRows();
   printLocalRows(rows);
 
-  const cfg = await loadRalphyConfig(projectRoot);
+  const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
@@ -656,7 +656,7 @@ async function runListDebug(input: DebugInput): Promise<void> {
     return;
   }
 
-  const cfg = await loadRalphyConfig(projectRoot);
+  const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
   const { assignee, anyAssignee } = resolveLinearFilter(

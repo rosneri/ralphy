@@ -92,6 +92,7 @@ const HELP_TEXT = [
   "",
   "Options:",
   "  --name <id>             Change name / ticket identifier (list / debug filter)",
+  "  --workflow <path>       Path to an alternate WORKFLOW.md (default: <project>/WORKFLOW.md)",
   "  --prompt <text>         Task description appended to every scaffolded proposal",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",

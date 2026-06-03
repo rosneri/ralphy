@@ -7,11 +7,17 @@ import { ensureWorkflow, loadWorkflow, type WorkflowConfig } from "@ralphy/workf
  */
 export type RalphyConfig = WorkflowConfig;
 
-export async function loadRalphyConfig(projectRoot: string): Promise<RalphyConfig> {
-  const { config } = await loadWorkflow(projectRoot);
+export async function loadRalphyConfig(
+  projectRoot: string,
+  workflowFile?: string,
+): Promise<RalphyConfig> {
+  const { config } = await loadWorkflow(projectRoot, workflowFile);
   return config;
 }
 
-export async function ensureRalphyConfig(projectRoot: string): Promise<string> {
-  return ensureWorkflow(projectRoot);
+export async function ensureRalphyConfig(
+  projectRoot: string,
+  workflowFile?: string,
+): Promise<string> {
+  return ensureWorkflow(projectRoot, workflowFile);
 }

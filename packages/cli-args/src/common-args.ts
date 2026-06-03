@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import type { Engine } from "@ralphy/types";
 import { COMMON_CLI_OPTIONS, modelOptionValues, type CliOption } from "@ralphy/workflow/fields";
 
@@ -26,6 +27,8 @@ export interface CommonArgs {
   log: boolean;
   verbose: boolean;
   projectRoot?: string | undefined;
+  /** Absolute path to an alternate WORKFLOW.md (`--workflow`, resolved against cwd at parse time). */
+  workflowFile?: string | undefined;
   /** Change name / ticket identifier (`--name`). */
   name: string;
   /** Task description (`--prompt`, or the contents read from `--prompt-file`). */
@@ -47,6 +50,7 @@ export function initialCommonArgs(): CommonArgs {
     log: false,
     verbose: false,
     projectRoot: undefined,
+    workflowFile: undefined,
     name: "",
     prompt: "",
     fromAgent: false,
@@ -113,7 +117,12 @@ function applyBooleanOption(option: CliOption, args: CommonArgs): void {
 
 /** True if `flag` is a common flag that expects a following value. */
 export function isCommonExpectingFlag(flag: string): boolean {
-  return VALUE_FLAGS.has(flag) || flag === "--project-root" || flag === "--claude";
+  return (
+    VALUE_FLAGS.has(flag) ||
+    flag === "--project-root" ||
+    flag === "--workflow" ||
+    flag === "--claude"
+  );
 }
 
 /** True if `flag` is a common flag (boolean or value-taking). */
@@ -121,6 +130,7 @@ export function isCommonArg(flag: string): boolean {
   return (
     OPTION_BY_FLAG.has(flag) ||
     flag === "--project-root" ||
+    flag === "--workflow" ||
     flag === "--claude" ||
     flag === "--codex" ||
     flag === "--unlimited"
@@ -133,6 +143,7 @@ export interface ParseState {
   /** `--claude` accepts an optional trailing model (soft: skipped if not one). */
   expectClaudeModel: boolean;
   expectProjectRoot: boolean;
+  expectWorkflow: boolean;
   expectName: boolean;
   expectPrompt: boolean;
   expectPromptFile: boolean;
@@ -146,6 +157,7 @@ export function emptyParseState(): ParseState {
     pendingOption: null,
     expectClaudeModel: false,
     expectProjectRoot: false,
+    expectWorkflow: false,
     expectName: false,
     expectPrompt: false,
     expectPromptFile: false,
@@ -177,6 +189,11 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
   if (state.expectProjectRoot) {
     args.projectRoot = arg;
     state.expectProjectRoot = false;
+    return true;
+  }
+  if (state.expectWorkflow) {
+    args.workflowFile = resolve(arg);
+    state.expectWorkflow = false;
     return true;
   }
   if (state.expectName) {
@@ -226,6 +243,9 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
       return true;
     case "--project-root":
       state.expectProjectRoot = true;
+      return true;
+    case "--workflow":
+      state.expectWorkflow = true;
       return true;
     case "--name":
       state.expectName = true;
