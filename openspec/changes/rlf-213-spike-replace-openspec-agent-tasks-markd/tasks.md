@@ -21,7 +21,7 @@
 - [x] Confirm `bd ready --json --limit 1` returns the same next task `firstUnchecked` would pick from the equivalent `tasks.md`; record the comparison
 - [x] Add a high-priority flow bead that `blocks` a mission task and confirm it preempts mission work in `bd ready --json`
 - [x] Verify "blocked but not done" is distinguishable from "all complete" (open-children count vs. empty `bd ready`)
-- [ ] Test two concurrent worktrees sharing one main-repo `.beads/`: both read ready work, one runs `bd claim`, confirm no double-claim / no JSONL corruption; paste commands + output into `design.md`
+- [x] Test two concurrent worktrees sharing one main-repo `.beads/`: both read ready work, one runs `bd claim`, confirm no double-claim / no JSONL corruption; paste commands + output into `design.md`
 
 ## Prototype BeadsChangeStore (read-path)
 

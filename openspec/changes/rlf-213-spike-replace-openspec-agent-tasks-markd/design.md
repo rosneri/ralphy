@@ -78,14 +78,20 @@ For the spike, the write/completion path may be stubbed or driven manually via
 
 ## Edge cases / risks
 
-- **Empty `bd ready` but work remains** — everything blocked. Must not be
-  mistaken for "change complete". Distinguish via open-children count on the
-  epic, not just `ready` emptiness.
+- **Empty `bd ready` but work remains** — two distinct causes, both fatal if
+  read as "change complete": (1) everything is blocked on open deps, and
+  (2) **lock contention** — this `bd` process lost the embedded-Dolt single-
+  writer race and returned empty silently (see the concurrency finding). Both
+  are distinguished via a retried open-children count on the epic
+  (`bd list --status open --parent <epic>`), never via `ready` emptiness alone.
 - **Flow vs. mission preemption** — must reproduce today's invariant that flow
   tasks always run first. Modeled as priority `-p 0` + `blocks`; verify a
   mission task is genuinely withheld from `ready` while a flow bead is open.
 - **Worktree teardown** — Ralphy removes worktrees; the shared `.beads/` must
-  live in the main repo so state outlives any single worktree.
+  live in the main repo so state outlives any single worktree. _Confirmed:_ a
+  worktree resolves to main's `embeddeddolt/` via the git common dir with zero
+  extra wiring, so state already lives in the right place (see concurrency
+  finding). `bd -C <main>`/`--db` is the explicit fallback.
 - **OpenSpec coexistence** — `proposal.md`/`design.md`/`specs/` and phase
   derivation (`deriveOpenSpecPhase`) still need the OpenSpec change dir to
   exist. Spike scopes bd to **tasks only**; spec artifacts stay in OpenSpec.
@@ -176,6 +182,115 @@ equivalent (`bd ready --parent <epic> --exclude-type=epic --limit 1` for
 selection, the epic-children guard for completion, priority+`blocks` for
 preemption). The open risks are now operational (Dolt footprint, invasive init,
 JSONL/commit story, Linear-sync expectation), not "can the graph express it".
+
+### Concurrency: two worktrees sharing one main-repo `.beads/`
+
+This is the load-bearing operational test for Ralphy, which fans many workers
+out across git worktrees that must all draw from one task graph. Setup
+(`/tmp/bd-concurrency`): a `main` repo with `bd init`, an epic
+`Change: concurrency-demo` with task children, plus a real git worktree
+(`git worktree add /tmp/bd-concurrency/wt1`).
+
+**How a worktree finds the shared `.beads/` (no daemon).** There is **no bd
+daemon / dolt sql-server** running (`pgrep` empty). The git-tracked `.beads/`
+scaffolding (`config.yaml`, `metadata.json`, hooks) is copied into the worktree
+by git, but the gitignored `embeddeddolt/` is **not**. From the worktree, bd
+walks up via the **git common dir** to the main repo's `config.yaml` and
+resolves the database back to main's store:
+
+```
+$ bd -C /tmp/bd-concurrency/main where  | grep database
+  database: /private/tmp/bd-concurrency/main/.beads/embeddeddolt
+$ bd -C /tmp/bd-concurrency/wt1  where  | grep database
+  database: /private/tmp/bd-concurrency/main/.beads/embeddeddolt   # same store
+$ bd -C /tmp/bd-concurrency/wt1  where --verbose | grep config
+  Debug: loaded config from /private/tmp/bd-concurrency/main/.beads/config.yaml
+```
+
+So the "shared `.beads/` in the main repo" model works **for free** — a worktree
+worker hits main's task graph with no extra wiring. ✅ (`bd -C <dir>` or
+`--db <path>` can also force the location explicitly if git discovery ever
+fails after a worktree teardown.)
+
+**`bd claim` is `bd ready --claim --json`** (atomic claim of the first matching
+ready issue; there is no separate `bd claim` subcommand in 1.0.5).
+
+**Test 1 — two worktrees, 4 ready tasks, simultaneous claim.** Both launched in
+parallel as background jobs (no inter-process coordination):
+
+```
+$ ( bd -C .../main ready --claim --exclude-type=epic --limit 1 --json >c1 ) &
+$ ( bd -C .../wt1  ready --claim --exclude-type=epic --limit 1 --json >c2 ) &
+$ wait
+main exit=0  wt1 exit=0
+--- main claimed ---  "id":"main-s70" "title":"Mission task 3" "status":"in_progress"
+--- wt1  claimed ---  "id":"main-hve" "title":"Mission task 4" "status":"in_progress"
+```
+
+Two **distinct** tasks, both flipped to `in_progress` with an assignee. No
+double-claim. ✅
+
+**Test 2 — contention on exactly ONE ready task.** The decisive double-claim
+test: one ready task (`main-xlg`), two simultaneous claimers.
+
+```
+$ ( bd -C .../main ready --claim --exclude-type=epic --limit 1 --json >d1 ) &
+$ ( bd -C .../wt1  ready --claim --exclude-type=epic --limit 1 --json >d2 ) &
+$ wait
+main exit=0  wt1 exit=0
+[main] stdout: [ { "id":"main-xlg", "status":"in_progress", "assignee":"Neriya Rosner", ... } ]
+[wt1 ] stdout: []          # clean empty array — lost the race, no error
+```
+
+**Exactly one winner; the loser gets an empty array, not the same task.** No
+double-claim, no error, no partial write. ✅ This is the behaviour Ralphy needs:
+the embedded-Dolt single-writer lock serialises the claim transaction.
+
+**Integrity after the churn.** After Test 1 + Test 2 plus repeated concurrent
+read/write bursts, the store is consistent — no duplicate IDs, every
+`in_progress` issue has exactly one assignee, and the JSONL export round-trips
+cleanly:
+
+```
+$ bd list --json  | (check)   total issues: 17   duplicate issue ids: NONE
+                              in_progress missing assignee: none
+$ bd export --output final.jsonl
+$ (validate)                  JSONL export: 17 valid, 0 malformed
+```
+
+**No JSONL corruption** under concurrent worktree access. ✅
+
+**⚠ Finding — silent empty output under write contention.** The single-writer
+lock is real and exposed at the file level:
+
+```
+$ find .beads/embeddeddolt -iname '*lock*'
+  .beads/embeddeddolt/.lock
+  .beads/embeddeddolt/main/.dolt/noms/LOCK
+```
+
+Each `bd` invocation spins up its **own** embedded-Dolt engine (there is no
+shared server), so they compete for that exclusive lock. When many `bd`
+processes fire in rapid succession (tight loops, or right after a burst of
+concurrent claimers), the losers **fail silently — empty stdout, exit 0, no
+stderr** — rather than blocking or erroring. In one run, a loop of ~10 back-to-
+back `bd create` calls produced **0** issues with no error; the same command,
+spaced out by seconds, succeeds, and the store recovers on its own once the
+burst subsides (no manual lock cleanup needed, no corruption).
+
+This is **the** operational hazard for a `BeadsChangeStore`:
+
+- An empty `bd ready --claim` result is **ambiguous** — it can mean (a) no work
+  / change complete, OR (b) this process just lost the lock race. The loop must
+  **never** treat an empty/timed-out bd response as "change done." Disambiguate
+  with a *separate, retried* `bd list --status open --parent <epic>` count (the
+  blocked-vs-done distinguisher already in the mapping table) before concluding
+  completion.
+- Every bd call in the store must **retry with backoff** on empty/silent output,
+  and ideally run with `--global`/server mode (`bd init --server`) so a single
+  long-lived Dolt server serialises writes instead of N short-lived engines
+  fighting over a file lock. Embedded mode is demonstrably lossy under Ralphy's
+  fan-out; **a shared bd server is the recommended topology if we go.**
 
 ## Open questions → decision record
 
