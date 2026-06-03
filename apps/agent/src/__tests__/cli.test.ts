@@ -40,6 +40,11 @@ describe("agent parseArgs", () => {
     expect(result.worktree).toBe(false);
   });
 
+  test("parses --workflow flag into an absolute path", async () => {
+    const result = await parseArgs(["--workflow", "config/WORKFLOW.md"]);
+    expect(result.workflowFile).toBe(`${process.cwd()}/config/WORKFLOW.md`);
+  });
+
   test("--pre-existing-error-check is a boolean override", async () => {
     const off = await parseArgs([]);
     expect(off.preExistingErrorCheck).toBeUndefined();

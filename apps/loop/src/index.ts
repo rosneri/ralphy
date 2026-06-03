@@ -57,7 +57,7 @@ export async function main(argv: string[]): Promise<number> {
     await mkdir(statesDir, { recursive: true });
     await ensureRalphGitignore(projectRoot);
     const { ensureWorkflow } = await import("@ralphy/workflow");
-    const workflowPath = await ensureWorkflow(projectRoot);
+    const workflowPath = await ensureWorkflow(projectRoot, args.workflowFile);
     process.stdout.write(`Workflow config: ${workflowPath}\n`);
     const openspecBin = resolveOpenspecBin(import.meta.dir);
     Bun.spawnSync({

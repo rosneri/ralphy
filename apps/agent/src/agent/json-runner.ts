@@ -81,8 +81,8 @@ export async function runAgentJson({
   const fileSink = createJsonLogFileSink(args.jsonLogFile);
   const emit = makeEmit(fileSink);
 
-  const cfgPath = await ensureRalphyConfig(projectRoot);
-  const cfg = await loadRalphyConfig(projectRoot);
+  const cfgPath = await ensureRalphyConfig(projectRoot, args.workflowFile);
+  const cfg = await loadRalphyConfig(projectRoot, args.workflowFile);
 
   // Persist the JSONL log path + project metadata to
   // `~/.ralph/<basename(projectRoot)>/agent-state.json` so external tools

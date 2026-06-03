@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isAbsolute, resolve } from "node:path";
 import { initialCommonArgs, parseCommonArg, emptyParseState } from "../common-args";
 
 describe("parseCommonArg", () => {
@@ -27,6 +28,15 @@ describe("parseCommonArg", () => {
     parseCommonArg("--max-iterations", args, state);
     parseCommonArg("3", args, state);
     expect(() => parseCommonArg("--codex", args, state)).toThrow("Choose only one engine flag");
+  });
+
+  test("resolves --workflow value to an absolute path against cwd", () => {
+    const args = initialCommonArgs();
+    const state = emptyParseState();
+    expect(parseCommonArg("--workflow", args, state)).toBe(true);
+    expect(parseCommonArg("config/WORKFLOW.md", args, state)).toBe(true);
+    expect(args.workflowFile).toBe(resolve("config/WORKFLOW.md"));
+    expect(isAbsolute(args.workflowFile ?? "")).toBe(true);
   });
 
   test("returns false for unknown args", () => {

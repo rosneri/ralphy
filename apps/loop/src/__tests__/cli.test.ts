@@ -31,6 +31,11 @@ describe("parseArgs", () => {
     expect(result.prompt).toBe("Add dark mode");
   });
 
+  test("parses --workflow flag into an absolute path", async () => {
+    const result = await parseArgs(["--workflow", "config/WORKFLOW.md"]);
+    expect(result.workflowFile).toBe(join(process.cwd(), "config/WORKFLOW.md"));
+  });
+
   test("parses --prompt-file flag", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "cli-test-"));
     const promptFile = join(tempDir, "prompt.txt");
