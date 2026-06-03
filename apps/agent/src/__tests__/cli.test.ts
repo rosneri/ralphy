@@ -45,6 +45,16 @@ describe("agent parseArgs", () => {
     expect(result.workflowFile).toBe(`${process.cwd()}/config/WORKFLOW.md`);
   });
 
+  test("resolves a relative --workflow against --project-root when both are given", async () => {
+    const result = await parseArgs([
+      "--project-root",
+      "/tmp/proj",
+      "--workflow",
+      "config/WORKFLOW.md",
+    ]);
+    expect(result.workflowFile).toBe("/tmp/proj/config/WORKFLOW.md");
+  });
+
   test("--pre-existing-error-check is a boolean override", async () => {
     const off = await parseArgs([]);
     expect(off.preExistingErrorCheck).toBeUndefined();
