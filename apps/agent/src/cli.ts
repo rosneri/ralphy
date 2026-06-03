@@ -6,6 +6,7 @@ import {
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
+  resolveWorkflowFile,
   type CommonArgs,
 } from "@ralphy/cli-args";
 
@@ -375,6 +376,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   }
 
   await resolvePromptFile(result, state);
+  resolveWorkflowFile(result, state);
 
   if (result.fixCi && !result.createPr) {
     throw new Error("--fix-ci requires --create-pr");

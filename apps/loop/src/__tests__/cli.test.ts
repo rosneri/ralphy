@@ -36,6 +36,16 @@ describe("parseArgs", () => {
     expect(result.workflowFile).toBe(join(process.cwd(), "config/WORKFLOW.md"));
   });
 
+  test("resolves a relative --workflow against --project-root when both are given", async () => {
+    const result = await parseArgs([
+      "--project-root",
+      "/tmp/proj",
+      "--workflow",
+      "config/WORKFLOW.md",
+    ]);
+    expect(result.workflowFile).toBe(join("/tmp/proj", "config/WORKFLOW.md"));
+  });
+
   test("parses --prompt-file flag", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "cli-test-"));
     const promptFile = join(tempDir, "prompt.txt");

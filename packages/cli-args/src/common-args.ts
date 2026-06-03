@@ -27,7 +27,8 @@ export interface CommonArgs {
   log: boolean;
   verbose: boolean;
   projectRoot?: string | undefined;
-  /** Absolute path to an alternate WORKFLOW.md (`--workflow`, resolved against cwd at parse time). */
+  /** Absolute path to an alternate WORKFLOW.md (`--workflow`). Resolved against
+   *  `--project-root` when that flag is given, otherwise against cwd. */
   workflowFile?: string | undefined;
   /** Change name / ticket identifier (`--name`). */
   name: string;
@@ -150,6 +151,10 @@ export interface ParseState {
   /** Path captured from `--prompt-file`, resolved later by `resolvePromptFile`.
    *  null once a later `--prompt` overrides it (preserving last-wins order). */
   promptFilePath: string | null;
+  /** Raw `--workflow` token, kept so `resolveWorkflowFile` can re-resolve it
+   *  against `--project-root` after the whole argv is parsed (flags may appear
+   *  in any order). null when `--workflow` was not given. */
+  workflowFileRaw: string | null;
 }
 
 export function emptyParseState(): ParseState {
@@ -162,6 +167,7 @@ export function emptyParseState(): ParseState {
     expectPrompt: false,
     expectPromptFile: false,
     promptFilePath: null,
+    workflowFileRaw: null,
   };
 }
 
@@ -192,6 +198,11 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
     return true;
   }
   if (state.expectWorkflow) {
+    // Default to cwd-relative now; `resolveWorkflowFile` re-resolves against
+    // `--project-root` after the parse if that flag was also given. Keeping a
+    // value here means a caller that forgets the post-parse step degrades to
+    // cwd-relative (today's behavior), never a dropped flag.
+    state.workflowFileRaw = arg;
     args.workflowFile = resolve(arg);
     state.expectWorkflow = false;
     return true;
@@ -277,11 +288,25 @@ export async function resolvePromptFile(args: CommonArgs, state: ParseState): Pr
 }
 
 /**
+ * Re-resolve a `--workflow` value against `--project-root` once the full argv is
+ * parsed (the flags can appear in any order). Callers invoke this after the
+ * parse loop. When `--project-root` was not given, the cwd-relative value set at
+ * parse time stands — so an absolute `--workflow` is unaffected either way, and
+ * a relative one tracks the project root the user pointed at.
+ */
+export function resolveWorkflowFile(args: CommonArgs, state: ParseState): void {
+  if (state.workflowFileRaw !== null && args.projectRoot !== undefined) {
+    args.workflowFile = resolve(args.projectRoot, state.workflowFileRaw);
+  }
+}
+
+/**
  * Parse only the WORKFLOW.md path overrides (`--project-root`, `--workflow`)
  * from an argv slice, ignoring every other token. For entrypoints that need
  * the target file path without a full parse — e.g. `ralphy init` and the shell
  * first-run wizard hook — so they resolve the path identically to the loop /
- * agent / task CLIs (`--workflow` absolute, `--project-root` raw).
+ * agent / task CLIs (`--workflow` against `--project-root` when given, else cwd;
+ * `--project-root` raw).
  */
 export function parseWorkflowPathArgs(argv: string[]): {
   projectRoot: string | undefined;
@@ -290,5 +315,6 @@ export function parseWorkflowPathArgs(argv: string[]): {
   const args = initialCommonArgs();
   const state = emptyParseState();
   for (const token of argv) parseCommonArg(token, args, state);
+  resolveWorkflowFile(args, state);
   return { projectRoot: args.projectRoot, workflowFile: args.workflowFile };
 }
