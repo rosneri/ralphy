@@ -142,6 +142,14 @@ const emptyPrStatus = (): PrStatusCounts => ({
   quarantined: 0,
 });
 
+/** Number of consecutive macrotask hops {@link AgentCoordinator.whenSettled}
+ *  must observe an empty in-flight set before it concludes the system is idle.
+ *  A worker's finalization enrolls only after its exit promise resolves, and
+ *  under load that resolve→enroll chain can span more than one macrotask hop;
+ *  requiring several stable observations closes that window without ever
+ *  hanging on a still-running worker. Test-only barrier. */
+const WHEN_SETTLED_STABLE_HOPS = 3;
+
 /** Pull the PR number out of a GitHub pull URL, e.g.
  *  `https://github.com/owner/repo/pull/376` → `376`. Returns null when the
  *  URL doesn't match — callers render the full URL in that case. */
@@ -345,6 +353,12 @@ export class AgentCoordinator {
   private workers: ActiveWorker[] = [];
   /** Issues whose prepare step is in flight (between dequeue and spawn). */
   private pendingIds = new Set<string>();
+  /** Detached async continuations kicked off by the poll loop —
+   *  `launchWorker` (fire-and-forget from `spawnNext`) and each worker's
+   *  exit continuation. Tracked so {@link whenSettled} can deterministically
+   *  await them; production never reads it, but tests need a non-racy seam
+   *  to know all spawn/exit side-effects have flushed. */
+  private inFlight = new Set<Promise<unknown>>();
   /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
   private queue: QueueEntry[] = [];
   private stopped = false;
@@ -1187,7 +1201,67 @@ export class AgentCoordinator {
     ) {
       const next = this.queue.shift()!;
       this.pendingIds.add(next.issue.id);
-      void this.launchWorker(next.issue, next.trigger, next.mention);
+      this.track(this.launchWorker(next.issue, next.trigger, next.mention));
+    }
+  }
+
+  /** Register a detached promise so {@link whenSettled} can await it, and
+   *  auto-remove it once it settles. Returns the promise unchanged so call
+   *  sites can keep their fire-and-forget shape. */
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.inFlight.add(p);
+    void p.finally(() => {
+      this.inFlight.delete(p);
+    });
+    return p;
+  }
+
+  /**
+   * Await every detached spawn/exit continuation kicked off by the poll
+   * loop until none remain. Test-only seam: `spawnNext` launches workers
+   * (and worker exits run their finalization) as fire-and-forget promises,
+   * so a caller that wants to assert on their side-effects needs a
+   * deterministic barrier instead of a fixed `setTimeout`. Yields a
+   * macrotask between drains so freshly-scheduled continuations (e.g. an
+   * exit handler registered the instant a worker resolves) get a chance to
+   * enroll before we conclude the system is idle. Never waits on a still
+   * running worker — only the work that runs *after* it exits is tracked.
+   *
+   * A worker's finalization enrolls lazily: `handle.exited.then(...)` only
+   * adds the finalize continuation to `inFlight` *after* the worker's exit
+   * promise resolves. Between `resolve()` and that enrollment there is a
+   * window where `inFlight` is transiently empty even though finalization
+   * is imminent. Under CI load that resolve→`.then`→enroll chain can span
+   * more than one macrotask hop, so a single empty observation is not a
+   * reliable idle signal. We therefore require the set to be observed empty
+   * across {@link WHEN_SETTLED_STABLE_HOPS} consecutive macrotask hops
+   * before concluding the system is idle — any pending enrollment lands in
+   * one of those hops, re-fills `inFlight`, and resets the counter so we
+   * drain it. This barrier is test-only; the extra idle yields cost a few
+   * macrotasks and production never calls it.
+   */
+  async whenSettled(): Promise<void> {
+    let consecutiveEmpty = 0;
+    for (let guard = 0; guard < 1000; guard++) {
+      if (this.inFlight.size > 0) {
+        await Promise.allSettled(this.inFlight);
+        consecutiveEmpty = 0;
+      }
+      // Let any continuation scheduled by the work we just awaited register.
+      // A worker's finalization enrolls lazily — `handle.exited.then(...)`
+      // only adds the finalize continuation to `inFlight` *after* the exit
+      // promise resolves, and under CI load that resolve→enroll chain can
+      // span more than one macrotask hop. Require the set to stay empty
+      // across `WHEN_SETTLED_STABLE_HOPS` consecutive hops before concluding
+      // idle so a pending enrollment lands, re-fills `inFlight`, and resets
+      // the counter. Never hangs on a still-running worker.
+      await new Promise<void>((r) => setTimeout(r, 0));
+      if (this.inFlight.size === 0) {
+        consecutiveEmpty += 1;
+        if (consecutiveEmpty >= WHEN_SETTLED_STABLE_HOPS) return;
+      } else {
+        consecutiveEmpty = 0;
+      }
     }
   }
 
@@ -1371,7 +1445,26 @@ export class AgentCoordinator {
       }
     }
 
-    void handle.exited.then(async (code) => {
+    // Track the exit *continuation* (not `handle.exited` itself) so
+    // `whenSettled` waits for finalization to flush without hanging on a
+    // still-running worker. Enrollment happens the instant the worker
+    // resolves, inside the `.then` callback.
+    void handle.exited.then((code) =>
+      this.track(this.finalizeWorkerExit(worker, issue, prep, trigger, code)),
+    );
+  }
+
+  /** The post-exit finalization continuation, extracted so it can be
+   *  tracked by {@link whenSettled}. Mutates worker bookkeeping, finalizes
+   *  the issue (or re-queues on restart/reap), and kicks the next spawn. */
+  private async finalizeWorkerExit(
+    worker: ActiveWorker,
+    issue: LinearIssue,
+    prep: PrepareResult,
+    trigger: QueueTrigger,
+    code: number,
+  ): Promise<void> {
+    {
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
       if (worker.restarting) {
@@ -1439,7 +1532,7 @@ export class AgentCoordinator {
       await this.notifyExited(issue, prep.changeName, code, trigger);
       this.deps.onWorkersChanged();
       this.spawnNext();
-    });
+    }
   }
 
   /** Kill the active worker for `changeName` and re-queue the same issue

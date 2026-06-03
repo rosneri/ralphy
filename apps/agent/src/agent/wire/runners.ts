@@ -59,6 +59,11 @@ export interface AgentRunners {
   spawnWorker?: (cmd: string[], cwd: string) => { exited: Promise<number>; kill: () => void };
   /** Run a shell script (setup/teardown). Returns exit code; never throws. */
   runScript?: (cmd: string, cwd: string) => Promise<number>;
+  /** Run the post-task pipeline (PR/CI/merge/validate). Defaults to the real
+   *  `runPostTask`; exists so unit tests can drive the spawn-worker exit
+   *  handler in isolation without spawning a subprocess or touching the
+   *  network. */
+  runPostTask?: typeof import("../post-task").runPostTask;
 }
 
 /**

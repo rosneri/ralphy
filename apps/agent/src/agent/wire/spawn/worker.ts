@@ -17,6 +17,7 @@ import {
 } from "../../linear";
 import {
   runPostTask,
+  type PostTaskInput,
   type PostTaskPhase,
   type PostTaskMode,
   type RetroDispositionInfo,
@@ -65,6 +66,171 @@ export function retroDepEntry(
   hook: (info: RetroDispositionInfo) => Promise<void>,
 ): { runRetrospective?: (info: RetroDispositionInfo) => Promise<void> } {
   return agentDebug ? { runRetrospective: hook } : {};
+}
+
+/**
+ * Decide whether the exit handler should open a PR. A PR is wanted only when
+ * the base intent is set (`--create-pr` / `createPrOnSuccess`) and the change
+ * is not parked awaiting a human — either reaped into `awaitingChangeSet` or
+ * flagged by the coordinator's `isAwaitingConfirmation`. Pure; exported for
+ * unit testing the decision in isolation.
+ */
+export function computeWantPr(
+  wantPrBase: boolean,
+  isAwaiting: boolean,
+  isAwaitingConfirmation: boolean,
+): boolean {
+  return wantPrBase && !isAwaiting && !isAwaitingConfirmation;
+}
+
+/**
+ * Decide whether the exit handler should run validate-only post-task. True
+ * only when the worker dropped a `specs/validate.md` and there is no PR intent
+ * (a PR run supersedes a validate-only run). Pure; exported for unit testing.
+ */
+export function computeWantValidateOnly(hasValidateSpec: boolean, wantPrBase: boolean): boolean {
+  return hasValidateSpec && !wantPrBase;
+}
+
+/** The four per-change maps the wire layer threads into each spawn worker. */
+export interface WorkerChangeMaps {
+  cwdByChange: Map<string, string>;
+  statesDirByChange: Map<string, string>;
+  branchByChange: Map<string, string>;
+  issueByChange: Map<string, LinearIssue>;
+}
+
+/**
+ * Release every per-change map entry for a finished change. Centralizes the
+ * four `.delete(changeName)` calls so the exit handler can't drift out of sync
+ * (e.g. add a fifth map and forget one). Exported for unit testing.
+ */
+export function releaseWorkerMaps(maps: WorkerChangeMaps, changeName: string): void {
+  maps.cwdByChange.delete(changeName);
+  maps.statesDirByChange.delete(changeName);
+  maps.branchByChange.delete(changeName);
+  maps.issueByChange.delete(changeName);
+}
+
+/**
+ * Build the `ralph loop task …` argv for a worker subprocess. Pure and
+ * exported so the engine/model selection, conditional limit flags, and the
+ * `--model`-as-flag invariant are unit-testable without spawning anything.
+ * The model is passed via the explicit `--model` flag rather than positionally
+ * because `--claude` consumes a trailing model token but `--codex` does not — a
+ * positional would be parsed as a stray argument and abort the worker. The argv
+ * always terminates with `--from-agent`.
+ */
+export function buildTaskCmd(
+  args: AgentParsedArgs,
+  cfg: RalphyConfig,
+  changeName: string,
+): string[] {
+  const engine = args.engineSet ? args.engine : cfg.engine;
+  const model = args.engineSet ? args.model : cfg.model;
+  const c: string[] = [
+    process.execPath,
+    process.argv[1] ?? "",
+    "loop",
+    "task",
+    "--name",
+    changeName,
+    "--" + engine,
+    "--model",
+    model,
+  ];
+  const maxIter = args.maxIterations || cfg.maxIterationsPerTask;
+  if (maxIter > 0) c.push("--max-iterations", String(maxIter));
+  const maxCost = args.maxCostUsd || cfg.maxCostUsdPerTask;
+  if (maxCost > 0) c.push("--max-cost", String(maxCost));
+  const maxRuntime = args.maxRuntimeMinutes || cfg.maxRuntimeMinutesPerTask;
+  if (maxRuntime > 0) c.push("--max-runtime", String(maxRuntime));
+  const maxFailures =
+    args.maxConsecutiveFailures !== 5
+      ? args.maxConsecutiveFailures
+      : cfg.maxConsecutiveFailuresPerTask;
+  if (maxFailures !== 5) c.push("--max-failures", String(maxFailures));
+  const delay = args.delay || cfg.iterationDelaySeconds;
+  if (delay > 0) c.push("--delay", String(delay));
+  if (args.log || cfg.logRawStream) c.push("--log");
+  if (args.verbose || cfg.taskVerbose) c.push("--verbose");
+  if (args.manualTest || cfg.enableManualTest) c.push("--manual-test");
+  const rp = cfg.openspec.reviewPhase;
+  if (rp.enabled) {
+    c.push("--review-enabled");
+    if (rp.maxRounds !== 1) c.push("--review-max-rounds", String(rp.maxRounds));
+    if (rp.reviewerModel !== undefined) c.push("--review-model", rp.reviewerModel);
+    if (rp.reviewerContextStrategy !== "fresh")
+      c.push("--review-context-strategy", rp.reviewerContextStrategy);
+  }
+  c.push("--from-agent");
+  return c;
+}
+
+/**
+ * Map worker state + config into the `PostTaskInput` handed to `runPostTask`.
+ * Owns the large `cfg: { … validateCommands }` block (the flag-wiring most
+ * prone to the RLF-204 class of bug) and the conditional `mode`/`prUrl` keys.
+ * Pure and exported so the mapping is asserted with plain object equality, with
+ * no subprocess or network.
+ */
+export function buildPostTaskInput(input: {
+  args: AgentParsedArgs;
+  cfg: RalphyConfig;
+  changeName: string;
+  cwd: string;
+  projectRoot: string;
+  changeDir: string;
+  stateFilePath: string;
+  branch: string | null;
+  issue: LinearIssue | null;
+  exitCode: number;
+  useWorktree: boolean;
+  wantPr: boolean;
+  wantFixCi: boolean;
+  wantAutoMerge: boolean;
+  wantValidateOnly: boolean;
+  trigger?: QueueTrigger;
+  prUrl?: string;
+  respawnWorker: () => Promise<number>;
+}): PostTaskInput {
+  const { args, cfg } = input;
+  return {
+    ...(input.trigger ? { mode: input.trigger as PostTaskMode } : {}),
+    ...(input.prUrl ? { prUrl: input.prUrl } : {}),
+    changeName: input.changeName,
+    cwd: input.cwd,
+    projectRoot: input.projectRoot,
+    changeDir: input.changeDir,
+    stateFilePath: input.stateFilePath,
+    branch: input.branch,
+    issue: input.issue,
+    exitCode: input.exitCode,
+    useWorktree: input.useWorktree,
+    wantPr: input.wantPr,
+    wantFixCi: input.wantFixCi,
+    wantAutoMerge: input.wantAutoMerge,
+    wantValidateOnly: input.wantValidateOnly,
+    cfg: {
+      teardownScript: cfg.teardownScript ?? null,
+      prBaseBranch: cfg.prBaseBranch,
+      autoMergeStrategy: cfg.autoMergeStrategy,
+      maxCiFixAttempts: cfg.maxCiFixAttempts,
+      ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
+      cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
+      ignoreCiChecks: cfg.ignoreCiChecks,
+      stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
+      neverTouch: cfg.boundaries.never_touch,
+      metaOnlyFiles: cfg.boundaries.meta_only_files,
+      finalizeNoOpAsDone: cfg.finalizeNoOpAsDone,
+      manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
+      prDraft: cfg.prDraft,
+      validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
+        (c): c is string => Boolean(c),
+      ),
+    },
+    respawnWorker: input.respawnWorker,
+  };
 }
 
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
@@ -158,51 +324,12 @@ export function createSpawnWorker(
     onWorkerCmd,
   } = input;
 
-  function buildTaskCmdFor(changeName: string): string[] {
-    const engine = args.engineSet ? args.engine : cfg.engine;
-    const model = args.engineSet ? args.model : cfg.model;
-    const c: string[] = [
-      process.execPath,
-      process.argv[1] ?? "",
-      "loop",
-      "task",
-      "--name",
-      changeName,
-      "--" + engine,
-      // Pass the model via the explicit `--model` flag rather than as a
-      // positional after the engine flag: `--claude` consumes a trailing
-      // model token but `--codex` does not, so a positional would be parsed
-      // as a stray argument and abort the worker.
-      "--model",
-      model,
-    ];
-    const maxIter = args.maxIterations || cfg.maxIterationsPerTask;
-    if (maxIter > 0) c.push("--max-iterations", String(maxIter));
-    const maxCost = args.maxCostUsd || cfg.maxCostUsdPerTask;
-    if (maxCost > 0) c.push("--max-cost", String(maxCost));
-    const maxRuntime = args.maxRuntimeMinutes || cfg.maxRuntimeMinutesPerTask;
-    if (maxRuntime > 0) c.push("--max-runtime", String(maxRuntime));
-    const maxFailures =
-      args.maxConsecutiveFailures !== 5
-        ? args.maxConsecutiveFailures
-        : cfg.maxConsecutiveFailuresPerTask;
-    if (maxFailures !== 5) c.push("--max-failures", String(maxFailures));
-    const delay = args.delay || cfg.iterationDelaySeconds;
-    if (delay > 0) c.push("--delay", String(delay));
-    if (args.log || cfg.logRawStream) c.push("--log");
-    if (args.verbose || cfg.taskVerbose) c.push("--verbose");
-    if (args.manualTest || cfg.enableManualTest) c.push("--manual-test");
-    const rp = cfg.openspec.reviewPhase;
-    if (rp.enabled) {
-      c.push("--review-enabled");
-      if (rp.maxRounds !== 1) c.push("--review-max-rounds", String(rp.maxRounds));
-      if (rp.reviewerModel !== undefined) c.push("--review-model", rp.reviewerModel);
-      if (rp.reviewerContextStrategy !== "fresh")
-        c.push("--review-context-strategy", rp.reviewerContextStrategy);
-    }
-    c.push("--from-agent");
-    return c;
-  }
+  // The post-task pipeline is the one side-effecting collaborator that can't
+  // be reached through a runner fake otherwise. Resolve it once: production
+  // gets the real import; tests inject a capturing fake.
+  const doPostTask = input.runners?.runPostTask ?? runPostTask;
+
+  const buildTaskCmdFor = (changeName: string): string[] => buildTaskCmd(args, cfg, changeName);
 
   // --agent-debug: one in-memory dedupe set shared across every worker this
   // run spawns. The closure is built once and passed to `runPostTask` only
@@ -323,7 +450,7 @@ export function createSpawnWorker(
       // Detect per-task validation indicator: worker AI creates specs/validate.md during design.
       const validateSpecPath = join(workerLayout.changeDir(changeName), "specs", "validate.md");
       const hasValidateSpec = await Bun.file(validateSpecPath).exists();
-      const wantValidateOnly = hasValidateSpec && !wantPrBase;
+      const wantValidateOnly = computeWantValidateOnly(hasValidateSpec, wantPrBase);
       if (hasValidateSpec) {
         try {
           const stateFile = workerLayout.stateFile(changeName);
@@ -386,14 +513,15 @@ export function createSpawnWorker(
       } catch (err) {
         diag("tasks", `! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
       }
-      const wantPr =
-        wantPrBase &&
-        !awaitingChangeSet.has(changeName) &&
-        !(coordRef.current?.isAwaitingConfirmation(changeName) ?? false);
-      const effectiveCode = await runPostTask(
-        {
-          ...(trigger ? { mode: trigger as PostTaskMode } : {}),
-          ...(prByChange?.get(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
+      const wantPr = computeWantPr(
+        wantPrBase,
+        awaitingChangeSet.has(changeName),
+        coordRef.current?.isAwaitingConfirmation(changeName) ?? false,
+      );
+      const effectiveCode = await doPostTask(
+        buildPostTaskInput({
+          args,
+          cfg,
           changeName,
           cwd,
           projectRoot,
@@ -407,26 +535,10 @@ export function createSpawnWorker(
           wantFixCi,
           wantAutoMerge,
           wantValidateOnly,
-          cfg: {
-            teardownScript: cfg.teardownScript ?? null,
-            prBaseBranch: cfg.prBaseBranch,
-            autoMergeStrategy: cfg.autoMergeStrategy,
-            maxCiFixAttempts: cfg.maxCiFixAttempts,
-            ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
-            cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
-            ignoreCiChecks: cfg.ignoreCiChecks,
-            stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
-            neverTouch: cfg.boundaries.never_touch,
-            metaOnlyFiles: cfg.boundaries.meta_only_files,
-            finalizeNoOpAsDone: cfg.finalizeNoOpAsDone,
-            manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
-            prDraft: cfg.prDraft,
-            validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
-              (c): c is string => Boolean(c),
-            ),
-          },
+          ...(trigger ? { trigger } : {}),
+          ...(prByChange?.get(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
           respawnWorker: respawn,
-        },
+        }),
         {
           cmd: tracedCmd,
           git: gitRunner,
@@ -484,10 +596,10 @@ export function createSpawnWorker(
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
         },
       );
-      cwdByChange.delete(changeName);
-      statesDirByChange.delete(changeName);
-      branchByChange.delete(changeName);
-      issueByChange.delete(changeName);
+      releaseWorkerMaps(
+        { cwdByChange, statesDirByChange, branchByChange, issueByChange },
+        changeName,
+      );
       onWorkerExited(changeName);
       return effectiveCode;
     });
