@@ -21,3 +21,12 @@ export async function findProjectRoot(): Promise<string> {
 export function worktreesDir(projectRoot: string): string {
   return join(homedir(), ".ralph", basename(projectRoot), "worktrees");
 }
+
+/**
+ * Backup file for an in-progress `ralphy init` setup session. The wizard writes
+ * answers here as the user advances so an accidental exit can be resumed; it is
+ * removed once a WORKFLOW.md is successfully written.
+ */
+export function setupBackupPath(): string {
+  return join(homedir(), ".ralph", "setup.tmp");
+}

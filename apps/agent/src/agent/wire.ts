@@ -158,7 +158,19 @@ export function buildAgentCoordinator(
   const coordRef: { current: AgentCoordinator | null } = { current: null };
 
   let pollContext = new PollContext();
-  const useWorktree = args.worktree || cfg.useWorktree;
+  let useWorktree = args.worktree || cfg.useWorktree;
+  // Concurrency > 1 requires isolated worktrees: parallel workers must not share
+  // one working copy or they clobber each other's files. Force it on (and warn)
+  // rather than silently corrupting the tree. The init wizard enforces the same
+  // invariant up front; this backstops a hand-edited WORKFLOW.md.
+  if (concurrency > 1 && !useWorktree) {
+    diag(
+      "config",
+      `! concurrency is ${concurrency} but useWorktree is off — forcing worktrees on so parallel tasks get isolated working copies`,
+      "yellow",
+    );
+    useWorktree = true;
+  }
 
   const scriptRunner =
     input.runners?.runScript ??

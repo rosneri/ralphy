@@ -32,15 +32,6 @@ export const PROMPT_BODY_FIELD_ID = "promptBody";
  */
 export const REPO_LINK_FIELD_ID = "repo.link";
 
-/**
- * Control field id: the Linear status to park awaiting-approval tickets in while
- * the confirmation gate is open. Its own value is never written as a frontmatter
- * key — the builder strips it and translates a non-blank answer into the
- * `setAwaitingConfirmation` indicator plus a matching `getInProgress` entry (so
- * the parked, reaped ticket keeps being polled). See `buildFromAnswers`.
- */
-export const AWAITING_STATUS_FIELD_ID = "linear.confirmationMode.awaitingStatus";
-
 export interface Field {
   id: string;
   label: string;
@@ -87,22 +78,90 @@ const REPO_LINK: Field = {
   spec: yes(),
   when: (answers) => typeof answers["repo.name"] === "string" && answers["repo.name"] !== "",
 };
-const LINEAR_FILTER: Field = {
-  id: "linear.filter",
-  label: "Linear filter",
-  hint: "e.g. 'assignee = me', 'assignee = any', 'assignee = unassigned', or an email/user-id",
+/**
+ * Control field ids: how to filter Linear tickets by assignee. The select value
+ * (`me` / `any` / `unassigned` / `other`) and the optional specific-user value
+ * are combined by the builder into the single `linear.filter` expression — the
+ * choice/value ids are never written as frontmatter keys (see `buildFromAnswers`).
+ */
+export const LINEAR_ASSIGNEE_CHOICE_FIELD_ID = "linear.assigneeChoice";
+export const LINEAR_ASSIGNEE_VALUE_FIELD_ID = "linear.assigneeValue";
+
+/** Comment stamped above `linear.filter` in a generated WORKFLOW.md. */
+const LINEAR_FILTER_DESCRIPTION =
+  "Global filter applied to every Linear ticket fetch, as an 'assignee = <value>' clause. " +
+  "<value> is 'me' (issues assigned to you), 'any' (regardless of assignee), 'unassigned', " +
+  "or a specific Linear user (email or user-id). Blank defaults to 'assignee = me'.";
+
+const LINEAR_ASSIGNEE_CHOICE: Field = {
+  id: LINEAR_ASSIGNEE_CHOICE_FIELD_ID,
+  label: "Linear assignee filter",
   description:
-    "Global filter applied to every Linear ticket fetch. The only clause today is 'assignee = <value>', where <value> is 'me' (issues assigned to you), 'any' (regardless of assignee), 'unassigned', a Linear user id, or an email. Blank defaults to 'assignee = me'.",
-  emptyLabel: "assignee = me",
-  spec: { kind: "text", placeholder: "assignee = me" },
+    "Which Linear issues Ralphy fetches, by assignee: 'me' (assigned to you), 'any' (regardless of assignee), 'unassigned', or a specific user you name next.",
+  spec: {
+    kind: "select",
+    options: [
+      { label: "me (assigned to you)", value: "me" },
+      { label: "any (regardless of assignee)", value: "any" },
+      { label: "unassigned", value: "unassigned" },
+      { label: "a specific user (email or user-id)…", value: "other" },
+    ],
+  },
 };
 
-const QUICK_FIELDS: Field[] = [PROJECT_NAME, LINEAR_TEAM, REPO_LINK, LINEAR_FILTER];
+const LINEAR_ASSIGNEE_VALUE: Field = {
+  id: LINEAR_ASSIGNEE_VALUE_FIELD_ID,
+  label: "Assignee email or user-id",
+  description: "The specific Linear user to filter by — their email address or Linear user-id.",
+  spec: { kind: "text", placeholder: "you@example.com" },
+  when: (answers) => answers[LINEAR_ASSIGNEE_CHOICE_FIELD_ID] === "other",
+};
+
+const QUICK_FIELDS: Field[] = [
+  PROJECT_NAME,
+  LINEAR_TEAM,
+  REPO_LINK,
+  LINEAR_ASSIGNEE_CHOICE,
+  LINEAR_ASSIGNEE_VALUE,
+];
 
 const isOn =
   (id: string) =>
   (answers: Record<string, WizardValue>): boolean =>
     answers[id] === true;
+
+/**
+ * Concurrency > 1 forces isolated git worktrees on — parallel tasks each need
+ * their own working copy or they clobber each other's files. The wizard hides
+ * the worktree toggle once concurrency > 1 (it is no longer optional) and the
+ * builder writes `useWorktree: true`; the runtime enforces the same invariant.
+ */
+const concurrencyForcesWorktree = (answers: Record<string, WizardValue>): boolean => {
+  const value = answers["concurrency"];
+  return typeof value === "number" && value > 1;
+};
+
+/** Worktrees are effectively enabled when chosen OR forced by concurrency. */
+const worktreeEnabled = (answers: Record<string, WizardValue>): boolean =>
+  answers["useWorktree"] === true || concurrencyForcesWorktree(answers);
+
+/**
+ * Catalogue field ids that are kept (for CLI flags, frontmatter comments, and
+ * migrations) but never asked in the setup walkthrough — their schema default
+ * is taken instead. Filtered out of every mode by `fieldsForMode`.
+ */
+const HIDDEN_FIELD_IDS = new Set<string>([
+  "appendPrompt",
+  "metaPrompt.enabled",
+  "metaPrompt.effort",
+  "logRawStream",
+  "maxConsecutiveFailuresPerTask",
+  "prDraft",
+  "manualMergeWhenAutoMergeDisabled",
+  "finalizeNoOpAsDone",
+  "linear.confirmationMode.maxConfirmationRounds",
+  "openspec.reviewPhase.enabled",
+]);
 
 const CUSTOMIZED_FIELDS: Field[] = [
   // ── Project ──
@@ -186,8 +245,9 @@ const CUSTOMIZED_FIELDS: Field[] = [
   },
   {
     id: "taskVerbose",
-    label: "Pass --verbose to the task sub-process?",
-    description: "Run the per-task process with --verbose for extra diagnostic output.",
+    label: "Show detailed task output?",
+    description:
+      "Show detailed per-task output (passes --verbose to the task sub-process) for extra diagnostics.",
     spec: no(),
   },
 
@@ -248,8 +308,10 @@ const CUSTOMIZED_FIELDS: Field[] = [
     id: "useWorktree",
     label: "Run each task in an isolated git worktree?",
     description:
-      "Run each task in its own git worktree (a separate working copy of the repo) so parallel tasks don't overwrite each other's files.",
+      "Run each task in its own git worktree (a separate working copy of the repo) so parallel tasks don't overwrite each other's files. Forced on when concurrency is greater than 1.",
     spec: no(),
+    // Hidden once concurrency > 1 forces worktrees on — it is no longer optional.
+    when: (answers) => !concurrencyForcesWorktree(answers),
   },
   {
     id: "cleanupWorktreeOnSuccess",
@@ -257,19 +319,23 @@ const CUSTOMIZED_FIELDS: Field[] = [
     description:
       "Delete a task's worktree (its separate working copy) once it succeeds, to reclaim disk space.",
     spec: no(),
-    when: isOn("useWorktree"),
+    when: worktreeEnabled,
   },
   {
     id: "setupScript",
-    label: "Setup script (runs before each task)",
-    description: "Shell script run once before each task starts — e.g. to install dependencies.",
+    label: "Worktree setup script (runs before each task)",
+    description:
+      "Part of the worktree flow: a shell script run once in each task's fresh worktree before the task starts — e.g. to install dependencies in the new working copy.",
     spec: { kind: "text" },
+    when: worktreeEnabled,
   },
   {
     id: "teardownScript",
-    label: "Teardown script (runs after each task)",
-    description: "Shell script run once after each task ends — e.g. to clean up temporary state.",
+    label: "Worktree teardown script (runs after each task)",
+    description:
+      "Part of the worktree flow: a shell script run once in each task's worktree after the task ends — e.g. to clean up before the worktree is removed.",
     spec: { kind: "text" },
+    when: worktreeEnabled,
   },
   {
     id: "enableManualTest",
@@ -396,7 +462,8 @@ const CUSTOMIZED_FIELDS: Field[] = [
   // ── Linear team / comments / sync ──
   LINEAR_TEAM,
   REPO_LINK,
-  LINEAR_FILTER,
+  LINEAR_ASSIGNEE_CHOICE,
+  LINEAR_ASSIGNEE_VALUE,
   {
     id: "linear.postComments",
     label: "Post progress comments on the Linear issue?",
@@ -440,21 +507,21 @@ const CUSTOMIZED_FIELDS: Field[] = [
   },
   {
     id: "linear.syncTasksToComment",
-    label: "Mirror tasks.md into a sticky Linear comment?",
+    label: "Sync tasks into a sticky Linear comment?",
     description:
       "Keep one pinned ('sticky') Linear comment in sync with the task checklist (tasks.md).",
     spec: yes(),
   },
   {
     id: "linear.syncSpecsAsAttachments",
-    label: "Upload proposal.md / design.md as attachments?",
+    label: "Upload plan as attachments to the Linear ticket?",
     description:
       "Upload the OpenSpec planning docs (proposal.md, design.md) to the issue as attachments. OpenSpec is Ralphy's spec-driven planning format.",
     spec: yes(),
   },
   {
     id: "linear.specAttachmentFormats",
-    label: "Spec attachment formats",
+    label: "Plan attachment formats",
     description:
       "Which formats to upload the spec docs in: 'md' (raw markdown), 'pdf' (a rendered PDF), or both.",
     spec: {
@@ -489,15 +556,6 @@ const CUSTOMIZED_FIELDS: Field[] = [
     description:
       "How many times the plan can be revised and re-submitted for approval before Ralphy gives up.",
     spec: { kind: "number", placeholder: "3" },
-    when: isOn("linear.confirmationMode.enabled"),
-  },
-  {
-    id: AWAITING_STATUS_FIELD_ID,
-    label: "Park awaiting-approval tickets in a status?",
-    hint: "e.g. Planned — blank keeps them In Progress",
-    description:
-      "When the confirmation gate opens, move the ticket to this Linear status so the board shows it waiting on a human (it must be a real status in your team). Ralphy also adds it to the in-progress pickup filter so the parked ticket keeps being polled, and re-asserts In Progress on approval. Leave blank to keep parked tickets in In Progress. Pairs with status-based indicators.",
-    spec: { kind: "text", placeholder: "Planned" },
     when: isOn("linear.confirmationMode.enabled"),
   },
 
@@ -647,6 +705,7 @@ export function fieldsForMode(
   const all = mode === "customized" ? CUSTOMIZED_FIELDS : QUICK_FIELDS;
   const allowed = restrictTo ? new Set(restrictTo) : null;
   return all.filter((field) => {
+    if (HIDDEN_FIELD_IDS.has(field.id)) return false;
     if (allowed && !allowed.has(field.id)) return false;
     return !field.when || field.when(answers);
   });
@@ -716,8 +775,13 @@ export function modelOptionValues(): string[] {
  * stamps these onto live keys, so the wizard's on-screen help and the file's
  * inline docs never drift.
  */
-export const FIELD_DESCRIPTIONS: { path: string[]; description: string }[] =
-  CUSTOMIZED_FIELDS.filter(
+export const FIELD_DESCRIPTIONS: { path: string[]; description: string }[] = [
+  ...CUSTOMIZED_FIELDS.filter(
     (field): field is Field & { description: string } =>
       Boolean(field.description) && field.spec.kind !== "multiline",
-  ).map((field) => ({ path: field.id.split("."), description: field.description }));
+  ).map((field) => ({ path: field.id.split("."), description: field.description })),
+  // `linear.filter` is composed from the assignee select + specific-user value
+  // (control fields, never asked directly), so its frontmatter comment is
+  // stamped from here rather than from a walkthrough field.
+  { path: ["linear", "filter"], description: LINEAR_FILTER_DESCRIPTION },
+];

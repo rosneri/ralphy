@@ -63,7 +63,7 @@ export const MIGRATIONS: Migration[] = [
       "ticket fetch. Existing `assignee` values are folded in automatically; " +
       "note that an empty filter now defaults to `assignee = me` (it previously " +
       "meant unassigned-only).",
-    fields: ["linear.filter"],
+    fields: ["linear.assigneeChoice", "linear.assigneeValue"],
   },
   {
     version: 4,

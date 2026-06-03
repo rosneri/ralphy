@@ -1,6 +1,6 @@
 import { render } from "ink";
 import { createElement } from "react";
-import { findProjectRoot } from "@ralphy/paths";
+import { findProjectRoot, setupBackupPath } from "@ralphy/paths";
 import {
   workflowPath,
   loadWorkflow,
@@ -9,16 +9,18 @@ import {
   type WorkflowConfig,
 } from "@ralphy/workflow";
 import { applyAnswersToWorkflow, workflowBody } from "@ralphy/workflow/wizard";
-import type { WizardAnswers } from "@ralphy/workflow/wizard-types";
+import type { SetupMode, WizardAnswers, WizardValue } from "@ralphy/workflow/wizard-types";
 import { detectRepoIdentity, type RepoIdentity } from "@ralphy/core/repo";
 import {
   SetupWizard,
   EditOrExitPrompt,
   MigratePrompt,
   RecreateOrExitPrompt,
+  ResumeOrFreshPrompt,
   type MigrateChoice,
 } from "./SetupWizard";
 import { fieldsAddedSince, needsMigration, pendingMigrations } from "./migrations";
+import { detectInitialValues } from "./project-detect";
 
 const INIT_HELP = [
   "ralphy init — create or edit WORKFLOW.md with an interactive setup wizard",
@@ -36,10 +38,63 @@ interface RunOptions {
   initialMode?: "quick" | "permissive" | "customized";
   /** Field-id keyed values to prefill. */
   initialValues?: Record<string, string | number | boolean>;
+  /**
+   * Full answers from a resumed (backed-up) session. Used verbatim as the
+   * wizard's initial values, bypassing repo injection so saved answers win.
+   */
+  resumeValues?: Record<string, WizardValue>;
   /** Migration diff path: only ask these field ids. */
   onlyFields?: string[];
   /** Detected git repo — injects `repo.*` values and the link step. */
   detectedRepo?: RepoIdentity;
+  /** Persist answers to `~/.ralph/setup.tmp` as the user progresses. */
+  trackBackup?: boolean;
+}
+
+/** The shape persisted to `~/.ralph/setup.tmp` for resuming an interrupted run. */
+interface SetupBackup {
+  projectRoot: string;
+  mode: SetupMode;
+  values: Record<string, WizardValue>;
+}
+
+/**
+ * Read a backed-up setup session for `projectRoot`. Returns null when none is
+ * saved, it belongs to a different project, or it cannot be parsed — so a stale
+ * or foreign backup never restores the wrong answers.
+ */
+async function readSetupBackup(
+  projectRoot: string,
+): Promise<{ mode: SetupMode; values: Record<string, WizardValue> } | null> {
+  const file = Bun.file(setupBackupPath());
+  if (!(await file.exists())) return null;
+  try {
+    const data = JSON.parse(await file.text()) as Partial<SetupBackup>;
+    if (data.projectRoot !== projectRoot) return null;
+    if (data.mode !== "quick" && data.mode !== "permissive" && data.mode !== "customized") {
+      return null;
+    }
+    if (!data.values || typeof data.values !== "object") return null;
+    return { mode: data.mode, values: data.values };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the in-progress setup session (creating `~/.ralph` as needed). */
+async function writeSetupBackup(
+  projectRoot: string,
+  mode: SetupMode,
+  values: Record<string, WizardValue>,
+): Promise<void> {
+  const backup: SetupBackup = { projectRoot, mode, values };
+  await Bun.write(setupBackupPath(), JSON.stringify(backup, null, 2));
+}
+
+/** Remove the setup backup, if present. */
+async function clearSetupBackup(): Promise<void> {
+  const file = Bun.file(setupBackupPath());
+  if (await file.exists()) await file.delete();
 }
 
 /**
@@ -88,7 +143,10 @@ export async function runSetupWizard(
     : undefined;
   // Pre-fill the "customize prompt" step with the body that would be written.
   const initialBody = workflowBody(options.existing ?? DEFAULT_WORKFLOW_MD);
-  const initialValues = withDetectedRepo(options.initialValues, options.detectedRepo);
+  // A resumed session uses its saved answers verbatim; otherwise inject the
+  // detected repo identity into any prefilled values.
+  const initialValues: Record<string, WizardValue> | undefined =
+    options.resumeValues ?? withDetectedRepo(options.initialValues, options.detectedRepo);
   clearScreen();
   const { waitUntilExit } = render(
     createElement(SetupWizard, {
@@ -106,11 +164,21 @@ export async function runSetupWizard(
         ? { detectedRepo: { owner: options.detectedRepo.owner, name: options.detectedRepo.name } }
         : {}),
       ...(buildMarkdown ? { buildMarkdown } : {}),
+      ...(options.trackBackup
+        ? {
+            onAnswersChange: (state: { mode: SetupMode; values: Record<string, WizardValue> }) => {
+              void writeSetupBackup(projectRoot, state.mode, state.values);
+            },
+          }
+        : {}),
     }),
   );
   await waitUntilExit();
   if (markdown === null) return false;
   await Bun.write(workflowPath(projectRoot), markdown);
+  // A WORKFLOW.md now exists — discard any in-progress backup so a later run
+  // doesn't offer to resume a session that already finished.
+  await clearSetupBackup();
   return true;
 }
 
@@ -124,7 +192,11 @@ export async function maybeRunSetupWizard(projectRoot?: string): Promise<boolean
   const root = projectRoot ?? (await findProjectRoot());
   if (await Bun.file(workflowPath(root)).exists()) return false;
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
-  return runSetupWizard(root);
+  const detected = await detectInitialValues(root);
+  return runSetupWizard(root, {
+    trackBackup: true,
+    ...(Object.keys(detected).length > 0 ? { initialValues: detected } : {}),
+  });
 }
 
 /** Prefill values (keyed by wizard field id) from an existing config. */
@@ -147,7 +219,19 @@ function initialValuesFromConfig(
   values["fixCiOnFailure"] = config.fixCiOnFailure;
   values["useWorktree"] = config.useWorktree;
   if (config.linear.team) values["linear.team"] = config.linear.team;
-  if (config.linear.filter) values["linear.filter"] = config.linear.filter;
+  // Translate the stored `assignee = <value>` filter back into the assignee
+  // select (+ specific-user value) the wizard now asks. Anything other than the
+  // three keywords becomes a "specific user" with its email/user-id prefilled.
+  if (config.linear.filter) {
+    const match = /^assignee\s*=\s*(.+)$/i.exec(config.linear.filter.trim());
+    const assignee = match ? match[1]!.trim() : "";
+    if (assignee === "me" || assignee === "any" || assignee === "unassigned") {
+      values["linear.assigneeChoice"] = assignee;
+    } else if (assignee !== "") {
+      values["linear.assigneeChoice"] = "other";
+      values["linear.assigneeValue"] = assignee;
+    }
+  }
   return values;
 }
 
@@ -158,6 +242,21 @@ async function promptEditOrExit(): Promise<"edit" | "exit"> {
   const { waitUntilExit } = render(
     createElement(EditOrExitPrompt, {
       onChoice: (value: "edit" | "exit") => {
+        choice = value;
+      },
+    }),
+  );
+  await waitUntilExit();
+  return choice;
+}
+
+/** Ask whether to resume a backed-up setup session or start fresh. */
+async function promptResumeOrFresh(): Promise<"resume" | "fresh"> {
+  let choice: "resume" | "fresh" = "fresh";
+  clearScreen();
+  const { waitUntilExit } = render(
+    createElement(ResumeOrFreshPrompt, {
+      onChoice: (value: "resume" | "fresh") => {
         choice = value;
       },
     }),
@@ -210,10 +309,12 @@ async function editExisting(
   // Re-detect so a repo-less existing file is offered the link step (backfill);
   // `withDetectedRepo` won't clobber a user-set project name.
   const detectedRepo = await detectRepoIdentity(projectRoot);
+  // Autodetected values fill only the blanks — the existing config wins.
+  const detected = await detectInitialValues(projectRoot);
   const wrote = await runSetupWizard(projectRoot, {
     existing,
     initialMode: "customized",
-    initialValues: initialValuesFromConfig(config),
+    initialValues: { ...detected, ...initialValuesFromConfig(config) },
     ...(detectedRepo ? { detectedRepo } : {}),
     ...(onlyFields ? { onlyFields } : {}),
   });
@@ -284,8 +385,31 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
+  // Offer to resume an interrupted setup before starting a clean one.
+  const backup = await readSetupBackup(projectRoot);
+  if (backup) {
+    const choice = await promptResumeOrFresh();
+    if (choice === "resume") {
+      const wrote = await runSetupWizard(projectRoot, {
+        initialMode: backup.mode,
+        resumeValues: backup.values,
+        trackBackup: true,
+      });
+      process.stdout.write(
+        wrote ? `\n✓ Created ${path}\n` : `\nSetup cancelled — no file written.\n`,
+      );
+      return 0;
+    }
+    await clearSetupBackup(); // starting fresh — discard the stale draft
+  }
+
   const detectedRepo = await detectRepoIdentity(projectRoot);
-  const wrote = await runSetupWizard(projectRoot, detectedRepo ? { detectedRepo } : {});
+  const detected = await detectInitialValues(projectRoot);
+  const wrote = await runSetupWizard(projectRoot, {
+    trackBackup: true,
+    ...(detectedRepo ? { detectedRepo } : {}),
+    ...(Object.keys(detected).length > 0 ? { initialValues: detected } : {}),
+  });
   process.stdout.write(wrote ? `\n✓ Created ${path}\n` : `\nSetup cancelled — no file written.\n`);
   return 0;
 }
