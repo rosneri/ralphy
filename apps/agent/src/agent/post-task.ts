@@ -44,7 +44,7 @@ export const NO_CHANGES_EXIT = 72;
  */
 export type PostTaskMode = "fresh" | "resume" | "conflict-fix" | "review";
 
-interface PostTaskInput {
+export interface PostTaskInput {
   /** Spawn trigger; see `PostTaskMode`. */
   mode?: PostTaskMode;
   /** Optional pre-resolved PR URL (from the wire layer's per-change cache).
