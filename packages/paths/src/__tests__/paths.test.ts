@@ -24,33 +24,27 @@ describe("findProjectRoot", () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  test("roots at a directory that has WORKFLOW.md but no openspec/", async () => {
+  test("roots at the directory that has WORKFLOW.md", async () => {
     writeFileSync(join(tempDir, "WORKFLOW.md"), "---\n---\n");
     expect(await findProjectRoot(tempDir)).toBe(tempDir);
   });
 
-  test("roots at a directory that has openspec/ but no WORKFLOW.md", async () => {
-    mkdirSync(join(tempDir, "openspec"));
-    expect(await findProjectRoot(tempDir)).toBe(tempDir);
-  });
-
-  test("walks up to the nearest ancestor carrying a marker", async () => {
+  test("walks up to the nearest ancestor carrying WORKFLOW.md", async () => {
     writeFileSync(join(tempDir, "WORKFLOW.md"), "---\n---\n");
     const nested = join(tempDir, "packages", "inner");
     mkdirSync(nested, { recursive: true });
     expect(await findProjectRoot(nested)).toBe(tempDir);
   });
 
-  test("a WORKFLOW.md in a subdirectory wins over an openspec/ further up", async () => {
+  test("openspec/ is NOT a marker — a dir with only openspec/ falls back to startDir", async () => {
     mkdirSync(join(tempDir, "openspec"));
-    const sub = join(tempDir, "sub");
-    mkdirSync(sub);
-    writeFileSync(join(sub, "WORKFLOW.md"), "---\n---\n");
-    // Closest marker wins — the sub-package with its own WORKFLOW.md.
-    expect(await findProjectRoot(sub)).toBe(sub);
+    const nested = join(tempDir, "sub");
+    mkdirSync(nested);
+    // No WORKFLOW.md anywhere up the tree → falls back to startDir, not tempDir.
+    expect(await findProjectRoot(nested)).toBe(nested);
   });
 
-  test("falls back to startDir when no marker is found", async () => {
+  test("falls back to startDir when no WORKFLOW.md is found", async () => {
     const bare = join(tempDir, "bare");
     mkdirSync(bare);
     expect(await findProjectRoot(bare)).toBe(bare);
