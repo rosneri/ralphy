@@ -57,6 +57,27 @@ export function initialCommonArgs(): CommonArgs {
   };
 }
 
+// ─── Bespoke string-valued flags (no WORKFLOW.md field) ──────────────────────
+
+/**
+ * Plain `--flag <value>` options that have no catalogue field and just assign a
+ * string to a `CommonArgs` key. `transform` normalizes the raw token before it
+ * is stored (e.g. `--workflow` resolves to an absolute path); omit it to keep
+ * the raw value (`--project-root` is stored verbatim).
+ */
+interface StringFlag {
+  flag: string;
+  argKey: "projectRoot" | "workflowFile";
+  transform?: (raw: string) => string;
+}
+const STRING_FLAGS: StringFlag[] = [
+  { flag: "--project-root", argKey: "projectRoot" },
+  { flag: "--workflow", argKey: "workflowFile", transform: resolve },
+];
+const STRING_FLAG_BY_NAME = new Map<string, StringFlag>(
+  STRING_FLAGS.map((stringFlag) => [stringFlag.flag, stringFlag]),
+);
+
 // ─── Config-backed flags, derived from the shared catalogue ──────────────────
 
 const OPTION_BY_FLAG = new Map<string, CliOption>(
@@ -117,20 +138,14 @@ function applyBooleanOption(option: CliOption, args: CommonArgs): void {
 
 /** True if `flag` is a common flag that expects a following value. */
 export function isCommonExpectingFlag(flag: string): boolean {
-  return (
-    VALUE_FLAGS.has(flag) ||
-    flag === "--project-root" ||
-    flag === "--workflow" ||
-    flag === "--claude"
-  );
+  return VALUE_FLAGS.has(flag) || STRING_FLAG_BY_NAME.has(flag) || flag === "--claude";
 }
 
 /** True if `flag` is a common flag (boolean or value-taking). */
 export function isCommonArg(flag: string): boolean {
   return (
     OPTION_BY_FLAG.has(flag) ||
-    flag === "--project-root" ||
-    flag === "--workflow" ||
+    STRING_FLAG_BY_NAME.has(flag) ||
     flag === "--claude" ||
     flag === "--codex" ||
     flag === "--unlimited"
@@ -142,8 +157,8 @@ export interface ParseState {
   pendingOption: CliOption | null;
   /** `--claude` accepts an optional trailing model (soft: skipped if not one). */
   expectClaudeModel: boolean;
-  expectProjectRoot: boolean;
-  expectWorkflow: boolean;
+  /** A bespoke string flag (e.g. `--project-root`) was seen; the next token is its value. */
+  pendingStringFlag: StringFlag | null;
   expectName: boolean;
   expectPrompt: boolean;
   expectPromptFile: boolean;
@@ -156,8 +171,7 @@ export function emptyParseState(): ParseState {
   return {
     pendingOption: null,
     expectClaudeModel: false,
-    expectProjectRoot: false,
-    expectWorkflow: false,
+    pendingStringFlag: null,
     expectName: false,
     expectPrompt: false,
     expectPromptFile: false,
@@ -186,14 +200,10 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
     }
     // Token wasn't a model — fall through and let it be parsed normally.
   }
-  if (state.expectProjectRoot) {
-    args.projectRoot = arg;
-    state.expectProjectRoot = false;
-    return true;
-  }
-  if (state.expectWorkflow) {
-    args.workflowFile = resolve(arg);
-    state.expectWorkflow = false;
+  if (state.pendingStringFlag) {
+    const { argKey, transform } = state.pendingStringFlag;
+    args[argKey] = transform ? transform(arg) : arg;
+    state.pendingStringFlag = null;
     return true;
   }
   if (state.expectName) {
@@ -222,6 +232,12 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
     return true;
   }
 
+  const stringFlag = STRING_FLAG_BY_NAME.get(arg);
+  if (stringFlag) {
+    state.pendingStringFlag = stringFlag;
+    return true;
+  }
+
   switch (arg) {
     case "--claude":
       if (args.engineSet && args.engine !== "claude") {
@@ -240,12 +256,6 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
       return true;
     case "--unlimited":
       args.maxIterations = 0;
-      return true;
-    case "--project-root":
-      state.expectProjectRoot = true;
-      return true;
-    case "--workflow":
-      state.expectWorkflow = true;
       return true;
     case "--name":
       state.expectName = true;
