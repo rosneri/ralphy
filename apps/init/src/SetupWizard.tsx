@@ -508,7 +508,9 @@ export function SetupWizard({
         <Text>
           <Text color="cyan">◆ </Text>
           <Text bold>Ralphy setup</Text>
-          <Text dimColor>{"  ·  "}v{VERSION}</Text>
+          <Text dimColor>
+            {"  ·  "}v{VERSION}
+          </Text>
         </Text>
         <Text dimColor>{"  "}No WORKFLOW.md found — choose a setup mode</Text>
         <Box marginTop={1} marginLeft={2}>
