@@ -4,6 +4,7 @@ import { WorkflowConfigSchema, type WorkflowConfig } from "./schema";
 import { DEFAULT_WORKFLOW_MD, FRONTMATTER_RE } from "./default";
 import { renderTemplate } from "./template";
 import { buildWorkflowMarkdown } from "./wizard";
+import { normalizeWorkflowMarkdown } from "./migrate/normalize";
 
 export type { WorkflowConfig } from "./schema";
 export { WorkflowConfigSchema, CURRENT_WORKFLOW_VERSION } from "./schema";
@@ -16,6 +17,11 @@ export {
   type ConfirmationTicketView,
 } from "./confirmation";
 export { parseLinearFilter, type LinearFilterResult } from "./linear-filter";
+export {
+  normalizeWorkflowMarkdown,
+  DEFAULT_APPROVAL_INDICATORS,
+  type NormalizeResult,
+} from "./migrate/normalize";
 
 export interface ParsedWorkflow {
   config: WorkflowConfig;
@@ -148,9 +154,22 @@ export function workflowPath(projectRoot: string, workflowFile?: string): string
   return workflowFile ?? join(projectRoot, WORKFLOW_FILE);
 }
 
+export interface LoadWorkflowOptions {
+  /**
+   * When true, a self-heal that changed the file is written back to disk.
+   * Defaults to false: every load still normalizes in-memory (so the runtime
+   * always sees backfilled defaults and the confirmation-gate invariant), but
+   * the file is only rewritten from deliberate, single-working-copy entrypoints
+   * (`ralphy init`) — never from the agent/worktree hot path, where a stray
+   * WORKFLOW.md diff could leak into a task branch.
+   */
+  persist?: boolean;
+}
+
 export async function loadWorkflow(
   projectRoot: string,
   workflowFile?: string,
+  options: LoadWorkflowOptions = {},
 ): Promise<ParsedWorkflow> {
   const path = workflowPath(projectRoot, workflowFile);
   const file = Bun.file(path);
@@ -159,7 +178,11 @@ export async function loadWorkflow(
     return { config, body: extractDefaultBody(), path };
   }
   const text = await file.text();
-  return parseWorkflow(text, path);
+  // Self-heal in-memory: backfill missing default-bearing keys and enforce the
+  // confirmation-gate invariant. Persist only when the caller opts in.
+  const normalized = normalizeWorkflowMarkdown(text);
+  if (normalized.changed && options.persist) await Bun.write(path, normalized.markdown);
+  return parseWorkflow(normalized.markdown, path);
 }
 
 export async function ensureWorkflow(projectRoot: string, workflowFile?: string): Promise<string> {

@@ -47,7 +47,7 @@ function withPresets(answers: WizardAnswers): Record<string, WizardValue> {
 }
 
 /** Wrap a description into space-prefixed comment lines (~74 cols). */
-function toCommentLines(text: string): string {
+export function toCommentLines(text: string): string {
   const lines: string[] = [];
   let line = "";
   for (const word of text.split(" ")) {
