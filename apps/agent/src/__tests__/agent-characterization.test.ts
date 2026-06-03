@@ -464,6 +464,41 @@ function makeRunners(): MakeRunnersResult {
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10));
 
+/**
+ * Poll a predicate until it holds, or throw after `timeoutMs`. Worker spawn
+ * is fire-and-forget (`coordinator.spawnNext → void launchWorker`), so the
+ * actual `spawnWorker` call lands asynchronously after `pollOnce()` resolves.
+ * A fixed `tick()` races that async prep under coverage instrumentation / slow
+ * CI; this waits deterministically instead of guessing a delay.
+ */
+const waitFor = async (
+  predicate: () => boolean,
+  { timeoutMs = 2000, stepMs = 5 }: { timeoutMs?: number; stepMs?: number } = {},
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitFor: predicate not satisfied before timeout");
+    }
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+};
+
+/** Wait until a worker for `changeName` has been spawned. */
+const waitForWorker = (workers: Map<string, FakeWorker>, changeName: string): Promise<void> =>
+  waitFor(() => workers.has(changeName));
+
+/**
+ * Wait until at least `n` spawns have been recorded for `changeName`. A second
+ * spawn (resume / conflict-fix / ci-fix) reuses the same worker-map key, so
+ * `waitForWorker` alone can't observe it — count the spawn log instead.
+ */
+const waitForSpawnAtLeast = (
+  spawnCalls: string[][],
+  changeName: string,
+  n: number,
+): Promise<void> => waitFor(() => spawnCalls.filter((c) => c.includes(changeName)).length >= n);
+
 // ---------------------------------------------------------------------------
 // JSON event recorder
 //
@@ -925,7 +960,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Spawn mode contract: a single worker was spawned for this change
     // with the change name passed via `--name <changeName>`.
-    expect(workers.has(changeName)).toBe(true);
+    await waitForWorker(workers, changeName);
     const spawnForChange = spawnCalls.find((c) => c.includes(changeName));
     expect(spawnForChange).toBeDefined();
     const nameIdx = spawnForChange!.indexOf("--name");
@@ -933,6 +968,18 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Started comment posted
     expect(linear.comments.some((c) => c.body.includes("Ralph started working"))).toBe(true);
+
+    // Let the post-spawn comment-sync / spec-attachments pass settle before
+    // reaping the worker. That async sync emits a `spec-attachments: …
+    // skipping` log; if we resolve the worker first, the log races the
+    // worker_exited event and lands out of order, flaking the golden diff.
+    await waitFor(() =>
+      recorder.events.some(
+        (e) =>
+          e.type === "log" &&
+          String(e.text ?? "").includes("design.md has no content yet, skipping"),
+      ),
+    );
 
     // Worker exits cleanly → setDone
     workers.get(changeName)!.resolve(0);
@@ -1098,7 +1145,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     const poll1 = await coord.pollOnce();
     expect(poll1.added).toBe(1);
     await tick();
-    expect(workers.has(changeName)).toBe(true);
+    await waitForWorker(workers, changeName);
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-eng-2",
       statusName: "In Progress",
@@ -1221,8 +1268,8 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Implement: the ticket is now in inProgress (still has the
     // In Progress status) and falls through the resume path → a
     // resume-mode spawn issues.
+    await waitForSpawnAtLeast(spawnCalls, changeName, 2);
     expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBeGreaterThanOrEqual(2);
-    expect(workers.has(changeName)).toBe(true);
 
     // Worker exits cleanly → Done.
     workers.get(changeName)!.resolve(0);
@@ -1329,7 +1376,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // Poll 1: fresh spawn.
       await coord.pollOnce();
       await tick();
-      expect(workers.has(changeName)).toBe(true);
+      await waitForWorker(workers, changeName);
 
       // Fill design.md so the next poll moves into awaiting-confirmation.
       await Bun.write(
@@ -1470,7 +1517,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 1: fresh spawn.
     await coord.pollOnce();
     await tick();
-    expect(workers.has(changeName)).toBe(true);
+    await waitForWorker(workers, changeName);
 
     // Fill design.md so the next poll moves into awaiting-confirmation.
     await Bun.write(
@@ -1613,7 +1660,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // Poll 1: fresh spawn.
       await coord.pollOnce();
       await tick();
-      expect(workers.has(changeName)).toBe(true);
+      await waitForWorker(workers, changeName);
 
       // Fill design.md so the next poll moves into awaiting-confirmation.
       await Bun.write(
@@ -1807,7 +1854,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 1: Todo pickup → fresh-mode spawn.
     await coord.pollOnce();
     await tick();
-    expect(workers.has(changeName)).toBe(true);
+    await waitForWorker(workers, changeName);
     expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(1);
 
     // Fill design → Poll 2 will gate.
@@ -1971,7 +2018,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 1: fresh-mode spawn, ticket → In Progress.
     await coord.pollOnce();
     await tick();
-    expect(workers.has(changeName)).toBe(true);
+    await waitForWorker(workers, changeName);
 
     // Worker exits cleanly → setDone, ticket is now finished.
     workers.get(changeName)!.resolve(0);
