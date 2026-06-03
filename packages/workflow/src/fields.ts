@@ -72,9 +72,9 @@ const LINEAR_TEAM: Field = {
  */
 const REPO_LINK: Field = {
   id: "repo.link",
-  label: "Link this repository to the team?",
+  label: "Record this repository in WORKFLOW.md?",
   description:
-    "Record the detected git repository in WORKFLOW.md and link it to the Linear team above. Confirm to adopt the detected repo; decline to leave it out.",
+    "Record the detected git repository in WORKFLOW.md so Ralphy maps this project's Linear issues to it. Confirm to adopt the detected repo; decline to leave it out.",
   spec: yes(),
   when: (answers) => typeof answers["repo.name"] === "string" && answers["repo.name"] !== "",
 };

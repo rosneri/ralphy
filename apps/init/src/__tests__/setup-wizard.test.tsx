@@ -691,7 +691,7 @@ describe("repo linking", () => {
     await tick();
     const plain = (lastFrame() ?? "").replace(/\x1b\[[0-9;]*m/g, "");
     expect(plain).toContain("Detected repo: acme/widgets");
-    expect(plain).toContain("Link this repository");
+    expect(plain).toContain("Record this repository");
     stdin.write(ENTER); // confirm (default Yes) -> complete
     await tick();
     unmount();
