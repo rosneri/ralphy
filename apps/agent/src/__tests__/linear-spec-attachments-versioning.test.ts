@@ -36,7 +36,7 @@ interface UploadCall {
 interface CreateCall {
   title: string;
   url: string;
-  subtitle?: string;
+  subtitle?: string | undefined;
 }
 
 interface FakeMutations extends SpecAttachmentMutations {
