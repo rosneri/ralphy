@@ -1226,6 +1226,19 @@ export class AgentCoordinator {
    * exit handler registered the instant a worker resolves) get a chance to
    * enroll before we conclude the system is idle. Never waits on a still
    * running worker — only the work that runs *after* it exits is tracked.
+   *
+   * A worker's finalization enrolls lazily: `handle.exited.then(...)` only
+   * adds the finalize continuation to `inFlight` *after* the worker's exit
+   * promise resolves. Between `resolve()` and that enrollment there is a
+   * window where `inFlight` is transiently empty even though finalization
+   * is imminent. Under CI load that resolve→`.then`→enroll chain can span
+   * more than one macrotask hop, so a single empty observation is not a
+   * reliable idle signal. We therefore require the set to be observed empty
+   * across {@link WHEN_SETTLED_STABLE_HOPS} consecutive macrotask hops
+   * before concluding the system is idle — any pending enrollment lands in
+   * one of those hops, re-fills `inFlight`, and resets the counter so we
+   * drain it. This barrier is test-only; the extra idle yields cost a few
+   * macrotasks and production never calls it.
    */
   async whenSettled(): Promise<void> {
     let consecutiveEmpty = 0;
