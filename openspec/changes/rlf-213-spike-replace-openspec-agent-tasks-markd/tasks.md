@@ -25,9 +25,9 @@
 
 ## Prototype BeadsChangeStore (read-path)
 
-- [ ] Implement a throwaway prototype `BeadsChangeStore` satisfying `readTaskList` / `getStatus` / `validateChange` from the `ChangeStore` interface, rendering `bd` state into the markdown shape `buildTaskPrompt` expects
-- [ ] Write a unit test proving selection parity with `firstUnchecked` on a fixture bd state (per the spec scenarios); patch `Bun.spawnSync` for `bd` invocations rather than mocking `node:child_process`
-- [ ] Confirm the prototype is NOT registered as the default store and does not modify `loop.ts` / `tasks-md.ts` / the flow machine
+- [x] Implement a throwaway prototype `BeadsChangeStore` satisfying `readTaskList` / `getStatus` / `validateChange` from the `ChangeStore` interface, rendering `bd` state into the markdown shape `buildTaskPrompt` expects
+- [x] Write a unit test proving selection parity with `firstUnchecked` on a fixture bd state (per the spec scenarios); patch `Bun.spawnSync` for `bd` invocations rather than mocking `node:child_process`
+- [x] Confirm the prototype is NOT registered as the default store and does not modify `loop.ts` / `tasks-md.ts` / the flow machine
 
 ## Mapping & decision record
 

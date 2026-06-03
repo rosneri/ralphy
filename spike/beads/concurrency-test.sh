@@ -21,7 +21,7 @@ WT1=$ROOT/wt1
 jid() { python3 -c 'import sys,json;r=sys.stdin.read().strip();print(json.loads(r)["id"] if r else "")'; }
 
 echo "== setup: main repo + bd init =="
-rm -rf "$ROOT"; mkdir -p "$MAIN"; cd "$MAIN"
+rm -rf "$ROOT"; mkdir -p "$MAIN"; cd "$MAIN" || exit 1
 git init -q
 git config user.email spike@example.com
 git config user.name "Spike Runner"
