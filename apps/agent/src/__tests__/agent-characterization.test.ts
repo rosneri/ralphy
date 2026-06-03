@@ -462,8 +462,6 @@ function makeRunners(): MakeRunnersResult {
   };
 }
 
-const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10));
-
 // ---------------------------------------------------------------------------
 // JSON event recorder
 //
@@ -905,7 +903,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 1: pickup, setInProgress, scaffold, spawn
     const poll1 = await recorder.poll(() => coord.pollOnce());
     expect(poll1.added).toBe(1);
-    await tick();
+    await coord.whenSettled();
 
     // State mutation: setInProgress applied on pickup
     expect(linear.statusMutations).toContainEqual({
@@ -936,7 +934,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Worker exits cleanly → setDone
     workers.get(changeName)!.resolve(0);
-    await tick();
+    await coord.whenSettled();
 
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-eng-1",
@@ -1097,7 +1095,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // the deriver is in `design`, NOT `awaiting-confirmation` yet.
     const poll1 = await coord.pollOnce();
     expect(poll1.added).toBe(1);
-    await tick();
+    await coord.whenSettled();
     expect(workers.has(changeName)).toBe(true);
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-eng-2",
@@ -1133,7 +1131,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 2: ticket flips to awaiting-confirmation. Worker reaped,
     // plan-ready Linear comment posted exactly once.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
     const planReadyCount = linear.comments.filter((c) =>
       c.body.includes("Ralphy plan ready"),
@@ -1155,7 +1153,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 3: revise consumed → design.md restubbed, tasks.md stubbed,
     // 👀 reaction recorded, rounds bumped, plan-ready NOT reposted.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     const designAfterRevise = readFileSync(designPath, "utf-8");
     expect(designAfterRevise).toContain(`# Design for ${changeName}`);
     expect(designAfterRevise).toContain("_Fill in the technical design");
@@ -1208,7 +1206,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     issue.labels.add("ralph:approved");
 
     const poll4 = await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     // Approval label is preserved (no eager clearApproved fire).
     expect(
       linear.labelMutations.some(
@@ -1226,7 +1224,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Worker exits cleanly → Done.
     workers.get(changeName)!.resolve(0);
-    await tick();
+    await coord.whenSettled();
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-eng-2",
       statusName: "Done",
@@ -1328,7 +1326,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
       // Poll 1: fresh spawn.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
       expect(workers.has(changeName)).toBe(true);
 
       // Fill design.md so the next poll moves into awaiting-confirmation.
@@ -1341,7 +1339,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
       // Poll 2: gate fires — plan-ready posted, worker reaped.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
       expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
 
       // The PR for the change now goes CONFLICTING while the ticket is
@@ -1352,7 +1350,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
       // Poll 3: Stage-2-correct — conflict-fix preempts the gate.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
 
       // setConflicted label was applied (conflict-fix path engaged).
       expect(
@@ -1469,7 +1467,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 1: fresh spawn.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(workers.has(changeName)).toBe(true);
 
     // Fill design.md so the next poll moves into awaiting-confirmation.
@@ -1480,7 +1478,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 2: gate fires — plan-ready posted, worker reaped.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
 
     // The PR for the change now has FAILING CI while the ticket is
@@ -1491,7 +1489,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 3: Stage-2-correct — ci-fix preempts the gate.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
 
     // setCiFailed label was applied (ci-fix path engaged).
     expect(
@@ -1612,7 +1610,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
       // Poll 1: fresh spawn.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
       expect(workers.has(changeName)).toBe(true);
 
       // Fill design.md so the next poll moves into awaiting-confirmation.
@@ -1623,7 +1621,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
       // Poll 2: gate fires — plan-ready posted, worker reaped.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
       expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
 
       // Populate tasks.md with unchecked implementation items so the
@@ -1645,7 +1643,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
       // Poll 3: gate clears, approval persisted, resume spawn issues.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
       expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBeGreaterThanOrEqual(2);
 
       // The PR for the change now goes CONFLICTING while the ticket is
@@ -1655,7 +1653,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // Poll 4: conflict-fix path engages — tasks.md is prepended with
       // the conflict-fix instructions, conflict-fix worker spawns.
       await coord.pollOnce();
-      await tick();
+      await coord.whenSettled();
       const tasksAfterConflict = readFileSync(tasksPath, "utf-8");
       expect(tasksAfterConflict).toContain("Resolve PR merge conflicts");
 
@@ -1806,7 +1804,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 1: Todo pickup → fresh-mode spawn.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(workers.has(changeName)).toBe(true);
     expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBe(1);
 
@@ -1815,7 +1813,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 2: gate fires (rounds=0), plan-ready posted, worker reaped.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
 
     // Inject revise #1 (createdAt strictly after the askedAt watermark).
@@ -1827,7 +1825,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 3: revise consumed → rounds=1, design restubbed.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     const confPath = join(tempDir, ".ralph", "tasks", changeName, ".ralph-state.confirmation.json");
     const stateAfterRevise1 = JSON.parse(readFileSync(confPath, "utf-8")) as {
       rounds?: number;
@@ -1839,7 +1837,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 4: gate fires again (rounds=1).
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
 
     // Inject revise #2 (newer than the previous lastReviseConsumedAt).
     linear.addExternalComment("uuid-eng-6", {
@@ -1850,7 +1848,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 5: revise consumed → rounds=2 (== cap), design restubbed.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     const stateAfterRevise2 = JSON.parse(readFileSync(confPath, "utf-8")) as {
       rounds?: number;
     };
@@ -1864,7 +1862,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 6: round-cap exhaustion — rounds >= cap → stuck.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
 
     // `ralph:stuck` label was applied to the issue.
     expect(
@@ -1894,7 +1892,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     const commentsBeforeRepoll = linear.comments.length;
     const spawnsBeforeRepoll = spawnCalls.filter((c) => c.includes(changeName)).length;
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(linear.comments.filter((c) => c.body.includes("confirmation gate stuck")).length).toBe(
       1,
     );
@@ -1970,12 +1968,12 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // Poll 1: fresh-mode spawn, ticket → In Progress.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
     expect(workers.has(changeName)).toBe(true);
 
     // Worker exits cleanly → setDone, ticket is now finished.
     workers.get(changeName)!.resolve(0);
-    await tick();
+    await coord.whenSettled();
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-eng-7",
       statusName: "Done",
@@ -1999,7 +1997,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // setConflicted label applied, merge-conflicts comment posted, conflict-fix
     // worker spawned. This is the RLF-81 promotion anchor.
     await coord.pollOnce();
-    await tick();
+    await coord.whenSettled();
 
     // Conflict-promotion comment posted on the issue. No Linear label is
     // applied — gh is the single source of truth for merge state now.
@@ -2028,7 +2026,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // already Done; conflict-fix is a PR-level fixup, not a fresh run).
     setMergeable(changeName, "MERGEABLE");
     fixWorker!.resolve(0);
-    await tick();
+    await coord.whenSettled();
 
     const doneCountAfterFix = linear.statusMutations.filter((s) => s.statusName === "Done").length;
     expect(doneCountAfterFix).toBe(1);

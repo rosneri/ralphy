@@ -345,6 +345,12 @@ export class AgentCoordinator {
   private workers: ActiveWorker[] = [];
   /** Issues whose prepare step is in flight (between dequeue and spawn). */
   private pendingIds = new Set<string>();
+  /** Detached async continuations kicked off by the poll loop —
+   *  `launchWorker` (fire-and-forget from `spawnNext`) and each worker's
+   *  exit continuation. Tracked so {@link whenSettled} can deterministically
+   *  await them; production never reads it, but tests need a non-racy seam
+   *  to know all spawn/exit side-effects have flushed. */
+  private inFlight = new Set<Promise<unknown>>();
   /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
   private queue: QueueEntry[] = [];
   private stopped = false;
@@ -1187,7 +1193,40 @@ export class AgentCoordinator {
     ) {
       const next = this.queue.shift()!;
       this.pendingIds.add(next.issue.id);
-      void this.launchWorker(next.issue, next.trigger, next.mention);
+      this.track(this.launchWorker(next.issue, next.trigger, next.mention));
+    }
+  }
+
+  /** Register a detached promise so {@link whenSettled} can await it, and
+   *  auto-remove it once it settles. Returns the promise unchanged so call
+   *  sites can keep their fire-and-forget shape. */
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.inFlight.add(p);
+    void p.finally(() => {
+      this.inFlight.delete(p);
+    });
+    return p;
+  }
+
+  /**
+   * Await every detached spawn/exit continuation kicked off by the poll
+   * loop until none remain. Test-only seam: `spawnNext` launches workers
+   * (and worker exits run their finalization) as fire-and-forget promises,
+   * so a caller that wants to assert on their side-effects needs a
+   * deterministic barrier instead of a fixed `setTimeout`. Yields a
+   * macrotask between drains so freshly-scheduled continuations (e.g. an
+   * exit handler registered the instant a worker resolves) get a chance to
+   * enroll before we conclude the system is idle. Never waits on a still
+   * running worker — only the work that runs *after* it exits is tracked.
+   */
+  async whenSettled(): Promise<void> {
+    for (let guard = 0; guard < 1000; guard++) {
+      if (this.inFlight.size > 0) {
+        await Promise.allSettled(this.inFlight);
+      }
+      // Let any continuation scheduled by the work we just awaited register.
+      await new Promise<void>((r) => setTimeout(r, 0));
+      if (this.inFlight.size === 0) return;
     }
   }
 
@@ -1371,7 +1410,26 @@ export class AgentCoordinator {
       }
     }
 
-    void handle.exited.then(async (code) => {
+    // Track the exit *continuation* (not `handle.exited` itself) so
+    // `whenSettled` waits for finalization to flush without hanging on a
+    // still-running worker. Enrollment happens the instant the worker
+    // resolves, inside the `.then` callback.
+    void handle.exited.then((code) =>
+      this.track(this.finalizeWorkerExit(worker, issue, prep, trigger, code)),
+    );
+  }
+
+  /** The post-exit finalization continuation, extracted so it can be
+   *  tracked by {@link whenSettled}. Mutates worker bookkeeping, finalizes
+   *  the issue (or re-queues on restart/reap), and kicks the next spawn. */
+  private async finalizeWorkerExit(
+    worker: ActiveWorker,
+    issue: LinearIssue,
+    prep: PrepareResult,
+    trigger: QueueTrigger,
+    code: number,
+  ): Promise<void> {
+    {
       const idx = this.workers.indexOf(worker);
       if (idx >= 0) this.workers.splice(idx, 1);
       if (worker.restarting) {
@@ -1439,7 +1497,7 @@ export class AgentCoordinator {
       await this.notifyExited(issue, prep.changeName, code, trigger);
       this.deps.onWorkersChanged();
       this.spawnNext();
-    });
+    }
   }
 
   /** Kill the active worker for `changeName` and re-queue the same issue
