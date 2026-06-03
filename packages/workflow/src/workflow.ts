@@ -139,12 +139,20 @@ function applyAliases(cfg: WorkflowConfig): void {
 
 export const WORKFLOW_FILE = "WORKFLOW.md";
 
-export function workflowPath(projectRoot: string): string {
-  return join(projectRoot, WORKFLOW_FILE);
+/**
+ * Resolve the workflow file location. When `workflowFile` is given it wins
+ * (callers are expected to pass an already-absolute path); otherwise the
+ * canonical `<projectRoot>/WORKFLOW.md` is used.
+ */
+export function workflowPath(projectRoot: string, workflowFile?: string): string {
+  return workflowFile ?? join(projectRoot, WORKFLOW_FILE);
 }
 
-export async function loadWorkflow(projectRoot: string): Promise<ParsedWorkflow> {
-  const path = workflowPath(projectRoot);
+export async function loadWorkflow(
+  projectRoot: string,
+  workflowFile?: string,
+): Promise<ParsedWorkflow> {
+  const path = workflowPath(projectRoot, workflowFile);
   const file = Bun.file(path);
   if (!(await file.exists())) {
     const { config } = parseWorkflow(DEFAULT_WORKFLOW_MD);
@@ -154,8 +162,8 @@ export async function loadWorkflow(projectRoot: string): Promise<ParsedWorkflow>
   return parseWorkflow(text, path);
 }
 
-export async function ensureWorkflow(projectRoot: string): Promise<string> {
-  const path = workflowPath(projectRoot);
+export async function ensureWorkflow(projectRoot: string, workflowFile?: string): Promise<string> {
+  const path = workflowPath(projectRoot, workflowFile);
   const file = Bun.file(path);
   if (await file.exists()) return path;
   // Write the stamped build so the file carries each setting's description.

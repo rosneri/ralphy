@@ -11,6 +11,7 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
 import * as telemetry from "@ralphy/telemetry";
 import { attachDefaults, createBus, setProcessBus } from "@ralphy/events";
 import { VERSION } from "@ralphy/version";
+import { parseWorkflowPathArgs } from "@ralphy/cli-args";
 
 const SUBCOMMANDS = new Set<string>(["init", "loop", "agent", "task"]);
 
@@ -97,7 +98,8 @@ async function run(): Promise<number> {
     if (shouldOfferSetup(subcommand, argv.slice(1))) {
       try {
         const { maybeRunSetupWizard } = await import("@ralphy/init");
-        await maybeRunSetupWizard();
+        const { projectRoot, workflowFile } = parseWorkflowPathArgs(argv.slice(1));
+        await maybeRunSetupWizard(projectRoot, workflowFile);
       } catch (setupErr) {
         // First-run setup is best-effort; downstream `ensureWorkflow` still
         // writes a default if the wizard could not run.

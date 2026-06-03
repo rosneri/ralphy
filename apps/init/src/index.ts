@@ -1,6 +1,7 @@
 import { render } from "ink";
 import { createElement } from "react";
 import { findProjectRoot, setupBackupPath } from "@ralphy/paths";
+import { parseWorkflowPathArgs } from "@ralphy/cli-args";
 import {
   workflowPath,
   loadWorkflow,
@@ -25,10 +26,15 @@ import { detectInitialValues } from "./project-detect";
 const INIT_HELP = [
   "ralphy init — create or edit WORKFLOW.md with an interactive setup wizard",
   "",
-  "Usage: ralphy init",
+  "Usage: ralphy init [options]",
   "",
   "Runs a short wizard (quick / permissive / customized) and writes WORKFLOW.md",
   "to the project root. If WORKFLOW.md already exists, offers to edit it.",
+  "",
+  "Options:",
+  "  --project-root <path>   Directory to treat as the project root (default: detected)",
+  "  --workflow <path>       Path to read / write WORKFLOW.md (default: <project>/WORKFLOW.md)",
+  "  --help, -h              Show this help message",
 ].join("\n");
 
 interface RunOptions {
@@ -49,6 +55,8 @@ interface RunOptions {
   detectedRepo?: RepoIdentity;
   /** Persist answers to `~/.ralph/setup.tmp` as the user progresses. */
   trackBackup?: boolean;
+  /** Alternate WORKFLOW.md path to write to (default: `<projectRoot>/WORKFLOW.md`). */
+  workflowFile?: string;
 }
 
 /** The shape persisted to `~/.ralph/setup.tmp` for resuming an interrupted run. */
@@ -175,7 +183,7 @@ export async function runSetupWizard(
   );
   await waitUntilExit();
   if (markdown === null) return false;
-  await Bun.write(workflowPath(projectRoot), markdown);
+  await Bun.write(workflowPath(projectRoot, options.workflowFile), markdown);
   // A WORKFLOW.md now exists — discard any in-progress backup so a later run
   // doesn't offer to resume a session that already finished.
   await clearSetupBackup();
@@ -188,13 +196,17 @@ export async function runSetupWizard(
  * non-interactive case the caller's existing `ensureWorkflow` default-write
  * still applies. Otherwise runs the wizard.
  */
-export async function maybeRunSetupWizard(projectRoot?: string): Promise<boolean> {
+export async function maybeRunSetupWizard(
+  projectRoot?: string,
+  workflowFile?: string,
+): Promise<boolean> {
   const root = projectRoot ?? (await findProjectRoot());
-  if (await Bun.file(workflowPath(root)).exists()) return false;
+  if (await Bun.file(workflowPath(root, workflowFile)).exists()) return false;
   if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
   const detected = await detectInitialValues(root);
   return runSetupWizard(root, {
     trackBackup: true,
+    ...(workflowFile ? { workflowFile } : {}),
     ...(Object.keys(detected).length > 0 ? { initialValues: detected } : {}),
   });
 }
@@ -303,6 +315,7 @@ async function editExisting(
   projectRoot: string,
   path: string,
   config: WorkflowConfig,
+  workflowFile?: string,
   onlyFields?: string[],
 ): Promise<number> {
   const existing = await Bun.file(path).text();
@@ -316,6 +329,7 @@ async function editExisting(
     initialMode: "customized",
     initialValues: { ...detected, ...initialValuesFromConfig(config) },
     ...(detectedRepo ? { detectedRepo } : {}),
+    ...(workflowFile ? { workflowFile } : {}),
     ...(onlyFields ? { onlyFields } : {}),
   });
   process.stdout.write(wrote ? `\n✓ Updated ${path}\n` : `\nNo changes written.\n`);
@@ -329,8 +343,9 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const projectRoot = await findProjectRoot();
-  const path = workflowPath(projectRoot);
+  const { projectRoot: rootOverride, workflowFile } = parseWorkflowPathArgs(argv);
+  const projectRoot = rootOverride ?? (await findProjectRoot());
+  const path = workflowPath(projectRoot, workflowFile);
   const exists = await Bun.file(path).exists();
   const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY);
 
@@ -342,7 +357,7 @@ export async function main(argv: string[]): Promise<number> {
     // Unreadable file (missing/malformed frontmatter) → recreate or exit.
     let config: WorkflowConfig;
     try {
-      ({ config } = await loadWorkflow(projectRoot));
+      ({ config } = await loadWorkflow(projectRoot, workflowFile));
     } catch {
       const choice = await promptRecreateOrExit();
       if (choice === "exit") {
@@ -350,7 +365,10 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       const detectedRepo = await detectRepoIdentity(projectRoot);
-      const wrote = await runSetupWizard(projectRoot, detectedRepo ? { detectedRepo } : {});
+      const wrote = await runSetupWizard(projectRoot, {
+        ...(detectedRepo ? { detectedRepo } : {}),
+        ...(workflowFile ? { workflowFile } : {}),
+      });
       process.stdout.write(
         wrote ? `\n✓ Recreated ${path}\n` : `\nSetup cancelled — no file written.\n`,
       );
@@ -365,7 +383,7 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       const onlyFields = choice === "diff" ? fieldsAddedSince(config.version) : undefined;
-      return editExisting(projectRoot, path, config, onlyFields);
+      return editExisting(projectRoot, path, config, workflowFile, onlyFields);
     }
 
     // Up-to-date file → plain edit-or-exit.
@@ -374,13 +392,13 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
       return 0;
     }
-    return editExisting(projectRoot, path, config);
+    return editExisting(projectRoot, path, config, workflowFile);
   }
 
   if (!interactive) {
     // Non-interactive: fall back to writing the canonical default.
     const { ensureWorkflow } = await import("@ralphy/workflow");
-    const written = await ensureWorkflow(projectRoot);
+    const written = await ensureWorkflow(projectRoot, workflowFile);
     process.stdout.write(`Non-interactive shell — wrote default WORKFLOW.md: ${written}\n`);
     return 0;
   }
@@ -394,6 +412,7 @@ export async function main(argv: string[]): Promise<number> {
         initialMode: backup.mode,
         resumeValues: backup.values,
         trackBackup: true,
+        ...(workflowFile ? { workflowFile } : {}),
       });
       process.stdout.write(
         wrote ? `\n✓ Created ${path}\n` : `\nSetup cancelled — no file written.\n`,
@@ -408,6 +427,7 @@ export async function main(argv: string[]): Promise<number> {
   const wrote = await runSetupWizard(projectRoot, {
     trackBackup: true,
     ...(detectedRepo ? { detectedRepo } : {}),
+    ...(workflowFile ? { workflowFile } : {}),
     ...(Object.keys(detected).length > 0 ? { initialValues: detected } : {}),
   });
   process.stdout.write(wrote ? `\n✓ Created ${path}\n` : `\nSetup cancelled — no file written.\n`);

@@ -273,6 +273,22 @@ describe("loadWorkflow / ensureWorkflow", () => {
     const text2 = await Bun.file(path).text();
     expect(text2).toBe(text1);
   });
+
+  test("loadWorkflow reads from an explicit workflowFile override", async () => {
+    const customPath = join(tempDir, "custom-workflow.md");
+    await Bun.write(customPath, `---\nconcurrency: 7\n---\nbody\n`);
+    const { config, path } = await loadWorkflow(tempDir, customPath);
+    expect(path).toBe(customPath);
+    expect(config.concurrency).toBe(7);
+  });
+
+  test("ensureWorkflow writes the default to an explicit workflowFile override", async () => {
+    const customPath = join(tempDir, "nested", "custom-workflow.md");
+    const path = await ensureWorkflow(tempDir, customPath);
+    expect(path).toBe(customPath);
+    expect(await Bun.file(customPath).exists()).toBe(true);
+    expect(await Bun.file(customPath).text()).toContain("project:");
+  });
 });
 
 describe("renderTemplate", () => {

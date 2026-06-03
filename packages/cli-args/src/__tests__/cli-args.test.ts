@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { initialCommonArgs, parseCommonArg, emptyParseState } from "../common-args";
+import { isAbsolute, resolve } from "node:path";
+import {
+  initialCommonArgs,
+  parseCommonArg,
+  emptyParseState,
+  parseWorkflowPathArgs,
+} from "../common-args";
 
 describe("parseCommonArg", () => {
   test("parses --claude with model", () => {
@@ -29,9 +35,40 @@ describe("parseCommonArg", () => {
     expect(() => parseCommonArg("--codex", args, state)).toThrow("Choose only one engine flag");
   });
 
+  test("resolves --workflow value to an absolute path against cwd", () => {
+    const args = initialCommonArgs();
+    const state = emptyParseState();
+    expect(parseCommonArg("--workflow", args, state)).toBe(true);
+    expect(parseCommonArg("config/WORKFLOW.md", args, state)).toBe(true);
+    expect(args.workflowFile).toBe(resolve("config/WORKFLOW.md"));
+    expect(isAbsolute(args.workflowFile ?? "")).toBe(true);
+  });
+
   test("returns false for unknown args", () => {
     const args = initialCommonArgs();
     const state = emptyParseState();
     expect(parseCommonArg("--unknown", args, state)).toBe(false);
+  });
+});
+
+describe("parseWorkflowPathArgs", () => {
+  test("extracts only the path overrides, ignoring other tokens", () => {
+    const result = parseWorkflowPathArgs([
+      "execute",
+      "--max-iterations",
+      "5",
+      "--project-root",
+      "/tmp/proj",
+      "--workflow",
+      "config/WORKFLOW.md",
+    ]);
+    expect(result.projectRoot).toBe("/tmp/proj");
+    expect(result.workflowFile).toBe(resolve("config/WORKFLOW.md"));
+  });
+
+  test("leaves both undefined when neither flag is present", () => {
+    const result = parseWorkflowPathArgs(["agent", "--worktree"]);
+    expect(result.projectRoot).toBeUndefined();
+    expect(result.workflowFile).toBeUndefined();
   });
 });

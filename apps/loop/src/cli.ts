@@ -44,6 +44,7 @@ const HELP_TEXT = [
   "",
   "Options:",
   "  --name <name>           Change name (required for most commands)",
+  "  --workflow <path>       Path to an alternate WORKFLOW.md (default: <project>/WORKFLOW.md)",
   "  --prompt <text>         Task description",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",
