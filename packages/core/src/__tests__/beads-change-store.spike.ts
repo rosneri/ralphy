@@ -8,7 +8,8 @@
  * `tasks-md.ts`, or the flow machine.
  *
  * It is **evaluation scope only**:
- *  - It is NOT exported from `packages/openspec/src/index.ts`.
+ *  - It is NOT exported from any package barrel (it lives in `core`'s
+ *    `__tests__/` alongside the parity test that exercises it).
  *  - It is NOT registered as the default `ChangeStore` anywhere.
  *  - It lives under `__tests__/` so it never ships in the published build.
  *  - The write/completion path is intentionally unimplemented (throws).

@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
-import { firstUnchecked } from "../../../core/src/tasks-md";
+import { firstUnchecked } from "../tasks-md";
 
 // --- bd-output fixtures -----------------------------------------------------
 
@@ -197,7 +197,9 @@ describe("BeadsChangeStore spike — read-path parity", () => {
 
   test("write-path methods throw (out of spike scope)", async () => {
     const store = new BeadsChangeStore();
-    await expect(store.writeTaskList("demo", "x")).rejects.toThrow("not implemented");
-    await expect(store.createChange("demo", "x")).rejects.toThrow("not implemented");
+    // The spike implements the write-path methods as zero-arg stubs that
+    // reject; the read-path is the only prototyped surface.
+    await expect(store.writeTaskList()).rejects.toThrow("not implemented");
+    await expect(store.createChange()).rejects.toThrow("not implemented");
   });
 });
