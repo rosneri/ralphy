@@ -201,5 +201,15 @@ describe("BeadsChangeStore spike — read-path parity", () => {
     // reject; the read-path is the only prototyped surface.
     await expect(store.writeTaskList()).rejects.toThrow("not implemented");
     await expect(store.createChange()).rejects.toThrow("not implemented");
+    await expect(store.listChanges()).rejects.toThrow("not implemented");
+    await expect(store.appendSteering()).rejects.toThrow("not implemented");
+    await expect(store.getInstructions()).rejects.toThrow("not implemented");
+    await expect(store.showChange()).rejects.toThrow("not implemented");
+    await expect(store.archiveChange()).rejects.toThrow("not implemented");
+  });
+
+  test("getChangeDirectory stays under openspec — bd only backs tasks", () => {
+    const store = new BeadsChangeStore();
+    expect(store.getChangeDirectory("demo")).toBe("openspec/changes/demo");
   });
 });
