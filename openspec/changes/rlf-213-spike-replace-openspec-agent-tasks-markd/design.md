@@ -69,11 +69,12 @@ For the spike, the write/completion path may be stubbed or driven manually via
 - **Shared `.beads/`**: all worktrees point at the main repo's `.beads/`. Verify
   two concurrent worktrees both see ready work and that `bd claim` is race-safe
   (no double-claim, no JSONL corruption). Record exact commands + output.
-- **Storage**: local DB gitignored, JSONL git-tracked, daemon auto-syncs.
-  Confirm the JSONL is the durable source and survives a fresh clone.
-- **Binary dependency**: `bd` is a Go static binary (brew/npm/go install).
-  Document install footprint and whether a preflight check (like the Bun
-  preflight) is warranted.
+- **Storage**: _assumption (DB gitignored, JSONL git-tracked, daemon syncs)
+  did not hold for 1.0.5 — see Spike findings: the store is embedded Dolt and
+  gitignored. Re-confirm the durable/clone-survival story against Dolt._
+- **Binary dependency**: _assumption ("Go static binary") did not hold — see
+  Spike findings: beads pulls in dolt + icu4c (~250 MB+). A preflight check
+  (like the Bun preflight) is warranted if we go._
 
 ## Edge cases / risks
 
