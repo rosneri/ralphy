@@ -186,6 +186,43 @@ describe("StateSchema", () => {
     expect(result.specAttachments.design.attachmentId).toBeNull();
   });
 
+  test("specAttachments revision arrays default to [] when omitted (old state migrates silently)", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+      specAttachments: {
+        design: { attachmentId: "att-d", sha256: "hd" },
+      },
+    });
+    expect(result.specAttachments.designRevisions).toEqual([]);
+    expect(result.specAttachments.designPdfRevisions).toEqual([]);
+  });
+
+  test("specAttachments designRevisions round-trips a populated array", () => {
+    const result = StateSchema.parse({
+      version: "2" as const,
+      name: "x",
+      prompt: "x",
+      createdAt: "2026-01-01T00:00:00Z",
+      lastModified: "2026-01-01T00:00:00Z",
+      specAttachments: {
+        design: { attachmentId: "att-d", sha256: "hd" },
+        designRevisions: [
+          { version: 2, attachmentId: "att-2", sha256: "h2", trigger: "review follow-up" },
+          { version: 3, attachmentId: "att-3", sha256: "h3", trigger: "CI fix" },
+        ],
+      },
+    });
+    expect(result.specAttachments.designRevisions).toEqual([
+      { version: 2, attachmentId: "att-2", sha256: "h2", trigger: "review follow-up" },
+      { version: 3, attachmentId: "att-3", sha256: "h3", trigger: "CI fix" },
+    ]);
+    expect(result.specAttachments.designPdfRevisions).toEqual([]);
+  });
+
   test("review defaults to { lastConsumedCommentAt: null } when omitted (old state migrates silently)", () => {
     const result = StateSchema.parse({
       version: "2" as const,
