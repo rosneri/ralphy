@@ -187,9 +187,18 @@ async function openDraftPrOnce(
       "yellow",
     );
   }
-  state.confirmation.earlyDraftPrAt = new Date().toISOString();
+  // Re-read the slot before stamping: earlier helpers in this same poll
+  // (`postPlanReadyCommentOnce`) persist their own fields (`askedAt`) via a
+  // fresh read-modify-write and do NOT update the `state.confirmation` snapshot
+  // captured at the top of `processAwaitingForIssue`. Writing that stale
+  // snapshot back here would clobber `askedAt` to null, causing the plan-ready
+  // comment to be re-posted on every poll until this helper's own
+  // `earlyDraftPrAt` guard trips. Merge onto the latest on-disk state instead.
+  const { stateObj: fresh, confirmation: latest } = await readConfirmationState(statePath);
+  latest.earlyDraftPrAt = new Date().toISOString();
+  state.confirmation.earlyDraftPrAt = latest.earlyDraftPrAt;
   try {
-    await writeConfirmationState(statePath, state.stateObj, state.confirmation);
+    await writeConfirmationState(statePath, fresh, latest);
   } catch (err) {
     deps.onLog(
       `! persist earlyDraftPrAt for ${issue.identifier}: ${(err as Error).message}`,

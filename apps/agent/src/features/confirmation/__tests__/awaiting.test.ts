@@ -236,6 +236,50 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  test("prDraft: plan-ready comment posts once across polls (no askedAt clobber)", async () => {
+    // Regression: in prDraft mode, openDraftPrOnce used to persist the stale
+    // top-of-function confirmation snapshot AFTER postPlanReadyCommentOnce had
+    // written askedAt, resetting askedAt to null and re-posting the
+    // "📋 Ralphy plan ready" comment on every poll. See awaiting.ts.
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-prdraft-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+      // Start with no askedAt so the first poll posts the plan-ready comment.
+      await Bun.write(
+        join(dir, ".ralph", "tasks", changeName, ".ralph-state.json"),
+        JSON.stringify(
+          { confirmation: { askedAt: null, lastReminderAt: null, confirmedAt: null, rounds: 0 } },
+          null,
+          2,
+        ) + "\n",
+      );
+
+      const before = commentBodies.length;
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg.linear.postComments = true;
+      deps.cfg.prDraft = true;
+      deps.openDraftPr = async () => "https://github.com/example/repo/pull/1";
+
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+
+      const planReady = commentBodies.slice(before).filter((b) => b.includes("Ralphy plan ready"));
+      expect(planReady.length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("clearAwaitingConfirmation fires on gate-cleared release", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-clear-gate-"));
     try {
