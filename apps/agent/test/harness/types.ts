@@ -38,6 +38,7 @@ export interface FakeLinearComment {
 export interface AppliedLog {
   setInProgress: string[];
   setDone: string[];
+  setPrReady: string[];
   setError: string[];
   clearReview: string[];
 }

@@ -623,6 +623,7 @@ export async function runDebug(opts: {
   const logHas = (s: string) => timeline.some((l) => l.text.includes(s));
   if (logHas("setError applied")) out("  ⚠ setError applied — issue is quarantined in Linear");
   if (logHas("setDone applied")) out("  ✓ setDone applied — issue marked done in Linear");
+  if (logHas("setPrReady applied")) out("  ✓ setPrReady applied — PR is ready for human review");
   if (logHas("clearConflicted applied")) out("  ✓ clearConflicted applied");
   if (logHas("setConflicted applied")) out("  ⚠ setConflicted applied — merge conflicts detected");
   if (logHas("skipping PR phase")) out("  ↩ PR phase skipped — worker exited non-zero");

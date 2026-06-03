@@ -48,6 +48,26 @@ describe("createFakeLinear", () => {
     expect(linear.applied.setDone).toContain("RLF-1");
   });
 
+  test("RLF-214: applyIndicator buckets setPrReady additively alongside setDone", async () => {
+    const linear = createFakeLinear();
+    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    // Additive: a single run applies both, ready first then done.
+    await linear.client.applyIndicator(issue, { type: "status", value: "In Review" });
+    await linear.client.applyIndicator(issue, { type: "status", value: "Done" });
+    expect(linear.applied.setPrReady).toContain("RLF-1");
+    expect(linear.applied.setDone).toContain("RLF-1");
+    // setPrReady's "In Review" status must NOT be mis-bucketed as setInProgress.
+    expect(linear.applied.setInProgress).not.toContain("RLF-1");
+  });
+
+  test("RLF-214: setPrReady label marker (ralphy:pr-ready) is bucketed before setInProgress", async () => {
+    const linear = createFakeLinear();
+    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
+    await linear.client.applyIndicator(issue, { type: "label", value: "ralphy:pr-ready" });
+    expect(linear.applied.setPrReady).toContain("RLF-1");
+    expect(linear.applied.setInProgress).not.toContain("RLF-1");
+  });
+
   test("applyIndicator classifies setError and project marker", async () => {
     const linear = createFakeLinear();
     const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });

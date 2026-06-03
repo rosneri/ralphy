@@ -19,7 +19,7 @@ import type { FlowAssignment, FlowId } from "./types";
  * `capture(event, props)` call sites switch to `capture.call(this, ...)`
  * via a small helper so neither sink is missed.
  */
-function emitCapture<T extends RalphEvent["type"]>(
+export function emitCapture<T extends RalphEvent["type"]>(
   bus: Bus,
   event: T,
   properties?: Record<string, unknown>,

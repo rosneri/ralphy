@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 3;
+export const CURRENT_WORKFLOW_VERSION = 4;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -24,7 +24,13 @@ const MarkerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("comment"), value: z.string().min(1) }).strict(),
 ]);
 
-const SET_INDICATOR_KEYS = ["setInProgress", "setDone", "setError", "clearApproved"] as const;
+const SET_INDICATOR_KEYS = [
+  "setInProgress",
+  "setDone",
+  "setPrReady",
+  "setError",
+  "clearApproved",
+] as const;
 
 const GetIndicatorSchema = z.object({
   filter: z.array(MarkerSchema).default([]),
@@ -46,6 +52,7 @@ const IndicatorsSchema = z.preprocess(
       getAutoApprove: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
+      setPrReady: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setAwaitingConfirmation: SetIndicatorSchema.optional(),
       clearApproved: SetIndicatorSchema.optional(),

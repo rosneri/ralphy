@@ -168,6 +168,10 @@ interface PostTaskDeps {
    *  changeName. Used by the agent coordinator's conflict-scan to know
    *  which changes to check for merge conflicts on subsequent polls. */
   registerPr?: (changeName: string, prUrl: string) => void;
+  /** Optional: apply the additive `setPrReady` Linear marker at the PR-phase
+   *  success point. Forwarded into `runPrPhase`. See PrPhaseDeps for the skip
+   *  rule and failure-isolation contract. */
+  onPrReady?: (prUrl: string) => Promise<void>;
   /** Optional phase emitter — surfaced in the dashboard footer. */
   onPhase?: (phase: PostTaskPhase, detail?: string) => void;
   /**
@@ -835,6 +839,12 @@ interface PrPhaseDeps {
   emit: (phase: PostTaskPhase, detail?: string) => void;
   respawnWorker: () => Promise<number>;
   registerPr?: (changeName: string, prUrl: string) => void;
+  /** Optional: apply the additive `setPrReady` Linear marker. Invoked once at
+   *  the PR-phase success point, EXCEPT on the immediate non-draft auto-merge
+   *  path (`wantAutoMerge && !prReadyNeeded`). Mirrors `registerPr`; failures
+   *  are the callback's responsibility to swallow (they must not abort the
+   *  run). */
+  onPrReady?: (prUrl: string) => Promise<void>;
   checkPrConflict?: (prUrl: string) => Promise<boolean>;
   /** Optional: resolve the blocker PR (branch + ticket + PR) the given issue
    *  should stack onto, or null when no unambiguous blocker PR exists. Invoked
@@ -871,6 +881,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     emit,
     respawnWorker,
     registerPr,
+    onPrReady,
     checkPrConflict,
     resolveDependencyBaseBranch,
   } = deps;
@@ -1114,6 +1125,13 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
       const e = err as Error & { stderr?: string };
       log(`! manual merge failed for ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
     }
+  }
+
+  // Additive `setPrReady`: the PR is pushed, surfaced, CI-green, and in (or
+  // converted to) a non-draft ready state. Skip ONLY the immediate non-draft
+  // auto-merge path, where the PR is merged at once and never sits reviewable.
+  if (!(wantAutoMerge && !prReadyNeeded)) {
+    await onPrReady?.(prUrl);
   }
 
   return 0;
@@ -1532,6 +1550,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         emit,
         respawnWorker,
         ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
+        ...(deps.onPrReady !== undefined ? { onPrReady: deps.onPrReady } : {}),
         ...(deps.checkPrConflict !== undefined ? { checkPrConflict: deps.checkPrConflict } : {}),
         ...(deps.resolveDependencyBaseBranch !== undefined
           ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }

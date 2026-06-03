@@ -20,6 +20,7 @@ import {
   assembleAnswers,
   buildFromAnswers,
   CONFIRMATION_STATES,
+  CORE_STATES,
 } from "../SetupWizard";
 import type { IndicatorMap } from "@ralphy/workflow/wizard-types";
 import { maybeRunSetupWizard } from "../index";
@@ -301,7 +302,40 @@ describe("SetupWizard render", () => {
   });
 });
 
+describe("CORE_STATES", () => {
+  test("offers the additive PR-ready state that owns only setPrReady", () => {
+    const prReady = CORE_STATES.find((s) => s.key === "prReady");
+    expect(prReady).toBeDefined();
+    expect(prReady?.slots).toEqual(["setPrReady"]);
+  });
+});
+
 describe("IndicatorBuilder", () => {
+  test("builds a setPrReady marker when the PR-ready state is chosen", async () => {
+    const ENTER = "\r";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    const captured: { map: IndicatorMap | null } = { map: null };
+    const prReady = CORE_STATES.find((s) => s.key === "prReady")!;
+    const { stdin, unmount } = render(
+      createElement(IndicatorBuilder, {
+        states: [prReady],
+        onDone: (m: IndicatorMap) => {
+          captured.map = m;
+        },
+        onCancel: () => {},
+      }),
+    );
+    await tick();
+    stdin.write(ENTER); // type = status (first option)
+    await tick();
+    stdin.write("In Review"); // marker value
+    await tick();
+    stdin.write(ENTER); // commit -> last state -> onDone
+    await tick();
+    unmount();
+    expect(captured.map).toEqual({ setPrReady: { type: "status", value: "In Review" } });
+  });
+
   test("builds a get-slot filter from chosen type + value", async () => {
     const ENTER = "\r";
     const tick = () => new Promise((resolve) => setTimeout(resolve, 50));

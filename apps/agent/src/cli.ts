@@ -73,6 +73,7 @@ const INDICATOR_KEYS = new Set<keyof Indicators>([
   "getAutoMerge",
   "setInProgress",
   "setDone",
+  "setPrReady",
   "setError",
 ]);
 const GET_KEYS = new Set<keyof Indicators>(["getTodo", "getInProgress", "getAutoMerge"]);
@@ -113,9 +114,10 @@ const HELP_TEXT = [
   "  --worktree              Run each task in its own git worktree",
   "  --indicator <k>:<t>:<v> Override an indicator (repeatable).",
   "                          Keys: getTodo, getInProgress, getAutoMerge,",
-  "                                setInProgress, setDone, setError",
+  "                                setInProgress, setDone, setPrReady, setError",
   "                          Types: label, status, attachment, project, comment",
   "                          --indicator setInProgress:attachment:In Progress",
+  "                          --indicator setPrReady:status:In Review (additive ready marker)",
   "                          (attachment upserts a single 'Ralphy' entry; value = subtitle)",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
   "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
