@@ -31,9 +31,9 @@
 
 ## Mapping & decision record
 
-- [ ] Complete the primitive→`bd` mapping table in `design.md`, flagging every gap with no clean equivalent
-- [ ] Resolve all five open questions in `design.md` (adapter-vs-native, OpenSpec spec artifacts, Linear sync, flow/preemption, binary dependency)
-- [ ] Write the go/no-go recommendation; if go, outline a follow-up implementation ticket
+- [x] Complete the primitive→`bd` mapping table in `design.md`, flagging every gap with no clean equivalent
+- [x] Resolve all five open questions in `design.md` (adapter-vs-native, OpenSpec spec artifacts, Linear sync, flow/preemption, binary dependency)
+- [x] Write the go/no-go recommendation; if go, outline a follow-up implementation ticket
 
 ## Verification
 

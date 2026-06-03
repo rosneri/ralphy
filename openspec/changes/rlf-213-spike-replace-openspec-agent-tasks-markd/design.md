@@ -37,18 +37,41 @@ Explicitly **not** touched: `packages/core/src/loop.ts`, `tasks-md.ts`,
 wiring. If the spike concludes "go", those become a separate implementation
 ticket.
 
-## Primitive → `bd` command mapping (to verify, not assume)
+## Primitive → `bd` command mapping (verified against the spike harness)
 
-| `tasks-md.ts` primitive                  | Purpose                     | Candidate `bd` equivalent                                | Risk to confirm                                                    |
-| ---------------------------------------- | --------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------ |
-| `firstUnchecked` / `pickActiveTasksFile` | next task, flow-first       | `bd ready --json --limit 1` (priority-sorted)            | Does priority + `blocks` reproduce the flow-preempts-mission rule? |
-| `countUnchecked`                         | remaining work              | `bd list --status open --json` count under the epic      | Scoping to one change/epic                                         |
-| `allCompleted` / `bothFilesCompleted`    | done?                       | epic has no open children / `bd ready` empty for epic    | Distinguishing "blocked" from "done"                               |
-| `prependFixTask`                         | inject preempting flow task | `bd create … -p 0` + `bd dep add <fix> blocks <mission>` | Atomicity; passing the failure-output body                         |
-| `normalizeNewlyAppendedSection`          | undo worker clobbering      | **obsolete** — bd state isn't a file workers edit        | Confirms a class of bug disappears                                 |
-| `appendSteering` (tasks mirror)          | steering → task             | `bd create … --parent <epic>`                            | Keep steering prose in OpenSpec; mirror headline as a bead         |
+Verdict legend: **✅ clean** = a direct `bd` equivalent confirmed by the spike;
+**⚠ gap** = an equivalent exists but with an operational caveat that the
+adapter must handle; **— n/a** = the primitive becomes obsolete.
 
-A gap in any row that has no clean equivalent is a spike finding, recorded here.
+| `tasks-md.ts` primitive                  | Purpose                     | Verified `bd` equivalent                                                       | Verdict                                                                                                                         |
+| ---------------------------------------- | --------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `firstUnchecked` / `pickActiveTasksFile` | next task, flow-first       | `bd ready --parent <epic> --exclude-type=epic --limit 1 --json`                | ✅ clean — priority-sort + `blocks` reproduce flow-first selection (unit test `beads-change-store.spike.test.ts` proves parity) |
+| `countUnchecked`                         | remaining work              | `bd list --status open --parent <epic> --exclude-type=epic --json` count       | ✅ clean — `--parent` scopes to one change                                                                                      |
+| `allCompleted` / `bothFilesCompleted`    | done?                       | open-children count == 0 (NOT `bd ready` emptiness); epic-close guard enforces | ⚠ gap — must use the retried open-children count, never `ready` emptiness (lock-drop / all-blocked ambiguity)                   |
+| `prependFixTask`                         | inject preempting flow task | `bd create … -p 0` + `bd dep add <mission> <fix> -t blocks`                    | ⚠ gap — two non-atomic calls; if the `dep add` fails mid-way the fix is ready but does not yet preempt. Wrap + verify.          |
+| `normalizeNewlyAppendedSection`          | undo worker clobbering      | **obsolete** — task state is a DB graph, not a file workers can rewrite        | — n/a — an entire class of clobber-repair bug disappears (a point in bd's favour)                                               |
+| `appendSteering` (tasks mirror)          | steering → task             | `bd create … --parent <epic>` for the headline; prose stays in `proposal.md`   | ⚠ gap — steering is free prose; only a derived headline maps to a bead. Prose home stays OpenSpec (open question #2).           |
+
+**Flagged gaps (no fully clean equivalent):**
+
+1. **Completion detection is not "ready is empty".** Under the embedded-Dolt
+   single-writer lock an empty `bd ready` is ambiguous (all-blocked, _or_ this
+   process lost the lock race and got silent empty output). The adapter must
+   decide "done" only from a _retried_ open-children count. Implemented in the
+   prototype's `getStatus` (`isComplete = openChildren.length === 0`).
+2. **`prependFixTask` is two writes, not one.** `bd create` then `bd dep add`
+   are separate transactions; there is no single atomic "create-blocking-task"
+   command in 1.0.5. The flow-injection path must create-then-link-then-verify
+   (re-read `bd ready` to confirm the fix now precedes mission work) and treat a
+   half-applied state as a retry, not success.
+3. **Write/JSONL commit discipline has no drop-in equivalent.** Markdown
+   completion is a file edit that lands in the worker's own commit. `bd close`
+   mutates the Dolt store out-of-band; Ralphy's "stage files individually, never
+   `git add -A`" rule means the adapter must own an explicit `bd export` +
+   staged commit of `.beads/*.jsonl` (or accept the gitignored Dolt store as the
+   only durable copy — see open question #2). This is the largest gap.
+4. **Steering prose has no bead representation.** Only a headline can become a
+   bead; the prose body has to stay in `proposal.md`. Mixed-home for steering.
 
 ## Data flow (prototype read-path)
 
@@ -283,7 +306,7 @@ This is **the** operational hazard for a `BeadsChangeStore`:
 - An empty `bd ready --claim` result is **ambiguous** — it can mean (a) no work
   / change complete, OR (b) this process just lost the lock race. The loop must
   **never** treat an empty/timed-out bd response as "change done." Disambiguate
-  with a *separate, retried* `bd list --status open --parent <epic>` count (the
+  with a _separate, retried_ `bd list --status open --parent <epic>` count (the
   blocked-vs-done distinguisher already in the mapping table) before concluding
   completion.
 - Every bd call in the store must **retry with backoff** on empty/silent output,
@@ -294,17 +317,115 @@ This is **the** operational hazard for a `BeadsChangeStore`:
 
 ## Open questions → decision record
 
-Each must be answered in this section before the spike closes (go/no-go):
+Each is now resolved from the spike evidence above.
 
-1. **Adapter vs. rip-and-replace** — recommendation: _TBD from prototype_.
-2. **OpenSpec spec artifacts** — bd does not replace proposal/design/specs;
-   scope bd to tasks. _Confirm._
-3. **Linear relationship** — bd as sub-task source of truth vs. bd↔Linear sync.
-   Evaluate bd's built-in Linear sync. _TBD._
-4. **Flow/preemption modeling** — blocking beads vs. keep XState flow machine +
-   swap only the checklist layer. _TBD._
-5. **`bd` binary dependency** — acceptable for Ralphy's install footprint?
-   _TBD; recommend preflight if go._
+### 1. Adapter vs. rip-and-replace — **Adapter** (`BeadsChangeStore` behind `ChangeStore`)
 
-**Recommendation:** _filled in at spike end — go/no-go + follow-up ticket
-outline if go._
+**Decision: adapter.** The prototype (`beads-change-store.spike.ts`) proves the
+`ChangeStore` seam is sufficient: a `bd`-backed `readTaskList`/`getStatus`/
+`validateChange` renders the markdown shape `buildTaskPrompt` already consumes,
+so `loop.ts`, `tasks-md.ts`, and the flow machine stay untouched and the prompt
+the worker sees is unchanged. A native rewrite (teaching `loop.ts` to consume
+`bd ready --json` directly) buys nothing the adapter doesn't already deliver and
+forfeits the ability to A/B the two backends or fall back to markdown. The one
+genuinely native win — dropping `normalizeNewlyAppendedSection` — can be taken
+later once bd is the sole backend; it is not a reason to skip the adapter step.
+
+### 2. OpenSpec spec artifacts — **Keep OpenSpec; scope bd to tasks only** ✅ confirmed
+
+bd has no concept of `proposal.md` / `design.md` / `specs/`, and
+`deriveOpenSpecPhase` still needs the OpenSpec change dir to exist. Confirmed:
+the change dir stays, bd backs **only** the task checklist. The prototype's
+`getChangeDirectory` still returns `openspec/changes/<name>`. This also fixes the
+JSONL-commit gap pragmatically: because the OpenSpec dir is already committed by
+the worker, the implementation ticket should make the adapter run an explicit
+`bd export` and stage `.beads/*.jsonl` in that same individual-file commit — the
+gitignored Dolt store is treated as a rebuildable cache, the JSONL as the
+durable, git-tracked source of truth.
+
+### 3. Linear relationship — **bd is local sub-task SoT; Linear stays human layer; no bd↔Linear sync**
+
+bd's built-in Linear sync (the source of the `⚠ Linear data has never been
+pulled` nag on nearly every command) is **not** adopted. Ralphy already owns the
+Linear integration at the issue level; bd's sync would create a second,
+competing writer to Linear and a confusing two-way merge. Decision: bd is the
+source of truth for _intra-change sub-tasks_ only; Linear remains the
+human-facing issue layer fed by Ralphy's existing path. The implementation ticket
+must **suppress/ignore the Linear-sync nag** (it goes to stderr, not inside
+`--json`, so it is filterable) and must not run `bd linear sync`.
+
+### 4. Flow/preemption modeling — **Keep the XState flow machine; bd only models the checklist**
+
+The flow machine (`flow.machine.ts`) stays the authoritative stop/flow logic per
+CLAUDE.md — the spike does not move preemption _decisions_ into bd. What bd
+models is the _checklist representation_ of a flow task: when the machine decides
+a CI-fix is needed, the adapter's `prependFixTask` equivalent creates a `-p 0`
+bead that `blocks` mission work, and `bd ready` then surfaces it first (verified
+✅). So: machine decides _when_ to preempt; bd's priority+`blocks` graph
+_represents_ the preemption so selection stays a pure `bd ready` read. This keeps
+the single source of truth for flow logic where CLAUDE.md mandates it.
+
+### 5. `bd` binary dependency — **Acceptable only with a preflight + shared-server topology; this is the gating risk**
+
+The footprint assumption did **not** hold: bd 1.0.5 pulls in Dolt + icu4c
+(~250 MB+), not a lightweight static binary, and embedded mode is **lossy under
+Ralphy's worktree fan-out** (silent empty output when short-lived Dolt engines
+contend for the file lock). Acceptable **conditionally**: (a) a preflight check
+mirroring the Bun preflight that fails fast with an install story if `bd` is
+absent/incompatible, and (b) running a **single long-lived `bd` server**
+(`bd init --server` / dolt sql-server) so writes serialise through one engine
+instead of N processes fighting a file lock. Without the shared server the
+backend is not safe for parallel workers. This is the load-bearing condition on
+the whole "go".
+
+## Recommendation: **conditional GO (adapter, behind a flag, server topology required)**
+
+**Go** — the core thesis holds: every `tasks-md.ts` selection primitive has a
+verified clean `bd` equivalent, the `ChangeStore` seam absorbs bd with zero loop
+changes (prototype + parity test prove it), concurrent worktrees share one
+main-repo store race-safely, and an entire class of file-clobber bugs
+(`normalizeNewlyAppendedSection`) disappears.
+
+**Conditional** — the go is gated on three things the spike surfaced, none of
+which are graph-expressiveness problems; all are operational:
+
+1. **Run bd as a shared server, not embedded per-call.** Embedded mode drops
+   results under fan-out contention. This is non-negotiable for parallel workers.
+2. **Never infer completion from empty `bd ready`.** Use the retried
+   open-children count (already implemented in the prototype's `getStatus`).
+3. **Add a `bd` preflight + own the JSONL commit.** Fail fast if `bd` is missing;
+   export-and-stage `.beads/*.jsonl` in the worker's individual-file commits so
+   DB state and git never drift.
+
+If any of the three cannot be met, the recommendation flips to **no-go** — the
+markdown backend, for all its fragility, does not silently lose a task under
+load.
+
+### Follow-up implementation ticket outline (if go proceeds)
+
+**RLF-NNN — Implement `BeadsChangeStore` as an opt-in task backend (server topology)**
+
+- **Scope:** Promote the throwaway prototype to a real package
+  (`packages/beads/` consuming `@ralphy/change-store`), wired in _behind a
+  feature flag / config_, default still `OpenSpecChangeStore`. No removal of
+  `tasks-md.ts`.
+- **Read-path:** Port `readTaskList`/`getStatus`/`validateChange` from the spike;
+  keep the open-children completion rule and the silent-empty retry/backoff.
+- **Write-path (the new work):** Implement `writeTaskList` completion as
+  `bd close <id> --reason`, `prependFixTask` as create-`-p 0`-then-`dep add`-
+  then-verify, and `appendSteering` headline→bead. Own `bd export` + individual
+  staged commit of `.beads/*.jsonl`.
+- **Topology:** Stand up/health-check a single `bd` server for the run; route all
+  worktree workers through it. Add a `bd` preflight (mirror the Bun preflight)
+  with an install story (`brew install beads`, server bootstrap), and a scoped,
+  non-interactive `.beads/` init that does **not** clobber Ralphy's `CLAUDE.md` /
+  `.claude/` / hooks.
+- **Migration:** One-shot importer that reads existing `tasks.md` checkboxes into
+  an epic+children bead graph for in-flight changes.
+- **Flow integration:** Have the XState flow machine's preemption actions call
+  the adapter's flow-bead path; the machine stays the source of truth for _when_.
+- **Validation gate:** Run the existing loop end-to-end against the bd backend on
+  a throwaway change under simulated two-worktree contention; assert no
+  double-claim, no dropped task, no DB/JSONL drift across a full run.
+- **Out of scope:** bd↔Linear sync, removing the markdown backend, native
+  `loop.ts` consumption of `bd ready`.
