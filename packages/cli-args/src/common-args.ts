@@ -275,3 +275,20 @@ export async function resolvePromptFile(args: CommonArgs, state: ParseState): Pr
     args.prompt = await Bun.file(state.promptFilePath).text();
   }
 }
+
+/**
+ * Parse only the WORKFLOW.md path overrides (`--project-root`, `--workflow`)
+ * from an argv slice, ignoring every other token. For entrypoints that need
+ * the target file path without a full parse — e.g. `ralphy init` and the shell
+ * first-run wizard hook — so they resolve the path identically to the loop /
+ * agent / task CLIs (`--workflow` absolute, `--project-root` raw).
+ */
+export function parseWorkflowPathArgs(argv: string[]): {
+  projectRoot: string | undefined;
+  workflowFile: string | undefined;
+} {
+  const args = initialCommonArgs();
+  const state = emptyParseState();
+  for (const token of argv) parseCommonArg(token, args, state);
+  return { projectRoot: args.projectRoot, workflowFile: args.workflowFile };
+}
