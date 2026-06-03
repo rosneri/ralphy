@@ -67,6 +67,50 @@ export function retroDepEntry(
   return agentDebug ? { runRetrospective: hook } : {};
 }
 
+/**
+ * Decide whether the exit handler should open a PR. A PR is wanted only when
+ * the base intent is set (`--create-pr` / `createPrOnSuccess`) and the change
+ * is not parked awaiting a human — either reaped into `awaitingChangeSet` or
+ * flagged by the coordinator's `isAwaitingConfirmation`. Pure; exported for
+ * unit testing the decision in isolation.
+ */
+export function computeWantPr(
+  wantPrBase: boolean,
+  isAwaiting: boolean,
+  isAwaitingConfirmation: boolean,
+): boolean {
+  return wantPrBase && !isAwaiting && !isAwaitingConfirmation;
+}
+
+/**
+ * Decide whether the exit handler should run validate-only post-task. True
+ * only when the worker dropped a `specs/validate.md` and there is no PR intent
+ * (a PR run supersedes a validate-only run). Pure; exported for unit testing.
+ */
+export function computeWantValidateOnly(hasValidateSpec: boolean, wantPrBase: boolean): boolean {
+  return hasValidateSpec && !wantPrBase;
+}
+
+/** The four per-change maps the wire layer threads into each spawn worker. */
+export interface WorkerChangeMaps {
+  cwdByChange: Map<string, string>;
+  statesDirByChange: Map<string, string>;
+  branchByChange: Map<string, string>;
+  issueByChange: Map<string, LinearIssue>;
+}
+
+/**
+ * Release every per-change map entry for a finished change. Centralizes the
+ * four `.delete(changeName)` calls so the exit handler can't drift out of sync
+ * (e.g. add a fifth map and forget one). Exported for unit testing.
+ */
+export function releaseWorkerMaps(maps: WorkerChangeMaps, changeName: string): void {
+  maps.cwdByChange.delete(changeName);
+  maps.statesDirByChange.delete(changeName);
+  maps.branchByChange.delete(changeName);
+  maps.issueByChange.delete(changeName);
+}
+
 export type WorkerPhase = PostTaskPhase | "working" | "scaffolding";
 
 interface SpawnWorkerInput {
@@ -157,6 +201,11 @@ export function createSpawnWorker(
     onWorkerOutput,
     onWorkerCmd,
   } = input;
+
+  // The post-task pipeline is the one side-effecting collaborator that can't
+  // be reached through a runner fake otherwise. Resolve it once: production
+  // gets the real import; tests inject a capturing fake.
+  const doPostTask = input.runners?.runPostTask ?? runPostTask;
 
   function buildTaskCmdFor(changeName: string): string[] {
     const engine = args.engineSet ? args.engine : cfg.engine;
@@ -323,7 +372,7 @@ export function createSpawnWorker(
       // Detect per-task validation indicator: worker AI creates specs/validate.md during design.
       const validateSpecPath = join(workerLayout.changeDir(changeName), "specs", "validate.md");
       const hasValidateSpec = await Bun.file(validateSpecPath).exists();
-      const wantValidateOnly = hasValidateSpec && !wantPrBase;
+      const wantValidateOnly = computeWantValidateOnly(hasValidateSpec, wantPrBase);
       if (hasValidateSpec) {
         try {
           const stateFile = workerLayout.stateFile(changeName);
@@ -386,11 +435,12 @@ export function createSpawnWorker(
       } catch (err) {
         diag("tasks", `! tasks.md normalization failed: ${(err as Error).message}`, "yellow");
       }
-      const wantPr =
-        wantPrBase &&
-        !awaitingChangeSet.has(changeName) &&
-        !(coordRef.current?.isAwaitingConfirmation(changeName) ?? false);
-      const effectiveCode = await runPostTask(
+      const wantPr = computeWantPr(
+        wantPrBase,
+        awaitingChangeSet.has(changeName),
+        coordRef.current?.isAwaitingConfirmation(changeName) ?? false,
+      );
+      const effectiveCode = await doPostTask(
         {
           ...(trigger ? { mode: trigger as PostTaskMode } : {}),
           ...(prByChange?.get(changeName) ? { prUrl: prByChange.get(changeName)! } : {}),
@@ -484,10 +534,10 @@ export function createSpawnWorker(
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
         },
       );
-      cwdByChange.delete(changeName);
-      statesDirByChange.delete(changeName);
-      branchByChange.delete(changeName);
-      issueByChange.delete(changeName);
+      releaseWorkerMaps(
+        { cwdByChange, statesDirByChange, branchByChange, issueByChange },
+        changeName,
+      );
       onWorkerExited(changeName);
       return effectiveCode;
     });
