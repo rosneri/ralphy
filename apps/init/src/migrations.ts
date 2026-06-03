@@ -65,6 +65,14 @@ export const MIGRATIONS: Migration[] = [
       "meant unassigned-only).",
     fields: ["linear.filter"],
   },
+  {
+    version: 4,
+    description:
+      "A new additive `setPrReady` Linear indicator marks a ticket the moment its " +
+      "PR is human-mergeable (ready, non-draft), layered on top of `setDone`. " +
+      "Re-run the indicator builder to add it, or keep your current indicators.",
+    fields: ["linear.indicators"],
+  },
 ];
 
 /** The highest version any migration lands on. Asserted to equal CURRENT. */

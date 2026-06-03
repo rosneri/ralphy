@@ -12,7 +12,7 @@ import { fieldsForMode } from "@ralphy/workflow/fields";
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
     expect(LATEST_MIGRATION_VERSION).toBe(CURRENT_WORKFLOW_VERSION);
-    expect(CURRENT_WORKFLOW_VERSION).toBe(3);
+    expect(CURRENT_WORKFLOW_VERSION).toBe(4);
   });
 
   test("version 2 introduces repo.link", () => {
@@ -23,6 +23,11 @@ describe("migrations registry", () => {
   test("version 3 introduces linear.filter", () => {
     const v3 = MIGRATIONS.find((m) => m.version === 3);
     expect(v3?.fields).toContain("linear.filter");
+  });
+
+  test("version 4 offers the indicators block (for the new setPrReady marker)", () => {
+    const v4 = MIGRATIONS.find((m) => m.version === 4);
+    expect(v4?.fields).toContain("linear.indicators");
   });
 
   test("every migration field id exists in the customized catalogue", () => {

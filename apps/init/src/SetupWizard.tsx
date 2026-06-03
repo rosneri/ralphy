@@ -890,7 +890,7 @@ interface IndicatorState {
   slots: string[];
 }
 
-const CORE_STATES: IndicatorState[] = [
+export const CORE_STATES: IndicatorState[] = [
   {
     key: "todo",
     label: "Todo (pickup)",
@@ -908,6 +908,13 @@ const CORE_STATES: IndicatorState[] = [
     label: "Done / in review",
     description: "Set when the task finishes and its pull request is opened.",
     slots: ["setDone"],
+  },
+  {
+    key: "prReady",
+    label: "PR ready",
+    description:
+      "Optional, additive: set when the PR is marked ready for human review (non-draft), layered on top of Done. Skipped only on the immediate non-draft auto-merge path.",
+    slots: ["setPrReady"],
   },
   {
     key: "error",
