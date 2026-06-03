@@ -81,6 +81,7 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
   const applied: AppliedLog = {
     setInProgress: [],
     setDone: [],
+    setPrReady: [],
     setError: [],
     clearReview: [],
   };
@@ -90,6 +91,10 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     const labels = markers.filter((m) => m.type === "label").map((m) => m.value.toLowerCase());
     const statuses = markers.filter((m) => m.type === "status").map((m) => m.value.toLowerCase());
     if (statuses.includes("done") || labels.includes("ralphy:done")) return "setDone";
+    // setPrReady is content-distinguished and MUST be checked before the broad
+    // setInProgress fallback so its "in review" / "ralphy:pr-ready" marker is
+    // not mis-bucketed.
+    if (statuses.includes("in review") || labels.includes("ralphy:pr-ready")) return "setPrReady";
     if (statuses.includes("in progress") || labels.includes("ralphy:in-progress")) {
       return "setInProgress";
     }

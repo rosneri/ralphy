@@ -102,6 +102,9 @@ linear:
     # setDone:           # status/label to set when the PR is opened
     #   type: status
     #   value: In Review
+    # setPrReady:        # additive: marker set when the PR is ready for human review
+    #   type: status     # (fires unless the PR is auto-merged immediately; does not replace setDone)
+    #   value: In Review
     # setError:          # label applied when a task is quarantined
     #   type: label
     #   value: "ralph:error"

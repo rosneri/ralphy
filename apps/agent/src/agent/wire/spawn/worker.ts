@@ -29,7 +29,9 @@ import { waitForMergeability } from "../../../shared/pr/wait-for-mergeability";
 import { agentRunStatePath } from "../../state/agent-run-state";
 import { runRetrospective, type RetroContext } from "@ralphy/retro";
 import { runEngine } from "@ralphy/engine/engine";
-import type { Indicators } from "@ralphy/types";
+import type { Indicators, SetIndicator } from "@ralphy/types";
+import type { Bus } from "@ralphy/events";
+import { emitCapture } from "../../../runtime/coordinator";
 
 /** Local `YYYY-MM-DD` for the retrospective filename + dedupe key. */
 function localDateStamp(d: Date): string {
@@ -78,6 +80,12 @@ interface SpawnWorkerInput {
   indicators: Indicators;
   cmdRunner: CmdRunner;
   gitRunner: GitRunner;
+  /** Apply a Linear set-indicator. Used to wire the additive `setPrReady`
+   *  marker from the PR phase (`onPrReady`). */
+  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  /** Event bus — used to capture `agent_indicator_failed` when a `setPrReady`
+   *  write throws, mirroring the coordinator's `setDone` failure handling. */
+  bus: Bus;
   onLog: (text: string, color?: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   runners: AgentRunners | undefined;
@@ -129,6 +137,8 @@ export function createSpawnWorker(
     indicators,
     cmdRunner,
     gitRunner,
+    applyIndicator,
+    bus,
     onLog,
     diag,
     runners,
@@ -424,6 +434,31 @@ export function createSpawnWorker(
           runScript,
           ...retroDepEntry(args.agentDebug, runRetrospectiveHook),
           registerPr: (cn, url) => onPrRegistered(cn, url),
+          ...(issueForChange && indicators.setPrReady
+            ? {
+                onPrReady: async () => {
+                  const issue = issueForChange;
+                  const marker = indicators.setPrReady!;
+                  try {
+                    await applyIndicator(issue, marker);
+                    onLog(`  ${issue.identifier}: setPrReady applied`, "gray");
+                  } catch (err) {
+                    onLog(
+                      `! Linear setPrReady failed for ${issue.identifier}: ${(err as Error).message}`,
+                      "yellow",
+                    );
+                    // Mirror the coordinator's setDone failure capture — never
+                    // rethrow: a Linear write failure must not change the run's
+                    // exit code.
+                    emitCapture(bus, "agent_indicator_failed", {
+                      indicator: "setPrReady",
+                      issue_identifier: issue.identifier,
+                      error: (err as Error).message,
+                    });
+                  }
+                },
+              }
+            : {}),
           ...(onWorkerPhase && {
             onPhase: (phase: PostTaskPhase, detail?: string) =>
               onWorkerPhase(changeName, phase, detail),

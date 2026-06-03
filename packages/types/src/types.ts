@@ -265,6 +265,15 @@ export interface Indicators {
   setInProgress?: SetIndicator;
   /** Marker(s) applied on clean success. */
   setDone?: SetIndicator;
+  /** Marker(s) applied when a PR reaches a human-mergeable ("ready") state.
+   *  Additive to {@link setDone}: it does not replace or suppress it — a single
+   *  clean run can apply both. Fires from the PR phase the moment the PR is
+   *  pushed, opened/surfaced, CI-green, and in (or converted to) a non-draft
+   *  ready state, EXCEPT on the immediate non-draft auto-merge path
+   *  (`wantAutoMerge && !prDraft`) where the PR never sits in a reviewable
+   *  state. Non-terminal: does not exclude the issue from the todo pool and
+   *  does not clear {@link setInProgress}. */
+  setPrReady?: SetIndicator;
   /** Marker(s) applied on non-zero exit (quarantine signal). */
   setError?: SetIndicator;
   /** Issues that the human has explicitly approved (confirmation gate). */

@@ -114,6 +114,13 @@ describe("agent parseArgs", () => {
     ]);
   });
 
+  test("--indicator setPrReady is a set-indicator, not a get-indicator (RLF-214)", async () => {
+    const result = await parseArgs(["--indicator", "setPrReady:status:In Review"]);
+    // populated as a set-indicator (SetIndicator marker), NOT a GetIndicator { filter }
+    expect(result.indicators.setPrReady).toEqual({ type: "status", value: "In Review" });
+    expect(result.indicators.getTodo).toBeUndefined();
+  });
+
   test("indicators default to empty object", async () => {
     const result = await parseArgs([]);
     expect(result.indicators).toEqual({});

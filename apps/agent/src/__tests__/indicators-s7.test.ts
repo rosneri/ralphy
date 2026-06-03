@@ -51,4 +51,17 @@ describe("indicators S7 — issueMatchesGetIndicator filter semantics", () => {
     expect(result.getTodo?.filter).toEqual([{ type: "status", value: "cli-status" }]);
     expect(result.getTodo?.filter.some((m) => m.value === "cfg-label")).toBe(false);
   });
+
+  test("RLF-214: mergeIndicators carries setPrReady from config", () => {
+    const cfg = { setPrReady: { type: "status" as const, value: "In Review" } };
+    const result = mergeIndicators(cfg, {});
+    expect(result.setPrReady).toEqual({ type: "status", value: "In Review" });
+  });
+
+  test("RLF-214: mergeIndicators CLI override carries setPrReady", () => {
+    const cfg = { setPrReady: { type: "status" as const, value: "Config Review" } };
+    const cli = { setPrReady: { type: "label" as const, value: "ralphy:pr-ready" } };
+    const result = mergeIndicators(cfg, cli);
+    expect(result.setPrReady).toEqual({ type: "label", value: "ralphy:pr-ready" });
+  });
 });

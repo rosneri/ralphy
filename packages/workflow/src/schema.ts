@@ -24,7 +24,13 @@ const MarkerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("comment"), value: z.string().min(1) }).strict(),
 ]);
 
-const SET_INDICATOR_KEYS = ["setInProgress", "setDone", "setError", "clearApproved"] as const;
+const SET_INDICATOR_KEYS = [
+  "setInProgress",
+  "setDone",
+  "setPrReady",
+  "setError",
+  "clearApproved",
+] as const;
 
 const GetIndicatorSchema = z.object({
   filter: z.array(MarkerSchema).default([]),
@@ -46,6 +52,7 @@ const IndicatorsSchema = z.preprocess(
       getAutoApprove: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
+      setPrReady: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setAwaitingConfirmation: SetIndicatorSchema.optional(),
       clearApproved: SetIndicatorSchema.optional(),

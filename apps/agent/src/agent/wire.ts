@@ -263,6 +263,8 @@ export function buildAgentCoordinator(
     indicators,
     cmdRunner,
     gitRunner,
+    applyIndicator: resolvers.applyIndicator,
+    bus,
     onLog,
     diag,
     runners: input.runners,

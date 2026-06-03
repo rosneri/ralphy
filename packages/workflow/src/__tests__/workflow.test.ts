@@ -65,6 +65,24 @@ describe("parseWorkflow", () => {
     ).toThrow(/setDone.*comment/);
   });
 
+  test("setPrReady status marker parses (RLF-214)", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    setPrReady:\n      type: status\n      value: "In Review"\n---\n`,
+    );
+    expect(config.linear.indicators.setPrReady).toEqual({
+      type: "status",
+      value: "In Review",
+    });
+  });
+
+  test("comment marker in setPrReady is rejected naming the slot (RLF-214)", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    setPrReady:\n      type: comment\n      value: "ralph go"\n---\n`,
+      ),
+    ).toThrow(/setPrReady.*comment/);
+  });
+
   test("comment marker with empty value is rejected", () => {
     expect(() =>
       parseWorkflow(
