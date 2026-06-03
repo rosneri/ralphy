@@ -9,8 +9,9 @@ import type {
   WizardValue,
 } from "@ralphy/workflow/wizard-types";
 import {
-  AWAITING_STATUS_FIELD_ID,
   fieldsForMode,
+  LINEAR_ASSIGNEE_CHOICE_FIELD_ID,
+  LINEAR_ASSIGNEE_VALUE_FIELD_ID,
   PROMPT_BODY_FIELD_ID,
   REPO_LINK_FIELD_ID,
   type Field,
@@ -32,9 +33,9 @@ const MODE_OPTIONS: Option[] = [
 
 const INDICATOR_OPTIONS: Option[] = [
   { label: "None — configure later in WORKFLOW.md", value: "none" },
-  { label: "Status-based (Todo → In Progress → In Review)", value: "status-standard" },
-  { label: "Label-based (ralph:todo / in-progress / done)", value: "label-standard" },
-  { label: "Custom — build markers per lifecycle slot", value: "custom" },
+  { label: "Status-based preset (Todo → In Progress → In Review)", value: "status-standard" },
+  { label: "Label-based preset (ralph:todo / in-progress / done)", value: "label-standard" },
+  { label: "Custom — open a guided builder (enter opens it)", value: "custom" },
 ];
 
 const CONFIRM_OPTIONS: Option[] = [
@@ -67,6 +68,29 @@ export function buildFromAnswers(
   build: (answers: WizardAnswers, bodyOverride?: string) => string = buildWorkflowMarkdown,
 ): string {
   const values: Answers = { ...answers };
+  // Concurrency > 1 requires isolated worktrees so parallel tasks don't share
+  // (and clobber) one working copy. Force it on — the wizard hides the worktree
+  // toggle once concurrency > 1, and the runtime enforces the same invariant.
+  const concurrencyValue = values["concurrency"];
+  if (typeof concurrencyValue === "number" && concurrencyValue > 1) {
+    values["useWorktree"] = true;
+  }
+  // Compose the assignee select (+ optional specific-user value) into the single
+  // `linear.filter` expression. The choice/value are control fields, never
+  // written as frontmatter keys.
+  const assigneeChoice = values[LINEAR_ASSIGNEE_CHOICE_FIELD_ID];
+  if (typeof assigneeChoice === "string") {
+    let assignee: string | undefined;
+    if (assigneeChoice === "other") {
+      const raw = values[LINEAR_ASSIGNEE_VALUE_FIELD_ID];
+      assignee = typeof raw === "string" && raw.trim() !== "" ? raw.trim() : undefined;
+    } else {
+      assignee = assigneeChoice; // me / any / unassigned
+    }
+    if (assignee) values["linear.filter"] = `assignee = ${assignee}`;
+  }
+  delete values[LINEAR_ASSIGNEE_CHOICE_FIELD_ID];
+  delete values[LINEAR_ASSIGNEE_VALUE_FIELD_ID];
   if ("linear.indicators" in values) {
     const indicators = resolveIndicators(values["linear.indicators"]);
     if (indicators) values["linear.indicators"] = indicators;
@@ -90,34 +114,39 @@ export function buildFromAnswers(
       values["linear.indicators"] = map;
     }
   }
-  // Park-status answer (a control field): when the gate is on and a status name
-  // was given, move awaiting-approval tickets to that status
-  // (`setAwaitingConfirmation`) and ensure it is in `getInProgress`. A parked
-  // ticket's worker is killed and re-discovered only through the in-progress
-  // poll, so the park status MUST be a pickup filter or the `approved` label is
-  // never seen. On release the agent re-asserts `setInProgress`, so the ticket
-  // returns to In Progress for implementation rather than coding under the park
-  // status. Only augments an indicators map already being written.
-  const parkStatusRaw = values[AWAITING_STATUS_FIELD_ID];
-  const parkStatus = typeof parkStatusRaw === "string" ? parkStatusRaw.trim() : "";
+  // Park-status pollability: the awaiting-confirmation park marker is now set in
+  // the Linear lifecycle indicators (`setAwaitingConfirmation`), not as a
+  // separate question. When the gate is on and that marker is a status, the
+  // parked ticket's worker is killed and re-discovered only through the
+  // in-progress poll — so the park status MUST also be a `getInProgress` pickup
+  // filter or the `approved` label is never seen. Wire it in automatically. Only
+  // augments an indicators map already being written.
   if (
     values["linear.confirmationMode.enabled"] === true &&
-    parkStatus &&
     values["linear.indicators"] &&
     typeof values["linear.indicators"] === "object"
   ) {
     const map: IndicatorMap = { ...(values["linear.indicators"] as IndicatorMap) };
-    map.setAwaitingConfirmation = { type: "status", value: parkStatus };
-    const existing = map.getInProgress;
-    const filter: IndicatorMarker[] =
-      existing && !Array.isArray(existing) && "filter" in existing ? [...existing.filter] : [];
-    if (!filter.some((m) => m.type === "status" && m.value === parkStatus)) {
-      filter.push({ type: "status", value: parkStatus });
+    const awaiting = map.setAwaitingConfirmation;
+    const parkMarker = Array.isArray(awaiting)
+      ? awaiting.find((marker) => marker.type === "status")
+      : awaiting;
+    if (
+      parkMarker &&
+      !Array.isArray(parkMarker) &&
+      "type" in parkMarker &&
+      parkMarker.type === "status"
+    ) {
+      const existing = map.getInProgress;
+      const filter: IndicatorMarker[] =
+        existing && !Array.isArray(existing) && "filter" in existing ? [...existing.filter] : [];
+      if (!filter.some((marker) => marker.type === "status" && marker.value === parkMarker.value)) {
+        filter.push({ type: "status", value: parkMarker.value });
+        map.getInProgress = { filter };
+        values["linear.indicators"] = map;
+      }
     }
-    map.getInProgress = { filter };
-    values["linear.indicators"] = map;
   }
-  delete values[AWAITING_STATUS_FIELD_ID];
   // `repo.link` is a control answer, not a frontmatter key. When confirmed, the
   // injected `repo.*` identity is written; when declined (or never shown), the
   // identity is dropped so no `repo` block is emitted. Either way the control
@@ -229,6 +258,12 @@ interface SetupWizardProps {
   initialBody?: string;
   /** Detected git repo, surfaced above the `repo.link` step. */
   detectedRepo?: { owner: string; name: string };
+  /**
+   * Called whenever the user advances or navigates between questions, with the
+   * committed answers so far — used to back the in-progress session up to disk
+   * so an accidental exit can be resumed.
+   */
+  onAnswersChange?: (state: { mode: SetupMode; values: Answers }) => void;
 }
 
 export function SetupWizard({
@@ -240,6 +275,7 @@ export function SetupWizard({
   onlyFields,
   initialBody,
   detectedRepo,
+  onAnswersChange,
 }: SetupWizardProps) {
   const { exit } = useApp();
   const startValues = initialValues ?? {};
@@ -313,6 +349,7 @@ export function SetupWizard({
     setAnswers(source);
     setIndex(target);
     initEditing(fieldsFor(mode!, source)[target]!, source);
+    onAnswersChange?.({ mode: mode!, values: source });
   };
 
   // In diff mode we prefill every config value so gating works, but only the
@@ -356,6 +393,7 @@ export function SetupWizard({
           setIndex(0);
           setVisited(new Set([fieldsFor(chosen, answers)[0]!.id]));
           initEditing(fieldsFor(chosen, answers)[0]!, answers);
+          onAnswersChange?.({ mode: chosen, values: answers });
         }
         return;
       }
@@ -565,7 +603,7 @@ function hintFor(kind: FieldSpec["kind"]): string {
     return `↑↓ to switch · enter to confirm and continue · ${nav}`;
   }
   if (kind === "multiselect") {
-    return `↑↓ to move · space to toggle · enter to confirm and continue · ${nav}`;
+    return `↑↓ to move · space to select · enter to confirm · ${nav}`;
   }
   if (kind === "list") {
     return `type + enter to add · empty enter to finish · ${nav}`;
@@ -782,6 +820,31 @@ function ChoicePrompt<Value extends string>({
         <Text dimColor>↑↓ to move · enter to choose · esc to exit</Text>
       </Box>
     </Box>
+  );
+}
+
+const RESUME_FRESH_OPTIONS: { label: string; value: "resume" | "fresh" }[] = [
+  { label: "Resume where I left off", value: "resume" },
+  { label: "Start fresh (discard the saved answers)", value: "fresh" },
+];
+
+/**
+ * Shown by `ralphy init` when a backed-up, unfinished setup session is found
+ * (`~/.ralph/setup.tmp`). Esc resolves to the LAST option ("fresh"), so an
+ * accidental escape starts clean rather than silently reusing stale answers.
+ */
+export function ResumeOrFreshPrompt({
+  onChoice,
+}: {
+  onChoice: (choice: "resume" | "fresh") => void;
+}) {
+  return (
+    <ChoicePrompt
+      title="Unfinished setup found"
+      subtitle="A previous setup session was interrupted — resume it or start over"
+      options={RESUME_FRESH_OPTIONS}
+      onChoice={onChoice}
+    />
   );
 }
 
@@ -1084,8 +1147,14 @@ export function IndicatorBuilder({
         <Text color="cyan">◆ </Text>
         <Text bold>Linear indicators</Text>
         <Text dimColor>
-          {"  ·  "}
-          {state.label} · {stateIndex + 1}/{states.length}
+          {"  ·  step "}
+          {stateIndex + 1}/{states.length}
+        </Text>
+      </Text>
+      <Text>
+        {"  Configuring: "}
+        <Text bold color="cyan">
+          {state.label}
         </Text>
       </Text>
       <Text dimColor>
@@ -1099,7 +1168,9 @@ export function IndicatorBuilder({
       <Box marginTop={1} marginLeft={2} flexDirection="column">
         {phase === "type" ? (
           <>
-            <Text>Choose a marker type for this state (or skip):</Text>
+            <Text>
+              Choose a marker type for <Text bold>{state.label}</Text> (or skip):
+            </Text>
             <OptionList options={typeChoices} highlight={typeIndex} />
             <Text dimColor>↑↓ to move · enter to choose · esc to cancel</Text>
           </>

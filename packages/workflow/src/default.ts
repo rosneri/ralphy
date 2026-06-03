@@ -53,13 +53,14 @@ maxConsecutiveFailuresPerTask: 5
 
 engine: claude
 model: opus
-logRawStream: false
+logRawStream: true
 taskVerbose: false
 
 useWorktree: false
 cleanupWorktreeOnSuccess: false
 
 createPrOnSuccess: false
+prDraft: true
 prBaseBranch: main
 stackPrsOnDependencies: false
 autoMergeStrategy: squash
@@ -112,6 +113,10 @@ linear:
     #   filter:
     #     - type: label
     #       value: "ralph:auto-merge"
+
+openspec:
+  reviewPhase:
+    enabled: true
 ---
 You are working on {{ issue.identifier }}: {{ issue.title }}.
 

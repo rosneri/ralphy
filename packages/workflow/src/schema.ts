@@ -182,7 +182,7 @@ export const WorkflowConfigSchema = z.object({
   maxRuntimeMinutesPerTask: z.number().nonnegative().default(0),
   maxConsecutiveFailuresPerTask: z.number().int().nonnegative().default(5),
   iterationDelaySeconds: z.number().int().nonnegative().default(0),
-  logRawStream: z.boolean().default(false),
+  logRawStream: z.boolean().default(true),
   taskVerbose: z.boolean().default(false),
   enableManualTest: z.boolean().default(false),
   useWorktree: z.boolean().default(false),

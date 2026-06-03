@@ -10,7 +10,7 @@ import {
   buildWorkflowMarkdown,
   indicatorsForPreset,
 } from "@ralphy/workflow/wizard";
-import { AWAITING_STATUS_FIELD_ID, fieldsForMode } from "@ralphy/workflow/fields";
+import { fieldsForMode } from "@ralphy/workflow/fields";
 import {
   SetupWizard,
   EditOrExitPrompt,
@@ -30,7 +30,7 @@ describe("fieldsForMode", () => {
     expect(fieldsForMode("quick").map((f) => f.id)).toEqual([
       "project.name",
       "linear.team",
-      "linear.filter",
+      "linear.assigneeChoice",
     ]);
     expect(fieldsForMode("permissive").map((f) => f.id)).toEqual(
       fieldsForMode("quick").map((f) => f.id),
@@ -302,6 +302,74 @@ describe("SetupWizard render", () => {
   });
 });
 
+describe("buildFromAnswers — concurrency forces worktrees", () => {
+  test("concurrency > 1 turns useWorktree on even when unanswered", () => {
+    const md = buildFromAnswers("customized", { "project.name": "svc", concurrency: 3 });
+    const { config } = parseWorkflow(md);
+    expect(config.concurrency).toBe(3);
+    expect(config.useWorktree).toBe(true);
+  });
+
+  test("concurrency 1 leaves useWorktree untouched", () => {
+    const md = buildFromAnswers("customized", { "project.name": "svc", concurrency: 1 });
+    expect(parseWorkflow(md).config.useWorktree).toBe(false);
+  });
+
+  test("the worktree question is hidden once concurrency > 1", () => {
+    expect(fieldsForMode("customized", { concurrency: 2 }).map((f) => f.id)).not.toContain(
+      "useWorktree",
+    );
+    expect(fieldsForMode("customized", { concurrency: 1 }).map((f) => f.id)).toContain(
+      "useWorktree",
+    );
+  });
+
+  test("worktree setup/teardown scripts only appear once worktrees are on", () => {
+    const off = fieldsForMode("customized", {}).map((f) => f.id);
+    expect(off).not.toContain("setupScript");
+    expect(off).not.toContain("teardownScript");
+    const onByChoice = fieldsForMode("customized", { useWorktree: true }).map((f) => f.id);
+    expect(onByChoice).toContain("setupScript");
+    expect(onByChoice).toContain("teardownScript");
+    const onByConcurrency = fieldsForMode("customized", { concurrency: 4 }).map((f) => f.id);
+    expect(onByConcurrency).toContain("setupScript");
+    expect(onByConcurrency).toContain("teardownScript");
+  });
+});
+
+describe("buildFromAnswers — Linear assignee filter", () => {
+  test("a keyword choice composes the assignee clause", () => {
+    for (const choice of ["me", "any", "unassigned"]) {
+      const md = buildFromAnswers("customized", {
+        "project.name": "svc",
+        "linear.assigneeChoice": choice,
+      });
+      expect(parseWorkflow(md).config.linear.filter).toBe(`assignee = ${choice}`);
+    }
+  });
+
+  test("a specific user composes from the freetext value", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.assigneeChoice": "other",
+      "linear.assigneeValue": "dev@example.com",
+    });
+    expect(parseWorkflow(md).config.linear.filter).toBe("assignee = dev@example.com");
+    // The control fields never become frontmatter keys.
+    expect(md).not.toContain("assigneeChoice");
+    expect(md).not.toContain("assigneeValue");
+  });
+
+  test("a specific user with no value falls back to the default filter", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.assigneeChoice": "other",
+      "linear.assigneeValue": "   ",
+    });
+    expect(parseWorkflow(md).config.linear.filter).toBe("assignee = me");
+  });
+});
+
 describe("CORE_STATES", () => {
   test("offers the additive PR-ready state that owns only setPrReady", () => {
     const prReady = CORE_STATES.find((s) => s.key === "prReady");
@@ -537,12 +605,15 @@ describe("confirmation indicators in the wizard", () => {
   });
 });
 
-describe("awaiting-confirmation park status", () => {
-  test("a park status wires setAwaitingConfirmation and the getInProgress pickup", () => {
+describe("awaiting-confirmation park status (via indicators)", () => {
+  test("a status park marker is auto-added to the getInProgress pickup", () => {
     const md = buildFromAnswers("customized", {
-      "linear.indicators": "status-standard",
       "linear.confirmationMode.enabled": true,
-      [AWAITING_STATUS_FIELD_ID]: "Planned",
+      "linear.indicators": {
+        getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+        setInProgress: { type: "status", value: "In Progress" },
+        setAwaitingConfirmation: { type: "status", value: "Planned" },
+      },
     });
     const ind = parseWorkflow(md).config.linear.indicators;
     expect(ind.setAwaitingConfirmation).toEqual({ type: "status", value: "Planned" });
@@ -551,29 +622,25 @@ describe("awaiting-confirmation park status", () => {
     expect(ind.getInProgress?.filter).toContainEqual({ type: "status", value: "In Progress" });
     // Approval signal is still injected by the gate.
     expect(ind.getApproved?.filter).toContainEqual({ type: "label", value: "approved" });
-    // The control field never becomes a frontmatter key.
-    expect(md).not.toContain("awaitingStatus");
   });
 
-  test("a blank park status leaves indicators untouched and is not persisted", () => {
+  test("no park marker leaves the getInProgress pickup untouched", () => {
     const md = buildFromAnswers("customized", {
       "linear.indicators": "status-standard",
       "linear.confirmationMode.enabled": true,
-      [AWAITING_STATUS_FIELD_ID]: "   ",
     });
     const ind = parseWorkflow(md).config.linear.indicators;
     expect(ind.setAwaitingConfirmation).toBeUndefined();
     expect(ind.getInProgress?.filter).toEqual([{ type: "status", value: "In Progress" }]);
-    expect(md).not.toContain("awaitingStatus");
   });
 
-  test("the park-status step is gated on the confirmation toggle", () => {
-    expect(fieldsForMode("customized", {}).map((f) => f.id)).not.toContain(
-      AWAITING_STATUS_FIELD_ID,
+  test("the dedicated park-status question is gone (configured in indicators instead)", () => {
+    const all = fieldsForMode("customized", { "linear.confirmationMode.enabled": true }).map(
+      (f) => f.id,
     );
-    expect(
-      fieldsForMode("customized", { "linear.confirmationMode.enabled": true }).map((f) => f.id),
-    ).toContain(AWAITING_STATUS_FIELD_ID);
+    expect(all).not.toContain("linear.confirmationMode.awaitingStatus");
+    // The awaiting-confirmation state is offered by the indicator builder instead.
+    expect(CONFIRMATION_STATES.flatMap((s) => s.slots)).toContain("setAwaitingConfirmation");
   });
 });
 
@@ -624,7 +691,7 @@ describe("repo linking", () => {
     await tick();
     const plain = (lastFrame() ?? "").replace(/\x1b\[[0-9;]*m/g, "");
     expect(plain).toContain("Detected repo: acme/widgets");
-    expect(plain).toContain("Link this repository");
+    expect(plain).toContain("Record this repository");
     stdin.write(ENTER); // confirm (default Yes) -> complete
     await tick();
     unmount();

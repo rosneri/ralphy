@@ -7,7 +7,7 @@ import {
   pendingMigrations,
   needsMigration,
 } from "../migrations";
-import { fieldsForMode } from "@ralphy/workflow/fields";
+import { findField } from "@ralphy/workflow/fields";
 
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
@@ -20,9 +20,10 @@ describe("migrations registry", () => {
     expect(v2?.fields).toContain("repo.link");
   });
 
-  test("version 3 introduces linear.filter", () => {
+  test("version 3 introduces the Linear assignee filter", () => {
     const v3 = MIGRATIONS.find((m) => m.version === 3);
-    expect(v3?.fields).toContain("linear.filter");
+    expect(v3?.fields).toContain("linear.assigneeChoice");
+    expect(v3?.fields).toContain("linear.assigneeValue");
   });
 
   test("version 4 offers the indicators block (for the new setPrReady marker)", () => {
@@ -31,20 +32,12 @@ describe("migrations registry", () => {
   });
 
   test("every migration field id exists in the customized catalogue", () => {
-    // Reveal nested gated children by enabling every field to a fixpoint. Seed
-    // an injected repo identity so the `repo.link` step (gated on a detected
-    // repo, not a walkthrough toggle) is also revealed.
-    const known = new Set<string>();
-    const answers: Record<string, boolean | string> = { "repo.name": "widgets" };
-    for (let pass = 0; pass < 5; pass++) {
-      for (const field of fieldsForMode("customized", answers)) {
-        known.add(field.id);
-        answers[field.id] = true;
-      }
-    }
+    // A migration may reference a hidden field (one kept in the catalogue for
+    // its default/comment but never asked), so check catalogue membership via
+    // findField rather than walkthrough reachability.
     for (const migration of MIGRATIONS) {
       for (const id of migration.fields) {
-        expect(known.has(id)).toBe(true);
+        expect(findField(id)).toBeDefined();
       }
     }
   });

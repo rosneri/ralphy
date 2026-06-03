@@ -13,7 +13,7 @@ describe("fieldsForMode", () => {
     expect(fieldsForMode("quick").map((f) => f.id)).toEqual([
       "project.name",
       "linear.team",
-      "linear.filter",
+      "linear.assigneeChoice",
     ]);
     expect(fieldsForMode("permissive").map((f) => f.id)).toEqual(
       fieldsForMode("quick").map((f) => f.id),
@@ -36,7 +36,6 @@ describe("fieldsForMode", () => {
     const ids = fieldsForMode("customized", answers).map((f) => f.id);
     for (const gated of [
       "cleanupWorktreeOnSuccess",
-      "prDraft",
       "autoMergeStrategy",
       "maxCiFixAttempts",
       "linear.mentionHandle",
@@ -46,7 +45,6 @@ describe("fieldsForMode", () => {
       "linear.confirmationMode.timeoutHours",
       "preExistingErrorCheck.baseBranch",
       "prTracker.maxRecoveryAttempts",
-      "openspec.reviewPhase.maxRounds",
     ]) {
       expect(ids).toContain(gated);
     }
@@ -55,10 +53,27 @@ describe("fieldsForMode", () => {
   test("restrictTo limits the walkthrough to the given ids (their gates still apply)", () => {
     expect(fieldsForMode("customized", {}, ["model"]).map((f) => f.id)).toEqual(["model"]);
     // A gated id stays hidden until its parent toggle is on, even when listed.
-    expect(fieldsForMode("customized", {}, ["prDraft"])).toHaveLength(0);
+    expect(fieldsForMode("customized", {}, ["autoMergeStrategy"])).toHaveLength(0);
     expect(
-      fieldsForMode("customized", { createPrOnSuccess: true }, ["prDraft"]).map((f) => f.id),
-    ).toEqual(["prDraft"]);
+      fieldsForMode("customized", { createPrOnSuccess: true }, ["autoMergeStrategy"]).map(
+        (f) => f.id,
+      ),
+    ).toEqual(["autoMergeStrategy"]);
+  });
+
+  test("hidden fields are never asked, even when explicitly requested", () => {
+    // These settings keep their schema default rather than being walked through.
+    for (const hidden of [
+      "appendPrompt",
+      "metaPrompt.enabled",
+      "prDraft",
+      "manualMergeWhenAutoMergeDisabled",
+      "finalizeNoOpAsDone",
+      "logRawStream",
+    ]) {
+      expect(fieldsForMode("customized", {}).map((f) => f.id)).not.toContain(hidden);
+      expect(fieldsForMode("customized", { createPrOnSuccess: true }, [hidden])).toHaveLength(0);
+    }
   });
 });
 
