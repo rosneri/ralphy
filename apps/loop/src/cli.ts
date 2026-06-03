@@ -5,6 +5,7 @@ import {
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
+  resolveWorkflowFile,
   type CommonArgs,
 } from "@ralphy/cli-args";
 
@@ -145,6 +146,7 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
   }
 
   await resolvePromptFile(result, state);
+  resolveWorkflowFile(result, state);
 
   return result;
 }

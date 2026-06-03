@@ -52,7 +52,7 @@ describe("parseCommonArg", () => {
 });
 
 describe("parseWorkflowPathArgs", () => {
-  test("extracts only the path overrides, ignoring other tokens", () => {
+  test("extracts the path overrides, resolving --workflow against --project-root", () => {
     const result = parseWorkflowPathArgs([
       "execute",
       "--max-iterations",
@@ -63,6 +63,27 @@ describe("parseWorkflowPathArgs", () => {
       "config/WORKFLOW.md",
     ]);
     expect(result.projectRoot).toBe("/tmp/proj");
+    // A relative --workflow resolves against --project-root, not cwd.
+    expect(result.workflowFile).toBe(resolve("/tmp/proj", "config/WORKFLOW.md"));
+  });
+
+  test("resolves --workflow before --project-root on the command line too", () => {
+    const result = parseWorkflowPathArgs(["--workflow", "alt.md", "--project-root", "/tmp/proj"]);
+    expect(result.workflowFile).toBe(resolve("/tmp/proj", "alt.md"));
+  });
+
+  test("an absolute --workflow is unaffected by --project-root", () => {
+    const result = parseWorkflowPathArgs([
+      "--project-root",
+      "/tmp/proj",
+      "--workflow",
+      "/etc/ralphy/WORKFLOW.md",
+    ]);
+    expect(result.workflowFile).toBe("/etc/ralphy/WORKFLOW.md");
+  });
+
+  test("without --project-root, --workflow stays cwd-relative", () => {
+    const result = parseWorkflowPathArgs(["--workflow", "config/WORKFLOW.md"]);
     expect(result.workflowFile).toBe(resolve("config/WORKFLOW.md"));
   });
 

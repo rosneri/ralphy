@@ -5,6 +5,7 @@ import {
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
+  resolveWorkflowFile,
 } from "@ralphy/cli-args";
 import type { LoopParsedArgs } from "./cli";
 import type { TaskPhase } from "./loop";
@@ -86,6 +87,7 @@ export async function parseTaskArgs(argv: string[]): Promise<TaskParsedArgs> {
   }
 
   await resolvePromptFile(result, state);
+  resolveWorkflowFile(result, state);
 
   if (!phaseSet) {
     throw new Error(

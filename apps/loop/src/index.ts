@@ -63,7 +63,11 @@ export async function main(argv: string[]): Promise<number> {
     Bun.spawnSync({
       cmd: [process.execPath, openspecBin, "init", "--tools", "none", "--force"],
       stdio: ["inherit", "inherit", "inherit"],
-      cwd: process.cwd(),
+      // Scaffold openspec/ at the resolved project root — NOT process.cwd().
+      // When --project-root is passed (or the root was detected above cwd),
+      // using cwd would split openspec/ and WORKFLOW.md across two directories,
+      // which later makes findProjectRoot resolve to the wrong root.
+      cwd: projectRoot,
     });
   }
 
