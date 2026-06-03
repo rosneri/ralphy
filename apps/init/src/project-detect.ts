@@ -138,7 +138,7 @@ async function gitText(projectRoot: string, args: string[]): Promise<string> {
  * the `origin/HEAD` symbolic ref first, then falls back to whichever of `main`
  * or `master` exists. Returns undefined outside a git repo or when none match.
  */
-export async function detectDefaultBranch(projectRoot: string): Promise<string | undefined> {
+async function detectDefaultBranch(projectRoot: string): Promise<string | undefined> {
   const head = await gitText(projectRoot, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
   if (head) {
     const branch = head.replace(/^origin\//, "").trim();
