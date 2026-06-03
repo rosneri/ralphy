@@ -102,13 +102,33 @@ interface SpecAttachmentSlot {
   sha256: string | null;
 }
 
+/** One post-sealed design revision (v2+). Mirrors `RevisionSchema` in
+ *  `@ralphy/types`; redeclared locally to keep this module dependency-light. */
+interface Revision {
+  version: number;
+  attachmentId: string;
+  sha256: string;
+  trigger: string;
+}
+
 interface SpecAttachmentsState {
   design: SpecAttachmentSlot;
   designPdf: SpecAttachmentSlot;
   /** Carried only for purge-on-upgrade — never re-uploaded. */
   proposal: SpecAttachmentSlot;
   proposalPdf: SpecAttachmentSlot;
+  /** Post-sealed revisions (v2+) for each design slot. `[]` when the
+   *  change has not been sealed or has had no post-sealed content change. */
+  designRevisions: Revision[];
+  designPdfRevisions: Revision[];
 }
+
+/** Map a design slot to the `specAttachments.*Revisions` array that tracks
+ *  its post-sealed versions. */
+const REVISIONS_KEY: Record<Slot, "designRevisions" | "designPdfRevisions"> = {
+  design: "designRevisions",
+  designPdf: "designPdfRevisions",
+};
 
 export interface SpecAttachmentMutations {
   uploadFileToLinear: (
@@ -180,10 +200,36 @@ async function readSpecAttachmentsSubtree(statePath: string): Promise<Record<str
   return sidecar ?? (await readInlineSpecAttachments(statePath));
 }
 
+/** Coerce an unknown sidecar value into a Revision[]; drops malformed
+ *  entries so a corrupt slot degrades to "no revisions" rather than throwing. */
+function asRevisions(value: unknown): Revision[] {
+  if (!Array.isArray(value)) return [];
+  const out: Revision[] = [];
+  for (const entry of value) {
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const e = entry as Record<string, unknown>;
+      if (
+        typeof e.version === "number" &&
+        typeof e.attachmentId === "string" &&
+        typeof e.sha256 === "string" &&
+        typeof e.trigger === "string"
+      ) {
+        out.push({
+          version: e.version,
+          attachmentId: e.attachmentId,
+          sha256: e.sha256,
+          trigger: e.trigger,
+        });
+      }
+    }
+  }
+  return out;
+}
+
 async function readSpecAttachments(statePath: string): Promise<SpecAttachmentsState> {
   const sa = (await readSpecAttachmentsSubtree(statePath)) as Partial<
     Record<Slot | LegacySlot, Partial<SpecAttachmentSlot>>
-  >;
+  > & { designRevisions?: unknown; designPdfRevisions?: unknown };
   return {
     proposal: {
       attachmentId: sa.proposal?.attachmentId ?? null,
@@ -201,6 +247,8 @@ async function readSpecAttachments(statePath: string): Promise<SpecAttachmentsSt
       attachmentId: sa.designPdf?.attachmentId ?? null,
       sha256: sa.designPdf?.sha256 ?? null,
     },
+    designRevisions: asRevisions(sa.designRevisions),
+    designPdfRevisions: asRevisions(sa.designPdfRevisions),
   };
 }
 
@@ -210,6 +258,81 @@ async function persistSlot(
   value: SpecAttachmentSlot,
 ): Promise<void> {
   await writeField(stateDirOf(statePath), "linear-attachments", `specAttachments.${slot}`, value);
+}
+
+async function persistRevision(
+  statePath: string,
+  slot: Slot,
+  revisions: Revision[],
+): Promise<void> {
+  await writeField(
+    stateDirOf(statePath),
+    "linear-attachments",
+    `specAttachments.${REVISIONS_KEY[slot]}`,
+    revisions,
+  );
+}
+
+/**
+ * A change is **sealed** once a PR exists for it. After sealing, a changed
+ * design.md is published as a new versioned attachment rather than
+ * overwriting the v1 one in place. Detected by reading sidecars next to
+ * `.ralph-state.json`:
+ *
+ *   - `pr` sidecar has a non-empty `url` (set by `writePrUrl`), OR
+ *   - `confirmation` sidecar has a non-null `earlyDraftPrAt` (the prDraft
+ *     early draft PR opened at design-ready).
+ *
+ * Read failures resolve to `false` (safe default: in-place update, never
+ * accidental versioning). Never throws.
+ */
+export async function isDesignSealed(stateDir: string): Promise<boolean> {
+  try {
+    const pr = await readSlotSidecar(stateDir, "pr");
+    const url = pr?.url;
+    if (typeof url === "string" && url.length > 0) return true;
+  } catch {
+    // fall through — treat as not sealed
+  }
+  try {
+    const confirmation = await readSlotSidecar(stateDir, "confirmation");
+    if (confirmation?.earlyDraftPrAt != null) return true;
+  } catch {
+    // fall through — treat as not sealed
+  }
+  return false;
+}
+
+const TRIGGER_LABELS: Record<string, string> = {
+  review: "review follow-up",
+  "ci-fix": "CI fix",
+  "conflict-fix": "conflict fix",
+};
+
+/**
+ * Derive the human-readable trigger label for a versioned revision from the
+ * flow-machine snapshot persisted in the `flow` sidecar. Maps `review` →
+ * "review follow-up", `ci-fix` → "CI fix", `conflict-fix` → "conflict fix";
+ * any other / missing snapshot → "revision". Read failures resolve to
+ * "revision". Never throws.
+ */
+export async function resolveTriggerLabel(stateDir: string): Promise<string> {
+  try {
+    const flow = await readSlotSidecar(stateDir, "flow");
+    const snapshot = flow?.actorSnapshot as { value?: unknown } | undefined;
+    const value = snapshot?.value;
+    if (typeof value === "string" && TRIGGER_LABELS[value]) return TRIGGER_LABELS[value] as string;
+  } catch {
+    // fall through — default label
+  }
+  return "revision";
+}
+
+/** Build the title for a versioned revision attachment: `Ralph design #<n>
+ *  (<label>)`, with ` (PDF)` appended for the `designPdf` slot. */
+export function versionedTitle(slot: Slot, n: number, label: string): string {
+  const base = `Ralph design #${n} (${label})`;
+  return slot === "designPdf" ? `${base} (PDF)` : base;
 }
 
 /**
@@ -282,6 +405,111 @@ export function extractImplementationSection(tasksMarkdown: string): string {
   return captured.join("\n").trim();
 }
 
+/**
+ * Sealed (post-PR) path for one design slot. The v1 attachment and any
+ * prior revisions are **never** deleted. A changed design publishes a new
+ * additional attachment titled `Ralph design #<n> (<label>)`:
+ *
+ *   1. Skip (no network) if `hash` equals the v1 slot sha256 or any recorded
+ *      revision sha256 — re-syncing identical content is a no-op.
+ *   2. Otherwise compute `n = 2 + revisions.length`, derive the trigger
+ *      label, render + upload the bytes, **adopt-or-create** the versioned
+ *      title (look up first; on miss create), and append the revision.
+ */
+async function syncSlotSealed(
+  deps: SpecAttachmentsDeps,
+  slot: Slot,
+  sourceBytes: Uint8Array,
+  hash: string,
+  state: SpecAttachmentsState,
+): Promise<void> {
+  const spec = SLOT_SPECS[slot];
+  const revisions = state[REVISIONS_KEY[slot]];
+  const v1Sha = state[slot]?.sha256 ?? null;
+
+  // Idempotent: identical bytes to v1 or any published revision → no-op.
+  if (hash === v1Sha || revisions.some((r) => r.sha256 === hash)) {
+    deps.log(`  spec-attachments: ${spec.uploadFilename} unchanged (sealed), skipping`, "gray");
+    return;
+  }
+
+  const n = 2 + revisions.length;
+  const label = await resolveTriggerLabel(stateDirOf(deps.statePath));
+  const title = versionedTitle(slot, n, label);
+
+  let uploadBytes: Uint8Array;
+  try {
+    uploadBytes = await spec.renderBytes(sourceBytes);
+  } catch (err) {
+    deps.log(
+      `! spec-attachments: render ${spec.uploadFilename} (sealed) failed: ${(err as Error).message}`,
+      "yellow",
+    );
+    return;
+  }
+
+  let assetUrl: string;
+  try {
+    const uploaded = await deps.mutations.uploadFileToLinear(deps.apiKey, {
+      filename: spec.uploadFilename,
+      contentType: spec.contentType,
+      bytes: uploadBytes,
+    });
+    assetUrl = uploaded.assetUrl;
+  } catch (err) {
+    deps.log(
+      `! spec-attachments: upload ${spec.uploadFilename} (sealed) failed: ${describeLinearError(err)}`,
+      "yellow",
+    );
+    return;
+  }
+
+  // Adopt-or-create: if an attachment with this exact versioned title
+  // already exists (e.g. state was wiped but the attachment survived),
+  // adopt its id rather than creating a duplicate. Lookup failure falls
+  // through to create (mirrors the v1 adopt() resilience).
+  let attachmentId: string | null = null;
+  try {
+    attachmentId = await deps.mutations.findIssueAttachmentByTitle(
+      deps.apiKey,
+      deps.issueId,
+      title,
+    );
+    if (attachmentId) {
+      deps.log(`  spec-attachments: adopted existing ${title} attachment ${attachmentId}`, "gray");
+    }
+  } catch (err) {
+    deps.log(
+      `! spec-attachments: findIssueAttachmentByTitle ${title} failed (treating as no match): ${describeLinearError(err)}`,
+      "yellow",
+    );
+    attachmentId = null;
+  }
+
+  if (!attachmentId) {
+    try {
+      attachmentId = await deps.mutations.createAttachmentForUrl(deps.apiKey, {
+        issueId: deps.issueId,
+        url: assetUrl,
+        title,
+        subtitle: `iteration ${deps.iteration}`,
+      });
+    } catch (err) {
+      deps.log(
+        `! spec-attachments: createAttachmentForUrl ${title} failed: ${describeLinearError(err)}`,
+        "yellow",
+      );
+      return;
+    }
+    deps.log(`  spec-attachments: created ${title} attachment`, "gray");
+  }
+
+  await persistRevision(deps.statePath, slot, [
+    ...revisions,
+    { version: n, attachmentId, sha256: hash, trigger: label },
+  ]);
+}
+
 async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   const spec = SLOT_SPECS[slot];
   const [primaryName, ...trailingNames] = spec.sourceFiles;
@@ -344,7 +572,17 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   // content signal. A change to either design.md or tasks.md invalidates
   // both the design and designPdf slots.
   const hash = sha256Hex(sourceBytes);
-  let current = (await readSpecAttachments(deps.statePath))[slot] ?? EMPTY_SLOT;
+  const state = await readSpecAttachments(deps.statePath);
+
+  // Once the change is sealed (a PR exists), publish a changed design as a
+  // new versioned attachment instead of overwriting v1 in place. The
+  // pre-sealed path below is unchanged.
+  if (await isDesignSealed(stateDirOf(deps.statePath))) {
+    await syncSlotSealed(deps, slot, sourceBytes, hash, state);
+    return;
+  }
+
+  let current = state[slot] ?? EMPTY_SLOT;
 
   // Empty cache: ask Linear whether an attachment with this slot's title
   // already exists on the issue. Adopting it prevents a duplicate when

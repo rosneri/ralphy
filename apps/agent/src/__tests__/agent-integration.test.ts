@@ -376,6 +376,30 @@ function makeRunners(): {
 
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 10));
 
+/**
+ * Poll a predicate until it holds, or throw after `timeoutMs`. Worker spawn is
+ * fire-and-forget (`coordinator.spawnNext → void launchWorker`), so the actual
+ * `spawnWorker` call lands asynchronously after `pollOnce()` resolves. A fixed
+ * `tick()` races that async prep under coverage instrumentation / slow CI; this
+ * waits deterministically instead of guessing a delay.
+ */
+const waitFor = async (
+  predicate: () => boolean,
+  { timeoutMs = 2000, stepMs = 5 }: { timeoutMs?: number; stepMs?: number } = {},
+): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error("waitFor: predicate not satisfied before timeout");
+    }
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+};
+
+/** Wait until a worker for `changeName` has been spawned. */
+const waitForWorker = (workers: Map<string, FakeWorker>, changeName: string): Promise<void> =>
+  waitFor(() => workers.has(changeName));
+
 // ---------------------------------------------------------------------------
 // The test
 // ---------------------------------------------------------------------------
@@ -477,7 +501,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     expect(proposal).toContain("Users want dark mode");
 
     // Worker spawned
-    expect(workers.has(changeName)).toBe(true);
+    await waitForWorker(workers, changeName);
 
     // Started comment posted (postComments=true)
     expect(linear.comments.some((c) => c.body.includes("Ralph started working"))).toBe(true);
@@ -599,8 +623,8 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     // Drive the issue through the lifecycle into "Done" so the conflict
     // scan considers it on the next poll.
     await coord.pollOnce();
-    await tick();
     const changeName = "eng-9-already-merged";
+    await waitForWorker(workers, changeName);
     workers.get(changeName)!.resolve(0);
     await tick();
     expect(linear.issues.get("uuid-eng-9")!.state.name).toBe("Done");
@@ -694,7 +718,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
 
     await coord.init();
     await coord.pollOnce();
-    await tick();
+    await waitForWorker(workers, "eng-2-bad-task");
 
     workers.get("eng-2-bad-task")!.resolve(2);
     await tick();

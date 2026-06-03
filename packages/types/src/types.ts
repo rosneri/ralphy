@@ -78,6 +78,18 @@ export const HistoryEntrySchema = z.object({
   usage: IterationUsageSchema.partial().optional(),
 });
 
+/** One post-sealed design revision published as an *additional* Linear
+ *  attachment. Once a change is sealed (a PR exists), a changed design.md
+ *  is not overwritten in place — it is appended here as version 2, 3, …
+ *  each backed by its own Linear attachment titled
+ *  `Ralph design #<version> (<trigger>)`. */
+export const RevisionSchema = z.object({
+  version: z.number(),
+  attachmentId: z.string(),
+  sha256: z.string(),
+  trigger: z.string(),
+});
+
 export const StateSchema = z.object({
   version: z.literal("2"),
   name: z.string(),
@@ -151,6 +163,14 @@ export const StateSchema = z.object({
           sha256: z.string().nullable().default(null),
         })
         .default({ attachmentId: null, sha256: null }),
+      /** Post-sealed design revisions (v2+). Each entry is an additional
+       *  Linear attachment published once a PR exists, instead of
+       *  overwriting the v1 `design` slot in place. Empty array ⇒ no
+       *  post-sealed change yet (also the migration default for older
+       *  state files). `designPdfRevisions` is the PDF mirror, tracked
+       *  independently of the markdown revisions. */
+      designRevisions: z.array(RevisionSchema).default([]),
+      designPdfRevisions: z.array(RevisionSchema).default([]),
       /** One-shot marker set after the legacy proposal/proposalPdf
        *  attachments have been purged from Linear. Without this flag
        *  the syncer would issue a "Ralph proposal" lookup every sync. */
@@ -161,6 +181,8 @@ export const StateSchema = z.object({
       design: { attachmentId: null, sha256: null },
       proposalPdf: { attachmentId: null, sha256: null },
       designPdf: { attachmentId: null, sha256: null },
+      designRevisions: [],
+      designPdfRevisions: [],
       legacyProposalPurged: false,
     }),
   /** Per-change confirmation-gate state used by the `awaiting-confirmation`
@@ -201,6 +223,7 @@ export const StateSchema = z.object({
 // --- Inferred types ---
 
 export type Usage = z.infer<typeof UsageSchema>;
+export type Revision = z.infer<typeof RevisionSchema>;
 export type HistoryEntry = z.infer<typeof HistoryEntrySchema>;
 export type State = z.infer<typeof StateSchema>;
 

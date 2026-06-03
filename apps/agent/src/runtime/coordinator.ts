@@ -142,6 +142,14 @@ const emptyPrStatus = (): PrStatusCounts => ({
   quarantined: 0,
 });
 
+/** Number of consecutive macrotask hops {@link AgentCoordinator.whenSettled}
+ *  must observe an empty in-flight set before it concludes the system is idle.
+ *  A worker's finalization enrolls only after its exit promise resolves, and
+ *  under load that resolve→enroll chain can span more than one macrotask hop;
+ *  requiring several stable observations closes that window without ever
+ *  hanging on a still-running worker. Test-only barrier. */
+const WHEN_SETTLED_STABLE_HOPS = 3;
+
 /** Pull the PR number out of a GitHub pull URL, e.g.
  *  `https://github.com/owner/repo/pull/376` → `376`. Returns null when the
  *  URL doesn't match — callers render the full URL in that case. */
@@ -1220,13 +1228,27 @@ export class AgentCoordinator {
    * running worker — only the work that runs *after* it exits is tracked.
    */
   async whenSettled(): Promise<void> {
+    let consecutiveEmpty = 0;
     for (let guard = 0; guard < 1000; guard++) {
       if (this.inFlight.size > 0) {
         await Promise.allSettled(this.inFlight);
+        consecutiveEmpty = 0;
       }
       // Let any continuation scheduled by the work we just awaited register.
+      // A worker's finalization enrolls lazily — `handle.exited.then(...)`
+      // only adds the finalize continuation to `inFlight` *after* the exit
+      // promise resolves, and under CI load that resolve→enroll chain can
+      // span more than one macrotask hop. Require the set to stay empty
+      // across `WHEN_SETTLED_STABLE_HOPS` consecutive hops before concluding
+      // idle so a pending enrollment lands, re-fills `inFlight`, and resets
+      // the counter. Never hangs on a still-running worker.
       await new Promise<void>((r) => setTimeout(r, 0));
-      if (this.inFlight.size === 0) return;
+      if (this.inFlight.size === 0) {
+        consecutiveEmpty += 1;
+        if (consecutiveEmpty >= WHEN_SETTLED_STABLE_HOPS) return;
+      } else {
+        consecutiveEmpty = 0;
+      }
     }
   }
 
