@@ -37,6 +37,6 @@
 
 ## Verification
 
-- [ ] Run `bun run lint` and fix any findings
-- [ ] Run `bun run test` and confirm green without lowering the coverage threshold
-- [ ] Run `bunx openspec validate rlf-213-spike-replace-openspec-agent-tasks-markd` and fix any errors
+- [x] Run `bun run lint` and fix any findings
+- [x] Run `bun run test` and confirm green without lowering the coverage threshold
+- [x] Run `bunx openspec validate rlf-213-spike-replace-openspec-agent-tasks-markd` and fix any errors
