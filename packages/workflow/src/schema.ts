@@ -233,11 +233,12 @@ export const WorkflowConfigSchema = z.object({
             .nonempty()
             .default(["md"]),
           /** Post-seal behavior for the design attachment (once a PR exists).
-           *  "append" (default) publishes each design change as a new
-           *  `Ralph design #N (revision)` attachment, preserving an audit
-           *  trail. "replace" overwrites the single canonical `Ralph design`
-           *  attachment in place — no `#N` accumulation. */
-          specAttachmentRevisions: z.enum(["append", "replace"]).default("append"),
+           *  "replace" (default) overwrites the single canonical `Ralph design`
+           *  attachment in place — no `#N` accumulation. "append" publishes
+           *  each design change as a new `Ralph design #N (revision)`
+           *  attachment, preserving an audit trail. Config-file-only: not
+           *  offered by the init wizard. */
+          specAttachmentRevisions: z.enum(["append", "replace"]).default("replace"),
           confirmationMode: z
             .object({
               enabled: z.boolean().default(false),
@@ -265,7 +266,7 @@ export const WorkflowConfigSchema = z.object({
       syncTasksToComment: true,
       syncSpecsAsAttachments: true,
       specAttachmentFormats: ["md"],
-      specAttachmentRevisions: "append",
+      specAttachmentRevisions: "replace",
       confirmationMode: {
         enabled: false,
         timeoutHours: 48,

@@ -533,20 +533,8 @@ const CUSTOMIZED_FIELDS: Field[] = [
     },
     when: isOn("linear.syncSpecsAsAttachments"),
   },
-  {
-    id: "linear.specAttachmentRevisions",
-    label: "Sealed plan revision behavior",
-    description:
-      "Once a PR exists, how to handle a changed design attachment: 'append' adds a new 'Ralph design #N' attachment per change (audit trail); 'replace' overwrites the single canonical attachment in place.",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "append", value: "append" },
-        { label: "replace", value: "replace" },
-      ],
-    },
-    when: isOn("linear.syncSpecsAsAttachments"),
-  },
+  // `linear.specAttachmentRevisions` is deliberately NOT a wizard field —
+  // it is a config-file-only knob (defaults to "replace"); see schema.ts.
 
   // ── Confirmation mode ──
   {
