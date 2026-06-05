@@ -77,10 +77,11 @@ export const MIGRATIONS: Migration[] = [
     version: 5,
     description:
       "A new `linear.specAttachmentRevisions` setting controls the sealed " +
-      "design attachment: 'append' (default, unchanged) publishes each change " +
-      "as a new 'Ralph design #N' attachment; 'replace' overwrites the single " +
-      "canonical attachment in place. Pick one, or keep the append default.",
-    fields: ["linear.specAttachmentRevisions"],
+      "design attachment: 'replace' (default) overwrites the single canonical " +
+      "attachment in place; 'append' publishes each change as a new " +
+      "'Ralph design #N' attachment. Config-file-only — set it in WORKFLOW.md " +
+      "if you want the append audit trail.",
+    fields: [],
   },
 ];
 

@@ -52,9 +52,9 @@ linear:
   syncTasksToComment: true
   syncSpecsAsAttachments: true
   # Once a PR exists, how to handle a changed design attachment:
-  #   append  (default) — publish each change as a new "Ralph design #N" attachment (audit trail)
-  #   replace           — overwrite the single canonical "Ralph design" attachment in place
-  specAttachmentRevisions: append
+  #   replace (default) — overwrite the single canonical "Ralph design" attachment in place
+  #   append            — publish each change as a new "Ralph design #N" attachment (audit trail)
+  specAttachmentRevisions: replace
 
   indicators:
     getTodo:

@@ -31,9 +31,14 @@ describe("migrations registry", () => {
     expect(v4?.fields).toContain("linear.indicators");
   });
 
-  test("version 5 offers the sealed spec-attachment revision mode", () => {
+  test("version 5 documents the sealed revision mode but offers NO wizard field (config-file-only)", () => {
     const v5 = MIGRATIONS.find((m) => m.version === 5);
-    expect(v5?.fields).toContain("linear.specAttachmentRevisions");
+    expect(v5?.description).toContain("specAttachmentRevisions");
+    expect(v5?.fields).toEqual([]);
+  });
+
+  test("linear.specAttachmentRevisions is NOT in the wizard catalogue (config-file-only)", () => {
+    expect(findField("linear.specAttachmentRevisions")).toBeUndefined();
   });
 
   test("every migration field id exists in the customized catalogue", () => {

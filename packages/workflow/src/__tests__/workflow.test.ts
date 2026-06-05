@@ -511,14 +511,14 @@ describe("S12 — hostile-config negative tests", () => {
     );
   });
 
-  test("RLF-216 — linear.specAttachmentRevisions defaults to append", () => {
+  test("RLF-216 — linear.specAttachmentRevisions defaults to replace", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
-    expect(config.linear.specAttachmentRevisions).toBe("append");
+    expect(config.linear.specAttachmentRevisions).toBe("replace");
   });
 
-  test("RLF-216 — linear.specAttachmentRevisions accepts replace", () => {
-    const { config } = parseWorkflow(`---\nlinear:\n  specAttachmentRevisions: replace\n---\n`);
-    expect(config.linear.specAttachmentRevisions).toBe("replace");
+  test("RLF-216 — linear.specAttachmentRevisions accepts append", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  specAttachmentRevisions: append\n---\n`);
+    expect(config.linear.specAttachmentRevisions).toBe("append");
   });
 
   test("RLF-216 — linear.specAttachmentRevisions rejects an unknown value", () => {
