@@ -78,6 +78,11 @@ export interface PrepareResult {
   changeName: string;
   /** Optional: PR URL the spawn should reference (used for conflict-fix runs). */
   prUrl?: string;
+  /** Working directory the worker runs in (the worktree when useWorktree is
+   *  on). Carried onto the ActiveWorker so post-exit syncTasks flushes can
+   *  resolve change artifacts after the wire layer has released its
+   *  per-change maps. */
+  cwd?: string;
 }
 
 /** Per-bucket counts surfaced by `pollOnce` for the dashboard / JSON
@@ -309,6 +314,12 @@ export interface ActiveWorker {
   issueIdentifier: string;
   issue: LinearIssue;
   trigger: QueueTrigger;
+  /** Worker working directory from {@link PrepareResult.cwd}. Lets the
+   *  awaiting-reap / done syncTasks flush read the change artifacts from the
+   *  worktree even after the wire layer's exit handler has already cleared
+   *  `cwdByChange` (otherwise the flush silently falls back to projectRoot,
+   *  where the change files may not exist — no design attachment uploaded). */
+  cwd?: string;
   kill: () => void;
   /** Highest iteration count we've already posted a progress comment for. */
   lastReportedIteration: number;
@@ -1396,6 +1407,7 @@ export class AgentCoordinator {
       issueIdentifier: issue.identifier,
       issue,
       trigger,
+      ...(prep.cwd ? { cwd: prep.cwd } : {}),
       kill: handle.kill,
       lastReportedIteration: 0,
       lastSyncedIteration: 0,
@@ -1529,7 +1541,7 @@ export class AgentCoordinator {
         exit_code: code,
         ok,
       });
-      await this.notifyExited(issue, prep.changeName, code, trigger);
+      await this.notifyExited(issue, prep.changeName, code, trigger, worker.cwd);
       this.deps.onWorkersChanged();
       this.spawnNext();
     }
@@ -1615,6 +1627,7 @@ export class AgentCoordinator {
     changeName: string,
     code: number,
     trigger: QueueTrigger,
+    workerCwd?: string,
   ): Promise<void> {
     // NO_CHANGES_EXIT (no-op: branch only ever touched meta files, work already
     // on base) is finalized as a success — done with an honest comment — not a
@@ -1640,6 +1653,7 @@ export class AgentCoordinator {
         issueIdentifier: issue.identifier,
         issue,
         trigger,
+        ...(workerCwd ? { cwd: workerCwd } : {}),
         kill: () => {},
         lastReportedIteration: 0,
         lastSyncedIteration: 0,

@@ -147,7 +147,12 @@ async function applyAwaitingMarkerOnce(
   }
   state.confirmation.awaitingMarkerAppliedAt = new Date().toISOString();
   try {
-    await writeConfirmationState(statePath, state.stateObj, state.confirmation);
+    // Re-read before writing: another step in this same poll (e.g. the
+    // plan-ready comment) may have persisted its own stamp since `state`
+    // was captured — writing the captured object back would erase it.
+    const fresh = await readConfirmationState(statePath);
+    fresh.confirmation.awaitingMarkerAppliedAt = state.confirmation.awaitingMarkerAppliedAt;
+    await writeConfirmationState(statePath, fresh.stateObj, fresh.confirmation);
   } catch (err) {
     deps.onLog(
       `! persist awaitingMarkerAppliedAt for ${issue.identifier}: ${(err as Error).message}`,
@@ -189,7 +194,13 @@ async function openDraftPrOnce(
   }
   state.confirmation.earlyDraftPrAt = new Date().toISOString();
   try {
-    await writeConfirmationState(statePath, state.stateObj, state.confirmation);
+    // Re-read before writing: `state` was captured before the plan-ready
+    // comment persisted `askedAt` in this same poll — writing the captured
+    // object back here erased that stamp and made the next poll post the
+    // identical plan-ready comment again (lost-update; LIT-387 double post).
+    const fresh = await readConfirmationState(statePath);
+    fresh.confirmation.earlyDraftPrAt = state.confirmation.earlyDraftPrAt;
+    await writeConfirmationState(statePath, fresh.stateObj, fresh.confirmation);
   } catch (err) {
     deps.onLog(
       `! persist earlyDraftPrAt for ${issue.identifier}: ${(err as Error).message}`,

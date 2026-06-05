@@ -219,6 +219,9 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
 
     return {
       changeName,
+      // Carried onto the ActiveWorker so post-exit syncTasks flushes can
+      // still resolve the worktree after releaseWorkerMaps has run.
+      cwd: workerCwd,
       ...(maps.prByChange.has(changeName) ? { prUrl: maps.prByChange.get(changeName)! } : {}),
     };
   }

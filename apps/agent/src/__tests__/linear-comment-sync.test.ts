@@ -594,6 +594,66 @@ describe("createCommentSyncHooks — spec attachments decoupled from syncTasksTo
     expect(lc.tasksCommentId ?? null).toBeNull();
   });
 
+  test("bug_case: syncTasks must NOT fall back to projectRoot when worker.cwd is set (regression: missing design upload)", async () => {
+    // The awaiting-reap flush runs after releaseWorkerMaps cleared cwdByChange,
+    // so the only way the hook can find the worktree is via the worker itself.
+    const worktree = mkdtempSync(join(tmpdir(), "comment-sync-wt-"));
+    try {
+      const wtChangeDir = join(worktree, "openspec", "changes", "demo");
+      mkdirSync(wtChangeDir, { recursive: true });
+      writeFileSync(
+        join(wtChangeDir, "tasks.md"),
+        "## Planning\n\n- [x] design approved\n\n## Implementation\n\n- [ ] task one\n",
+        "utf-8",
+      );
+      writeFileSync(
+        join(wtChangeDir, "design.md"),
+        "# Design\n\nDesign paragraph here.\n",
+        "utf-8",
+      );
+      // projectRoot (tempDir) intentionally has NO design.md for this change.
+      rmSync(join(changeDir, "design.md"), { force: true });
+
+      const hooks = makeHooks(
+        makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: true }),
+      );
+      await hooks.syncTasks!({ changeName: "demo", issueId: "issue-1", cwd: worktree }, 1);
+      // Regression guard: worker.cwd used to be ignored → resolved projectRoot
+      // → design.md missing → no upload (LIT-387 had no design attachment).
+      expect(uploadCalls).not.toBe(0);
+    } finally {
+      rmSync(worktree, { recursive: true, force: true });
+    }
+  });
+
+  test("fix_case: syncTasks uses worker.cwd when cwdByChange has no entry", async () => {
+    const worktree = mkdtempSync(join(tmpdir(), "comment-sync-wt-"));
+    try {
+      const wtChangeDir = join(worktree, "openspec", "changes", "demo");
+      mkdirSync(wtChangeDir, { recursive: true });
+      writeFileSync(
+        join(wtChangeDir, "tasks.md"),
+        "## Planning\n\n- [x] design approved\n\n## Implementation\n\n- [ ] task one\n",
+        "utf-8",
+      );
+      writeFileSync(
+        join(wtChangeDir, "design.md"),
+        "# Design\n\nDesign paragraph here.\n",
+        "utf-8",
+      );
+      rmSync(join(changeDir, "design.md"), { force: true });
+
+      const hooks = makeHooks(
+        makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: true }),
+      );
+      await hooks.syncTasks!({ changeName: "demo", issueId: "issue-1", cwd: worktree }, 1);
+      expect(uploadCalls).toBeGreaterThan(0);
+      expect(attachmentCreateCalls).toBeGreaterThan(0);
+    } finally {
+      rmSync(worktree, { recursive: true, force: true });
+    }
+  });
+
   test("hooks stay disabled when both comment sync and spec attachments are off", () => {
     const hooks = makeHooks(
       makeWireConfig({ syncTasksToComment: false, syncSpecsAsAttachments: false }),

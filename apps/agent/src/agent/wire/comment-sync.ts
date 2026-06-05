@@ -30,7 +30,10 @@ interface CommentSyncInput {
 
 interface CommentSyncHooks {
   enabled: boolean;
-  syncTasks?: (worker: { changeName: string; issueId: string }, iteration: number) => Promise<void>;
+  syncTasks?: (
+    worker: { changeName: string; issueId: string; cwd?: string },
+    iteration: number,
+  ) => Promise<void>;
   onSteeringAppended?: (changeName: string, message: string) => Promise<void>;
 }
 
@@ -61,7 +64,11 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   return {
     enabled,
     syncTasks: async (worker, iteration) => {
-      const root = cwdByChange.get(worker.changeName) ?? projectRoot;
+      // Prefer the worker's own cwd: the coordinator's post-exit flushes
+      // (awaiting-reap, done) run after the wire exit handler has already
+      // cleared cwdByChange, so the map alone would silently fall back to
+      // projectRoot — where worktree-only change files don't exist.
+      const root = worker.cwd ?? cwdByChange.get(worker.changeName) ?? projectRoot;
       const layout = projectLayout(root);
       const changeDir = layout.changeDir(worker.changeName);
       const statePath = layout.stateFile(worker.changeName);
