@@ -102,8 +102,26 @@ function composedDesignBytes(designBody: string, tasksMarkdown: string): Uint8Ar
   return out;
 }
 
+/** sha256 of design.md alone — the design-only hash the sealed/replace
+ *  paths compare against (post-RLF-216). A checkbox-only tick of tasks.md
+ *  leaves this unchanged. */
+function designOnlyBytes(designBody: string): Uint8Array {
+  return new TextEncoder().encode(designBody);
+}
+
 const TASKS =
   "# Tasks for demo\n\n## Planning\n\n- [ ] plan\n\n## Implementation\n\n- [ ] do thing\n";
+
+/** A tasks.md whose `## Implementation` checklist differs from TASKS (a
+ *  checkbox got ticked) but whose design.md is identical. Used to prove a
+ *  checkbox-only tick does not mint a sealed revision. */
+const TASKS_TICKED =
+  "# Tasks for demo\n\n## Planning\n\n- [x] plan\n\n## Implementation\n\n- [x] do thing\n";
+
+function writeChangeWithTasks(designBody: string, tasksMarkdown: string): void {
+  writeFileSync(join(changeDir, "design.md"), designBody);
+  writeFileSync(join(changeDir, "tasks.md"), tasksMarkdown);
+}
 
 function writeChange(designBody: string): void {
   writeFileSync(join(changeDir, "design.md"), designBody);
@@ -121,7 +139,11 @@ function readSpecAttachmentsSidecar(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(stateDir, ".ralph-state.specAttachments.json"), "utf8"));
 }
 
-function makeDeps(m: FakeMutations, formats: ("md" | "pdf")[] = ["md"]) {
+function makeDeps(
+  m: FakeMutations,
+  formats: ("md" | "pdf")[] = ["md"],
+  sealedRevisionMode: "append" | "replace" = "append",
+) {
   return {
     apiKey: "k",
     issueId: "iss",
@@ -131,6 +153,7 @@ function makeDeps(m: FakeMutations, formats: ("md" | "pdf")[] = ["md"]) {
     log: noopLog,
     mutations: m,
     formats,
+    sealedRevisionMode,
   };
 }
 
@@ -271,7 +294,7 @@ describe("syncSpecAttachments — versioned (sealed) path", () => {
 
   test("sealed, content unchanged vs v1 → no network calls", async () => {
     const body = "# design\n\nunchanged sealed body.\n";
-    const v1Sha = sha256Hex(composedDesignBytes(body, TASKS));
+    const v1Sha = sha256Hex(designOnlyBytes(body));
     writeChange(body);
     writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
     writeSidecar("specAttachments", {
@@ -288,7 +311,7 @@ describe("syncSpecAttachments — versioned (sealed) path", () => {
 
   test("sealed, content matches a prior revision sha → no network calls", async () => {
     const body = "# design\n\nreverted to revision content.\n";
-    const revSha = sha256Hex(composedDesignBytes(body, TASKS));
+    const revSha = sha256Hex(designOnlyBytes(body));
     writeChange(body);
     writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
     writeSidecar("specAttachments", {
@@ -345,5 +368,107 @@ describe("syncSpecAttachments — versioned (sealed) path", () => {
     expect(revs).toHaveLength(1);
     expect(revs[0]?.attachmentId).toBe("att-existing-2");
     expect(revs[0]?.version).toBe(2);
+  });
+});
+
+describe("syncSpecAttachments — design-only hash narrowing (append mode)", () => {
+  test("sealed: a checkbox-only tasks.md tick (design.md unchanged) is a no-op", async () => {
+    const body = "# design\n\nstable sealed design.\n";
+    // v1 sha is the design-only hash (post-RLF-216 semantics).
+    const v1Sha = sha256Hex(designOnlyBytes(body));
+    // design.md is identical to v1; only the tasks.md Implementation checklist ticked.
+    writeChangeWithTasks(body, TASKS_TICKED);
+    writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
+    writeSidecar("specAttachments", {
+      design: { attachmentId: "att-v1", sha256: v1Sha },
+    });
+    const m = makeMutations(new Map([["Ralph design", "att-v1"]]));
+
+    await syncSpecAttachments(makeDeps(m));
+
+    expect(m.uploads).toHaveLength(0);
+    expect(m.creates).toHaveLength(0);
+    expect(m.deletes).toHaveLength(0);
+    expect(readSpecAttachmentsSidecar().designRevisions ?? []).toEqual([]);
+  });
+
+  test("sealed: a genuine design.md change still creates a new #N revision", async () => {
+    const v1Sha = sha256Hex(designOnlyBytes("# design\n\nold body.\n"));
+    writeChangeWithTasks("# design\n\nnew distinct body.\n", TASKS);
+    writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
+    writeSidecar("flow", { actorSnapshot: { value: "review" } });
+    writeSidecar("specAttachments", {
+      design: { attachmentId: "att-v1", sha256: v1Sha },
+    });
+    const m = makeMutations(new Map([["Ralph design", "att-v1"]]));
+
+    await syncSpecAttachments(makeDeps(m));
+
+    expect(m.deletes).toHaveLength(0);
+    expect(m.creates).toHaveLength(1);
+    expect(m.creates[0]?.title).toBe("Ralph design #2 (review follow-up)");
+    const revs = readSpecAttachmentsSidecar().designRevisions as Array<Record<string, unknown>>;
+    expect(revs).toHaveLength(1);
+    // The persisted revision records the design-only hash.
+    expect(revs[0]?.sha256).toBe(sha256Hex(designOnlyBytes("# design\n\nnew distinct body.\n")));
+  });
+});
+
+describe("syncSpecAttachments — replace mode (sealed)", () => {
+  test("sealed + replace: a design change overwrites the canonical attachment in place", async () => {
+    writeChangeWithTasks("# design\n\nrevised under replace mode.\n", TASKS);
+    writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
+    // v1 recorded with a stale design-only sha so the content counts as changed.
+    writeSidecar("specAttachments", {
+      design: { attachmentId: "att-v1", sha256: "stale-design-only" },
+    });
+    const m = makeMutations(new Map([["Ralph design", "att-v1"]]));
+
+    await syncSpecAttachments(makeDeps(m, ["md"], "replace"));
+
+    // In-place delete + create on the canonical title; no versioned attachment.
+    expect(m.deletes).toHaveLength(1);
+    expect(m.creates).toHaveLength(1);
+    expect(m.creates[0]?.title).toBe("Ralph design");
+    const sa = readSpecAttachmentsSidecar();
+    expect(sa.designRevisions ?? []).toEqual([]);
+    // The persisted slot sha is the design-only hash.
+    const design = sa.design as Record<string, unknown>;
+    expect(design.sha256).toBe(
+      sha256Hex(designOnlyBytes("# design\n\nrevised under replace mode.\n")),
+    );
+  });
+
+  test("sealed + replace: a checkbox-only tick (design.md unchanged) is a no-op", async () => {
+    const body = "# design\n\nstable design under replace.\n";
+    const designSha = sha256Hex(designOnlyBytes(body));
+    writeChangeWithTasks(body, TASKS_TICKED);
+    writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
+    writeSidecar("specAttachments", {
+      design: { attachmentId: "att-v1", sha256: designSha },
+    });
+    const m = makeMutations(new Map([["Ralph design", "att-v1"]]));
+
+    await syncSpecAttachments(makeDeps(m, ["md"], "replace"));
+
+    expect(m.uploads).toHaveLength(0);
+    expect(m.creates).toHaveLength(0);
+    expect(m.deletes).toHaveLength(0);
+  });
+
+  test("sealed + replace: no #N revision is ever created", async () => {
+    writeChangeWithTasks("# design\n\nfirst replace body.\n", TASKS);
+    writeSidecar("pr", { url: "https://github.com/o/r/pull/9" });
+    writeSidecar("flow", { actorSnapshot: { value: "review" } });
+    // No prior slot state: replace mode adopts the canonical title if present.
+    const m = makeMutations(new Map([["Ralph design", "att-v1"]]));
+
+    await syncSpecAttachments(makeDeps(m, ["md"], "replace"));
+
+    // Adopted canonical attachment, refreshed in place — never a "#2" title.
+    const versioned = m.creates.filter((c) => c.title.includes("#"));
+    expect(versioned).toHaveLength(0);
+    const sa = readSpecAttachmentsSidecar();
+    expect(sa.designRevisions ?? []).toEqual([]);
   });
 });

@@ -167,6 +167,10 @@ interface SpecAttachmentsDeps {
    *  behaviour. Add "pdf" to also upload a pdfkit-rendered mirror as
    *  a peer slot keyed off the same source-md hash. */
   formats?: AttachmentFormat[];
+  /** Post-seal design-attachment behavior. "append" (default) publishes a
+   *  new `#N` revision per design change; "replace" overwrites the canonical
+   *  attachment in place (reusing the pre-seal delete+create path). */
+  sealedRevisionMode?: "append" | "replace";
 }
 
 const EMPTY_SLOT: SpecAttachmentSlot = { attachmentId: null, sha256: null };
@@ -406,15 +410,23 @@ export function extractImplementationSection(tasksMarkdown: string): string {
 }
 
 /**
- * Sealed (post-PR) path for one design slot. The v1 attachment and any
- * prior revisions are **never** deleted. A changed design publishes a new
- * additional attachment titled `Ralph design #<n> (<label>)`:
+ * Sealed (post-PR) path for one design slot in **append** mode. The v1
+ * attachment and any prior revisions are **never** deleted. A changed design
+ * publishes a new additional attachment titled `Ralph design #<n> (<label>)`:
  *
  *   1. Skip (no network) if `hash` equals the v1 slot sha256 or any recorded
  *      revision sha256 — re-syncing identical content is a no-op.
  *   2. Otherwise compute `n = 2 + revisions.length`, derive the trigger
  *      label, render + upload the bytes, **adopt-or-create** the versioned
  *      title (look up first; on miss create), and append the revision.
+ *
+ * `hash` is the **design-only** hash (sha256 of `design.md` alone), so a
+ * checkbox-only tick of the `tasks.md` Implementation checklist — which leaves
+ * `design.md` unchanged — yields the same hash as the last revision and is a
+ * no-op. The uploaded bytes still render from the **composed** `sourceBytes`
+ * (design.md + tasks.md Implementation), so published content is unchanged;
+ * only the change-detection key narrows. The persisted revision records the
+ * design-only `hash`.
  */
 async function syncSlotSealed(
   deps: SpecAttachmentsDeps,
@@ -570,17 +582,29 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
 
   // Hash the *composed* source so the md and pdf slots track the same
   // content signal. A change to either design.md or tasks.md invalidates
-  // both the design and designPdf slots.
+  // both the design and designPdf slots. Used by the pre-seal in-place path.
   const hash = sha256Hex(sourceBytes);
+  // Design-only hash (design.md alone). Used post-seal so a checkbox-only
+  // tick of the tasks.md Implementation checklist — which does not touch
+  // design.md — is not mistaken for a design revision.
+  const designOnlyHash = sha256Hex(primaryBytes);
   const state = await readSpecAttachments(deps.statePath);
 
-  // Once the change is sealed (a PR exists), publish a changed design as a
-  // new versioned attachment instead of overwriting v1 in place. The
-  // pre-sealed path below is unchanged.
-  if (await isDesignSealed(stateDirOf(deps.statePath))) {
-    await syncSlotSealed(deps, slot, sourceBytes, hash, state);
+  const sealed = await isDesignSealed(stateDirOf(deps.statePath));
+  const mode = deps.sealedRevisionMode ?? "append";
+
+  // Once the change is sealed (a PR exists) in append mode, publish a changed
+  // design as a new versioned attachment instead of overwriting v1 in place.
+  // Pre-seal — and sealed+replace — fall through to the in-place path below.
+  if (sealed && mode === "append") {
+    await syncSlotSealed(deps, slot, sourceBytes, designOnlyHash, state);
     return;
   }
+
+  // Skip/persist hash: pre-seal compares the composed hash (so task edits
+  // still refresh the attachment before a PR exists); sealed+replace compares
+  // the design-only hash (so checkbox ticks don't churn the attachment).
+  const skipHash = sealed ? designOnlyHash : hash;
 
   let current = state[slot] ?? EMPTY_SLOT;
 
@@ -594,7 +618,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     }
   }
 
-  if (current.attachmentId && current.sha256 === hash) {
+  if (current.attachmentId && current.sha256 === skipHash) {
     deps.log(`  spec-attachments: ${spec.uploadFilename} unchanged, skipping`, "gray");
     return;
   }
@@ -668,7 +692,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
     );
     return;
   }
-  await persistSlot(deps.statePath, slot, { attachmentId: newId, sha256: hash });
+  await persistSlot(deps.statePath, slot, { attachmentId: newId, sha256: skipHash });
   deps.log(`  spec-attachments: created ${spec.uploadFilename} attachment`, "gray");
 }
 

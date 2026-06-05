@@ -105,6 +105,7 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
           log: onLog,
           mutations: specAttachmentMutations,
           formats: cfg.linear.specAttachmentFormats,
+          sealedRevisionMode: cfg.linear.specAttachmentRevisions,
         });
       }
     },

@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 4;
+export const CURRENT_WORKFLOW_VERSION = 5;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -232,6 +232,12 @@ export const WorkflowConfigSchema = z.object({
             .array(z.enum(["md", "pdf"]))
             .nonempty()
             .default(["md"]),
+          /** Post-seal behavior for the design attachment (once a PR exists).
+           *  "append" (default) publishes each design change as a new
+           *  `Ralph design #N (revision)` attachment, preserving an audit
+           *  trail. "replace" overwrites the single canonical `Ralph design`
+           *  attachment in place — no `#N` accumulation. */
+          specAttachmentRevisions: z.enum(["append", "replace"]).default("append"),
           confirmationMode: z
             .object({
               enabled: z.boolean().default(false),
@@ -259,6 +265,7 @@ export const WorkflowConfigSchema = z.object({
       syncTasksToComment: true,
       syncSpecsAsAttachments: true,
       specAttachmentFormats: ["md"],
+      specAttachmentRevisions: "append",
       confirmationMode: {
         enabled: false,
         timeoutHours: 48,

@@ -87,6 +87,8 @@ linear:
   syncTasksToComment: true
   syncSpecsAsAttachments: true
   specAttachmentFormats: ["md"]
+  # append: keep each sealed design change as a new "#N" attachment; replace: overwrite the canonical one in place
+  specAttachmentRevisions: append
   indicators:
     # Indicators map Ralph lifecycle events to Linear labels/statuses. Within an
     # indicator's \`filter:\` list, entries of the SAME type are ORed and entries
