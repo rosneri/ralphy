@@ -581,6 +581,99 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  // Seed a gate-ready change WITHOUT a pre-existing askedAt so the plan-ready
+  // comment path actually posts. Mirrors seedBugSnapshot minus the stamp.
+  async function seedGateReadyNoAskedAt(root: string, changeName: string): Promise<void> {
+    const changeDir = join(root, "openspec", "changes", changeName);
+    const stateDir = join(root, ".ralph", "tasks", changeName);
+    await mkdir(changeDir, { recursive: true });
+    await mkdir(stateDir, { recursive: true });
+    await Bun.write(
+      join(changeDir, "tasks.md"),
+      "# Tasks\n\n## Planning\n\n- [x] research done\n\n## Implementation\n\n- [ ] do the thing\n",
+    );
+    await Bun.write(
+      join(changeDir, "proposal.md"),
+      "# Proposal\n\n## Why\n\nThis is why we need this change.\n\n## What Changes\n\n- Do the thing\n",
+    );
+    await Bun.write(
+      join(changeDir, "design.md"),
+      "# Design\n\nWe will implement the thing by modifying the relevant module.\n",
+    );
+  }
+
+  test("bug_case: prDraft stamp must NOT clobber askedAt (regression: double plan-ready post)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-double-post-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedGateReadyNoAskedAt(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg = {
+        ...deps.cfg,
+        prDraft: true,
+        linear: { ...deps.cfg.linear, postComments: true, indicators: {} },
+      };
+      // Nothing to PR yet (design not committed) — the LIT-387 shape. The
+      // stamp is still persisted so we don't retry every poll.
+      deps.openDraftPr = async () => null;
+
+      commentBodies.length = 0;
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+
+      const planPosts = commentBodies.filter((b) => b.includes("📋 Ralphy plan ready"));
+      // Regression guard: openDraftPrOnce used to persist a stale confirmation
+      // object (askedAt: null) right after postPlanReadyCommentOnce stamped
+      // askedAt, making the second poll post the identical comment again.
+      expect(planPosts.length).not.toBe(2);
+      expect(planPosts.length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("fix_case: prDraft on — plan-ready comment posts exactly once across polls", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-single-post-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedGateReadyNoAskedAt(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.apiKey = "test-key";
+      deps.cfg = {
+        ...deps.cfg,
+        prDraft: true,
+        linear: { ...deps.cfg.linear, postComments: true, indicators: {} },
+      };
+      deps.openDraftPr = async () => null;
+
+      commentBodies.length = 0;
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+
+      const planPosts = commentBodies.filter((b) => b.includes("📋 Ralphy plan ready"));
+      expect(planPosts.length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("prDraft off: never opens an early draft PR", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-no-early-pr-"));
     try {
