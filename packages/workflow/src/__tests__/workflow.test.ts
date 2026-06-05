@@ -510,4 +510,20 @@ describe("S12 — hostile-config negative tests", () => {
       "invalid settings",
     );
   });
+
+  test("RLF-216 — linear.specAttachmentRevisions defaults to append", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.linear.specAttachmentRevisions).toBe("append");
+  });
+
+  test("RLF-216 — linear.specAttachmentRevisions accepts replace", () => {
+    const { config } = parseWorkflow(`---\nlinear:\n  specAttachmentRevisions: replace\n---\n`);
+    expect(config.linear.specAttachmentRevisions).toBe("replace");
+  });
+
+  test("RLF-216 — linear.specAttachmentRevisions rejects an unknown value", () => {
+    expect(() => parseWorkflow(`---\nlinear:\n  specAttachmentRevisions: clobber\n---\n`)).toThrow(
+      "invalid settings",
+    );
+  });
 });

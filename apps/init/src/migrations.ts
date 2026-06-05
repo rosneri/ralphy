@@ -73,6 +73,15 @@ export const MIGRATIONS: Migration[] = [
       "Re-run the indicator builder to add it, or keep your current indicators.",
     fields: ["linear.indicators"],
   },
+  {
+    version: 5,
+    description:
+      "A new `linear.specAttachmentRevisions` setting controls the sealed " +
+      "design attachment: 'append' (default, unchanged) publishes each change " +
+      "as a new 'Ralph design #N' attachment; 'replace' overwrites the single " +
+      "canonical attachment in place. Pick one, or keep the append default.",
+    fields: ["linear.specAttachmentRevisions"],
+  },
 ];
 
 /** The highest version any migration lands on. Asserted to equal CURRENT. */
