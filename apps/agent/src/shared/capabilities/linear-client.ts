@@ -615,11 +615,24 @@ async function linearRequest<T>(
     | undefined;
 
   for (let attempt = 1; attempt <= MAX_LINEAR_ATTEMPTS; attempt++) {
-    const res = await fetch(LINEAR_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: apiKey },
-      body: JSON.stringify({ query, variables }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(LINEAR_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: apiKey },
+        body: JSON.stringify({ query, variables }),
+      });
+    } catch (netErr) {
+      // Network-level failure (e.g. Bun's "The socket connection was closed
+      // unexpectedly" when a keep-alive socket dies) — transient, retry with
+      // the same backoff as 5xx.
+      lastHttpError = netErr as Error;
+      if (attempt < MAX_LINEAR_ATTEMPTS) {
+        await linearRequestInternals.sleep(Math.min(backoffMs(attempt), MAX_RETRY_AFTER_MS));
+        continue;
+      }
+      throw netErr;
+    }
     if (!res.ok) {
       const err = new Error("Linear API request failed") as Error & {
         status?: number;

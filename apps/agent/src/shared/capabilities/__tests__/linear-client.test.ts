@@ -36,7 +36,7 @@ type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;
 const originalSleep = linearRequestInternals.sleep;
 
-function stubResponses(responses: Response[]): {
+function stubResponses(responses: (Response | Error)[]): {
   count: () => number;
   sleeps: () => number[];
 } {
@@ -45,6 +45,7 @@ function stubResponses(responses: Response[]): {
   const fakeFetch: FetchLike = async () => {
     const r = responses[i++];
     if (!r) throw new Error("unexpected extra fetch call");
+    if (r instanceof Error) throw r;
     return r;
   };
   globalThis.fetch = fakeFetch as typeof fetch;
@@ -186,6 +187,45 @@ describe("linear-client transport", () => {
     });
     const where = requests()[0]!.variables.filter as Record<string, unknown>;
     expect(where.assignee).toBeUndefined();
+  });
+
+  test("bug_case: transient network error no longer throws without retry", async () => {
+    // Bun's fetch throws this when a keep-alive socket dies mid-flight.
+    // Regression guard: this used to propagate after a single attempt.
+    const { count, sleeps } = stubResponses([
+      new Error("The socket connection was closed unexpectedly."),
+      ok({ issues: { nodes: [] } }),
+    ]);
+    await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    });
+    expect(count()).toBe(2);
+    expect(sleeps().length).toBe(1);
+  });
+
+  test("fix_case: transient network error is retried and the second attempt succeeds", async () => {
+    const { count, sleeps } = stubResponses([
+      new Error("The socket connection was closed unexpectedly."),
+      ok({ issues: { nodes: [] } }),
+    ]);
+    const out = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    });
+    expect(out).toEqual([]);
+    expect(count()).toBe(2);
+    expect(sleeps().length).toBe(1);
+  });
+
+  test("fix_case: network-error exhaustion surfaces the last network error", async () => {
+    stubResponses([
+      new Error("The socket connection was closed unexpectedly."),
+      new Error("The socket connection was closed unexpectedly."),
+      new Error("The socket connection was closed unexpectedly."),
+    ]);
+    const e = await fetchMentionScanIssues("k", {
+      indicators: { setDone: { type: "status", value: "Done" } },
+    }).catch((x: unknown) => x);
+    expect((e as Error).message).toContain("socket connection was closed");
   });
 
   test("linearRequestInternals.sleep is the retry seam", async () => {
