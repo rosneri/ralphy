@@ -141,10 +141,7 @@ function clearScreen(): void {
  * a file was written, false when the user cancelled. Assumes the caller has
  * already confirmed the terminal is interactive.
  */
-export async function runSetupWizard(
-  projectRoot: string,
-  options: RunOptions = {},
-): Promise<boolean> {
+async function runSetupWizard(projectRoot: string, options: RunOptions = {}): Promise<boolean> {
   let markdown: string | null = null;
   const buildMarkdown = options.existing
     ? (answers: WizardAnswers, bodyOverride?: string) =>
