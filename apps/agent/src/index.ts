@@ -45,7 +45,6 @@ export async function main(argv: string[]): Promise<number> {
     await runWithContext(createDefaultContext({ layout, args }), async () => {
       await runList({
         linearTeamOverride: args.linearTeam,
-        linearFilterOverride: args.linearFilter,
         linearAssigneeOverride: args.linearAssignee,
         debug: args.debug,
         name: args.name,

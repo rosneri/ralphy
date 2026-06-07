@@ -23,6 +23,8 @@ interface LinearResolversInput {
   assignee: string | undefined;
   /** When true, fetch regardless of assignee (`assignee = any`). */
   anyAssignee?: boolean | undefined;
+  /** Global `linear.filter` must-have labels, ANDed onto every fetch. */
+  requireAllLabels?: string[] | undefined;
   diag: (area: string, message: string, color?: string) => void;
   /** RLF-208: when non-empty, every `fetchByGet` query is constrained to these
    *  Linear ticket numbers (from `--ticket`). */
@@ -47,7 +49,7 @@ interface LinearResolvers {
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
-  const { apiKey, team, assignee, anyAssignee, diag } = input;
+  const { apiKey, team, assignee, anyAssignee, requireAllLabels, diag } = input;
   const ticketNumbers = input.ticketNumbers ?? [];
 
   const stateCache = new Map<string, Map<string, string>>();
@@ -193,6 +195,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
       team,
       assignee,
       anyAssignee,
+      requireAllLabels,
       include,
       exclude: excl,
       ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
@@ -232,12 +235,44 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
  * Fetch all issues that should be scanned for PR conflict and CI status.
  * Unions results from every configured "get" indicator (getTodo, getInProgress,
  * getDone, getReview, getAutoMerge) plus the setDone filter, deduped by id.
- * Always fetches regardless of assignee — the PR scan covers all team members.
+ *
+ * Scoped to the same `assignee`/`anyAssignee` filter as `agent list`, so the
+ * CI/conflict watch only acts on PRs linked to tickets the operator owns —
+ * never on a teammate's tickets. (The broad bucket union is still required:
+ * a ticket sits in the setDone state, e.g. "In Review", while its PR awaits or
+ * fails CI, and that state is not one of the list's pick-up buckets.)
  */
+/**
+ * Build the per-indicator query spec for the done-candidate PR scan. Exported
+ * so it can be unit-tested directly — it is the line that must carry the global
+ * filter's `assignee`/`anyAssignee`/`requireAllLabels` rather than hardcoding
+ * an all-assignee scan (the bug that pulled teammates' PRs into the CI watch).
+ */
+export function doneCandidateSpec(
+  team: string | undefined,
+  assignee: string | undefined,
+  anyAssignee: boolean | undefined,
+  requireAllLabels: string[] | undefined,
+  include: Marker[],
+  ticketNumbers?: number[] | undefined,
+): LinearFilterSpec {
+  return {
+    team,
+    assignee,
+    anyAssignee,
+    requireAllLabels,
+    include,
+    exclude: [],
+    ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
+  };
+}
+
 export async function fetchDoneCandidatesWith(
   apiKey: string,
   team: string | undefined,
-  _assignee: string | undefined,
+  assignee: string | undefined,
+  anyAssignee: boolean | undefined,
+  requireAllLabels: string[] | undefined,
   indicators: Indicators,
   ticketNumbers?: number[] | undefined,
 ): Promise<LinearIssue[]> {
@@ -263,13 +298,10 @@ export async function fetchDoneCandidatesWith(
     getIndicators.map(async (ind) => {
       const include = ind.filter ?? [];
       if (include.length === 0) return;
-      const issues = await fetchOpenIssues(apiKey, {
-        team,
-        anyAssignee: true,
-        include,
-        exclude: [],
-        ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
-      });
+      const issues = await fetchOpenIssues(
+        apiKey,
+        doneCandidateSpec(team, assignee, anyAssignee, requireAllLabels, include, ticketNumbers),
+      );
       for (const issue of issues) {
         if (!seen.has(issue.id)) {
           seen.add(issue.id);

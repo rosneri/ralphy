@@ -166,33 +166,57 @@ describe("parseWorkflow", () => {
     expect(config.linear.syncTasksToComment).toBe(false);
   });
 
-  test("linear.filter defaults to 'assignee = me'", () => {
+  test("linear.filter defaults to an assignee = me marker", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
     expect((config.linear as Record<string, unknown>)["assignee"]).toBeUndefined();
   });
 
-  test("legacy linear.assignee folds into linear.filter", () => {
+  test("legacy linear.assignee folds into a linear.filter marker", () => {
     const { config } = parseWorkflow(`---\nlinear:\n  assignee: me\n---\n`);
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
     expect((config.linear as Record<string, unknown>)["assignee"]).toBeUndefined();
   });
 
-  test("legacy blank assignee folds to assignee = unassigned", () => {
+  test("legacy blank assignee folds to an unassigned marker", () => {
     const { config } = parseWorkflow(`---\nlinear:\n  assignee: ""\n---\n`);
-    expect(config.linear.filter).toBe("assignee = unassigned");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "unassigned" }]);
   });
 
-  test("legacy assignee email folds into a filter clause", () => {
+  test("legacy assignee email folds into a filter marker", () => {
     const { config } = parseWorkflow(`---\nlinear:\n  assignee: dev@example.com\n---\n`);
-    expect(config.linear.filter).toBe("assignee = dev@example.com");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "dev@example.com" }]);
   });
 
   test("explicit linear.filter wins over a legacy assignee", () => {
     const { config } = parseWorkflow(
-      `---\nlinear:\n  assignee: me\n  filter: assignee = any\n---\n`,
+      `---\nlinear:\n  assignee: me\n  filter:\n    - type: assignee\n      value: any\n---\n`,
     );
-    expect(config.linear.filter).toBe("assignee = any");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "any" }]);
+  });
+
+  test("linear.filter accepts label clauses alongside assignee", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  filter:\n    - type: assignee\n      value: me\n    - type: label\n      value: ralph\n---\n`,
+    );
+    expect(config.linear.filter).toEqual([
+      { type: "assignee", value: "me" },
+      { type: "label", value: "ralph" },
+    ]);
+  });
+
+  test("linear.filter rejects more than one assignee clause", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  filter:\n    - type: assignee\n      value: me\n    - type: assignee\n      value: any\n---\n`,
+      ),
+    ).toThrow(/at most one "assignee"/);
+  });
+
+  test("linear.filter rejects a non label/assignee clause", () => {
+    expect(() =>
+      parseWorkflow(`---\nlinear:\n  filter:\n    - type: status\n      value: Todo\n---\n`),
+    ).toThrow();
   });
 
   test("metaPrompt.effort defaults to auto", () => {

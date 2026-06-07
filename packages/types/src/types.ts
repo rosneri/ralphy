@@ -265,6 +265,36 @@ export interface GetIndicator {
   filter: Marker[];
 }
 
+// --- Global Linear filter (label + assignee) ---
+//
+// `linear.filter` is a high-level "grab all" scope ANDed into EVERY Linear
+// query (todo pickup, in-progress resume, the done-candidate PR/CI scan, the
+// mention scan, the `agent list` buckets) and, transitively, the GitHub PR
+// searches rooted at those issues. It is a marker list restricted to two
+// kinds — deliberately narrower than the lifecycle {@link Marker} union, which
+// must never carry an `assignee` (that would imply reassignment in a setX
+// slot).
+
+/** One clause of the global `linear.filter`. */
+export type LinearFilterMarker =
+  | { type: "label"; value: string }
+  /** `value` ∈ { me, any, unassigned, <email>, <user-id> }. */
+  | { type: "assignee"; value: string };
+
+/** The global Linear filter: a list of label/assignee clauses, all ANDed. */
+export type LinearFilter = LinearFilterMarker[];
+
+/**
+ * The global filter resolved into the fields the query layer consumes:
+ * `assignee`/`anyAssignee` feed the existing assignee constraint, and every
+ * entry of `requireAllLabels` becomes a mandatory (must-have) label clause.
+ */
+export interface ResolvedLinearFilter {
+  assignee?: string | undefined;
+  anyAssignee?: boolean | undefined;
+  requireAllLabels: string[];
+}
+
 /** Single marker or array of markers to apply in one transition. */
 export type SetIndicator = Marker | Marker[];
 
