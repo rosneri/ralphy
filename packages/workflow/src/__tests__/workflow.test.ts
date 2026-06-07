@@ -9,6 +9,8 @@ import {
   renderTemplate,
   renderWorkflowPrompt,
   resolveBaselineCommands,
+  workflowNeedsUpgrade,
+  readWorkflowVersion,
   DEFAULT_WORKFLOW_MD,
 } from "../workflow";
 import { findBoundaryViolations } from "../boundaries";
@@ -568,5 +570,57 @@ describe("S12 — hostile-config negative tests", () => {
     expect(() => parseWorkflow(`---\nlinear:\n  specAttachmentRevisions: clobber\n---\n`)).toThrow(
       "invalid settings",
     );
+  });
+});
+
+describe("workflowNeedsUpgrade", () => {
+  test("the canonical default WORKFLOW.md does not need an upgrade", () => {
+    expect(workflowNeedsUpgrade(DEFAULT_WORKFLOW_MD)).toBe(false);
+  });
+
+  test("a file with the removed string linear.filter needs an upgrade", () => {
+    expect(
+      workflowNeedsUpgrade(`---\nversion: 6\nlinear:\n  filter: assignee = me\n---\nbody\n`),
+    ).toBe(true);
+  });
+
+  test("a file with legacy prRecovery keys needs an upgrade", () => {
+    expect(workflowNeedsUpgrade(`---\nversion: 5\nprTracker:\n  enabled: true\n---\nbody\n`)).toBe(
+      true,
+    );
+  });
+
+  test("a genuinely invalid file (still broken after migrate) needs an upgrade", () => {
+    expect(
+      workflowNeedsUpgrade(`---\nlinear:\n  specAttachmentRevisions: clobber\n---\nbody\n`),
+    ).toBe(true);
+  });
+
+  test("a file missing only a default-bearing key self-heals in memory (no upgrade)", () => {
+    // No legacy shape and parses fine — normalize backfills its defaults on
+    // load, which is intentionally not an upgrade.
+    expect(workflowNeedsUpgrade(`---\nproject:\n  name: demo\n---\nbody\n`)).toBe(false);
+  });
+});
+
+describe("readWorkflowVersion", () => {
+  test("reads the on-disk version stamp", () => {
+    expect(readWorkflowVersion(`---\nversion: 5\n---\nbody\n`)).toBe(5);
+  });
+
+  test("defaults to 0 when version is missing", () => {
+    expect(readWorkflowVersion(`---\nproject:\n  name: demo\n---\nbody\n`)).toBe(0);
+  });
+
+  test("defaults to 0 when there is no frontmatter", () => {
+    expect(readWorkflowVersion(`no frontmatter`)).toBe(0);
+  });
+
+  test("reports the raw version even when other settings are invalid", () => {
+    // The schema rejects a string linear.filter, but the version stamp is still
+    // readable — this is exactly why init reads the disk version directly.
+    expect(
+      readWorkflowVersion(`---\nversion: 5\nlinear:\n  filter: assignee = me\n---\nbody\n`),
+    ).toBe(5);
   });
 });

@@ -7,6 +7,8 @@ import {
   loadWorkflow,
   normalizeWorkflowMarkdown,
   migrateWorkflowMarkdown,
+  readWorkflowVersion,
+  workflowNeedsUpgrade,
   CURRENT_WORKFLOW_VERSION,
   DEFAULT_WORKFLOW_MD,
   type WorkflowConfig,
@@ -216,6 +218,34 @@ export async function maybeRunSetupWizard(
   });
 }
 
+/**
+ * Hook used by the real-work subcommands when WORKFLOW.md is present but stale
+ * or invalid (a versioned migration would rewrite it, or it no longer parses).
+ * Launches the same `ralphy init` flow that repairs and persists the file, then
+ * returns true so the caller can ask the user to re-run their command against
+ * the upgraded file.
+ *
+ * No-ops (returning false) when the file is missing, already current, or the
+ * session is non-interactive — in the non-interactive case the downstream
+ * in-memory self-heal in `loadWorkflow` still lets the command run.
+ */
+export async function maybeUpgradeWorkflow(
+  projectRoot?: string,
+  workflowFile?: string,
+): Promise<boolean> {
+  const root = projectRoot ?? (await findProjectRoot());
+  const path = workflowPath(root, workflowFile);
+  const file = Bun.file(path);
+  if (!(await file.exists())) return false;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  if (!workflowNeedsUpgrade(await file.text())) return false;
+
+  process.stdout.write("WORKFLOW.md needs an upgrade. Starting init…\n");
+  const initArgv = ["--project-root", root, ...(workflowFile ? ["--workflow", workflowFile] : [])];
+  await main(initArgv);
+  return true;
+}
+
 /** Prefill values (keyed by wizard field id) from an existing config. */
 function initialValuesFromConfig(config: WorkflowConfig): Record<string, WizardValue> {
   const values: Record<string, WizardValue> = {};
@@ -387,13 +417,17 @@ export async function main(argv: string[]): Promise<number> {
     }
 
     // Outdated file → offer migration (fill the diff / review all / exit).
-    if (needsMigration(config.version)) {
-      const choice = await promptMigrate(config.version);
+    // Decide from the *on-disk* version: `loadWorkflow` runs the migration in
+    // memory and may have already bumped `config.version` to current, which
+    // would hide the very upgrade we want to surface.
+    const diskVersion = readWorkflowVersion(await Bun.file(path).text());
+    if (needsMigration(diskVersion)) {
+      const choice = await promptMigrate(diskVersion);
       if (choice === "exit") {
         process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
         return 0;
       }
-      const onlyFields = choice === "diff" ? fieldsAddedSince(config.version) : undefined;
+      const onlyFields = choice === "diff" ? fieldsAddedSince(diskVersion) : undefined;
       return editExisting(projectRoot, path, config, workflowFile, onlyFields);
     }
 
