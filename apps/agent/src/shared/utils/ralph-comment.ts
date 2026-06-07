@@ -7,5 +7,10 @@
  *  Ralphy's own wording (e.g. the reminder's "Approve to continue"). */
 export function isRalphComment(body: string): boolean {
   const trimmed = body.trimStart();
-  return /^(🤖|🔄|✅|✗|❌|⚠|🔁|📋|⏰)\s*Ralphy?\b/.test(trimmed);
+  if (/^(🤖|🔄|✅|✗|❌|⚠|🔁|📋|⏰)\s*Ralphy?\b/.test(trimmed)) return true;
+  // The mention-ack (buildMentionAckComment) breaks the "<emoji> Ralphy"
+  // shape: it leads with "👀 Got it, <mentioner>! …" / "👀 Acknowledged! …".
+  // Recognize it explicitly so Ralphy never re-picks-up its own ack as a
+  // fresh mention — otherwise the scan re-acks every poll cycle (LIT-408).
+  return /^👀\s*(Got it\b|Acknowledged\b)/.test(trimmed);
 }
