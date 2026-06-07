@@ -284,4 +284,28 @@ describe("flowMachine — terminal states", () => {
     a.send({ type: "PR_OPENED" });
     expect(a.getSnapshot().value).toBe("awaiting-ci");
   });
+
+  test("awaiting-ci → review on REVIEW_TRIGGERED (mention on a deferred ticket)", () => {
+    const a = actor();
+    a.send({ type: "FRESH_PICKED_UP" });
+    a.send({ type: "PR_OPENED" }); // → awaiting-ci
+    a.send({ type: "REVIEW_TRIGGERED" });
+    expect(a.getSnapshot().value).toBe("review");
+  });
+
+  test("review → awaiting-ci on PR_OPENED (review pushed to the open PR)", () => {
+    const a = actor();
+    a.send({ type: "FRESH_PICKED_UP" });
+    a.send({ type: "PR_OPENED" }); // → awaiting-ci
+    a.send({ type: "REVIEW_TRIGGERED" }); // → review
+    a.send({ type: "PR_OPENED" }); // review worker exited on a PR-producing run
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
+  });
+
+  test("review → done on WORKER_SUCCEEDED (mention on a non-PR / done ticket)", () => {
+    const a = actor();
+    a.send({ type: "REVIEW_TRIGGERED" }); // idle → review
+    a.send({ type: "WORKER_SUCCEEDED" });
+    expect(a.getSnapshot().value).toBe("done");
+  });
 });

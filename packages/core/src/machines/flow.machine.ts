@@ -264,6 +264,10 @@ export const flowMachine = setup({
         PR_PASSED: "done",
         CONFLICT_DETECTED: "conflict-fix",
         CI_FAILED_DETECTED: "ci-fix",
+        // A @ralphy mention on a deferred (PR-open) ticket routes into review;
+        // the review worker pushes to the open PR and the actor returns to
+        // awaiting-ci (PR_OPENED) to re-await mergeable, rather than stranding.
+        REVIEW_TRIGGERED: "review",
         PREEMPT: {
           target: "preempting",
           actions: assign({
@@ -283,6 +287,11 @@ export const flowMachine = setup({
     review: {
       on: {
         WORKER_SUCCEEDED: "done",
+        // Review on a PR-producing run defers to the watcher: the worker pushed
+        // to the open PR, so re-await mergeability instead of jumping to done.
+        // (The coordinator sends PR_OPENED instead of WORKER_SUCCEEDED when the
+        // run opens PRs and recovery is enabled.)
+        PR_OPENED: "awaiting-ci",
         WORKER_FAILED: "error",
         WORKER_SPAWNED: {
           actions: assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({

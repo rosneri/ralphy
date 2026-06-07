@@ -30,8 +30,10 @@ stateDiagram-v2
   awaiting_ci --> done: PR_PASSED
   awaiting_ci --> conflict-fix: CONFLICT_DETECTED
   awaiting_ci --> ci-fix: CI_FAILED_DETECTED
+  awaiting_ci --> review: REVIEW_TRIGGERED
   awaiting_ci --> preempting: PREEMPT
   review --> done: WORKER_SUCCEEDED
+  review --> awaiting-ci: PR_OPENED
   review --> error: WORKER_FAILED
   done --> [*]
   error --> [*]
