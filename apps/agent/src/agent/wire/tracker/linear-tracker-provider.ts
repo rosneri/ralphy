@@ -15,7 +15,7 @@ import { addIssueComment, fetchIssueComments } from "../../linear";
 import { unionMarkers } from "../indicators";
 import { fetchDoneCandidatesWith, type LinearResolvers } from "../linear-resolvers";
 
-export interface LinearTrackerProviderInput {
+interface LinearTrackerProviderInput {
   apiKey: string;
   team: string | undefined;
   assignee: string | undefined;

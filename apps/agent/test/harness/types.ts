@@ -1,9 +1,8 @@
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
-import type { SetIndicator } from "@ralphy/types";
 import type { IssueTrackerProvider } from "@ralphy/tracker";
 import type { CoordinatorDeps } from "../../src/runtime/coordinator";
 
-export type { LinearIssue, SetIndicator };
+export type { LinearIssue };
 
 /** One scripted engine turn played back by `scripted-engine.ts`. */
 export interface ScenarioStep {
