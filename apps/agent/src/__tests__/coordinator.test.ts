@@ -629,7 +629,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     ctx.deps.prepareTaskForTrigger = async (_i, _name, trigger) => {
       observed.push(trigger);
     };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -652,7 +655,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     ctx.deps.prepareTaskForTrigger = async (_i, _name, t, m) => {
       seen.push({ trigger: t, ...(m ? { mention: m } : {}) });
     };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -677,7 +683,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
         },
       },
     ]);
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -697,7 +706,10 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
         },
       },
     ]);
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -718,7 +730,11 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
       },
     ]);
     const setDone: SetIndicator = { type: "status", value: "Done" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -733,7 +749,11 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     ctx.setDoneCandidates([doneIssue]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const setDone: SetIndicator = { type: "status", value: "Done" };
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1, setDone });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -750,7 +770,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -766,7 +789,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -786,7 +812,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       url: "https://github.com/o/r/pull/501",
       status: "ci_failed" as const,
     });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     const r = await coord.pollOnce();
     expect(r.prStatus).toEqual({ mergeable: 0, conflicted: 0, ciFailed: 1, quarantined: 0 });
@@ -807,7 +836,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     ctx.conflictByIssue.set("b", { url: "https://gh/pr/2", status: "mergeable" as const });
     ctx.conflictByIssue.set("c", { url: "https://gh/pr/3", status: "conflicted" as const });
     ctx.conflictByIssue.set("d", { url: "https://gh/pr/4", status: "ci_failed" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     const r = await coord.pollOnce();
     expect(r.prStatus).toEqual({ mergeable: 2, conflicted: 1, ciFailed: 1, quarantined: 0 });
@@ -824,7 +856,12 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     tk.labels = ["error"]; // quarantine label still on the ticket
     ctx.setDoneCandidates([tk]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, prTracker: tracker, setError });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      prTracker: tracker,
+      setError,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
 
     // Poll 1: first failure tips it over maxRecoveryAttempts=1 → bail → quarantined.
@@ -855,7 +892,12 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     tk.labels = []; // human cleared the quarantine label → retry intent
     ctx.setDoneCandidates([tk]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0, prTracker: tracker, setError });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      prTracker: tracker,
+      setError,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
 
     const r = await coord.pollOnce();
@@ -871,7 +913,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     ctx.setDoneCandidates([tk]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     // concurrency 0 so the queued conflict-fix never drains.
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
 
     const r1 = await coord.pollOnce();
@@ -889,7 +934,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       url: "https://github.com/o/r/pull/376",
       status: "conflicted" as const,
     });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -914,7 +962,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       url: "https://github.com/o/r/pull/400",
       status: "ci_failed" as const,
     });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -935,7 +986,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       url: "https://github.com/o/r/pull/376",
       status: "conflicted" as const,
     });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -956,7 +1010,10 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       url: "https://github.com/o/r/pull/1",
       status: "mergeable" as const,
     });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -1030,6 +1087,7 @@ describe("AgentCoordinator — progress comments", () => {
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       getAutoMerge: { filter: [{ type: "label", value: "ralph:auto-merge" }] },
+      prRecovery: { enabled: true, fixCi: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1054,6 +1112,7 @@ describe("AgentCoordinator — progress comments", () => {
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       getAutoMerge: { filter: [{ type: "label", value: "ralph:auto-merge" }] },
+      prRecovery: { enabled: true, fixCi: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1481,7 +1540,10 @@ describe("AgentCoordinator — poll summary log routing", () => {
 describe("AgentCoordinator — flow machine actor state", () => {
   test("flow value for a fresh issue reflects 'working' (actor dispatched FRESH_PICKED_UP)", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -1499,7 +1561,10 @@ describe("AgentCoordinator — flow machine actor state", () => {
     const ctx = makeDeps();
     ctx.setDoneCandidates([doneIssue]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -1517,7 +1582,10 @@ describe("AgentCoordinator — flow machine actor state", () => {
     const ctx = makeDeps();
     ctx.setDoneCandidates([ticket]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "ci_failed" as const });
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -1538,7 +1606,10 @@ describe("AgentCoordinator — flow machine actor state", () => {
         trigger: { source: "linear", body: "@ralphy review", createdAt: "2026-01-01T00:00:00Z" },
       },
     ]);
-    const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true },
+    });
     await coord.init();
     await coord.pollOnce();
     await tick();
@@ -1569,7 +1640,10 @@ describe("AgentCoordinator — flow machine actor state", () => {
 
       // First coordinator: issue picked up as fresh, actor transitions to "working"
       const ctx1 = makeDepsWithChangeDir({ todo: [issueA] });
-      const coord1 = new AgentCoordinator(ctx1.deps, { concurrency: 1 });
+      const coord1 = new AgentCoordinator(ctx1.deps, {
+        concurrency: 1,
+        prRecovery: { enabled: true, fixCi: true },
+      });
       await coord1.init();
       await coord1.pollOnce();
       await tick();
@@ -1578,7 +1652,10 @@ describe("AgentCoordinator — flow machine actor state", () => {
       // Simulate restart: create a fresh coordinator with the same getChangeDir
       const ctx2 = makeDepsWithChangeDir();
       ctx2.setInProgress([issueA]);
-      const coord2 = new AgentCoordinator(ctx2.deps, { concurrency: 1 });
+      const coord2 = new AgentCoordinator(ctx2.deps, {
+        concurrency: 1,
+        prRecovery: { enabled: true, fixCi: true },
+      });
       await coord2.init();
       await coord2.pollOnce();
       await tick();

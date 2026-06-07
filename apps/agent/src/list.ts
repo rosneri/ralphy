@@ -525,7 +525,7 @@ export async function runList(input: RunListInput): Promise<void> {
     anyAssignee,
     projectRoot,
     localCmdRunner,
-    cfg.ignoreCiChecks,
+    cfg.prRecovery.ignoreChecks,
     input.checks,
     input.review,
     ticketNumbers,

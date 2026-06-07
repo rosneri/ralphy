@@ -38,7 +38,6 @@ export interface LoopPreambleContext {
   confirmationRound: number;
   // Feature flags
   createPrOnSuccess: boolean;
-  fixCiOnFailure: boolean;
   stackPrsOnDependencies: boolean;
   syncTasksToComment: boolean;
   // Worktree context
@@ -557,11 +556,6 @@ export function buildDynamicLoopBlock(ctx: LoopPreambleContext): string {
   if (ctx.createPrOnSuccess) {
     paragraphs.push(
       "A PR will be created on success: prepare the branch and commit history for PR creation or update.",
-    );
-  }
-  if (ctx.fixCiOnFailure) {
-    paragraphs.push(
-      "CI failures will trigger continued remediation: do not treat a CI failure as a terminal stop condition.",
     );
   }
   if (ctx.stackPrsOnDependencies) {

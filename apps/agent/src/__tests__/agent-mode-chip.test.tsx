@@ -115,7 +115,6 @@ const baseArgs: ParsedArgs = {
   worktree: false,
   indicators: {},
   createPr: false,
-  fixCi: false,
   noTmux: false,
   stackPrs: false,
   codeReview: false,

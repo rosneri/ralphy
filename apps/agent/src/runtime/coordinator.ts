@@ -302,10 +302,14 @@ interface CoordinatorOptions {
   getAutoMerge?: GetIndicator | undefined;
   /** Optional pr-tracker (RLF-173). When provided, the merge-state scan
    *  records every CONFLICTING / CI-failed detection and bails to
-   *  `setError` once `maxRecoveryAttempts` is exceeded. Healthy
+   *  `setError` once `maxRecoverySessions` is exceeded. Healthy
    *  (mergeable) PRs clear their counter. Absence preserves the legacy
    *  "demote forever" behavior. */
   prTracker?: PrTracker | undefined;
+  /** Unified PR-recovery gate (RLF-97). `enabled: false` makes the merge-state
+   *  scan a no-op — no conflict or CI recovery is queued anywhere. `fixCi: false`
+   *  keeps conflict recovery but skips CI-failed PRs. Absent ≡ disabled. */
+  prRecovery?: { enabled: boolean; fixCi: boolean } | undefined;
 }
 
 export interface ActiveWorker {
@@ -941,6 +945,10 @@ export class AgentCoordinator {
    */
   private async scanPrMergeStates(): Promise<PrStatusCounts> {
     const counts = emptyPrStatus();
+    // RLF-97: `prRecovery.enabled: false` turns recovery off everywhere. Without
+    // this gate the scan re-queued conflict-fix / ci-fix workers regardless of
+    // the setting (only the bail counter was gated) — so "off" never meant off.
+    if (!this.opts.prRecovery?.enabled) return counts;
     let candidates: LinearIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
@@ -1059,6 +1067,10 @@ export class AgentCoordinator {
       }
 
       if (pr.status === "ci_failed") {
+        // RLF-97: CI recovery is gated on `prRecovery.fixCi`. When off, leave a
+        // CI-red PR alone (conflict recovery still runs above) — no queue, no
+        // bail, no count. A human owns the failing checks.
+        if (!this.opts.prRecovery?.fixCi) continue;
         // Standing level + quarantine surfacing (fix) — mirrors conflicted above.
         if (tracker?.isBailed(issue.identifier)) {
           counts.quarantined += 1;

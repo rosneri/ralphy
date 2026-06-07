@@ -281,7 +281,7 @@ describe("loadWorkflow / ensureWorkflow", () => {
     const { config } = await loadWorkflow(tempDir, customPath);
     // in-memory heal: defaults are present to the runtime
     expect(config.model).toBe("opus");
-    expect(config.prTracker.maxRecoveryAttempts).toBe(3);
+    expect(config.prRecovery.maxRecoverySessions).toBe(3);
     // but the file on disk is untouched (no hot-path / worktree churn)
     expect(await Bun.file(customPath).text()).toBe(original);
   });
@@ -298,6 +298,25 @@ describe("loadWorkflow / ensureWorkflow", () => {
     const afterFirst = written;
     await loadWorkflow(tempDir, customPath, { persist: true });
     expect(await Bun.file(customPath).text()).toBe(afterFirst);
+  });
+
+  test("loadWorkflow migrates pre-v6 PR-recovery keys from their REAL values before defaults-fill", async () => {
+    // The ordering guard: if the defaults-fill ran first it would inject
+    // prRecovery DEFAULTS (enabled/fixCi true, sessions 3) and lose this user's
+    // real settings. Migrate-before-normalize must preserve them.
+    const legacyPath = join(tempDir, "legacy.md");
+    await Bun.write(
+      legacyPath,
+      `---\nversion: 5\nignoreCiChecks:\n  - flaky\nprTracker:\n  enabled: false\n  maxRecoveryAttempts: 7\n---\nbody\n`,
+    );
+    const { config } = await loadWorkflow(tempDir, legacyPath);
+    expect(config.version).toBe(6);
+    expect(config.prRecovery.enabled).toBe(false);
+    expect(config.prRecovery.fixCi).toBe(false);
+    expect(config.prRecovery.maxRecoverySessions).toBe(7);
+    expect(config.prRecovery.ignoreChecks).toEqual(["flaky"]);
+    // No persist → the on-disk file still carries the legacy shape untouched.
+    expect(await Bun.file(legacyPath).text()).toContain("prTracker");
   });
 
   test("loadWorkflow injects getApproved for an enabled gate (in-memory)", async () => {

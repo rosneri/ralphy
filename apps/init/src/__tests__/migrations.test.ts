@@ -12,7 +12,7 @@ import { findField } from "@ralphy/workflow/fields";
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
     expect(LATEST_MIGRATION_VERSION).toBe(CURRENT_WORKFLOW_VERSION);
-    expect(CURRENT_WORKFLOW_VERSION).toBe(5);
+    expect(CURRENT_WORKFLOW_VERSION).toBe(6);
   });
 
   test("version 2 introduces repo.link", () => {
@@ -35,6 +35,31 @@ describe("migrations registry", () => {
     const v5 = MIGRATIONS.find((m) => m.version === 5);
     expect(v5?.description).toContain("specAttachmentRevisions");
     expect(v5?.fields).toEqual([]);
+  });
+
+  test("version 6 offers the unified prRecovery block", () => {
+    const v6 = MIGRATIONS.find((m) => m.version === 6);
+    expect(v6?.description).toContain("prRecovery");
+    expect(v6?.fields).toEqual([
+      "prRecovery.enabled",
+      "prRecovery.fixCi",
+      "prRecovery.maxRecoverySessions",
+      "prRecovery.ignoreChecks",
+    ]);
+  });
+
+  test("the retired prTracker / fixCiOnFailure field ids are gone from every migration", () => {
+    const retired = [
+      "prTracker.enabled",
+      "prTracker.maxRecoveryAttempts",
+      "prTracker.advanceMergedToDone",
+      "fixCiOnFailure",
+      "maxCiFixAttempts",
+      "ciPollIntervalSeconds",
+      "ignoreCiChecks",
+    ];
+    const allFields = MIGRATIONS.flatMap((m) => m.fields);
+    for (const id of retired) expect(allFields).not.toContain(id);
   });
 
   test("linear.specAttachmentRevisions is NOT in the wizard catalogue (config-file-only)", () => {

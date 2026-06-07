@@ -40,7 +40,8 @@ function withPresets(answers: WizardAnswers): Record<string, WizardValue> {
   const values: Record<string, WizardValue> = { ...answers.values };
   if (answers.mode === "permissive") {
     values["createPrOnSuccess"] = true;
-    values["fixCiOnFailure"] = true;
+    values["prRecovery.enabled"] = true;
+    values["prRecovery.fixCi"] = true;
     values["manualMergeWhenAutoMergeDisabled"] = false;
   }
   return values;

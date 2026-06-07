@@ -413,35 +413,37 @@ const CUSTOMIZED_FIELDS: Field[] = [
     spec: yes(),
   },
 
-  // ── CI auto-fix ──
+  // ── PR recovery ──
   {
-    id: "fixCiOnFailure",
-    label: "Let the agent fix CI failures?",
+    id: "prRecovery.enabled",
+    label: "Enable PR recovery?",
     description:
-      "After opening a PR, watch its CI (the automated checks GitHub runs) and let the agent push fixes when they fail.",
-    spec: no(),
+      "After a worker opens a PR and marks the ticket done, keep watching that PR and automatically recover any whose merge state goes red — resolving merge conflicts, and (when CI recovery is on) re-running the agent to fix failing checks. Turn off to do no automatic PR recovery anywhere.",
+    spec: yes(),
   },
   {
-    id: "maxCiFixAttempts",
-    label: "Max CI-fix attempts per task",
-    description: "Stop trying to fix failing CI after this many attempts.",
-    spec: { kind: "number", placeholder: "5" },
-    when: isOn("fixCiOnFailure"),
-  },
-  {
-    id: "ciPollIntervalSeconds",
-    label: "CI status poll interval (seconds)",
+    id: "prRecovery.fixCi",
+    label: "Recover failing CI too?",
     description:
-      "How often (in seconds) to re-check the PR's CI status while waiting on or fixing it.",
-    spec: { kind: "number", placeholder: "30" },
-    when: isOn("fixCiOnFailure"),
+      "When a watched PR's CI (the automated checks GitHub runs) goes red, re-run the agent to fix it. Off keeps PRs un-conflicted but never auto-pushes speculative CI fixes.",
+    spec: yes(),
+    when: isOn("prRecovery.enabled"),
   },
   {
-    id: "ignoreCiChecks",
+    id: "prRecovery.maxRecoverySessions",
+    label: "Max PR recovery sessions",
+    description:
+      "Give up auto-recovering a red PR after this many recovery sessions, then flag it for a human.",
+    spec: { kind: "number", placeholder: "3" },
+    when: isOn("prRecovery.enabled"),
+  },
+  {
+    id: "prRecovery.ignoreChecks",
     label: "CI checks to ignore",
     description:
       "Names of CI checks to ignore when deciding whether a PR is green — e.g. known-flaky jobs.",
     spec: { kind: "list", placeholder: "check name" },
+    when: isOn("prRecovery.enabled"),
   },
 
   // ── Rules & boundaries ──
@@ -600,28 +602,6 @@ const CUSTOMIZED_FIELDS: Field[] = [
       "Linear label applied to the ticket Ralphy opens when the base branch is found broken.",
     spec: { kind: "text", placeholder: "ralph:pre-existing-error" },
     when: isOn("preExistingErrorCheck.enabled"),
-  },
-  {
-    id: "prTracker.enabled",
-    label: "Enable the PR tracker?",
-    description:
-      "Keep watching the PRs Ralphy opened and automatically try to recover any whose merge state goes red (conflicts or failing CI).",
-    spec: yes(),
-  },
-  {
-    id: "prTracker.maxRecoveryAttempts",
-    label: "PR tracker max recovery attempts",
-    description:
-      "Give up auto-recovering a red PR after this many attempts, then flag it for a human.",
-    spec: { kind: "number", placeholder: "3" },
-    when: isOn("prTracker.enabled"),
-  },
-  {
-    id: "prTracker.advanceMergedToDone",
-    label: "Advance merged PRs to done automatically?",
-    description: "Move an issue to its done state as soon as its PR is merged.",
-    spec: no(),
-    when: isOn("prTracker.enabled"),
   },
   {
     id: "metaPrompt.enabled",

@@ -914,7 +914,9 @@ export function AgentMode({
                 )}
                 {args.maxTickets > 0 && <Text color="yellow"> │ tickets ≤{args.maxTickets}</Text>}
                 {cfg.createPrOnSuccess && <Text color="green"> ● PR</Text>}
-                {cfg.fixCiOnFailure && <Text color="green"> ● fixCI</Text>}
+                {cfg.prRecovery.enabled && (
+                  <Text color="green"> ● recover{cfg.prRecovery.fixCi ? "+CI" : ""}</Text>
+                )}
                 {cfg.useWorktree && <Text color="green"> ● worktree</Text>}
                 {gaveUpCount > 0 && <Text color="red"> │ gave-up ×{gaveUpCount}</Text>}
               </Text>

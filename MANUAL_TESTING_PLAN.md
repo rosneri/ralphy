@@ -312,16 +312,16 @@ This document outlines manual testing procedures for validating the Ralphy v2.10
 
 #### 6.2 PR Failure Detection
 
-- [ ] **CI Failure Handling**
-  - Agent monitors PR checks after creation
-  - Detects failed checks
-  - With `--fix-ci`, triggers CI fix loop
+- [ ] **CI Failure Handling (watcher recovery)**
+  - After the worker opens the PR and marks the ticket done, the watcher polls its merge state
+  - Detects failed checks on a tracked In-Review PR
+  - With `prRecovery.fixCi` enabled, re-queues a `ci-fix` worker (bails to `ralph:error` after `maxRecoverySessions`)
 - [ ] **Validation Steps**
-  1. Create PR with `--create-pr` flag
+  1. Create PR with `--create-pr` flag (ticket reaches done immediately)
   2. Simulate check failure (or wait for real CI to fail)
-  3. With `--fix-ci`, verify agent attempts fix
-  4. Verify fix loop logs progress
-  5. Verify success/failure outcome
+  3. With `prRecovery.fixCi` on, verify the watcher re-queues a ci-fix worker on a later poll
+  4. Verify the fix-worker logs progress and pushes a fix
+  5. Verify the PR clears (or bails to `ralph:error` after `maxRecoverySessions`)
 
 #### 6.3 PR Merge on Success
 
@@ -429,7 +429,7 @@ This document outlines manual testing procedures for validating the Ralphy v2.10
 - [ ] **All Flags Recognized**
   - `--name`, `--prompt`, `--claude`, `--max-iterations`
   - `--max-cost`, `--max-runtime`, `--max-failures`
-  - `--create-pr`, `--fix-ci`, `--keep-worktree`
+  - `--create-pr`, `--no-pr-recovery`, `--keep-worktree`
   - Agent-specific: `--linear-team`, `--linear-assignee`, `--concurrency`, `--poll-interval`
 - [ ] **Test Procedure**
   1. Run: `ralph task --help` and verify all flags listed

@@ -13,7 +13,7 @@ describe("normalizeWorkflowMarkdown — defaults-fill", () => {
     expect(config.concurrency).toBe(3);
     // defaults filled
     expect(config.model).toBe("opus");
-    expect(config.prTracker.maxRecoveryAttempts).toBe(3);
+    expect(config.prRecovery.maxRecoverySessions).toBe(3);
     expect(config.linear.mentionHandle).toBe("@ralphy");
   });
 

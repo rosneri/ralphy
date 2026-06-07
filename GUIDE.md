@@ -38,7 +38,9 @@ model: opus
 useWorktree: true
 createPrOnSuccess: true
 autoMergeStrategy: squash
-fixCiOnFailure: true
+prRecovery:
+  enabled: true
+  fixCi: true
 
 linear:
   team: ENG
@@ -102,7 +104,7 @@ Each poll inspects Linear (and, when configured, GitHub PRs) and routes each iss
 | **fresh**        | Issue matches `getTodo`                                                                                                          | Scaffold a new change, spawn worker, apply `setInProgress`                                        |
 | **resume**       | Issue matches `getInProgress` (typical: agent restart)                                                                           | Re-attach to existing change directory, skip re-scaffold                                          |
 | **conflict-fix** | A tracked PR (`setDone` candidate _or_ an in-progress ticket's PR) is detected as `CONFLICTING` via `gh pr view`                 | Interrupt resume if needed, prepend a conflict-resolution task to `tasks.md`, reactivate state    |
-| **ci-fix**       | A tracked PR's CI is red (`gh pr view --json statusCheckRollup`) and `fixCiOnFailure` is enabled                                 | Prepend a "Fix failing CI checks" task with gh-driven log inspection; reactivate state            |
+| **ci-fix**       | A tracked PR's CI is red (`gh pr view --json statusCheckRollup`) and `prRecovery.fixCi` is enabled                               | Prepend a "Fix failing CI checks" task with gh-driven log inspection; reactivate state            |
 | **review**       | Done issue carries the `getReview` marker (label trigger), _or_ a `@ralphy` mention is detected on Linear / the linked GitHub PR | Prepend a review task with the relevant comments; remove the `clearReview` label after pickup     |
 | **code-review**  | Open tracked PR has unresolved review-thread comments newer than Ralph's last pickup ack                                         | Prepend a digest of unresolved comments with fix-or-reply instructions; repeats until PR approved |
 
@@ -114,7 +116,7 @@ flowchart TD
     SCAN -- "getTodo" --> FRESH["mode: fresh\nscaffold change"]
     SCAN -- "getInProgress" --> RESUME["mode: resume"]
     SCAN -- "gh: PR CONFLICTING" --> CFX["mode: conflict-fix\nprepend fix task"]
-    SCAN -- "gh: PR CI red\n(fixCiOnFailure)" --> CIFX["mode: ci-fix\nprepend CI fix task"]
+    SCAN -- "gh: PR CI red\n(prRecovery.fixCi)" --> CIFX["mode: ci-fix\nprepend CI fix task"]
     SCAN -- "getReview\nor @ralphy mention\n(Linear / GitHub)" --> REV["mode: review\nprepend comments"]
     SCAN -- "open PR with new\nunresolved review comments" --> CR["mode: review (code-review)\nprepend thread digest"]
 
@@ -252,7 +254,9 @@ The first time planning completes (every `- [ ]` under `## Planning` in `tasks.m
 Every poll, the merge-state scanner reads `gh pr view --json state,mergeable,mergeStateStatus,statusCheckRollup` for each tracked PR:
 
 - **`mergeable === "CONFLICTING"`** (or `mergeStateStatus === "DIRTY"`) → enqueue a `conflict-fix` run that prepends a conflict-resolution task to `tasks.md` and re-activates the change. In-progress tickets are interrupted in favour of fixing the merge state.
-- **`statusCheckRollup` shows red CI** and `fixCiOnFailure` is enabled → enqueue a `ci-fix` run that prepends a "Fix failing CI checks" task with `gh run view --log-failed` steps so the worker can read the failure logs.
+- **`statusCheckRollup` shows red CI** and `prRecovery.fixCi` is enabled → enqueue a `ci-fix` run that prepends a "Fix failing CI checks" task with `gh run view --log-failed` steps so the worker can read the failure logs.
+
+The whole scan is gated on `prRecovery.enabled` — when it is off, neither conflict nor CI recovery happens (the worker still opens PRs and marks them done, but nothing watches them afterwards). Recovery is exclusively the watcher's job: the worker performs no in-process conflict or CI fixing, so a ticket reaches its done state as soon as the PR opens.
 
 No Linear labels are involved in either path — `gh` is the single source of truth, and the matching `conflict-fix` / `ci-fix` queue entries land directly. A one-line Linear comment is posted for visibility when a ticket is promoted into a fix flow.
 
@@ -264,15 +268,16 @@ The scanner is resilient to:
 
 ## PR + CI integration
 
-| Flag / config                            | Behavior                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createPrOnSuccess` / `--create-pr`      | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                     |
-| `stackPrsOnDependencies` / `--stack-prs` | When the Linear issue is blocked by another issue (`blocked_by` relation) that has exactly one open GitHub PR, open this PR against that blocker's head branch instead of `prBaseBranch`. Resolves the blocker's PR via Linear's auto-attachment + `gh pr view --json state,headRefName`. Falls back to `prBaseBranch` when zero / multiple blockers (or PRs) match. A `ralph:branch:<name>` label still wins.      |
-| `getAutoMerge` indicator                 | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal — the CI/conflict watch loop continues. |
-| `fixCiOnFailure` / `--fix-ci`            | After the PR opens, poll `gh pr checks`. On failure, pull failed logs via `gh run view --log-failed`, append them to `## Steering`, re-spawn the worker, and push the new commits — repeat until green or `maxCiFixAttempts` (default `5`) is hit. While this loop runs, `setDone` is **not** applied; if CI is never green the worker is treated as failed.                                                        |
-| `ciPollIntervalSeconds`                  | Seconds between CI status polls (default `30`).                                                                                                                                                                                                                                                                                                                                                                     |
-| `ignoreCiChecks`                         | Array of check names to ignore when computing pass/fail.                                                                                                                                                                                                                                                                                                                                                            |
-| `codeReviewTrigger` / `--code-review`    | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                |
+| Flag / config                                               | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createPrOnSuccess` / `--create-pr`                         | After a clean exit, push the worker's branch and `gh pr create`. Title: `<ID>: <title>`. Idempotent — surfaces the existing URL if the PR is already open. Requires `--worktree` and `gh` authenticated. `prBaseBranch` defaults to `main`; override per-issue by labelling the Linear issue with `ralph:branch:<branch-name>`.                                                                                                                                                               |
+| `stackPrsOnDependencies` / `--stack-prs`                    | When the Linear issue is blocked by another issue (`blocked_by` relation) that has exactly one open GitHub PR, open this PR against that blocker's head branch instead of `prBaseBranch`. Resolves the blocker's PR via Linear's auto-attachment + `gh pr view --json state,headRefName`. Falls back to `prBaseBranch` when zero / multiple blockers (or PRs) match. A `ralph:branch:<name>` label still wins.                                                                                |
+| `getAutoMerge` indicator                                    | Opt an issue in for GitHub auto-merge (any-of label/status filter, same shape as `getReview`). When matched, Ralph runs `gh pr merge <url> --auto --<strategy>` right after opening the PR so GitHub merges as soon as required checks pass. Strategy comes from `autoMergeStrategy` (`squash` \| `merge` \| `rebase`, default `squash`). Failures are logged but non-fatal. (Repos with auto-merge disabled are left for manual merge — the worker no longer polls CI to merge them itself.) |
+| `prRecovery.enabled` / `--pr-recovery` / `--no-pr-recovery` | Master switch (default `true`) for the post-done recovery watcher. When off, the worker still opens PRs and marks them done, but nothing recovers a PR that later goes red. `--no-pr-recovery` / `--pr-recovery` override it for one run.                                                                                                                                                                                                                                                     |
+| `prRecovery.fixCi`                                          | Whether the watcher recovers failing CI (default `true`) in addition to conflicts. Off keeps PRs un-conflicted but never re-runs the worker to push speculative CI fixes. CI recovery enqueues a `ci-fix` worker that pulls failed logs via `gh run view --log-failed`; the worker pushes its fix and the watcher re-checks on the next poll. The worker never withholds `setDone` waiting for CI — "done" means "PR opened", not "CI green".                                                 |
+| `prRecovery.maxRecoverySessions`                            | Give up auto-recovering a red PR after this many re-queue sessions (default `3`), then apply `ralph:error` and post a Linear comment. The counter resets when the PR becomes mergeable or a human clears `ralph:error`.                                                                                                                                                                                                                                                                       |
+| `prRecovery.ignoreChecks`                                   | Array of CI check names the watcher ignores when computing pass/fail (e.g. known-flaky jobs).                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `codeReviewTrigger` / `--code-review`                       | See [Code-review iteration](#code-review-iteration).                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Pre-existing error check
 
@@ -360,26 +365,26 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 
 **Agent-mode flags**
 
-| Option                          | Behavior                                                                                     |
-| ------------------------------- | -------------------------------------------------------------------------------------------- |
-| `--linear-team <key>`           | Linear team key (e.g. `ENG`)                                                                 |
-| `--linear-assignee <id>`        | Assignee filter (user id, email, or `me`)                                                    |
-| `--poll-interval <s>`           | Seconds between Linear polls (default `60`)                                                  |
-| `--concurrency <n>`             | Max concurrent task loops (default `1`)                                                      |
-| `--max-tickets <n>`             | Stop picking up new issues after N have been started this run (`0` = unlimited)              |
-| `--worktree`                    | Run each task in its own git worktree                                                        |
-| `--indicator <k>:<t>:<v>`       | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)              |
-| `--create-pr`                   | Push worker branch + open a GitHub PR on success (needs `--worktree`)                        |
-| `--fix-ci`                      | After PR opens, re-run task on CI failures until green (needs `--create-pr`)                 |
-| `--stack-prs`                   | Open the PR against a blocker issue's open-PR head branch when present (needs `--create-pr`) |
-| `--code-review`                 | Watch open tracked PRs for unresolved review comments and prepend a code-review task         |
-| `--json-output`                 | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)                 |
-| `--json-log-file <path>`        | Mirror the JSONL event stream to a file alongside the TUI or `--json-output`                 |
-| `--no-tmux`                     | Don't auto-reexec under tmux; run the agent in the foreground                                |
-| `--review-enabled`              | Enable the worker's self-review phase (see [Self-review phase](#self-review-phase))          |
-| `--review-max-rounds <N>`       | Hard cap on review rounds per task (default `1`)                                             |
-| `--review-model <id>`           | Override the reviewer's model (defaults to the worker's model)                               |
-| `--review-context-strategy <s>` | `fresh` (default) for a clean reviewer context per round, or `warm` to reuse the worker      |
+| Option                               | Behavior                                                                                       |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `--linear-team <key>`                | Linear team key (e.g. `ENG`)                                                                   |
+| `--linear-assignee <id>`             | Assignee filter (user id, email, or `me`)                                                      |
+| `--poll-interval <s>`                | Seconds between Linear polls (default `60`)                                                    |
+| `--concurrency <n>`                  | Max concurrent task loops (default `1`)                                                        |
+| `--max-tickets <n>`                  | Stop picking up new issues after N have been started this run (`0` = unlimited)                |
+| `--worktree`                         | Run each task in its own git worktree                                                          |
+| `--indicator <k>:<t>:<v>`            | Override one `linear.indicators` entry (repeatable, e.g. `setDone:status:Done`)                |
+| `--create-pr`                        | Push worker branch + open a GitHub PR on success (needs `--worktree`)                          |
+| `--no-pr-recovery` / `--pr-recovery` | Force the post-done PR-recovery watcher off / on for this run (overrides `prRecovery.enabled`) |
+| `--stack-prs`                        | Open the PR against a blocker issue's open-PR head branch when present (needs `--create-pr`)   |
+| `--code-review`                      | Watch open tracked PRs for unresolved review comments and prepend a code-review task           |
+| `--json-output`                      | Emit JSONL to stdout instead of rendering the Ink dashboard (CI / scripting)                   |
+| `--json-log-file <path>`             | Mirror the JSONL event stream to a file alongside the TUI or `--json-output`                   |
+| `--no-tmux`                          | Don't auto-reexec under tmux; run the agent in the foreground                                  |
+| `--review-enabled`                   | Enable the worker's self-review phase (see [Self-review phase](#self-review-phase))            |
+| `--review-max-rounds <N>`            | Hard cap on review rounds per task (default `1`)                                               |
+| `--review-model <id>`                | Override the reviewer's model (defaults to the worker's model)                                 |
+| `--review-context-strategy <s>`      | `fresh` (default) for a clean reviewer context per round, or `warm` to reuse the worker        |
 
 **List-mode flags**
 

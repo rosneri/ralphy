@@ -53,121 +53,6 @@ function makeCmd(
   return { cmd, calls };
 }
 
-describe("runPostTask — CI fix reactivates state", () => {
-  let tmpDir: string;
-  let changeDir: string;
-  let stateFilePath: string;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "post-task-test-"));
-    changeDir = join(tmpDir, "changes", "my-change");
-    await mkdir(changeDir, { recursive: true });
-
-    // Write a tasks.md so prependFixTask has a file to work with.
-    await Bun.write(join(changeDir, "tasks.md"), "## My change\n\n- [x] First task\n");
-
-    // State file with status="completed" — simulates a worker that just finished.
-    stateFilePath = join(tmpDir, ".ralph-state.json");
-    await Bun.write(
-      stateFilePath,
-      JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
-    );
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  test("state is reactivated before respawnWorker is called during CI fix", async () => {
-    // CI: first check returns "fail", second check (after the fix respawn) returns "pass".
-    let ciCallCount = 0;
-    const prUrl = "https://github.com/owner/repo/pull/99";
-
-    const { cmd } = makeCmd({
-      // commit phase: nothing dirty
-      "git status --porcelain": { stdout: "" },
-      // PR create phase: branch has commits
-      "git log --oneline": { stdout: "abc1234 some work" },
-      // push
-      "git push -u origin": { stdout: "" },
-      // no existing PR
-      "gh pr list": { stdout: "" },
-      // PR create
-      "gh pr create": { stdout: prUrl },
-      // CI poll: fail once, pass once
-      "gh pr checks": {
-        get stdout() {
-          ciCallCount += 1;
-          if (ciCallCount === 1) {
-            return JSON.stringify([
-              {
-                name: "CI",
-                bucket: "fail",
-                link: "https://github.com/owner/repo/actions/runs/42/job/7",
-              },
-            ]);
-          }
-          return JSON.stringify([{ name: "CI", bucket: "pass" }]);
-        },
-      },
-      // failed run logs
-      "gh run view": { stdout: "error: type mismatch in foo.ts" },
-      // push after CI fix
-      "git push origin": { stdout: "" },
-    });
-
-    // Capture the state file content at the moment respawnWorker is called.
-    let stateAtRespawn: { status?: string } | null = null;
-    const respawnWorker = async (): Promise<number> => {
-      const text = await Bun.file(stateFilePath).text();
-      stateAtRespawn = JSON.parse(text) as { status?: string };
-      return 0;
-    };
-
-    const git: GitRunner = {
-      run: async () => ({ stdout: "", stderr: "" }),
-    };
-
-    await runPostTask(
-      {
-        changeName: "my-change",
-        cwd: tmpDir,
-        projectRoot: tmpDir,
-        changeDir,
-        stateFilePath,
-        branch: "ralph/my-change",
-        issue: FAKE_ISSUE,
-        exitCode: 0,
-        useWorktree: false,
-        wantPr: true,
-        wantFixCi: true,
-        wantAutoMerge: false,
-        cfg: {
-          teardownScript: null,
-          prBaseBranch: "main",
-          autoMergeStrategy: "squash" as const,
-          maxCiFixAttempts: 3,
-          ciPollIntervalSeconds: 0,
-          cleanupWorktreeOnSuccess: false,
-          ignoreCiChecks: [],
-          stackPrsOnDependencies: false,
-          neverTouch: [],
-        },
-        respawnWorker,
-      },
-      {
-        cmd,
-        git,
-        log: () => {},
-        runScript: async () => {},
-      },
-    );
-
-    expect(stateAtRespawn).not.toBeNull();
-    expect(stateAtRespawn!.status).toBe("active");
-  });
-});
-
 describe("runPostTask — teardown", () => {
   let tmpDir: string;
   let changeDir: string;
@@ -206,16 +91,12 @@ describe("runPostTask — teardown", () => {
         exitCode: 1,
         useWorktree: false,
         wantPr: false,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: {
           teardownScript: "echo done",
           prBaseBranch: "main",
           autoMergeStrategy: "squash" as const,
-          maxCiFixAttempts: 3,
-          ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
-          ignoreCiChecks: [],
           stackPrsOnDependencies: false,
           neverTouch: [],
         },
@@ -252,16 +133,12 @@ describe("runPrPhase — isolation", () => {
         changeDir: "/tmp/changes/x",
         stateFilePath: "/tmp/.ralph-state.json",
         issue: null,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: {
           teardownScript: null,
           prBaseBranch: "main",
           autoMergeStrategy: "squash" as const,
-          maxCiFixAttempts: 3,
-          ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
-          ignoreCiChecks: [],
           stackPrsOnDependencies: false,
           neverTouch: [],
         },
@@ -346,18 +223,17 @@ describe("runPostTask — conflict-check loop termination", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  test("exits cleanly after CI green + conflict check passes (no infinite loop)", async () => {
+  test("marks done as soon as the PR opens — no in-worker CI poll or conflict check (RLF-97)", async () => {
     const prUrl = "https://github.com/owner/repo/pull/99";
-    let conflictCheckCalls = 0;
 
-    // Simulate: push succeeds, PR already exists, CI passes, no conflicts
-    const { cmd } = makeCmd({
+    // push succeeds, PR is created. The worker must NOT poll CI or probe for
+    // conflicts — recovery is the scheduler watcher's job now.
+    const { cmd, calls } = makeCmd({
       "git status --porcelain": { stdout: "" },
       "git log --oneline": { stdout: "abc1234 some work" },
       "git push -u origin": { stdout: "" },
       "gh pr list": { stdout: "" },
       "gh pr create": { stdout: prUrl },
-      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
     });
 
     const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
@@ -375,16 +251,12 @@ describe("runPostTask — conflict-check loop termination", () => {
         exitCode: 0,
         useWorktree: false,
         wantPr: true,
-        wantFixCi: true,
         wantAutoMerge: false,
         cfg: {
           teardownScript: null,
           prBaseBranch: "main",
           autoMergeStrategy: "squash" as const,
-          maxCiFixAttempts: 5,
-          ciPollIntervalSeconds: 0,
           cleanupWorktreeOnSuccess: false,
-          ignoreCiChecks: [],
           stackPrsOnDependencies: false,
           neverTouch: [],
         },
@@ -396,17 +268,13 @@ describe("runPostTask — conflict-check loop termination", () => {
         log: () => {},
         runScript: async () => {},
         onPhase: (p) => phases.push(p),
-        checkPrConflict: async () => {
-          conflictCheckCalls += 1;
-          return false; // not conflicting (MERGEABLE)
-        },
       },
     );
 
-    // Should emit "done" and call conflict-check at most twice (once before CI,
-    // once final scan after CI green) — not spin forever.
+    // The PR opens and the worker immediately reaches "done".
     expect(phases).toContain("done");
-    expect(conflictCheckCalls).toBeLessThanOrEqual(2);
+    // No in-worker recovery: `gh pr checks` (CI poll) is never invoked.
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "checks")).toBeUndefined();
   });
 });
 
@@ -435,10 +303,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 3,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
   };
@@ -463,7 +328,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -499,7 +363,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: true,
         cfg: baseCfg,
       },
@@ -532,7 +395,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -560,7 +422,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: true,
         cfg: baseCfg,
       },
@@ -588,7 +449,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: { ...baseCfg, stackPrsOnDependencies: true },
       },
@@ -636,7 +496,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: { ...baseCfg, stackPrsOnDependencies: true },
       },
@@ -680,7 +539,6 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: { ...baseCfg, stackPrsOnDependencies: true },
       },
@@ -724,15 +582,14 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 3,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
   };
 
-  test("when allow_auto_merge=false, skips --auto and merges manually after CI green", async () => {
+  test("when allow_auto_merge=false, skips --auto and leaves the PR for manual merge (RLF-97)", async () => {
+    // The worker no longer polls CI in-process, so it can't merge a repo with
+    // auto-merge disabled "once checks pass" — it logs and leaves the PR open.
     const prUrl = "https://github.com/owner/disabled/pull/5";
     const { cmd, calls } = makeCmd({
       "git status --porcelain": { stdout: "" },
@@ -741,11 +598,8 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
       "gh pr list": { stdout: "" },
       "gh pr create": { stdout: prUrl },
       "gh api repos/owner/disabled": { stdout: "false\n" },
-      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
-      "gh pr merge": { stdout: "" },
     });
 
-    const phases: string[] = [];
     const code = await runPrPhase(
       {
         changeName: "my-change",
@@ -754,28 +608,20 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
       {
         cmd,
         log: () => {},
-        emit: (p, d) => phases.push(d ? `${p}:${d}` : p),
+        emit: () => {},
         respawnWorker: async () => 0,
       },
     );
 
     expect(code).toBe(0);
-    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
-    // No --auto invocation should have been made.
-    expect(mergeCalls.some((c) => c.includes("--auto"))).toBe(false);
-    // One manual-merge call (no --auto) should have happened.
-    const manual = mergeCalls.find((c) => !c.includes("--auto"));
-    expect(manual).toBeDefined();
-    expect(manual).toContain("--squash");
-    expect(manual).toContain(prUrl);
-    expect(phases).toContain("auto-merge-enabled:manual:squash");
+    // No in-worker merge of any kind — neither --auto nor manual.
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
   });
 
   test("when allow_auto_merge=true, uses native --auto and skips manual merge", async () => {
@@ -799,7 +645,6 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
@@ -813,7 +658,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
     expect(mergeCalls[0]).toContain("--squash");
   });
 
-  test("when allow_auto_merge=false but flag disabled, behaves like the old silent no-op", async () => {
+  test("when allow_auto_merge=false and flag disabled, also leaves the PR un-merged (no merge call)", async () => {
     const prUrl = "https://github.com/owner/optout/pull/9";
     const { cmd, calls } = makeCmd({
       "git status --porcelain": { stdout: "" },
@@ -822,8 +667,6 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
       "gh pr list": { stdout: "" },
       "gh pr create": { stdout: prUrl },
       "gh api repos/owner/optout": { stdout: "false\n" },
-      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
-      "gh pr merge": { throw: true, stderr: "auto-merge is not allowed for this repository" },
     });
 
     const code = await runPrPhase(
@@ -834,7 +677,6 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: false },
       },
@@ -842,10 +684,8 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
     );
 
     expect(code).toBe(0);
-    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
-    // Old behavior: a single --auto call that fails and is logged as a warning.
-    expect(mergeCalls).toHaveLength(1);
-    expect(mergeCalls[0]).toContain("--auto");
+    // The flag now only changes the log message; no merge is attempted either way.
+    expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
   });
 
   test("wantAutoMerge=false never queries repo capability or merges", async () => {
@@ -866,7 +706,6 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
@@ -904,10 +743,7 @@ describe("runPrPhase — prDraft behavior", () => {
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 3,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
   };
@@ -933,7 +769,6 @@ describe("runPrPhase — prDraft behavior", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: false,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -955,7 +790,7 @@ describe("runPrPhase — prDraft behavior", () => {
     expect(phases).toContain("pr-ready");
   });
 
-  test("prDraft=true + wantAutoMerge defers merge until after gh pr ready", async () => {
+  test("prDraft=true + wantAutoMerge: gh pr ready first, then enables --auto (RLF-97)", async () => {
     const prUrl = "https://github.com/owner/repo/pull/201";
     const { cmd, calls } = makeCmd({
       "git status --porcelain": { stdout: "" },
@@ -963,7 +798,7 @@ describe("runPrPhase — prDraft behavior", () => {
       "git push -u origin": { stdout: "" },
       "gh pr list": { stdout: "" },
       "gh pr create": { stdout: prUrl },
-      "gh pr checks": { stdout: JSON.stringify([{ name: "CI", bucket: "pass" }]) },
+      // no `gh api` mock → repo auto-merge capability is unknown (null) → use --auto
       "gh pr ready": { stdout: "" },
       "gh pr merge": { stdout: "" },
     });
@@ -977,7 +812,6 @@ describe("runPrPhase — prDraft behavior", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -990,15 +824,13 @@ describe("runPrPhase — prDraft behavior", () => {
     );
 
     expect(code).toBe(0);
-    // gh pr merge --auto must NOT have been called (deferred).
-    const mergeCalls = calls.filter((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
-    expect(mergeCalls.some((c) => c.includes("--auto"))).toBe(false);
-    // gh pr ready must come before gh pr merge.
+    // gh pr ready runs first, THEN gh pr merge --auto (GitHub waits for CI).
     const readyIdx = calls.findIndex((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "ready");
     const mergeIdx = calls.findIndex((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge");
     expect(readyIdx).toBeGreaterThan(-1);
     expect(mergeIdx).toBeGreaterThan(readyIdx);
-    expect(phases).toContain("auto-merge-enabled:manual:squash");
+    expect(calls[mergeIdx]).toContain("--auto");
+    expect(phases).toContain("auto-merge-enabled:squash");
   });
 
   test("prDraft=false has no gh pr ready call", async () => {
@@ -1019,7 +851,6 @@ describe("runPrPhase — prDraft behavior", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: { ...baseCfg, prDraft: false },
       },
@@ -1052,7 +883,6 @@ describe("runPrPhase — prDraft behavior", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -1100,10 +930,7 @@ describe("runPrPhase — only-meta diff guard", () => {
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 2,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
     metaOnlyFiles: ["openspec/**", "**/tasks.md", "**/agent-tasks.md"],
@@ -1128,7 +955,6 @@ describe("runPrPhase — only-meta diff guard", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1183,7 +1009,6 @@ describe("runPrPhase — only-meta diff guard", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1220,9 +1045,8 @@ describe("runPrPhase — only-meta diff guard", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, maxCiFixAttempts: 2 },
+        cfg: baseCfg,
       },
       {
         cmd,
@@ -1236,8 +1060,9 @@ describe("runPrPhase — only-meta diff guard", () => {
     );
 
     expect(code).toBe(71); // PR_FAILED_EXIT after ceiling
-    // maxCiFixAttempts=2 → 2 successful respawns, then the 3rd block trips the ceiling.
-    expect(respawnCalls).toBe(2);
+    // The only-meta reapply budget is the fixed MAX_PR_CREATE_ATTEMPTS (5):
+    // 5 successful respawns, then the 6th block trips the ceiling.
+    expect(respawnCalls).toBe(5);
   });
 });
 
@@ -1291,10 +1116,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 3,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
   };
@@ -1318,7 +1140,6 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1363,7 +1184,6 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1414,10 +1234,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 3,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
   };
@@ -1444,7 +1261,6 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1484,7 +1300,6 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1517,7 +1332,6 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1562,10 +1376,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
     teardownScript: null,
     prBaseBranch: "main",
     autoMergeStrategy: "squash" as const,
-    maxCiFixAttempts: 3,
-    ciPollIntervalSeconds: 0,
     cleanupWorktreeOnSuccess: false,
-    ignoreCiChecks: [],
     stackPrsOnDependencies: false,
     neverTouch: [],
   };
@@ -1589,7 +1400,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1628,7 +1438,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: false,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -1668,7 +1477,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -1687,7 +1495,9 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
   });
 
   // Row 4: wantAutoMerge=true, prDraft=false → immediate auto-merge, never reviewable.
-  test("row 4 — auto-merge, non-draft: onPrReady NOT called", async () => {
+  test("row 4 — auto-merge, non-draft: onPrReady IS called (PR sits reviewable until CI passes)", async () => {
+    // RLF-97: `--auto` no longer merges instantly (it waits for CI), so the PR
+    // is reviewable in the meantime — setPrReady fires on every PR-open path.
     const prUrl = "https://github.com/owner/repo/pull/304";
     const { cmd } = makeCmd({
       "git status --porcelain": { stdout: "" },
@@ -1706,7 +1516,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: true,
         cfg: baseCfg,
       },
@@ -1721,18 +1530,17 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       },
     );
     expect(code).toBe(0);
-    expect(readyCalls).toEqual([]);
+    expect(readyCalls).toEqual([prUrl]);
   });
 
-  // CI/conflict fix failure returns early before the success point.
-  test("ciResult !== 0 returns early — onPrReady NOT called", async () => {
-    const prUrl = "https://github.com/owner/repo/pull/305";
+  // A PR-create failure returns early before the success point.
+  test("PR creation failure returns PR_FAILED_EXIT — onPrReady NOT called", async () => {
     const { cmd } = makeCmd({
       "git status --porcelain": { stdout: "" },
       "git log --oneline main..HEAD": { stdout: "abc work" },
       "git push -u origin": { stdout: "" },
       "gh pr list": { stdout: "" },
-      "gh pr create": { stdout: prUrl },
+      "gh pr create": { throw: true }, // PR create fails → gaveUp → PR_FAILED_EXIT
     });
     const readyCalls: string[] = [];
     const code = await runPrPhase(
@@ -1743,7 +1551,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         changeDir,
         stateFilePath,
         issue: FAKE_ISSUE,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -1751,10 +1558,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         cmd,
         log: () => {},
         emit: () => {},
-        // conflicting → conflict-resolution worker fails → PR_FAILED_EXIT before
-        // the success point.
         respawnWorker: async () => 1,
-        checkPrConflict: async () => true,
         onPrReady: async (url) => {
           readyCalls.push(url);
         },

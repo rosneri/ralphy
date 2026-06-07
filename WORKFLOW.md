@@ -111,43 +111,29 @@ createPrOnSuccess: true
 # The branch new pull requests merge into (their base) — e.g. main.
 prBaseBranch: main
 
-# After opening a PR, watch its CI (the automated checks GitHub runs) and
-# let the agent push fixes when they fail.
-fixCiOnFailure: true
-
-# Stop trying to fix failing CI after this many attempts.
-maxCiFixAttempts: 10
-
 # If an issue is blocked by another that already has an open PR, base this
 # issue's PR on that PR's branch instead of main (a 'stacked' PR).
 stackPrsOnDependencies: true
 
-# How often (in seconds) to re-check the PR's CI status while waiting on or
-# fixing it.
-ciPollIntervalSeconds: 60
-
-# RLF-173: scheduler-tier watcher for In-Review PRs whose merge state goes
-# red (CONFLICTING or CI-failed). When enabled, each scheduler tick rolls
-# the existing gh-driven merge-state scan through a persistent attempt
-# counter stored at `.ralph/pr-tracker-state.json` (keyed by Linear issue
-# identifier). Each detected failure increments the counter and demotes
-# the issue back to In Progress so the conflict-fix / ci-fix worker picks
-# it up. Once the counter exceeds `maxRecoveryAttempts`, ralphy stops
-# auto-demoting that issue, applies the `ralph:error` (`setError`) label,
-# and posts a Linear comment explaining why — preventing a stubbornly
-# broken PR from bouncing forever. The counter resets when the PR returns
-# to a mergeable state, or when a human clears `ralph:error` and removes
-# the state file entry. Pass `--no-pr-tracker` to disable for a single
-# run without editing WORKFLOW.md.
-prTracker:
-  # Keep watching the PRs Ralphy opened and automatically try to recover any
-  # whose merge state goes red (conflicts or failing CI).
+# RLF-97: unified PR-recovery watcher. After a worker opens a PR and marks the
+# ticket done, the scheduler-tier watcher polls the In-Review PRs it tracks and
+# auto-recovers any whose merge state goes red — merge conflicts always, failing
+# CI when `fixCi` is on. It re-queues a fix worker each detection and bails to
+# `ralph:error` after `maxRecoverySessions` failed sessions (counter stored at
+# `.ralph/pr-tracker-state.json`, keyed by Linear issue identifier; resets when
+# the PR becomes mergeable or a human clears `ralph:error`). The worker itself
+# performs NO in-process recovery. Pass `--no-pr-recovery` to disable for a
+# single run without editing WORKFLOW.md.
+prRecovery:
+  # Master switch. When false, no conflict or CI recovery happens anywhere.
   enabled: true
-  # Give up auto-recovering a red PR after this many attempts, then flag it
-  # for a human.
-  maxRecoveryAttempts: 3
-  # Move an issue to its done state as soon as its PR is merged.
-  advanceMergedToDone: true
+  # Additionally recover failing CI (not just conflicts).
+  fixCi: true
+  # Give up auto-recovering a red PR after this many re-queue sessions, then
+  # apply `ralph:error` for a human.
+  maxRecoverySessions: 3
+  # CI check names the watcher ignores when judging a PR green (e.g. flaky jobs).
+  ignoreChecks: []
 
 # Which AI coding tool runs the loop: 'claude' (Claude Code) or 'codex'
 # (OpenAI Codex).
