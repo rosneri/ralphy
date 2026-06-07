@@ -12,47 +12,16 @@
 
 import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
+import type { TrackedComment, TrackedIssue } from "@ralphy/tracker";
 import { isRalphComment } from "../utils/ralph-comment";
 
-export interface LinearIssue {
-  id: string;
-  identifier: string;
-  title: string;
-  description: string | null;
-  url: string;
-  state: { name: string; type: string };
-  assignee: { id: string; email: string | null; name: string } | null;
-  /** Linear project the issue belongs to, or null when unassigned. */
-  project: { id: string; name: string; priority?: number } | null;
-  /**
-   * Project milestone the issue is assigned to, or undefined when none.
-   * `sortOrder` reflects the milestone's manual ordering within its project.
-   */
-  milestone?: { id: string; name: string; sortOrder: number; targetDate?: string };
-  labels: string[];
-  /** Linear priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
-  priority: number;
-  /** ISO timestamp of issue creation — used as a FIFO tiebreaker in the
-   *  coordinator queue so older same-priority work runs first. */
-  createdAt: string;
-  /**
-   * IDs of issues that block this one and are not yet completed/cancelled.
-   * Populated from Linear's "blocked_by" relations.
-   */
-  blockedByIds: string[];
-  /**
-   * Identifiers (e.g. "ENG-123") of open blockers.
-   * Populated alongside blockedByIds from the same relations.
-   */
-  blockedByIdentifiers?: string[];
-  /**
-   * Recent comments embedded with the mention-scan candidate query so the
-   * agent can skip a per-issue `fetchIssueComments` round-trip. Only
-   * populated by `fetchMentionScanIssues`; absent on issues returned by
-   * other fetchers.
-   */
-  comments?: LinearComment[];
-}
+/**
+ * Back-compat alias. The canonical, tracker-neutral shape now lives in
+ * `@ralphy/tracker` as {@link TrackedIssue} (RLF-223 M1 — provider seam). Kept
+ * so the ~50 files importing `LinearIssue` from the Linear client compile
+ * untouched.
+ */
+export type LinearIssue = TrackedIssue;
 
 /**
  * Linear query spec used by the agent. `include` is an all-of marker list
@@ -827,12 +796,8 @@ interface WorkflowState {
   type: string;
 }
 
-export interface LinearComment {
-  id: string;
-  body: string;
-  createdAt: string;
-  user: { name: string; email: string | null } | null;
-}
+/** Back-compat alias for {@link TrackedComment} (see {@link LinearIssue}). */
+export type LinearComment = TrackedComment;
 
 export async function fetchIssueComments(
   apiKey: string,

@@ -6,7 +6,7 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import { addIssueComment, fetchIssueComments, type LinearIssue } from "./linear";
+import type { LinearIssue } from "./linear";
 import { projectLayout, GAVEUP_COUNT_FILE } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -19,9 +19,10 @@ import {
   createOpenDraftPr,
 } from "./wire/pr-helpers";
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
-import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
+import { mergeIndicators, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
-import { createLinearResolvers, fetchDoneCandidatesWith } from "./wire/linear-resolvers";
+import { createLinearResolvers } from "./wire/linear-resolvers";
+import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
@@ -140,8 +141,6 @@ export function buildAgentCoordinator(
   // validated against the configured team. Throws a clean CLI error on a bare
   // number without a team or an identifier whose team disagrees.
   const ticketNumbers = resolveTicketNumbers(args.ticketTokens, team);
-
-  const excludeFromTodo = unionMarkers(indicators.setDone, indicators.setError);
 
   const gitRunner = input.runners?.git ?? bunGitRunner;
   const cmdRunner = input.runners?.cmd ?? bunCmdRunner;
@@ -264,6 +263,20 @@ export function buildAgentCoordinator(
     resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
   });
 
+  // RLF-223 (M1): the tracker-neutral provider seam. Wraps the Linear
+  // transport + resolvers + mention scanner behind `IssueTrackerProvider`;
+  // its method bag is injected into `CoordinatorDeps` below, so the
+  // coordinator never references Linear directly.
+  const tracker = createLinearTrackerProvider({
+    apiKey,
+    team,
+    assignee,
+    indicators,
+    resolvers,
+    fetchMentions,
+    ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+  });
+
   const spawnWorker = createSpawnWorker({
     args,
     cfg,
@@ -380,28 +393,17 @@ export function buildAgentCoordinator(
       beforePoll: () => {
         pollContext = new PollContext();
       },
-      fetchTodo: () => resolvers.fetchByGet(indicators.getTodo, excludeFromTodo),
-      fetchInProgress: () =>
-        resolvers.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
-      fetchMentions,
-      fetchDoneCandidates: () =>
-        fetchDoneCandidatesWith(
-          apiKey,
-          team,
-          assignee,
-          indicators,
-          ticketNumbers.length > 0 ? ticketNumbers : undefined,
-        ),
+      fetchTodo: tracker.fetchTodo,
+      fetchInProgress: tracker.fetchInProgress,
+      fetchMentions: tracker.fetchMentions,
+      fetchDoneCandidates: tracker.fetchDoneCandidates,
       prepare: prep.prepare,
       prepareTaskForTrigger: prep.prepareTaskForTrigger,
       spawnWorker,
-      applyIndicator: resolvers.applyIndicator,
-      removeIndicator: resolvers.removeIndicator,
-      postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
-      fetchComments: async (issueId) => {
-        const c = await fetchIssueComments(apiKey, issueId);
-        return c.map((x) => ({ body: x.body }));
-      },
+      applyIndicator: tracker.applyIndicator,
+      removeIndicator: tracker.removeIndicator,
+      postComment: tracker.postComment,
+      fetchComments: tracker.fetchComments,
       checkPrStatus: prDiscovery.checkPrStatus,
       isChangeArchivedForIssue: (issue) =>
         isChangeArchivedForIssue(issue, cwdByChange, projectRoot),

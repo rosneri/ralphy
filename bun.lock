@@ -50,6 +50,7 @@
         "@ralphy/paths": "workspace:*",
         "@ralphy/retro": "workspace:*",
         "@ralphy/telemetry": "workspace:*",
+        "@ralphy/tracker": "workspace:*",
         "@ralphy/types": "workspace:*",
         "@ralphy/ui-shared": "workspace:*",
         "@ralphy/version": "workspace:*",
@@ -259,6 +260,13 @@
       "dependencies": {
         "@ralphy/version": "workspace:*",
         "posthog-node": "^4.0.0",
+      },
+    },
+    "packages/tracker": {
+      "name": "@ralphy/tracker",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/types": "workspace:*",
       },
     },
     "packages/types": {
@@ -916,6 +924,8 @@
     "@ralphy/shell": ["@ralphy/shell@workspace:apps/shell"],
 
     "@ralphy/telemetry": ["@ralphy/telemetry@workspace:packages/telemetry"],
+
+    "@ralphy/tracker": ["@ralphy/tracker@workspace:packages/tracker"],
 
     "@ralphy/types": ["@ralphy/types@workspace:packages/types"],
 

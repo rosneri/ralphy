@@ -1,6 +1,7 @@
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
 import type { SetIndicator } from "@ralphy/types";
-import type { CoordinatorDeps, MentionTrigger } from "../../src/runtime/coordinator";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
+import type { CoordinatorDeps } from "../../src/runtime/coordinator";
 
 export type { LinearIssue, SetIndicator };
 
@@ -43,17 +44,12 @@ export interface AppliedLog {
   clearReview: string[];
 }
 
-export interface LinearClientLike {
-  fetchTodo(): Promise<LinearIssue[]>;
-  fetchInProgress(): Promise<LinearIssue[]>;
-  fetchReview(): Promise<LinearIssue[]>;
-  fetchMentions(): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
-  fetchDoneCandidates(): Promise<LinearIssue[]>;
-  fetchComments(issueId: string): Promise<{ body: string }[]>;
-  applyIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void>;
-  removeIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void>;
-  postComment(issue: LinearIssue, body: string): Promise<void>;
-}
+/**
+ * Back-compat alias for the promoted {@link IssueTrackerProvider} interface
+ * (RLF-223 M1). `FakeLinear` implements this; the canonical method bag now
+ * lives in `@ralphy/tracker`.
+ */
+export type LinearClientLike = IssueTrackerProvider;
 
 export interface HarnessCtx {
   coordDeps: CoordinatorDeps;
