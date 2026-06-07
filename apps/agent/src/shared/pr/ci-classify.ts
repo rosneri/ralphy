@@ -14,6 +14,12 @@ const TRANSIENT_GH_RE =
 /** gh exits 1 with this message when no workflows are configured for a branch. */
 export const NO_CHECKS_RE = /no checks reported/i;
 
+/** gh exits 1 with a PARTIAL GraphQL error when the token cannot read some
+ *  checks' commit-status contexts (e.g. a third-party integration posting a
+ *  legacy StatusContext rather than a CheckRun) — but it still prints usable
+ *  bucket JSON for every check it could read. */
+export const PARTIAL_ACCESS_RE = /Resource not accessible by personal access token/i;
+
 /** Backoff schedule for transient `gh` failures (ms). 5s / 15s / 45s. */
 const GH_RETRY_DELAYS = [5_000, 15_000, 45_000];
 

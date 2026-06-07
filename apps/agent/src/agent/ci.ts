@@ -1,7 +1,29 @@
 import type { CmdRunner } from "./pr";
-import { classifyGhBucket, NO_CHECKS_RE, runGhWithRetry } from "../shared/pr/ci-classify";
+import {
+  classifyGhBucket,
+  NO_CHECKS_RE,
+  PARTIAL_ACCESS_RE,
+  runGhWithRetry,
+} from "../shared/pr/ci-classify";
 
 const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
+
+interface GhCheck {
+  name: string;
+  bucket: string;
+  link?: string;
+}
+
+/** Safely parse the `gh pr checks --json` array; returns [] on empty/malformed
+ *  output so a partial-success blob can be probed without throwing. */
+function parseChecks(stdout: string | undefined): GhCheck[] {
+  try {
+    const parsed = JSON.parse(stdout || "[]");
+    return Array.isArray(parsed) ? (parsed as GhCheck[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 interface CiStatus {
   bucket: "pass" | "fail" | "pending";
@@ -46,16 +68,18 @@ export async function getPrChecksStatus(
     // gh exits 1 with "no checks reported" when the repo has no CI workflows.
     // Treat this as a pass — no checks configured means nothing can fail.
     if (NO_CHECKS_RE.test(blob)) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
-    throw err;
+    // gh exits 1 on a PARTIAL access error when the token can't read some
+    // checks' commit-status contexts, yet still prints usable bucket JSON for
+    // the rest. Salvage that output instead of aborting the CI watch — the
+    // unreadable contexts are simply omitted (LIT-408 #607).
+    if (PARTIAL_ACCESS_RE.test(blob) && parseChecks(e.stdout).length > 0) {
+      out = { stdout: e.stdout!, stderr: e.stderr ?? "" };
+    } else {
+      throw err;
+    }
   }
   const ignoredLower = ignoreCiChecks.map((n) => n.toLowerCase());
-  const checks = (
-    JSON.parse(out.stdout || "[]") as {
-      name: string;
-      bucket: string;
-      link?: string;
-    }[]
-  )
+  const checks = parseChecks(out.stdout)
     .filter((c) => !ignoredLower.includes(c.name.toLowerCase()))
     .filter((c) => classifyGhBucket(c.bucket) !== "skip");
 
