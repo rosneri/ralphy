@@ -37,7 +37,6 @@ describe("fieldsForMode", () => {
     for (const gated of [
       "cleanupWorktreeOnSuccess",
       "autoMergeStrategy",
-      "prRecovery.fixCi",
       "linear.mentionHandle",
       "linear.codeReviewStaleHours",
       "linear.syncSpecsAsAttachments",

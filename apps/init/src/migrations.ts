@@ -87,18 +87,13 @@ export const MIGRATIONS: Migration[] = [
       "`prTracker`, `fixCiOnFailure`, `maxCiFixAttempts`, `ciPollIntervalSeconds`, " +
       "and `ignoreCiChecks`). Workers now open the PR and leave the ticket " +
       "in-review; a single background watcher advances it to done once the PR is " +
-      "mergeable (CI green, no conflicts) and recovers red PRs — conflicts when " +
-      "`prRecovery.fixConflicts` is on, failing CI when `prRecovery.fixCi` is on. " +
+      "mergeable (CI green, no conflicts) and recovers red PRs — resolving merge " +
+      "conflicts AND fixing failing CI (both `prRecovery.fixConflicts` and " +
+      "`prRecovery.fixCi` default on; tune them in WORKFLOW.md). " +
       "`prRecovery.enabled: false` turns the watcher off everywhere and marks the " +
       "ticket done immediately on PR open. Your old values are migrated " +
       "automatically; review them here or keep them.",
-    fields: [
-      "prRecovery.enabled",
-      "prRecovery.fixCi",
-      "prRecovery.fixConflicts",
-      "prRecovery.maxRecoverySessions",
-      "prRecovery.ignoreChecks",
-    ],
+    fields: ["prRecovery.enabled", "prRecovery.maxRecoverySessions", "prRecovery.ignoreChecks"],
   },
 ];
 

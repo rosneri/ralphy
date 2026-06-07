@@ -14,9 +14,9 @@ describe("normalizeWorkflowMarkdown — defaults-fill", () => {
     // defaults filled
     expect(config.model).toBe("opus");
     expect(config.prRecovery.maxRecoverySessions).toBe(3);
-    // RLF-97: CI recovery defaults on, conflict recovery defaults OFF (opt-in).
+    // RLF-97: both CI and conflict recovery default ON.
     expect(config.prRecovery.fixCi).toBe(true);
-    expect(config.prRecovery.fixConflicts).toBe(false);
+    expect(config.prRecovery.fixConflicts).toBe(true);
     expect(config.linear.mentionHandle).toBe("@ralphy");
   });
 

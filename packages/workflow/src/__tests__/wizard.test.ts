@@ -76,7 +76,7 @@ describe("buildWorkflowMarkdown", () => {
       prDraft: true,
       stackPrsOnDependencies: true,
       autoMergeStrategy: "rebase",
-      "prRecovery.fixCi": true,
+      "prRecovery.enabled": true,
       "prRecovery.maxRecoverySessions": 8,
       useWorktree: true,
       prBaseBranch: "develop",

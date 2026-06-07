@@ -356,7 +356,7 @@ export const WorkflowConfigSchema = z.object({
       fixCi: z.boolean().default(true),
       /** Recover merge conflicts by re-running the agent. Off leaves conflicting
        *  PRs for a human (the watcher still advances mergeable PRs to done). */
-      fixConflicts: z.boolean().default(false),
+      fixConflicts: z.boolean().default(true),
       /** Give up auto-recovering a red PR after this many re-queue sessions,
        *  then apply `setError` for a human. */
       maxRecoverySessions: z.number().int().positive().default(3),
@@ -368,7 +368,7 @@ export const WorkflowConfigSchema = z.object({
     .default({
       enabled: true,
       fixCi: true,
-      fixConflicts: false,
+      fixConflicts: true,
       maxRecoverySessions: 3,
       ignoreChecks: [],
     }),

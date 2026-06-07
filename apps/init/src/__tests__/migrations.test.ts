@@ -42,8 +42,6 @@ describe("migrations registry", () => {
     expect(v6?.description).toContain("prRecovery");
     expect(v6?.fields).toEqual([
       "prRecovery.enabled",
-      "prRecovery.fixCi",
-      "prRecovery.fixConflicts",
       "prRecovery.maxRecoverySessions",
       "prRecovery.ignoreChecks",
     ]);

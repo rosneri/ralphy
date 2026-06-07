@@ -135,7 +135,7 @@ prRecovery:
   fixCi: true
   # Recover merge conflicts by re-running the agent. Off leaves conflicting PRs
   # for a human (the watcher still advances mergeable PRs to done).
-  fixConflicts: false
+  fixConflicts: true
   # Give up auto-recovering a red PR after this many re-queue sessions, then
   # apply `ralph:error` for a human.
   maxRecoverySessions: 3

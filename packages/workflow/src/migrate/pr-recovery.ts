@@ -16,10 +16,8 @@
  *                         `fixCiOnFailure` controlled the removed in-worker loop
  *                         and is intentionally NOT migrated.
  *   fixConflicts        ← prTracker.enabled !== false        — preserves today's
- *                         always-on watcher conflict recovery. Fresh `init`
- *                         defaults this to false, but an existing tracker-on
- *                         config kept conflicts recovered, so migration carries
- *                         that forward rather than silently disabling it.
+ *                         always-on watcher conflict recovery (defaults on, like
+ *                         fixCi; an explicit tracker-off config maps both off).
  *   maxRecoverySessions ← prTracker.maxRecoveryAttempts      (default 3)
  *   ignoreChecks        ← ignoreCiChecks                     (default [])
  *   (dropped: advanceMergedToDone, maxCiFixAttempts, ciPollIntervalSeconds, ci.*)

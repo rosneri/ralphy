@@ -68,7 +68,7 @@ autoMergeStrategy: squash
 prRecovery:
   enabled: true
   fixCi: true
-  fixConflicts: false
+  fixConflicts: true
   maxRecoverySessions: 3
   ignoreChecks: []
 
