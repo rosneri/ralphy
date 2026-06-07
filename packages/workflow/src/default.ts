@@ -80,7 +80,18 @@ preExistingErrorCheck:
   outputCharLimit: 4000
 
 linear:
-  filter: assignee = me
+  # Global filter ANDed into every Linear query (and the GitHub PR searches
+  # rooted at those issues). A marker list of \`assignee\` and \`label\` clauses;
+  # all are required. \`assignee\` value is me / any / unassigned / <email> / <id>.
+  # Example with a required label:
+  #   filter:
+  #     - type: assignee
+  #       value: me
+  #     - type: label
+  #       value: ralph
+  filter:
+    - type: assignee
+      value: me
   postComments: true
   updateEveryIterations: 10
   mentionTrigger: true

@@ -4,6 +4,8 @@
  * forming an import cycle.
  */
 
+import type { LinearFilter } from "@ralphy/types";
+
 export type SetupMode = "quick" | "permissive" | "customized";
 
 /** Curated Linear indicator templates offered by the wizard. */
@@ -21,7 +23,10 @@ export type IndicatorMap = Record<
   { filter: IndicatorMarker[] } | IndicatorMarker | IndicatorMarker[]
 >;
 
-export type WizardValue = string | number | boolean | string[] | IndicatorMap;
+/** The global `linear.filter` value — the canonical `@ralphy/types` marker list. */
+export type LinearFilterValue = LinearFilter;
+
+export type WizardValue = string | number | boolean | string[] | IndicatorMap | LinearFilterValue;
 
 export interface WizardAnswers {
   mode: SetupMode;

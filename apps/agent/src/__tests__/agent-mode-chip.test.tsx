@@ -108,7 +108,6 @@ const baseArgs: ParsedArgs = {
   name: "",
   linearTeam: "RLF",
   linearAssignee: "me",
-  linearFilter: "",
   ticketTokens: [],
   pollInterval: 999,
   concurrency: 1,

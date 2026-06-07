@@ -89,9 +89,10 @@ export const LINEAR_ASSIGNEE_VALUE_FIELD_ID = "linear.assigneeValue";
 
 /** Comment stamped above `linear.filter` in a generated WORKFLOW.md. */
 const LINEAR_FILTER_DESCRIPTION =
-  "Global filter applied to every Linear ticket fetch, as an 'assignee = <value>' clause. " +
-  "<value> is 'me' (issues assigned to you), 'any' (regardless of assignee), 'unassigned', " +
-  "or a specific Linear user (email or user-id). Blank defaults to 'assignee = me'.";
+  "Global filter ANDed into every Linear ticket fetch: a marker list of 'assignee' and " +
+  "'label' clauses (all required). assignee value is 'me' (assigned to you), 'any' " +
+  "(regardless of assignee), 'unassigned', or a specific Linear user (email or user-id). " +
+  "Add 'label' clauses to require the ticket carry those labels. Defaults to assignee = me.";
 
 const LINEAR_ASSIGNEE_CHOICE: Field = {
   id: LINEAR_ASSIGNEE_CHOICE_FIELD_ID,

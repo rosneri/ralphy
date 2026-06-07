@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Indicators } from "@ralphy/types";
-import { parseLinearFilter } from "@ralphy/workflow";
+import { resolveLinearFilter, applyAssigneeOverride } from "@ralphy/workflow";
 import { createBus, subscribeAgentDiag } from "@ralphy/events";
 import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
@@ -128,13 +128,12 @@ export function buildAgentCoordinator(
     args.indicators,
   );
   const team = args.linearTeam || cfg.linear.team;
-  // Resolve the effective filter: --linear-filter wins over the deprecated
-  // --linear-assignee (converted to a clause) over the WORKFLOW.md value.
-  const effectiveFilter =
-    args.linearFilter ||
-    (args.linearAssignee ? `assignee = ${args.linearAssignee}` : "") ||
-    cfg.linear.filter;
-  const { assignee, anyAssignee } = parseLinearFilter(effectiveFilter);
+  // The global `linear.filter` (marker list of label + assignee clauses) scopes
+  // every Linear query and, transitively, the GitHub PR searches rooted at those
+  // issues. `--linear-assignee` overrides just the assignee clause for this run.
+  const { assignee, anyAssignee, requireAllLabels } = resolveLinearFilter(
+    applyAssigneeOverride(cfg.linear.filter, args.linearAssignee),
+  );
 
   // RLF-208: resolve --ticket tokens to a deduped set of Linear ticket numbers,
   // validated against the configured team. Throws a clean CLI error on a bare
@@ -200,6 +199,7 @@ export function buildAgentCoordinator(
     team,
     assignee,
     anyAssignee,
+    requireAllLabels,
     diag,
     ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
   });
@@ -252,6 +252,7 @@ export function buildAgentCoordinator(
     team,
     assignee,
     anyAssignee,
+    requireAllLabels,
     indicators,
     projectRoot,
     useWorktree,
@@ -390,6 +391,8 @@ export function buildAgentCoordinator(
           apiKey,
           team,
           assignee,
+          anyAssignee,
+          requireAllLabels,
           indicators,
           ticketNumbers.length > 0 ? ticketNumbers : undefined,
         ),

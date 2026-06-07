@@ -24,6 +24,30 @@ const MarkerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("comment"), value: z.string().min(1) }).strict(),
 ]);
 
+/**
+ * The global `linear.filter` marker list (RLF-206 → marker form). Restricted to
+ * `label` and `assignee` clauses — deliberately narrower than {@link MarkerSchema}
+ * (no status/project/comment, and `assignee` exists ONLY here, never in a
+ * lifecycle indicator). All clauses are ANDed; at most one `assignee` is allowed.
+ */
+const FilterMarkerSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("label"), value: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("assignee"), value: z.string().min(1) }).strict(),
+]);
+
+const LinearFilterSchema = z
+  .array(FilterMarkerSchema)
+  .superRefine((markers, ctx) => {
+    const assigneeCount = markers.filter((m) => m.type === "assignee").length;
+    if (assigneeCount > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `linear.filter allows at most one "assignee" clause, found ${assigneeCount}.`,
+      });
+    }
+  })
+  .default([{ type: "assignee", value: "me" }]);
+
 const SET_INDICATOR_KEYS = [
   "setInProgress",
   "setDone",
@@ -95,11 +119,11 @@ const IndicatorsSchema = z.preprocess(
 
 /**
  * Fold a legacy `linear.assignee` string into the new global `linear.filter`
- * expression (RLF-206), then drop the `assignee` key so `.strict()` validation
- * does not reject it. A blank/`unassigned` legacy value maps to
- * `assignee = unassigned` to preserve the old "blank means unassigned" meaning;
- * any other value maps to `assignee = <value>`. An explicit `filter` always
- * wins — the legacy `assignee` is discarded.
+ * marker list, then drop the `assignee` key so `.strict()` validation does not
+ * reject it. A blank/`unassigned` legacy value maps to an `unassigned` assignee
+ * clause to preserve the old "blank means unassigned" meaning; any other value
+ * becomes the clause value verbatim. An explicit `filter` always wins — the
+ * legacy `assignee` is discarded.
  */
 function foldLegacyAssignee(v: unknown): unknown {
   if (!v || typeof v !== "object" || Array.isArray(v)) return v;
@@ -109,7 +133,7 @@ function foldLegacyAssignee(v: unknown): unknown {
   if (rest["filter"] === undefined) {
     const raw = typeof assignee === "string" ? assignee.trim() : "";
     const value = raw === "" || raw.toLowerCase() === "unassigned" ? "unassigned" : raw;
-    rest["filter"] = `assignee = ${value}`;
+    rest["filter"] = [{ type: "assignee", value }];
   }
   return rest;
 }
@@ -209,9 +233,9 @@ export const WorkflowConfigSchema = z.object({
       z
         .object({
           team: z.string().optional(),
-          /** Global Linear ticket filter expression (e.g. `assignee = me`). RLF-206:
-           *  replaces the former `assignee` string. Parsed by `parseLinearFilter`. */
-          filter: z.string().default("assignee = me"),
+          /** Global Linear ticket filter: a marker list (label + assignee) ANDed
+           *  into every Linear query. Resolved by `resolveLinearFilter`. */
+          filter: LinearFilterSchema,
           postComments: z.boolean().default(true),
           updateEveryIterations: z.number().int().nonnegative().default(10),
           mentionTrigger: z.boolean().default(true),
@@ -252,7 +276,7 @@ export const WorkflowConfigSchema = z.object({
         .strict(),
     )
     .default({
-      filter: "assignee = me",
+      filter: [{ type: "assignee", value: "me" }],
       postComments: true,
       updateEveryIterations: 10,
       mentionTrigger: true,

@@ -118,7 +118,7 @@ describe("SetupWizard render", () => {
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
     expect(config.linear.team).toBe("ENG");
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
   });
 
   test("down arrow switches options and enter confirms (mode picker)", async () => {
@@ -173,7 +173,7 @@ describe("SetupWizard render", () => {
     expect(result).not.toBeNull();
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
   });
 
   test("onlyFields restricts the walkthrough to the migration diff", () => {
@@ -384,13 +384,13 @@ describe("buildFromAnswers — concurrency forces worktrees", () => {
 });
 
 describe("buildFromAnswers — Linear assignee filter", () => {
-  test("a keyword choice composes the assignee clause", () => {
+  test("a keyword choice composes the assignee marker clause", () => {
     for (const choice of ["me", "any", "unassigned"]) {
       const md = buildFromAnswers("customized", {
         "project.name": "svc",
         "linear.assigneeChoice": choice,
       });
-      expect(parseWorkflow(md).config.linear.filter).toBe(`assignee = ${choice}`);
+      expect(parseWorkflow(md).config.linear.filter).toEqual([{ type: "assignee", value: choice }]);
     }
   });
 
@@ -400,7 +400,9 @@ describe("buildFromAnswers — Linear assignee filter", () => {
       "linear.assigneeChoice": "other",
       "linear.assigneeValue": "dev@example.com",
     });
-    expect(parseWorkflow(md).config.linear.filter).toBe("assignee = dev@example.com");
+    expect(parseWorkflow(md).config.linear.filter).toEqual([
+      { type: "assignee", value: "dev@example.com" },
+    ]);
     // The control fields never become frontmatter keys.
     expect(md).not.toContain("assigneeChoice");
     expect(md).not.toContain("assigneeValue");
@@ -412,7 +414,22 @@ describe("buildFromAnswers — Linear assignee filter", () => {
       "linear.assigneeChoice": "other",
       "linear.assigneeValue": "   ",
     });
-    expect(parseWorkflow(md).config.linear.filter).toBe("assignee = me");
+    expect(parseWorkflow(md).config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
+  });
+
+  test("preserves existing label clauses while swapping the assignee", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.assigneeChoice": "any",
+      "linear.filter": [
+        { type: "assignee", value: "me" },
+        { type: "label", value: "ralph" },
+      ],
+    });
+    expect(parseWorkflow(md).config.linear.filter).toEqual([
+      { type: "label", value: "ralph" },
+      { type: "assignee", value: "any" },
+    ]);
   });
 });
 
