@@ -232,7 +232,7 @@ const RALPHY_ATTACHMENT_TITLE_FILTER = "Ralphy";
  * `fetchMentionScanIssues` builder so the global filter can never leak from one
  * query surface. No-op when there are no required labels.
  */
-export function applyRequiredLabels(
+function applyRequiredLabels(
   where: Record<string, unknown>,
   requireAllLabels: string[] | undefined,
 ): void {
