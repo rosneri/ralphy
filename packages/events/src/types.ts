@@ -181,6 +181,18 @@ export type RalphEvent =
       ts: number;
       change_name: string;
     }
+  | {
+      // RLF-224: a worker run dirtied the developer's main checkout
+      // (projectRoot) instead of confining writes to its worktree. Reported,
+      // never repaired — the main tree may hold the developer's own work.
+      type: "agent_main_checkout_leak";
+      ts: number;
+      issue_identifier?: string;
+      change_name?: string;
+      head_moved?: boolean;
+      leaked_paths?: string[];
+      [k: string]: unknown;
+    }
   // --- runAgentJson stream ---
   | {
       type: "started";

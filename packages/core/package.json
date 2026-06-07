@@ -16,7 +16,8 @@
     "./openspec-phase": "./src/openspec/phase.ts",
     "./detections": "./src/detections/index.ts",
     "./machines": "./src/machines/index.ts",
-    "./ordering": "./src/ordering/index.ts"
+    "./ordering": "./src/ordering/index.ts",
+    "./main-checkout-sentinel": "./src/main-checkout-sentinel/index.ts"
   },
   "dependencies": {
     "@ralphy/change-store": "workspace:*",

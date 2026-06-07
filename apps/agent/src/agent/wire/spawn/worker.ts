@@ -4,6 +4,11 @@ import {
   MISSION_TASKS_FILENAME,
   normalizeNewlyAppendedSectionWithReport,
 } from "@ralphy/core/tasks-md";
+import {
+  detectCheckoutLeak,
+  snapshotCheckout,
+  type CheckoutSnapshot,
+} from "@ralphy/core/main-checkout-sentinel";
 import type { AgentParsedArgs } from "../../../cli";
 import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
@@ -387,6 +392,16 @@ export function createSpawnWorker(
       return (await f.exists()) ? await f.text() : "";
     })();
 
+    // RLF-224 main-checkout sentinel: snapshot projectRoot's HEAD + dirtiness
+    // just before the engine spawns so a worker run that leaks writes out of
+    // its worktree can be detected (never repaired) once it exits. Armed only
+    // when a real worktree is in use AND the worker cwd differs from the main
+    // checkout — otherwise there is no separate tree to leak into.
+    const guardOn = useWorktree && cwd !== projectRoot;
+    const beforeSnapshotPromise: Promise<CheckoutSnapshot | null> = guardOn
+      ? snapshotCheckout(projectRoot, gitRunner)
+      : Promise.resolve(null);
+
     let logFilePath: string;
     let handle: { exited: Promise<number>; kill: () => void };
     if (injected) {
@@ -438,6 +453,32 @@ export function createSpawnWorker(
       ? issueMatchesGetIndicator(issueForChange, indicators.getAutoMerge)
       : false;
     const wrapped = handle.exited.then(async (code) => {
+      // RLF-224: compare the main checkout against the pre-spawn snapshot before
+      // anything else (including the respawn branch) so each worker generation
+      // is checked exactly once. Report only — never `git restore`/`reset`, as
+      // the main tree may hold the developer's own uncommitted work.
+      const before = await beforeSnapshotPromise;
+      if (before) {
+        const after = await snapshotCheckout(projectRoot, gitRunner);
+        const leak = detectCheckoutLeak(before, after);
+        if (leak.leaked) {
+          const detail = [
+            leak.headMoved ? "HEAD moved" : null,
+            leak.newEntries.length > 0 ? leak.newEntries.join(", ") : null,
+          ]
+            .filter(Boolean)
+            .join("; ");
+          const msg = `main checkout leak in ${projectRoot}: ${detail}`;
+          onLog(msg, "red");
+          diag("sentinel", msg, "red");
+          emitCapture(bus, "agent_main_checkout_leak", {
+            change_name: changeName,
+            head_moved: leak.headMoved,
+            leaked_paths: leak.newEntries,
+            ...(issueForChange ? { issue_identifier: issueForChange.identifier } : {}),
+          });
+        }
+      }
       const workerLayout = projectLayout(cwd);
 
       // Detect per-task validation indicator: worker AI creates specs/validate.md during design.
