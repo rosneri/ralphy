@@ -3,7 +3,7 @@ import { classifyGhBucket, NO_CHECKS_RE, runGhWithRetry } from "../shared/pr/ci-
 
 const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
 
-export interface CiStatus {
+interface CiStatus {
   bucket: "pass" | "fail" | "pending";
   /** Workflow run IDs of failing checks (only populated when bucket is "fail"). */
   failedRunIds: string[];

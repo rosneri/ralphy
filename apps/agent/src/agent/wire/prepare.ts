@@ -63,7 +63,7 @@ interface PrepareInput {
 
 /** Production worktree provider: the real `createWorktree` / `seedWorktreeMcpConfig`
  *  capabilities. Touches `~/.ralph/...` and the filesystem. */
-export const defaultWorktreeProvider: WorktreeProvider = {
+const defaultWorktreeProvider: WorktreeProvider = {
   create: (args) => runCapability(git.createWorktree, args),
   seedMcpConfig: (args) => runCapability(git.seedWorktreeMcpConfig, args),
 };
