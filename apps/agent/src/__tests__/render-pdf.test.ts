@@ -7,12 +7,15 @@ import { renderMarkdownToPdf } from "../agent/linear-sync/render-pdf";
  *  text-showing operator: the font resource, font size, and baseline y from
  *  the active text matrix. Lets a test assert *where* glyphs actually land —
  *  e.g. that inline code shares the body text baseline. */
-function textRuns(pdf: Uint8Array): Array<{ font: string; size: number; y: number }> {
+function textRuns(pdf: Uint8Array): Array<{ font: string; size: number; y: number; page: number }> {
   const buf = Buffer.from(pdf);
   const s = buf.toString("latin1");
-  const runs: Array<{ font: string; size: number; y: number }> = [];
+  const runs: Array<{ font: string; size: number; y: number; page: number }> = [];
   const streamRe = /stream\r?\n/g;
   let m: RegExpExecArray | null;
+  // One content stream per page in pdfkit; bump the page index for every stream
+  // that actually emitted text so callers can scope per-page invariants.
+  let page = 0;
   while ((m = streamRe.exec(s))) {
     const start = m.index + m[0].length;
     const end = s.indexOf("endstream", start);
@@ -25,6 +28,7 @@ function textRuns(pdf: Uint8Array): Array<{ font: string; size: number; y: numbe
     let font = "";
     let size = 0;
     let y = 0;
+    let produced = false;
     const tok = /1 0 0 1 [\d.-]+ ([\d.-]+) Tm|\/(F\d+) ([\d.-]+) Tf|\b(TJ|Tj)\b/g;
     let t: RegExpExecArray | null;
     while ((t = tok.exec(content))) {
@@ -32,10 +36,30 @@ function textRuns(pdf: Uint8Array): Array<{ font: string; size: number; y: numbe
       else if (t[2] !== undefined) {
         font = t[2];
         size = parseFloat(t[3]!);
-      } else runs.push({ font, size, y });
+      } else {
+        runs.push({ font, size, y, page });
+        produced = true;
+      }
     }
+    if (produced) page++;
   }
   return runs;
+}
+
+/** Largest amount (pt) any baseline sits ABOVE the lowest baseline already
+ *  drawn earlier on the same page, in draw order. In pdfkit's Tm space a larger
+ *  y is higher on the page, so text should descend (y monotonically falls);
+ *  a positive return value means the cursor jumped back up and overdrew earlier
+ *  content — the RLF-225 loose-list overlay bug. */
+function maxBacktrack(runs: Array<{ y: number; page: number }>): number {
+  let worst = 0;
+  const lowestByPage = new Map<number, number>();
+  for (const r of runs) {
+    const lowest = lowestByPage.get(r.page);
+    if (lowest !== undefined) worst = Math.max(worst, r.y - lowest);
+    lowestByPage.set(r.page, lowest === undefined ? r.y : Math.min(lowest, r.y));
+  }
+  return worst;
 }
 
 async function extractText(pdf: Uint8Array): Promise<string> {
@@ -237,6 +261,42 @@ A line continued after a hard break.
       // Pre-fix the mono run was 9pt vs 10.5pt body; flipped to require every
       // run share one size so baselines stay aligned.
       expect(runs.every((r) => r.size === bodySize)).toBe(true);
+    });
+  });
+
+  // --- Bug RLF-225: in a *loose* list (blank lines between items) a list
+  // item's children are block tokens (paragraph, nested list), so the inline
+  // path never fires. renderListItem then ran its empty-item cursor-reset
+  // filler (`doc.y = startY`) AFTER the blocks had already flowed down the
+  // page, snapping the cursor back to the marker line. The next item then drew
+  // on top of the prior item's text. The cursor must only descend.
+  describe("loose lists do not overlap text", () => {
+    const md = "- outer\n\n  Para inside.\n\n  - inner\n\n- next\n";
+
+    test("bug_case: every baseline descends — no run drawn above earlier content", async () => {
+      const runs = textRuns(await renderMarkdownToPdf(md, "Loose"));
+      // Sanity: the document actually produced the runs we reason about.
+      expect(runs.length).toBeGreaterThan(4);
+      // Pre-fix the "next" item snapped ~58pt back up the page and overdrew
+      // "outer"/"Para inside.". A tiny tolerance absorbs the Courier↔Helvetica
+      // baseline jitter between fragments sharing a visual line.
+      expect(maxBacktrack(runs)).toBeLessThan(3);
+    });
+
+    test("fix_case: each item's text appears exactly once with nothing lost", async () => {
+      const out = await renderMarkdownToPdf(md, "Loose");
+      const text = await extractText(out);
+      for (const fragment of ["outer", "Para inside.", "inner", "next"]) {
+        expect(text.split(fragment).length - 1).toBe(1);
+      }
+      // And the overlay invariant holds on the same document.
+      expect(maxBacktrack(textRuns(out))).toBeLessThan(3);
+    });
+
+    test("a genuinely empty list item (bare marker) renders without throwing", async () => {
+      const out = await renderMarkdownToPdf("- \n- after\n", "EmptyItem");
+      expect(out.byteLength).toBeGreaterThan(200);
+      expect(new TextDecoder().decode(out.slice(0, 4))).toBe("%PDF");
     });
   });
 });
