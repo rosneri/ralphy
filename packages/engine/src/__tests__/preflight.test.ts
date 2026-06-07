@@ -51,6 +51,7 @@ const {
   CLAUDE_AUTH_FAIL_MESSAGE,
   checkRepoWriteAccess,
   REPO_WRITE_FAIL_MESSAGE,
+  scrubGithubAppTokenEnv,
   runPreflight,
 } = await import("../preflight");
 
@@ -180,53 +181,86 @@ describe("checkClaudeAuth", () => {
   });
 });
 
-describe("checkRepoWriteAccess", () => {
-  test.each(["ADMIN", "WRITE", "MAINTAIN", "admin", "write"])(
-    "returns ok when viewerPermission is %s",
-    async (perm) => {
-      nextResults.push({ exitCode: 0, stdout: `${perm}\n` });
-      const res = await checkRepoWriteAccess("/repo");
-      expect(res.ok).toBe(true);
-      expect(spawnCalls[0]!.cmd).toEqual([
-        "gh",
-        "repo",
-        "view",
-        "--json",
-        "viewerPermission",
-        "--jq",
-        ".viewerPermission",
-      ]);
-    },
-  );
-
-  test.each(["READ", "TRIAGE", "NONE", ""])(
-    "returns failure when viewerPermission is %s (no push access)",
-    async (perm) => {
-      nextResults.push({ exitCode: 0, stdout: `${perm}\n` });
-      const res = await checkRepoWriteAccess("/repo");
-      expect(res.ok).toBe(false);
-      if (!res.ok) {
-        expect(res.tool).toBe("repo");
-        expect(res.message).toBe(REPO_WRITE_FAIL_MESSAGE);
-        expect(res.message).toContain("write access");
-      }
-    },
-  );
-
-  test("returns failure on non-zero exit (e.g. token cannot access repo)", async () => {
-    nextResults.push({ exitCode: 1, stdout: "" });
-    const res = await checkRepoWriteAccess("/repo");
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.tool).toBe("repo");
+describe("scrubGithubAppTokenEnv", () => {
+  test("drops GITHUB_TOKEN but keeps GH_TOKEN and everything else", () => {
+    const out = scrubGithubAppTokenEnv({
+      GITHUB_TOKEN: "github_pat_app_secret",
+      GH_TOKEN: "gho_gh_login",
+      PATH: "/usr/bin",
+    });
+    expect(out.GITHUB_TOKEN).toBeUndefined();
+    expect(out.GH_TOKEN).toBe("gho_gh_login");
+    expect(out.PATH).toBe("/usr/bin");
   });
 
-  test("returns failure when spawn throws (catch branch)", async () => {
+  test("does not mutate the input env", () => {
+    const env: Record<string, string | undefined> = { GITHUB_TOKEN: "x", KEEP: "y" };
+    scrubGithubAppTokenEnv(env);
+    expect(env.GITHUB_TOKEN).toBe("x");
+  });
+});
+
+// gh api prints the JSON error BODY to stdout on a non-2xx, so the probe
+// discriminates on the `"status"` field. The all-zero sha never mutates.
+const WRITABLE_BODY = '{"message":"Object does not exist","status":"422"}';
+const NO_WRITE_BODY =
+  '{"message":"Resource not accessible by personal access token","status":"403"}';
+
+describe("checkRepoWriteAccess", () => {
+  test("ok when the write-probe is rejected on the sha (422 = token CAN write)", async () => {
+    nextResults.push({ exitCode: 1, stdout: WRITABLE_BODY });
+    const res = await checkRepoWriteAccess("/repo");
+    expect(res.ok).toBe(true);
+    // Probes via create-ref with an all-zero sha — never mutates.
+    expect(spawnCalls[0]!.cmd.slice(0, 5)).toEqual([
+      "gh",
+      "api",
+      "-X",
+      "POST",
+      "repos/{owner}/{repo}/git/refs",
+    ]);
+    expect(spawnCalls[0]!.cmd.join(" ")).toContain("sha=0000000000000000000000000000000000000000");
+  });
+
+  test("fails when the credential is rejected at the permission gate (403)", async () => {
+    nextResults.push({ exitCode: 1, stdout: NO_WRITE_BODY });
+    const res = await checkRepoWriteAccess("/repo");
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.tool).toBe("repo");
+      expect(res.message).toBe(REPO_WRITE_FAIL_MESSAGE);
+      expect(res.message).toContain("write access");
+    }
+  });
+
+  test("fails on the literal git push 403 wording too", async () => {
+    nextResults.push({ exitCode: 1, stdout: "remote: Write access to repository not granted." });
+    const res = await checkRepoWriteAccess("/repo");
+    expect(res.ok).toBe(false);
+  });
+
+  test("does NOT halt on an ambiguous outcome (e.g. 404 / network)", async () => {
+    nextResults.push({ exitCode: 1, stdout: '{"message":"Not Found","status":"404"}' });
+    const res = await checkRepoWriteAccess("/repo");
+    expect(res.ok).toBe(true);
+  });
+
+  test("does not halt when spawn throws (gh-auth preflight covers a missing gh)", async () => {
     spawnMock.mockImplementationOnce(() => {
       throw new Error("ENOENT: gh not found");
     });
     const res = await checkRepoWriteAccess("/repo");
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.tool).toBe("repo");
+    expect(res.ok).toBe(true);
+  });
+
+  test("scrubs GITHUB_TOKEN from the probe env (checks gh's own credential)", async () => {
+    const original = process.env["GITHUB_TOKEN"];
+    process.env["GITHUB_TOKEN"] = "github_pat_app_secret";
+    nextResults.push({ exitCode: 1, stdout: WRITABLE_BODY });
+    await checkRepoWriteAccess("/repo");
+    if (original === undefined) delete process.env["GITHUB_TOKEN"];
+    else process.env["GITHUB_TOKEN"] = original;
+    expect(spawnCalls[0]!.env!["GITHUB_TOKEN"]).toBeUndefined();
   });
 });
 
@@ -234,18 +268,18 @@ describe("runPreflight", () => {
   test("runs the repo-write check after gh+claude when requireRepoWrite is set", async () => {
     nextResults.push({ exitCode: 0 }); // gh auth
     nextResults.push({ exitCode: 0, stdout: "ok" }); // claude
-    nextResults.push({ exitCode: 0, stdout: "READ" }); // repo: read-only
+    nextResults.push({ exitCode: 1, stdout: NO_WRITE_BODY }); // repo: no write
     const res = await runPreflight({ requireRepoWrite: true, repoCwd: "/repo" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.tool).toBe("repo");
     expect(spawnCalls).toHaveLength(3);
-    expect(spawnCalls[2]!.cmd.slice(0, 3)).toEqual(["gh", "repo", "view"]);
+    expect(spawnCalls[2]!.cmd.slice(0, 2)).toEqual(["gh", "api"]);
   });
 
   test("passes when requireRepoWrite is set and the repo is writable", async () => {
     nextResults.push({ exitCode: 0 }); // gh auth
     nextResults.push({ exitCode: 0, stdout: "ok" }); // claude
-    nextResults.push({ exitCode: 0, stdout: "ADMIN" }); // repo: writable
+    nextResults.push({ exitCode: 1, stdout: WRITABLE_BODY }); // repo: writable
     const res = await runPreflight({ requireRepoWrite: true, repoCwd: "/repo" });
     expect(res.ok).toBe(true);
     expect(spawnCalls).toHaveLength(3);
@@ -257,7 +291,7 @@ describe("runPreflight", () => {
     const res = await runPreflight();
     expect(res.ok).toBe(true);
     expect(spawnCalls).toHaveLength(2);
-    expect(spawnCalls.every((c) => c.cmd.slice(0, 3).join(" ") !== "gh repo view")).toBe(true);
+    expect(spawnCalls.every((c) => c.cmd.slice(0, 2).join(" ") !== "gh api")).toBe(true);
   });
 
   test("short-circuits on gh failure (does not call claude probe)", async () => {
