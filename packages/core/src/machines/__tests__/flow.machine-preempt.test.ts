@@ -243,7 +243,7 @@ describe("flow.machine — post-preemption routing", () => {
   const routingCases: Array<{ flowId: FlowAssignment["flowId"]; expectedState: string }> = [
     { flowId: "conflict-fix", expectedState: "conflict-fix" },
     { flowId: "ci-fix", expectedState: "ci-fix" },
-    { flowId: "awaiting-ci", expectedState: "awaiting" },
+    { flowId: "awaiting-ci", expectedState: "awaiting-ci" },
     { flowId: "confirmation", expectedState: "awaiting" },
     { flowId: "review-followup", expectedState: "review" },
     { flowId: "idle", expectedState: "idle" },

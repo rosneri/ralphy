@@ -85,14 +85,17 @@ export const MIGRATIONS: Migration[] = [
     description:
       "PR recovery is unified under one `prRecovery` block (replacing " +
       "`prTracker`, `fixCiOnFailure`, `maxCiFixAttempts`, `ciPollIntervalSeconds`, " +
-      "and `ignoreCiChecks`). Workers now mark a ticket done as soon as the PR " +
-      "opens; a single background watcher owns all recovery — resolving conflicts " +
-      "always, and re-running to fix failing CI when `prRecovery.fixCi` is on. " +
-      "`prRecovery.enabled: false` turns recovery off everywhere. Your old values " +
-      "are migrated automatically; review them here or keep them.",
+      "and `ignoreCiChecks`). Workers now open the PR and leave the ticket " +
+      "in-review; a single background watcher advances it to done once the PR is " +
+      "mergeable (CI green, no conflicts) and recovers red PRs — conflicts when " +
+      "`prRecovery.fixConflicts` is on, failing CI when `prRecovery.fixCi` is on. " +
+      "`prRecovery.enabled: false` turns the watcher off everywhere and marks the " +
+      "ticket done immediately on PR open. Your old values are migrated " +
+      "automatically; review them here or keep them.",
     fields: [
       "prRecovery.enabled",
       "prRecovery.fixCi",
+      "prRecovery.fixConflicts",
       "prRecovery.maxRecoverySessions",
       "prRecovery.ignoreChecks",
     ],

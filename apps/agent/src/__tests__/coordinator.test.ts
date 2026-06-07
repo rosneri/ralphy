@@ -83,6 +83,8 @@ interface DepsResult {
   >;
   /** Set of issue IDs whose openspec change is "archived locally" for tests. */
   archivedIssues: Set<string>;
+  /** Change names for which `hasPrForChange` returns true (RLF-97 done-deferral). */
+  prChanges: Set<string>;
   /** Update what fetchTodo returns on the next call. */
   setTodo: (issues: LinearIssue[]) => void;
   setInProgress: (issues: LinearIssue[]) => void;
@@ -102,6 +104,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     { url: string; status: "mergeable" | "conflicted" | "ci_failed" | "unknown" } | null
   >();
   const archivedIssues = new Set<string>();
+  const prChanges = new Set<string>();
 
   let todo: LinearIssue[] = initial.todo ?? [];
   let inProgress: LinearIssue[] = [];
@@ -145,6 +148,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     },
     fetchComments: async () => [],
     checkPrStatus: async (i) => conflictByIssue.get(i.id) ?? null,
+    hasPrForChange: (changeName) => prChanges.has(changeName),
     isChangeArchivedForIssue: async (i) => archivedIssues.has(i.id),
     onLog: (text, color) => {
       logs.push(color !== undefined ? { text, color } : { text });
@@ -165,6 +169,7 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     comments,
     conflictByIssue,
     archivedIssues,
+    prChanges,
     setTodo: (xs) => {
       todo = xs;
     },
@@ -631,7 +636,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     };
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -657,7 +662,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     };
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -685,7 +690,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     ]);
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -708,7 +713,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     ]);
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -733,7 +738,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       setDone,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -752,7 +757,7 @@ describe("AgentCoordinator — resume and conflict-fix", () => {
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       setDone,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -772,7 +777,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -791,7 +796,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -814,7 +819,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     const r = await coord.pollOnce();
@@ -838,7 +843,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     ctx.conflictByIssue.set("d", { url: "https://gh/pr/4", status: "ci_failed" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     const r = await coord.pollOnce();
@@ -860,7 +865,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       concurrency: 0,
       prTracker: tracker,
       setError,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
 
@@ -896,7 +901,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
       concurrency: 0,
       prTracker: tracker,
       setError,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
 
@@ -915,7 +920,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     // concurrency 0 so the queued conflict-fix never drains.
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
 
@@ -936,7 +941,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -964,7 +969,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -988,7 +993,7 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1012,13 +1017,174 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
     await tick();
 
     expect(ctx.workers.has("change-eng-1")).toBe(true);
+  });
+});
+
+describe("AgentCoordinator — RLF-97 done-deferral + watcher advance", () => {
+  const setDone: SetIndicator = { type: "status", value: "Done" };
+  const setInProgress: SetIndicator = { type: "status", value: "In Progress" };
+
+  test("PR-producing run defers setDone on worker success (ticket rests in awaiting-ci)", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.prChanges.add("change-eng-1"); // a PR exists for this change
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+
+    // setDone is NOT applied at exit — the watcher owns the move to done.
+    expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeUndefined();
+    // The in-progress label is left in place while the PR is watched.
+    expect(ctx.removes.find((r) => r.id === "a" && r.ind === setInProgress)).toBeUndefined();
+  });
+
+  test("watcher advances the deferred ticket to done once its PR is mergeable", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps({ todo: [ticket] });
+    ctx.prChanges.add("change-eng-1");
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+    expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeUndefined();
+
+    // Next poll: the PR is mergeable and the ticket is a done-candidate.
+    ctx.setTodo([]);
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+
+    // Now setDone is applied and the in-progress label cleared.
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+    expect(ctx.removes).toContainEqual({ id: "a", ind: setInProgress });
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("mergeable"))).toBe(true);
+  });
+
+  test("a healthy already-Done ticket is NOT re-advanced (no duplicate setDone)", async () => {
+    // setDone fired immediately (no PR at exit); later the PR is discovered
+    // mergeable. The watcher must leave the Done ticket alone — its actor is
+    // not in awaiting-ci.
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps({ todo: [ticket] });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0); // no PR registered → immediate setDone
+    await tick();
+    expect(ctx.applies.filter((a) => a.id === "a" && a.ind === setDone).length).toBe(1);
+
+    ctx.setTodo([]);
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+    // Still exactly one setDone — no re-advance on the healthy Done ticket.
+    expect(ctx.applies.filter((a) => a.id === "a" && a.ind === setDone).length).toBe(1);
+  });
+
+  test("recovery disabled → setDone applied immediately even with a PR", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.prChanges.add("change-eng-1");
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      createsPrs: true,
+      // enabled:false → no watcher; worker finalizes done on exit.
+      prRecovery: { enabled: false, fixCi: false, fixConflicts: false },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+  });
+
+  test("non-PR run marks done immediately even if a PR was discovered for the branch", async () => {
+    const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
+    ctx.prChanges.add("change-eng-1"); // stray discovered PR
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      createsPrs: false, // workflow does not open PRs
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+  });
+
+  test("fixConflicts:false leaves a conflicting done-candidate PR alone (no conflict-fix queued)", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      setError: { type: "label", value: "ralph:error" },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: false },
+    });
+    await coord.init();
+    const r = await coord.pollOnce();
+    expect(r.prStatus.conflicted).toBe(0);
+    expect(coord.queuedCount).toBe(0);
+    expect(ctx.comments.some((c) => c.body.includes("merge conflicts"))).toBe(false);
+  });
+
+  test("fixConflicts:false also gates the in-progress promotion path (no conflict-fix promotion)", async () => {
+    // A conflicting PR on an in-progress ticket must NOT be promoted to
+    // conflict-fix when fixConflicts is off — it falls through to the normal
+    // resume path instead. (Mirrors the done-candidate gate at the second site.)
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps();
+    ctx.setInProgress([ticket]);
+    ctx.conflictByIssue.set("a", {
+      url: "https://github.com/o/r/pull/376",
+      status: "conflicted" as const,
+    });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: false },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    // No conflict-fix promotion comment; the ticket resumes normally instead.
+    expect(ctx.comments.some((c) => c.body.includes("promoted to conflict-fix flow"))).toBe(false);
+    expect(ctx.logs.some((l) => l.text.includes("queued (resume)"))).toBe(true);
   });
 });
 
@@ -1087,7 +1253,7 @@ describe("AgentCoordinator — progress comments", () => {
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       getAutoMerge: { filter: [{ type: "label", value: "ralph:auto-merge" }] },
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1112,7 +1278,7 @@ describe("AgentCoordinator — progress comments", () => {
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
       getAutoMerge: { filter: [{ type: "label", value: "ralph:auto-merge" }] },
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1542,7 +1708,7 @@ describe("AgentCoordinator — flow machine actor state", () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1563,7 +1729,7 @@ describe("AgentCoordinator — flow machine actor state", () => {
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1584,7 +1750,7 @@ describe("AgentCoordinator — flow machine actor state", () => {
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "ci_failed" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1608,7 +1774,7 @@ describe("AgentCoordinator — flow machine actor state", () => {
     ]);
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 1,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.init();
     await coord.pollOnce();
@@ -1642,7 +1808,7 @@ describe("AgentCoordinator — flow machine actor state", () => {
       const ctx1 = makeDepsWithChangeDir({ todo: [issueA] });
       const coord1 = new AgentCoordinator(ctx1.deps, {
         concurrency: 1,
-        prRecovery: { enabled: true, fixCi: true },
+        prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
       });
       await coord1.init();
       await coord1.pollOnce();
@@ -1654,7 +1820,7 @@ describe("AgentCoordinator — flow machine actor state", () => {
       ctx2.setInProgress([issueA]);
       const coord2 = new AgentCoordinator(ctx2.deps, {
         concurrency: 1,
-        prRecovery: { enabled: true, fixCi: true },
+        prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
       });
       await coord2.init();
       await coord2.pollOnce();

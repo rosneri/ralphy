@@ -6,7 +6,7 @@
  *   - `fixCiOnFailure`, `maxCiFixAttempts`, `ciPollIntervalSeconds`, `ignoreCiChecks`
  *   - the `ci.{fix_on_failure,max_attempts,poll_interval_seconds}` nested alias
  * collapse into one block:
- *   prRecovery: { enabled, fixCi, maxRecoverySessions, ignoreChecks }
+ *   prRecovery: { enabled, fixCi, fixConflicts, maxRecoverySessions, ignoreChecks }
  *
  * Mapping (in-worker CI/conflict recovery no longer exists; the watcher owns all
  * recovery, so the in-worker-only knobs are dropped, not carried over):
@@ -15,6 +15,11 @@
  *                         always-on watcher CI recovery; the standalone
  *                         `fixCiOnFailure` controlled the removed in-worker loop
  *                         and is intentionally NOT migrated.
+ *   fixConflicts        ← prTracker.enabled !== false        — preserves today's
+ *                         always-on watcher conflict recovery. Fresh `init`
+ *                         defaults this to false, but an existing tracker-on
+ *                         config kept conflicts recovered, so migration carries
+ *                         that forward rather than silently disabling it.
  *   maxRecoverySessions ← prTracker.maxRecoveryAttempts      (default 3)
  *   ignoreChecks        ← ignoreCiChecks                     (default [])
  *   (dropped: advanceMergedToDone, maxCiFixAttempts, ciPollIntervalSeconds, ci.*)
@@ -73,6 +78,7 @@ export function migrateWorkflowMarkdown(markdown: string): MigrateResult {
 
     document.setIn(["prRecovery", "enabled"], enabled);
     document.setIn(["prRecovery", "fixCi"], enabled);
+    document.setIn(["prRecovery", "fixConflicts"], enabled);
     document.setIn(
       ["prRecovery", "maxRecoverySessions"],
       typeof maxRecovery === "number" ? maxRecovery : 3,

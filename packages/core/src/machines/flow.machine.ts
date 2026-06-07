@@ -136,6 +136,12 @@ type FlowEvent =
   | { type: "CONFIRMATION_CLEARED" }
   | { type: "WORKER_SUCCEEDED" }
   | { type: "WORKER_FAILED" }
+  /** Worker opened a PR; the ticket is not done yet — the watcher owns the
+   *  move to done once the PR settles. Routes to `awaiting-ci`. */
+  | { type: "PR_OPENED" }
+  /** Watcher saw the PR become mergeable (CI green, no conflicts). Routes
+   *  `awaiting-ci` → done. */
+  | { type: "PR_PASSED" }
   | WorkerSpawnedEvent
   | PreemptEvent;
 
@@ -176,6 +182,7 @@ export const flowMachine = setup({
         AWAITING_DETECTED: "awaiting",
         CONFLICT_DETECTED: "conflict-fix",
         CI_FAILED_DETECTED: "ci-fix",
+        PR_OPENED: "awaiting-ci",
         WORKER_SUCCEEDED: "done",
         WORKER_FAILED: "error",
         PREEMPT: {
@@ -196,7 +203,9 @@ export const flowMachine = setup({
     },
     "conflict-fix": {
       on: {
-        WORKER_SUCCEEDED: "working",
+        // A recovered PR isn't done — it goes back to waiting for the watcher
+        // to confirm it's mergeable (or red again) on the next scan.
+        WORKER_SUCCEEDED: "awaiting-ci",
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
@@ -216,7 +225,9 @@ export const flowMachine = setup({
     },
     "ci-fix": {
       on: {
-        WORKER_SUCCEEDED: "working",
+        // A recovered PR isn't done — it goes back to waiting for the watcher
+        // to confirm it's mergeable (or red again) on the next scan.
+        WORKER_SUCCEEDED: "awaiting-ci",
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
@@ -243,6 +254,29 @@ export const flowMachine = setup({
             pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) =>
               event.newAssignment,
           }),
+        },
+      },
+    },
+    // PR is open and the worker has finished; the ticket rests here until the
+    // watcher advances it (PR_PASSED → done) or re-engages recovery on a red PR.
+    "awaiting-ci": {
+      on: {
+        PR_PASSED: "done",
+        CONFLICT_DETECTED: "conflict-fix",
+        CI_FAILED_DETECTED: "ci-fix",
+        PREEMPT: {
+          target: "preempting",
+          actions: assign({
+            pendingAssignment: ({ event }: { event: PreemptEvent; context: FlowContext }) =>
+              event.newAssignment,
+          }),
+        },
+        WORKER_SPAWNED: {
+          actions: assign(({ event }: { event: WorkerSpawnedEvent; context: FlowContext }) => ({
+            worker: event.worker,
+            teardown: event.teardown ?? undefined,
+            currentAssignment: event.assignment,
+          })),
         },
       },
     },
@@ -299,7 +333,11 @@ export const flowMachine = setup({
         },
         {
           guard: ({ context }: { context: FlowContext }) =>
-            context.pendingAssignment?.flowId === "awaiting-ci" ||
+            context.pendingAssignment?.flowId === "awaiting-ci",
+          target: "awaiting-ci",
+        },
+        {
+          guard: ({ context }: { context: FlowContext }) =>
             context.pendingAssignment?.flowId === "confirmation",
           target: "awaiting",
         },

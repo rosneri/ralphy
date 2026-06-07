@@ -312,20 +312,27 @@ export const WorkflowConfigSchema = z.object({
       outputCharLimit: 4000,
     }),
   /** RLF-173 / RLF-97: unified PR-recovery watcher. After a worker opens a PR
-   *  and marks the ticket done, the scheduler-tier watcher polls the In-Review
-   *  PRs it tracks and auto-recovers any whose merge state goes red — merge
-   *  conflicts always, failing CI when `fixCi` is on. It re-queues a fix worker
-   *  each detection and bails to `ralph:error` after `maxRecoverySessions`
-   *  failed sessions so a stubbornly broken PR can't bounce forever. The worker
-   *  itself performs NO in-process recovery; all recovery is the watcher's job.
-   *  `enabled: false` turns recovery off everywhere. */
+   *  the ticket rests in-review; the scheduler-tier watcher polls the in-review
+   *  PRs it tracks and (a) advances a ticket to done once its PR is mergeable
+   *  (CI green + no conflicts), and (b) auto-recovers any whose merge state goes
+   *  red — merge conflicts when `fixConflicts` is on, failing CI when `fixCi` is
+   *  on. It re-queues a fix worker each detection and bails to `ralph:error`
+   *  after `maxRecoverySessions` failed sessions so a stubbornly broken PR can't
+   *  bounce forever. The worker itself performs NO in-process recovery; all
+   *  recovery — and the move to done — is the watcher's job. `enabled: false`
+   *  turns the watcher off everywhere; the worker then marks the ticket done
+   *  immediately on PR open (no deferral, no recovery). */
   prRecovery: z
     .object({
-      /** Master switch. When false, the watcher does no conflict or CI recovery. */
+      /** Master switch. When false, the watcher does no recovery and never
+       *  advances tickets to done — the worker marks done on PR open instead. */
       enabled: z.boolean().default(true),
-      /** Additionally recover failing CI (not just conflicts). Off keeps PRs
-       *  un-conflicted but never auto-pushes speculative CI fixes. */
+      /** Recover failing CI by re-running the agent. Off leaves CI-red PRs for a
+       *  human (the watcher still advances mergeable PRs to done). */
       fixCi: z.boolean().default(true),
+      /** Recover merge conflicts by re-running the agent. Off leaves conflicting
+       *  PRs for a human (the watcher still advances mergeable PRs to done). */
+      fixConflicts: z.boolean().default(false),
       /** Give up auto-recovering a red PR after this many re-queue sessions,
        *  then apply `setError` for a human. */
       maxRecoverySessions: z.number().int().positive().default(3),
@@ -337,6 +344,7 @@ export const WorkflowConfigSchema = z.object({
     .default({
       enabled: true,
       fixCi: true,
+      fixConflicts: false,
       maxRecoverySessions: 3,
       ignoreChecks: [],
     }),

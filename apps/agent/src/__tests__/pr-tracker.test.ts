@@ -215,7 +215,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       setInProgress: SET_IN_PROGRESS,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     expect(coord.queuedCount).toBe(1);
@@ -233,7 +233,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
 
@@ -254,7 +254,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
 
@@ -272,7 +272,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     // Reset the per-process conflictNotified dedup by re-instantiating
@@ -283,7 +283,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     // Poll 1 applied the setError label; on the next poll the issue carries it,
     // so the bail stays in effect (a cleared label is what releases it).
@@ -308,7 +308,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     expect(tracker.getAttempts("ENG-1")).toBe(0);
@@ -323,7 +323,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     expect(coord.queuedCount).toBe(0);
@@ -347,7 +347,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     // The counter must survive — clearing it here is the bail-counter-defeat bug.
@@ -381,7 +381,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       setInProgress: SET_IN_PROGRESS,
       setError: SET_ERROR,
       prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: false },
+      prRecovery: { enabled: true, fixCi: false, fixConflicts: true },
     });
     await coord.pollOnce();
     // Conflict recovery fires; CI recovery does not.

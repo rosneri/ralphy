@@ -115,20 +115,27 @@ prBaseBranch: main
 # issue's PR on that PR's branch instead of main (a 'stacked' PR).
 stackPrsOnDependencies: true
 
-# RLF-97: unified PR-recovery watcher. After a worker opens a PR and marks the
-# ticket done, the scheduler-tier watcher polls the In-Review PRs it tracks and
-# auto-recovers any whose merge state goes red — merge conflicts always, failing
-# CI when `fixCi` is on. It re-queues a fix worker each detection and bails to
-# `ralph:error` after `maxRecoverySessions` failed sessions (counter stored at
-# `.ralph/pr-tracker-state.json`, keyed by Linear issue identifier; resets when
-# the PR becomes mergeable or a human clears `ralph:error`). The worker itself
-# performs NO in-process recovery. Pass `--no-pr-recovery` to disable for a
-# single run without editing WORKFLOW.md.
+# RLF-97: unified PR-recovery watcher. After a worker opens a PR the ticket rests
+# in-review; the scheduler-tier watcher polls the PRs it tracks and (a) advances a
+# ticket to done once its PR is mergeable (CI green, no conflicts), and (b)
+# auto-recovers any whose merge state goes red — merge conflicts when
+# `fixConflicts` is on, failing CI when `fixCi` is on. It re-queues a fix worker
+# each detection and bails to `ralph:error` after `maxRecoverySessions` failed
+# sessions (counter stored at `.ralph/pr-tracker-state.json`, keyed by Linear
+# issue identifier; resets when the PR becomes mergeable or a human clears
+# `ralph:error`). The worker performs NO in-process recovery. With
+# `enabled: false` the worker marks the ticket done immediately on PR open and
+# nothing is watched. Pass `--no-pr-recovery` to disable for a single run.
 prRecovery:
-  # Master switch. When false, no conflict or CI recovery happens anywhere.
+  # Master switch. When false, the watcher does no recovery and never advances
+  # tickets to done — the worker marks done on PR open instead.
   enabled: true
-  # Additionally recover failing CI (not just conflicts).
+  # Recover failing CI by re-running the agent. Off leaves CI-red PRs for a human
+  # (the watcher still advances mergeable PRs to done).
   fixCi: true
+  # Recover merge conflicts by re-running the agent. Off leaves conflicting PRs
+  # for a human (the watcher still advances mergeable PRs to done).
+  fixConflicts: false
   # Give up auto-recovering a red PR after this many re-queue sessions, then
   # apply `ralph:error` for a human.
   maxRecoverySessions: 3

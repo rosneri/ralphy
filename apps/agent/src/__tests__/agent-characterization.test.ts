@@ -851,6 +851,8 @@ const baseWorkflow = {
   concurrency: 1,
   useWorktree: false,
   createPrOnSuccess: false,
+  // Conflict recovery defaults off (RLF-97); scenario 7 exercises it, so opt in.
+  prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
   linear: {
     team: "ENG",
     postComments: true,

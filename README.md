@@ -33,7 +33,7 @@ An iterative AI task execution framework. Ralphy runs Claude or Codex in a check
 - **Auto PR open** — push branch and `gh pr create` on clean exit; idempotent (surfaces existing PR if open).
 - **Auto-merge opt-in** — `getAutoMerge` triggers `gh pr merge --auto --squash|merge|rebase` right after PR creation.
 - **Stacked PRs** — `--stack-prs` opens against a blocker's head branch when a `blocked_by` Linear relation has exactly one open PR.
-- **PR recovery (`prRecovery`)** — the worker marks the ticket done as soon as the PR opens; a background watcher then polls each tracked In-Review PR and re-queues a fix worker when it goes red — merge conflicts always, failing CI when `prRecovery.fixCi` is on — bailing to `ralph:error` after `maxRecoverySessions`. `--no-pr-recovery` disables it for a run.
+- **PR recovery (`prRecovery`)** — after a worker opens a PR the ticket rests in-review; a background watcher polls each tracked PR and advances the ticket to done once the PR is mergeable (CI green, no conflicts), re-queuing a fix worker when it goes red — merge conflicts when `prRecovery.fixConflicts` is on, failing CI when `prRecovery.fixCi` is on — bailing to `ralph:error` after `maxRecoverySessions`. With `prRecovery.enabled: false` the worker marks the ticket done immediately on PR open and nothing is watched. `--no-pr-recovery` disables it for a run.
 
 **Reviewer interaction**
 

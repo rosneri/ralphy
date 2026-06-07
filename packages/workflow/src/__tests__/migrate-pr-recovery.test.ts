@@ -44,28 +44,34 @@ describe("migrateWorkflowMarkdown (v5 → v6 prRecovery)", () => {
     expect(config.version).toBe(CURRENT_WORKFLOW_VERSION);
     expect(config.prRecovery.enabled).toBe(true);
     expect(config.prRecovery.fixCi).toBe(true);
+    // fixConflicts is carried forward from the always-on tracker, not the
+    // fresh-init default (false) — existing users keep conflict recovery.
+    expect(config.prRecovery.fixConflicts).toBe(true);
     expect(config.prRecovery.maxRecoverySessions).toBe(4);
     expect(config.prRecovery.ignoreChecks).toEqual(["flaky-e2e"]);
   });
 
-  test("prTracker.enabled: false ⇒ recovery off, fixCi off (no watcher CI loss surprise)", () => {
+  test("prTracker.enabled: false ⇒ recovery off, fixCi + fixConflicts off (no watcher loss surprise)", () => {
     const result = migrateWorkflowMarkdown(
       wrap("version: 5\nprTracker:\n  enabled: false\n  maxRecoveryAttempts: 3"),
     );
     const { config } = parseWorkflow(result.markdown);
     expect(config.prRecovery.enabled).toBe(false);
     expect(config.prRecovery.fixCi).toBe(false);
+    expect(config.prRecovery.fixConflicts).toBe(false);
   });
 
-  test("a tracker-enabled file preserves today's watcher CI recovery (fixCi true)", () => {
+  test("a tracker-enabled file preserves today's watcher CI + conflict recovery", () => {
     // Legacy default: prTracker on, fixCiOnFailure off. The watcher recovered CI
-    // because it was always-on — so fixCi must come up TRUE, not from fixCiOnFailure.
+    // and conflicts because it was always-on — so both come up TRUE despite the
+    // fresh-init default for fixConflicts being false.
     const result = migrateWorkflowMarkdown(
       wrap("version: 5\nfixCiOnFailure: false\nprTracker:\n  enabled: true"),
     );
     const { config } = parseWorkflow(result.markdown);
     expect(config.prRecovery.enabled).toBe(true);
     expect(config.prRecovery.fixCi).toBe(true);
+    expect(config.prRecovery.fixConflicts).toBe(true);
     expect(config.prRecovery.maxRecoverySessions).toBe(3); // default
   });
 

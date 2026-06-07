@@ -418,15 +418,23 @@ const CUSTOMIZED_FIELDS: Field[] = [
     id: "prRecovery.enabled",
     label: "Enable PR recovery?",
     description:
-      "After a worker opens a PR and marks the ticket done, keep watching that PR and automatically recover any whose merge state goes red — resolving merge conflicts, and (when CI recovery is on) re-running the agent to fix failing checks. Turn off to do no automatic PR recovery anywhere.",
+      "After a worker opens a PR, keep watching it: advance the ticket to done once the PR is mergeable (CI green, no conflicts), and recover red PRs (conflicts and/or CI, per the toggles below). Turn off to mark the ticket done immediately on PR open and do no watching anywhere.",
     spec: yes(),
   },
   {
     id: "prRecovery.fixCi",
-    label: "Recover failing CI too?",
+    label: "Recover failing CI?",
     description:
-      "When a watched PR's CI (the automated checks GitHub runs) goes red, re-run the agent to fix it. Off keeps PRs un-conflicted but never auto-pushes speculative CI fixes.",
+      "When a watched PR's CI (the automated checks GitHub runs) goes red, re-run the agent to fix it. Off leaves CI-red PRs for a human — the watcher still advances mergeable PRs to done.",
     spec: yes(),
+    when: isOn("prRecovery.enabled"),
+  },
+  {
+    id: "prRecovery.fixConflicts",
+    label: "Recover merge conflicts?",
+    description:
+      "When a watched PR develops merge conflicts, re-run the agent to resolve them. Off leaves conflicting PRs for a human — the watcher still advances mergeable PRs to done.",
+    spec: no(),
     when: isOn("prRecovery.enabled"),
   },
   {

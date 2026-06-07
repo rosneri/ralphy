@@ -313,15 +313,17 @@ This document outlines manual testing procedures for validating the Ralphy v2.10
 #### 6.2 PR Failure Detection
 
 - [ ] **CI Failure Handling (watcher recovery)**
-  - After the worker opens the PR and marks the ticket done, the watcher polls its merge state
-  - Detects failed checks on a tracked In-Review PR
+  - After the worker opens the PR the ticket rests in-review (NOT done); the watcher polls its merge state
+  - Detects failed checks on a tracked in-review PR
   - With `prRecovery.fixCi` enabled, re-queues a `ci-fix` worker (bails to `ralph:error` after `maxRecoverySessions`)
+  - Once the PR is mergeable (CI green, no conflicts), the watcher advances the ticket to done
 - [ ] **Validation Steps**
-  1. Create PR with `--create-pr` flag (ticket reaches done immediately)
+  1. Create PR with `--create-pr` flag (ticket stays in-review, NOT done yet)
   2. Simulate check failure (or wait for real CI to fail)
   3. With `prRecovery.fixCi` on, verify the watcher re-queues a ci-fix worker on a later poll
   4. Verify the fix-worker logs progress and pushes a fix
-  5. Verify the PR clears (or bails to `ralph:error` after `maxRecoverySessions`)
+  5. Verify the PR clears and the watcher advances the ticket to done (or bails to `ralph:error` after `maxRecoverySessions`)
+  6. With `prRecovery.fixConflicts` off (default), verify a conflicting PR is left for a human (no `conflict-fix` worker)
 
 #### 6.3 PR Merge on Success
 

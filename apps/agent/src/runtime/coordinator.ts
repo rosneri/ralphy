@@ -229,6 +229,12 @@ export interface CoordinatorDeps {
    *  created). `unknown` is used when GitHub hasn't computed mergeability
    *  yet or `gh` failed; the caller skips acting on it. */
   checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatusBucket } | null>;
+  /** True when the worker has registered an open PR for this change this run
+   *  (reads the shared `prByChange` map). Used at worker-exit to decide whether
+   *  to defer `setDone` to the watcher (PR open + recovery enabled) or apply it
+   *  immediately. Optional — when omitted, the exit handler applies `setDone`
+   *  immediately as before. */
+  hasPrForChange?: (changeName: string) => boolean;
   /** Returns true when the openspec change for this issue has already been
    *  archived locally (i.e. a directory matching
    *  `openspec/changes/archive/*-<changeName>/` exists). Used to detect
@@ -297,6 +303,12 @@ interface CoordinatorOptions {
   commentEveryIterations?: number | undefined;
   /** Stop picking up new issues once this many have been started this run (0 = unlimited). */
   maxTickets?: number | undefined;
+  /** RLF-97: true when this run opens PRs (`--create-pr` or
+   *  `createPrOnSuccess`). Gates done-deferral: only PR-producing runs defer
+   *  `setDone` to the watcher. A non-PR run marks the ticket done immediately on
+   *  worker success even if a stray PR was discovered for the branch, preserving
+   *  the historical immediate-Done contract for those workflows. */
+  createsPrs?: boolean | undefined;
   /** When set, conflict-fix items whose issue matches this indicator are
    *  promoted to the head of the queue, ahead of Linear priority. */
   getAutoMerge?: GetIndicator | undefined;
@@ -307,9 +319,12 @@ interface CoordinatorOptions {
    *  "demote forever" behavior. */
   prTracker?: PrTracker | undefined;
   /** Unified PR-recovery gate (RLF-97). `enabled: false` makes the merge-state
-   *  scan a no-op — no conflict or CI recovery is queued anywhere. `fixCi: false`
-   *  keeps conflict recovery but skips CI-failed PRs. Absent ≡ disabled. */
-  prRecovery?: { enabled: boolean; fixCi: boolean } | undefined;
+   *  scan a no-op — no recovery and no move-to-done; the worker marks the ticket
+   *  done on PR open instead. When `enabled`, the scan advances mergeable PRs to
+   *  done regardless of the recovery toggles; `fixConflicts`/`fixCi` only gate
+   *  whether conflicting / CI-red PRs are re-queued for recovery. Absent ≡
+   *  disabled. */
+  prRecovery?: { enabled: boolean; fixCi: boolean; fixConflicts: boolean } | undefined;
 }
 
 export interface ActiveWorker {
@@ -532,10 +547,16 @@ export class AgentCoordinator {
       if (atTicketLimit()) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
-      if (await this.maybePromoteFinishedConflicted(issue)) continue;
-      // Send RESUME_DETECTED to actor (idle → working; ignored if already in working/conflict-fix/etc.)
+      // RLF-97: a ticket resting in `awaiting-ci` already opened its PR and is
+      // waiting for the watcher to advance it to done (PR_PASSED) or re-engage
+      // recovery. It must NOT be re-run as a resume — `scanPrMergeStates` owns
+      // it from here, which is also where the `fixConflicts` / `fixCi` gates
+      // live, so routing it through the scan keeps recovery gating in one place.
       const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
       const actor = await this.flowStore.getActor(issue.id, changeDir);
+      if ((actor.getSnapshot().value as string) === "awaiting-ci") continue;
+      if (await this.maybePromoteFinishedConflicted(issue)) continue;
+      // Send RESUME_DETECTED to actor (idle → working; ignored if already in working/conflict-fix/etc.)
       actor.send({ type: "RESUME_DETECTED" });
       if (changeDir) {
         await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
@@ -734,6 +755,15 @@ export class AgentCoordinator {
     }
     if (!pr) return false;
     if (pr.status !== "conflicted" && pr.status !== "ci_failed") return false;
+
+    // RLF-97: honor the same recovery gates as `scanPrMergeStates` at this
+    // second detection site. Without these, a non-awaiting-ci in-progress
+    // ticket whose PR goes red would still spawn a fix worker even when
+    // recovery (or the matching toggle) is off — so "off" would not mean off.
+    // Returning false lets the ticket fall through to the normal resume path.
+    if (!this.opts.prRecovery?.enabled) return false;
+    if (pr.status === "conflicted" && !this.opts.prRecovery.fixConflicts) return false;
+    if (pr.status === "ci_failed" && !this.opts.prRecovery.fixCi) return false;
 
     const stateLabel = pr.status === "conflicted" ? "conflicting with main" : "failing CI";
 
@@ -1015,7 +1045,30 @@ export class AgentCoordinator {
         }
       }
 
+      // RLF-97: a mergeable PR (CI green, no conflicts) is the "PR passed"
+      // signal — advance the in-review ticket to done. We only advance tickets
+      // whose flow actor rests in `awaiting-ci` — i.e. the worker opened the PR
+      // and deferred `setDone` to here. A ticket already moved to done (immediate
+      // path, or a prior advance) has a disposed/idle/done actor and is left
+      // alone, so the watcher never re-fires `setDone` on a healthy Done ticket.
+      // The scan only runs when `prRecovery.enabled` (early return above), so
+      // advancement is implicitly gated on enabled and is independent of
+      // `fixConflicts` / `fixCi`, which gate recovery only.
+      if (pr.status === "mergeable") {
+        const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+        const actor = await this.flowStore.getActor(issue.id, changeDir);
+        if ((actor.getSnapshot().value as string) === "awaiting-ci") {
+          await this.advancePrToDone(issue, pr.url, actor, changeDir);
+        }
+        continue;
+      }
+
       if (pr.status === "conflicted") {
+        // RLF-97: conflict recovery is gated on `prRecovery.fixConflicts`. When
+        // off, leave the conflicting PR for a human — no queue, no bail, no
+        // count (the watcher still advances it once a human resolves the
+        // conflict and it becomes mergeable). Mirrors the `fixCi` gate below.
+        if (!this.opts.prRecovery?.fixConflicts) continue;
         // Standing level (fix): count every currently-conflicting PR each scan,
         // not just freshly-detected ones, so the counter reflects reality rather
         // than a one-poll delta. Bailed PRs are surfaced as `quarantined`.
@@ -1130,6 +1183,73 @@ export class AgentCoordinator {
     }
 
     return counts;
+  }
+
+  /**
+   * RLF-97: advance an in-review ticket to done after its PR became mergeable.
+   * The worker deferred `setDone` to the watcher (see `notifyExited`), so this
+   * is where the move-to-done actually happens: apply `setDone`, clear the
+   * in-progress label, then drive the flow actor `awaiting-ci` → done and
+   * dispose it. `setDone` is applied BEFORE the actor transition so that if the
+   * Linear write throws the actor stays in `awaiting-ci` and the next scan
+   * retries the advance. Caller guarantees `actor` is in `awaiting-ci`.
+   */
+  private async advancePrToDone(
+    issue: LinearIssue,
+    prUrl: string,
+    actor: Awaited<ReturnType<typeof this.flowStore.getActor>>,
+    changeDir: string | undefined,
+  ): Promise<void> {
+    this.deps.onLog(`  ${issue.identifier}: PR ${prUrl} mergeable — moving to done`, "green");
+
+    if (this.opts.setDone) {
+      try {
+        await this.deps.applyIndicator(issue, this.opts.setDone);
+        this.deps.onLog(`  ${issue.identifier}: setDone applied`, "gray");
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
+          "red",
+        );
+        emitCapture(this.bus, "agent_indicator_failed", {
+          indicator: "setDone",
+          issue_identifier: issue.identifier,
+          error: (err as Error).message,
+        });
+        // Leave the actor in `awaiting-ci` so the next scan retries the advance.
+        return;
+      }
+      if (this.opts.setInProgress) {
+        try {
+          await this.deps.removeIndicator(issue, this.opts.setInProgress);
+          this.deps.onLog(`  ${issue.identifier}: clearInProgress applied`, "gray");
+        } catch {
+          // non-fatal — label cleanup failure doesn't affect the task outcome
+        }
+      }
+    }
+
+    actor.send({ type: "PR_PASSED" });
+    if (changeDir) {
+      await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+    }
+    if ((actor.getSnapshot().value as string) === "done") {
+      this.flowStore.disposeActor(issue.id);
+    }
+
+    if (this.opts.postComments !== false) {
+      try {
+        await this.deps.postComment(
+          issue,
+          `✅ Ralph verified this PR (${prUrl}) is mergeable (CI green, no conflicts) — moving to done`,
+        );
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear done comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
   }
 
   /**
@@ -1647,10 +1767,30 @@ export class AgentCoordinator {
     const noChanges = code === NO_CHANGES_EXIT;
     const ok = code === 0 || noChanges;
 
+    // RLF-97: when a normal worker opens a PR and recovery is enabled, the
+    // ticket is NOT done yet — it rests in-review and the watcher advances it
+    // to done once the PR is mergeable. Defer `setDone` to the watcher and route
+    // the actor to `awaiting-ci` (PR_OPENED) instead of `done` (WORKER_SUCCEEDED).
+    // Recovery-trigger exits and the recovery-off / no-PR cases keep the
+    // immediate-done behavior. `conflict-fix` / `ci-fix` successes route to
+    // `awaiting-ci` via the machine's own WORKER_SUCCEEDED transition.
+    const isRecoveryTrigger = trigger === "conflict-fix" || trigger === "ci-fix";
+    const prOpened = this.deps.hasPrForChange?.(changeName) ?? false;
+    // Defer only for PR-producing runs (`createsPrs`). A non-PR workflow keeps
+    // the historical immediate-Done contract even if a stray PR was discovered
+    // for the branch; `createsPrs && !prOpened` (no-op / no-commits finalize,
+    // exit 70/71) also stays immediate-Done.
+    const deferDone =
+      ok &&
+      !isRecoveryTrigger &&
+      !!this.opts.createsPrs &&
+      prOpened &&
+      !!this.opts.prRecovery?.enabled;
+
     // Dispatch to flow actor based on exit code
     const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
     const exitActor = await this.flowStore.getActor(issue.id, changeDir);
-    exitActor.send({ type: ok ? "WORKER_SUCCEEDED" : "WORKER_FAILED" });
+    exitActor.send({ type: !ok ? "WORKER_FAILED" : deferDone ? "PR_OPENED" : "WORKER_SUCCEEDED" });
     if (changeDir) {
       await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
     }
@@ -1713,6 +1853,14 @@ export class AgentCoordinator {
       } else if (trigger === "ci-fix") {
         this.ciFailedNotified.delete(issue.id);
         this.conflictPromoted.delete(issue.id);
+      } else if (deferDone) {
+        // PR open + recovery enabled: the ticket rests in-review. The watcher
+        // applies setDone (and clears in-progress) once the PR is mergeable, so
+        // we leave both labels untouched here.
+        this.deps.onLog(
+          `  ${issue.identifier}: PR open — deferring setDone to the PR-recovery watcher`,
+          "gray",
+        );
       } else if (this.opts.setDone) {
         try {
           await this.deps.applyIndicator(issue, this.opts.setDone);

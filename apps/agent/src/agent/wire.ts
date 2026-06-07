@@ -404,6 +404,7 @@ export function buildAgentCoordinator(
         return c.map((x) => ({ body: x.body }));
       },
       checkPrStatus: prDiscovery.checkPrStatus,
+      hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>
         isChangeArchivedForIssue(issue, cwdByChange, projectRoot),
       onLog,
@@ -444,8 +445,13 @@ export function buildAgentCoordinator(
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
+      createsPrs: args.createPr || cfg.createPrOnSuccess,
       ...(prTracker ? { prTracker } : {}),
-      prRecovery: { enabled: prRecoveryEnabled, fixCi: cfg.prRecovery.fixCi },
+      prRecovery: {
+        enabled: prRecoveryEnabled,
+        fixCi: cfg.prRecovery.fixCi,
+        fixConflicts: cfg.prRecovery.fixConflicts,
+      },
     },
   );
 

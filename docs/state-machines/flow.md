@@ -15,17 +15,22 @@ stateDiagram-v2
   working --> awaiting: AWAITING_DETECTED
   working --> conflict-fix: CONFLICT_DETECTED
   working --> ci-fix: CI_FAILED_DETECTED
+  working --> awaiting-ci: PR_OPENED
   working --> done: WORKER_SUCCEEDED
   working --> error: WORKER_FAILED
   working --> preempting: PREEMPT
-  conflict_fix --> working: WORKER_SUCCEEDED
+  conflict_fix --> awaiting-ci: WORKER_SUCCEEDED
   conflict_fix --> error: WORKER_FAILED
   conflict_fix --> preempting: PREEMPT
-  ci_fix --> working: WORKER_SUCCEEDED
+  ci_fix --> awaiting-ci: WORKER_SUCCEEDED
   ci_fix --> error: WORKER_FAILED
   ci_fix --> preempting: PREEMPT
   awaiting --> working: CONFIRMATION_CLEARED
   awaiting --> preempting: PREEMPT
+  awaiting_ci --> done: PR_PASSED
+  awaiting_ci --> conflict-fix: CONFLICT_DETECTED
+  awaiting_ci --> ci-fix: CI_FAILED_DETECTED
+  awaiting_ci --> preempting: PREEMPT
   review --> done: WORKER_SUCCEEDED
   review --> error: WORKER_FAILED
   done --> [*]
