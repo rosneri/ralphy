@@ -243,6 +243,7 @@ export function buildAgentCoordinator(
     diag,
     maps: { cwdByChange, statesDirByChange, issueByChange, branchByChange, prByChange },
     scriptRunner,
+    ...(input.runners?.worktree ? { worktreeProvider: input.runners.worktree } : {}),
   });
 
   const fetchMentions = createMentionScanner({

@@ -15,7 +15,7 @@ import {
   type LinearIssue,
 } from "../linear";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
-import { worktreeDirNameForIssue, type GitRunner } from "../worktree";
+import { worktreeDirNameForIssue, type GitRunner, type WorktreeProvider } from "../worktree";
 import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
 import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./task-bodies";
 
@@ -55,7 +55,18 @@ interface PrepareInput {
   diag: (area: string, message: string, color?: string) => void;
   maps: WireMaps;
   scriptRunner: (cmd: string, cwd: string) => Promise<number>;
+  /** Override worktree provisioning (create + seed). Defaults to the real git
+   *  capability. Injected by tests so a full-wire `createPr` run resolves a
+   *  branch + cwd without touching `~/.ralph`. */
+  worktreeProvider?: WorktreeProvider;
 }
+
+/** Production worktree provider: the real `createWorktree` / `seedWorktreeMcpConfig`
+ *  capabilities. Touches `~/.ralph/...` and the filesystem. */
+export const defaultWorktreeProvider: WorktreeProvider = {
+  create: (args) => runCapability(git.createWorktree, args),
+  seedMcpConfig: (args) => runCapability(git.seedWorktreeMcpConfig, args),
+};
 
 interface PrepareHelpers {
   prepare: (issue: LinearIssue) => Promise<PrepareResult>;
@@ -83,6 +94,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     maps,
     scriptRunner,
   } = input;
+  const worktreeProvider = input.worktreeProvider ?? defaultWorktreeProvider;
 
   async function runScript(label: string, cmd: string, cwd: string): Promise<void> {
     diag("script", `  ${label}: ${cmd}`, "gray");
@@ -107,7 +119,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     const baseBranch = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
     let wt: { cwd: string; branch: string };
     try {
-      wt = await runCapability(git.createWorktree, {
+      wt = await worktreeProvider.create({
         projectRoot,
         changeName: probeName,
         baseBranch,
@@ -128,7 +140,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     scaffoldStatesDir = wtLayout.statesDir;
     diag("worktree", `  ${issue.identifier} worktree: ${wt.cwd} (${wt.branch})`, "gray");
     try {
-      await runCapability(git.seedWorktreeMcpConfig, {
+      await worktreeProvider.seedMcpConfig({
         projectRoot,
         worktreeCwd: wt.cwd,
       });

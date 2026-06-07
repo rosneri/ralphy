@@ -1,5 +1,5 @@
 import type { CmdRunner } from "../pr";
-import type { GitRunner } from "../worktree";
+import type { GitRunner, WorktreeProvider } from "../worktree";
 
 export const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {
@@ -64,6 +64,10 @@ export interface AgentRunners {
    *  handler in isolation without spawning a subprocess or touching the
    *  network. */
   runPostTask?: typeof import("../post-task").runPostTask;
+  /** Provision the per-change worktree. Defaults to the real git capability
+   *  (creates a worktree under `~/.ralph/...`); tests inject a stub returning a
+   *  temp-dir cwd so a full-wire `createPr` run never touches the home dir. */
+  worktree?: WorktreeProvider;
 }
 
 /**

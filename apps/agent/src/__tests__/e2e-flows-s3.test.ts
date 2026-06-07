@@ -29,7 +29,7 @@ mock.module("@ralphy/telemetry", () => ({
 import { parseAgentArgs as parseArgs } from "../cli";
 import { loadRalphyConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
-import type { GitRunner } from "../agent/worktree";
+import type { GitRunner, WorktreeProvider } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
 
 let tempDir: string;
@@ -1053,6 +1053,136 @@ describe("S3 — coordinator flow routing", () => {
     // No conflict-fix worker spawned, no conflict comment posted.
     expect(spawnCalls.some((c) => c.includes(changeName))).toBe(false);
     expect(linear.comments.some((c) => c.body.includes("merge conflicts"))).toBe(false);
+  });
+
+  // S3.14: the createPr deferred-done seam, end-to-end through the REAL wire
+  // (RLF-97). A PR-producing run (createPrOnSuccess) opens the PR in the
+  // post-task phase, registers it (populating prByChange), and the coordinator
+  // DEFERS setDone to the watcher — which advances the ticket once the PR is
+  // mergeable. Worktree provisioning is injected so the run never touches
+  // ~/.ralph; everything else (prepare → scaffold → runPrPhase → notifyExited →
+  // scanPrMergeStates → advancePrToDone) runs for real. This pins the
+  // composition/timing — the PR phase populating prByChange BEFORE notifyExited
+  // reads it — that the injection-level unit tests can't.
+  test("S3.14 — createPr run opens PR, defers done, then watcher advances on mergeable (green)", async () => {
+    const linear = new FakeLinear();
+    linear.stateIds.set("Todo", "state-todo");
+    linear.stateIds.set("In Progress", "state-inprogress");
+    linear.stateIds.set("Done", "state-done");
+    linear.labelIds.set("ralph:error", "label-err");
+
+    const issue: FakeIssue = {
+      id: "uuid-s314-1",
+      identifier: "ENG-92",
+      title: "Add deferred wire",
+      description: null,
+      state: { name: "Todo", type: "unstarted" },
+      labels: new Set(),
+      priority: 3,
+    };
+    linear.add(issue);
+    setupFetch(linear);
+
+    // createPrOnSuccess + useWorktree ⇒ createsPrs=true ⇒ the worker opens a PR
+    // and the coordinator defers setDone.
+    await writeWorkflow(tempDir, { ...baseWorkflow, createPrOnSuccess: true, useWorktree: true });
+    const cfg = await loadRalphyConfig(tempDir);
+    const args = await parseArgs([]);
+
+    const prUrl = "https://github.com/owner/repo/pull/920";
+    let prMergeable = false; // flipped before poll 2
+
+    const workers = new Map<string, { resolve: (code: number) => void }>();
+    const spawnWorker = (cmdArr: string[]) => {
+      let resolve!: (code: number) => void;
+      const exited = new Promise<number>((r) => {
+        resolve = r;
+      });
+      const idx = cmdArr.indexOf("--name");
+      const key = idx >= 0 ? cmdArr[idx + 1]! : `worker-${workers.size}`;
+      workers.set(key, { resolve });
+      return { exited, kill: () => resolve(143) };
+    };
+
+    // The PR phase issues BOTH git and gh through the CmdRunner (as
+    // ["git", …] / ["gh", …]). Make runPrPhase succeed: commits ahead + a
+    // non-meta diff (so the PR isn't blocked as only-meta), clean status, ok
+    // push; no existing PR → create returns the URL; view reports mergeable only
+    // after we flip the flag; checks empty (treated as green).
+    const git: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+    const cmd: CmdRunner = {
+      run: async (c) => {
+        if (c[0] === "git") {
+          const s = c.join(" ");
+          if (s.includes("log")) return { stdout: "abc real implementation work", stderr: "" };
+          if (s.includes("diff") && s.includes("--name-only")) {
+            return { stdout: "src/feature.ts\n", stderr: "" };
+          }
+          return { stdout: "", stderr: "" }; // status (clean), push, etc.
+        }
+        if (c[1] === "pr" && c[2] === "list") return { stdout: "", stderr: "" };
+        if (c[1] === "pr" && c[2] === "create") return { stdout: prUrl, stderr: "" };
+        if (c[1] === "pr" && c[2] === "view") {
+          return {
+            stdout: JSON.stringify({
+              state: "OPEN",
+              mergeable: prMergeable ? "MERGEABLE" : "UNKNOWN",
+              mergeStateStatus: prMergeable ? "CLEAN" : "UNKNOWN",
+              isDraft: false,
+            }),
+            stderr: "",
+          };
+        }
+        if (c[1] === "pr" && c[2] === "checks") return { stdout: "[]", stderr: "" };
+        return { stdout: "", stderr: "" };
+      },
+    };
+    // Injected worktree provider: a temp-dir cwd, no ~/.ralph, no real git worktree.
+    const worktree: WorktreeProvider = {
+      create: async (input) => {
+        const cwd = join(tempDir, "wt", input.changeName);
+        await mkdir(cwd, { recursive: true });
+        return { cwd, branch: `ralph/${input.changeName}` };
+      },
+      seedMcpConfig: async () => {},
+    };
+
+    const { coord } = buildAgentCoordinator({
+      args,
+      cfg,
+      projectRoot: tempDir,
+      statesDir: join(tempDir, ".ralph", "tasks"),
+      tasksDir: join(tempDir, "openspec", "changes"),
+      apiKey: "fake-key",
+      onLog: () => {},
+      onWorkersChanged: () => {},
+      onWorkerStarted: () => {},
+      onWorkerExited: () => {},
+      runners: { git, cmd, spawnWorker, runScript: async () => 0, worktree },
+    });
+    await coord.init();
+
+    // Poll 1: fresh pickup → worker spawns (ticket moves to In Progress).
+    await coord.pollOnce();
+    await tick();
+    const changeName = [...workers.keys()][0];
+    expect(changeName).toBeDefined();
+
+    // Worker exits clean → the PR phase opens + registers the PR, and the
+    // coordinator DEFERS setDone (the run opens PRs). Ticket is NOT Done.
+    workers.get(changeName!)!.resolve(0);
+    await tick();
+    expect(linear.statusMutations.some((m) => m.statusName === "Done")).toBe(false);
+
+    // Poll 2: the PR is now mergeable → the watcher advances the ticket to done.
+    prMergeable = true;
+    await coord.pollOnce();
+    await tick();
+    expect(linear.statusMutations).toContainEqual({
+      issueId: "uuid-s314-1",
+      statusName: "Done",
+    });
+    expect(linear.statusMutations.filter((m) => m.statusName === "Done").length).toBe(1);
   });
 
   // S3.10: idle poll (GREEN)
