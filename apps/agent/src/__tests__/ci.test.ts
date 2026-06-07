@@ -208,6 +208,51 @@ describe("getPrChecksStatus retry on transient failure", () => {
     const status = await getPrChecksStatus("139", runner, "/wt");
     expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
+
+  // `gh pr checks` exits 1 on a PARTIAL GraphQL error when the token can't
+  // read some checks' legacy commit-status contexts (third-party integrations
+  // posting StatusContext rather than CheckRun) — yet it still prints usable
+  // bucket JSON for every check it could read. The watcher must salvage that
+  // partial output instead of aborting the CI watch (LIT-408 #607).
+  test("salvages partial bucket JSON when gh exits 1 on a token-access error", async () => {
+    const runner: CmdRunner = {
+      run: async () => {
+        const err = new Error(
+          "`gh pr checks 607` exited 1: GraphQL: Resource not accessible by personal access token",
+        ) as Error & { stderr?: string; stdout?: string };
+        err.stderr =
+          "GraphQL: Resource not accessible by personal access token " +
+          "(node.statusCheckRollup.nodes.0.commit.statusCheckRollup.contexts.nodes.0)\n";
+        err.stdout = JSON.stringify([
+          {
+            name: "Test (affected)",
+            bucket: "fail",
+            link: "https://github.com/o/r/actions/runs/27100787848/job/1",
+          },
+          { name: "Build (affected)", bucket: "pass" },
+        ]);
+        throw err;
+      },
+    };
+    const status = await getPrChecksStatus("607", runner, "/wt");
+    expect(status.bucket).toBe("fail");
+    expect(status.failedRunIds).toEqual(["27100787848"]);
+    expect(status.failedCheckNames).toEqual(["Test (affected)"]);
+  });
+
+  test("still throws on a token-access error with no usable stdout", async () => {
+    const runner: CmdRunner = {
+      run: async () => {
+        const err = new Error(
+          "`gh pr checks 607` exited 1: GraphQL: Resource not accessible by personal access token",
+        ) as Error & { stderr?: string; stdout?: string };
+        err.stderr = "GraphQL: Resource not accessible by personal access token\n";
+        err.stdout = "";
+        throw err;
+      },
+    };
+    await expect(getPrChecksStatus("607", runner, "/wt")).rejects.toThrow();
+  });
 });
 
 describe("fetchFailedRunLogs", () => {
