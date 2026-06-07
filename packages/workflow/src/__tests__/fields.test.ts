@@ -37,14 +37,13 @@ describe("fieldsForMode", () => {
     for (const gated of [
       "cleanupWorktreeOnSuccess",
       "autoMergeStrategy",
-      "maxCiFixAttempts",
       "linear.mentionHandle",
       "linear.codeReviewStaleHours",
       "linear.syncSpecsAsAttachments",
       "linear.specAttachmentFormats",
       "linear.confirmationMode.timeoutHours",
       "preExistingErrorCheck.baseBranch",
-      "prTracker.maxRecoveryAttempts",
+      "prRecovery.maxRecoverySessions",
     ]) {
       expect(ids).toContain(gated);
     }

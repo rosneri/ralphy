@@ -10,7 +10,6 @@ import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
 import type { DependencyBase } from "./wire/pr-helpers";
-import { fixCiUntilGreen, getPrChecksStatus, fetchFailedRunLogs } from "./ci";
 import { fetchPrStatus, type PrStatus } from "../pr-status";
 import { waitForMergeability } from "../shared/pr/wait-for-mergeability";
 import { isWorktreeSafeToRemove } from "./worktree";
@@ -18,12 +17,16 @@ import { registry as featureRegistry } from "../features/registry";
 import { runFeaturePostTask } from "../features/run-feature";
 import type { FeatureCtx } from "../features/types";
 
-/** Worker exited 0 but the CI fix loop never reached green. */
-// allow-duplicate
-const CI_FAILED_EXIT = 70;
 /** Worker exited 0 but the residual-commit / push / PR-create path failed. */
 // allow-duplicate
 const PR_FAILED_EXIT = 71;
+/**
+ * Internal retry budget for the PR-create path's push-rejection / merge-conflict
+ * fix loop and the only-meta reapply loop. These are mechanical retry guards,
+ * not user-facing recovery policy — PR recovery proper is the watcher's job
+ * (`prRecovery.*`), so this is a fixed constant rather than a config knob.
+ */
+const MAX_PR_CREATE_ATTEMPTS = 5;
 /**
  * Worker exited 0 and finished its tasks, but the branch never touched a
  * non-meta file across its whole history — the requested work is already on
@@ -65,17 +68,13 @@ export interface PostTaskInput {
   exitCode: number;
   useWorktree: boolean;
   wantPr: boolean;
-  wantFixCi: boolean;
   wantAutoMerge: boolean;
   wantValidateOnly?: boolean;
   cfg: {
     teardownScript: string | null;
     prBaseBranch: string;
     autoMergeStrategy: "squash" | "merge" | "rebase";
-    maxCiFixAttempts: number;
-    ciPollIntervalSeconds: number;
     cleanupWorktreeOnSuccess: boolean;
-    ignoreCiChecks: string[];
     stackPrsOnDependencies: boolean;
     /** Globs the agent is forbidden from modifying. Pre-PR check fails the
      *  iteration with a clear error when any committed file matches. */
@@ -174,13 +173,6 @@ interface PostTaskDeps {
   onPrReady?: (prUrl: string) => Promise<void>;
   /** Optional phase emitter — surfaced in the dashboard footer. */
   onPhase?: (phase: PostTaskPhase, detail?: string) => void;
-  /**
-   * Optional: check whether a PR currently has merge conflicts.
-   * When provided, the post-task loop re-checks conflicts after each CI fix
-   * cycle and resolves them in-place rather than waiting for the coordinator
-   * to detect them on the next poll.
-   */
-  checkPrConflict?: (prUrl: string) => Promise<boolean>;
   /** Optional: resolve the blocker PR a stacked PR should base on. See
    *  PrPhaseDeps for details. */
   resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<DependencyBase | null>;
@@ -421,44 +413,6 @@ async function runWorkerWithFixTask(
 }
 
 /**
- * Push the branch to origin. Never force-pushes — work that exists on the
- * remote is never overwritten. If the push is rejected as non-fast-forward
- * (someone else pushed concurrently, or the worker rewrote history), fetch
- * the remote and merge it in, then retry the push. If the merge has
- * conflicts the caller must spawn a conflict-fix worker.
- *
- * Returns true on success, false on failure (failure is already logged).
- */
-async function pushBranchSafely(ctx: PostTaskCtx): Promise<boolean> {
-  try {
-    ctx.emit("pushing", "after conflict resolution");
-    await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
-    return true;
-  } catch (pushErr) {
-    const pe = pushErr as Error & { stderr?: string };
-    const blob = `${pe.message}\n${pe.stderr ?? ""}`;
-    if (!/non-fast-forward|Updates were rejected/i.test(blob)) {
-      ctx.log(`! push after conflict fix failed: ${pe.message}`, "red");
-      return false;
-    }
-    // Non-fast-forward: merge the remote in (never rebase, never force) and
-    // retry the push. Merge preserves any commits that exist on the remote.
-    try {
-      await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
-      await ctx.cmd.run(["git", "merge", "--no-edit", `origin/${ctx.branch}`], ctx.cwd);
-      await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
-      return true;
-    } catch (retryErr) {
-      ctx.log(
-        `! push after merging origin/${ctx.branch} failed: ${(retryErr as Error).message}`,
-        "red",
-      );
-      return false;
-    }
-  }
-}
-
-/**
  * Push the branch and open (or surface) a GitHub PR, retrying on push
  * rejections (pre-push hooks, non-fast-forward) by feeding failure output
  * back to the worker as a fix task. Shares the `hookFixAttempt` budget with
@@ -472,7 +426,7 @@ async function createPrWithRetry(
   issue: LinearIssue,
 ): Promise<{ pr: Awaited<ReturnType<typeof createPullRequest>>; gaveUp: boolean }> {
   const base = ctx.base;
-  const maxAttempts = ctx.cfg.maxCiFixAttempts;
+  const maxAttempts = MAX_PR_CREATE_ATTEMPTS;
   let hookFixAttempt = 0;
   let nonFfRebaseAttempted = false;
   let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
@@ -643,145 +597,6 @@ async function createPrWithRetry(
   }
 }
 
-/**
- * Outer loop that alternates between conflict resolution and CI polling until
- * the PR is both conflict-free and CI-green, or the attempt budget runs out.
- *
- * Budget: each conflict-fix cycle consumes one outer attempt counter. The CI
- * fix loop inside gets its own fresh maxAttempts budget per cycle so a
- * multi-attempt CI fix doesn't starve the conflict-re-check path.
- *
- * Returns an effective exit code: 0 on success, CI_FAILED_EXIT or
- * PR_FAILED_EXIT on failure.
- */
-async function fixConflictsAndCiLoop(
-  ctx: PostTaskCtx,
-  prUrl: string,
-  wantFixCi: boolean,
-  checkPrConflict: ((url: string) => Promise<boolean>) | undefined,
-): Promise<number> {
-  const wantConflictLoop = !!checkPrConflict;
-  const maxOuterAttempts = ctx.cfg.maxCiFixAttempts;
-  let outerAttempt = 0;
-  let ciConfirmedGreen = false;
-
-  while (outerAttempt < maxOuterAttempts) {
-    // Step 1: check whether the PR has merge conflicts.
-    if (wantConflictLoop) {
-      ctx.emit("conflict-check");
-      let conflicting = false;
-      try {
-        conflicting = await checkPrConflict!(prUrl);
-      } catch (err) {
-        ctx.log(`! conflict check failed: ${(err as Error).message}`, "yellow");
-      }
-
-      // Not conflicting. If CI was already confirmed green this is the final
-      // stability check — declare success rather than looping again.
-      if (!conflicting && ciConfirmedGreen) return 0;
-
-      if (conflicting) {
-        outerAttempt++;
-        ciConfirmedGreen = false;
-        ctx.emit("conflict-fix-inner", `attempt ${outerAttempt}/${maxOuterAttempts}`);
-        ctx.log(
-          `  merge conflicts on PR (attempt ${outerAttempt}/${maxOuterAttempts}) — spawning resolution task`,
-          "yellow",
-        );
-
-        const conflictCode = await runWorkerWithFixTask(
-          ctx,
-          "Resolve PR merge conflicts",
-          [
-            `The PR ${prUrl} has merge conflicts with \`${ctx.base}\`.`,
-            "",
-            "Steps:",
-            `1. \`git fetch origin ${ctx.base}\` then merge \`${ctx.base}\` into the current branch (\`git merge origin/${ctx.base}\`). Do NOT rebase and do NOT amend existing commits.`,
-            "2. Resolve conflicts in the files git lists.",
-            "3. Stage and commit the resolution as a new merge commit.",
-          ].join("\n"),
-        );
-        if (conflictCode !== 0) {
-          ctx.log(`! conflict resolution worker exited code ${conflictCode} — giving up`, "red");
-          return PR_FAILED_EXIT;
-        }
-
-        // Push the resolved branch. Plain push only; pushBranchSafely handles
-        // a non-fast-forward by merging origin/<branch> in and retrying —
-        // never by force-pushing.
-        const pushed = await pushBranchSafely(ctx);
-        if (!pushed) return PR_FAILED_EXIT;
-
-        continue; // re-enter loop to re-check conflicts before CI
-      }
-    }
-
-    // Step 2: poll CI until green (or budget exhausted).
-    if (!wantFixCi) break; // conflict-check-only mode: no conflicts → done
-
-    if (!ciConfirmedGreen) {
-      ctx.log(`  watching CI for ${prUrl} (max ${ctx.cfg.maxCiFixAttempts} fix attempts)`, "gray");
-      ctx.emit("ci-poll", "starting");
-
-      const result = await fixCiUntilGreen(
-        {
-          onPhase: (p, d) => ctx.emit(p as PostTaskPhase, d),
-          getStatus: () =>
-            getPrChecksStatus(
-              prUrl,
-              ctx.cmd,
-              ctx.cwd,
-              (n, ms, why) =>
-                ctx.log(
-                  `  gh transient (try ${n}) — retry in ${Math.round(ms / 1000)}s · ${why}`,
-                  "yellow",
-                ),
-              ctx.cfg.ignoreCiChecks,
-            ),
-          getFailedLogs: (ids) => fetchFailedRunLogs(ids, ctx.cmd, ctx.cwd),
-          runTaskWithSteering: (steering) =>
-            runWorkerWithFixTask(ctx, "Fix failing CI checks", steering),
-          pushBranch: async () => {
-            await ctx.cmd.run(["git", "push", "origin", ctx.branch], ctx.cwd);
-          },
-          getHeadSha: async () => {
-            const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-            return r.stdout.trim();
-          },
-          log: ctx.log,
-          sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-        },
-        {
-          maxAttempts: ctx.cfg.maxCiFixAttempts,
-          pollIntervalSeconds: ctx.cfg.ciPollIntervalSeconds,
-        },
-      );
-
-      if (!result.success) {
-        ctx.log(
-          `! CI fix loop gave up after ${result.attempts} attempts (${result.reason ?? "unknown"}) — withholding done-status until CI passes`,
-          "red",
-        );
-        return CI_FAILED_EXIT;
-      }
-      ciConfirmedGreen = true;
-    }
-
-    // CI is green — do one final conflict scan (if enabled) to confirm the
-    // PR is stable before declaring success.
-    if (wantConflictLoop) {
-      continue; // re-enter the conflict-check step at the top
-    }
-    return 0; // CI green and no conflict loop → done
-  }
-
-  if (outerAttempt >= maxOuterAttempts) {
-    ctx.log(`! outer fix loop exhausted ${maxOuterAttempts} attempts — giving up`, "red");
-    return CI_FAILED_EXIT;
-  }
-  return 0;
-}
-
 // ---------------------------------------------------------------------------
 // Phase functions — each handles one step of the post-task flow and can be
 // tested in isolation by passing minimal deps.
@@ -795,7 +610,6 @@ interface PrPhaseInput {
   changeDir: string;
   stateFilePath: string;
   issue: LinearIssue | null;
-  wantFixCi: boolean;
   wantAutoMerge: boolean;
   cfg: PostTaskInput["cfg"];
 }
@@ -845,7 +659,6 @@ interface PrPhaseDeps {
    *  are the callback's responsibility to swallow (they must not abort the
    *  run). */
   onPrReady?: (prUrl: string) => Promise<void>;
-  checkPrConflict?: (prUrl: string) => Promise<boolean>;
   /** Optional: resolve the blocker PR (branch + ticket + PR) the given issue
    *  should stack onto, or null when no unambiguous blocker PR exists. Invoked
    *  only when `cfg.stackPrsOnDependencies` is true and no `ralph:branch:`
@@ -854,37 +667,20 @@ interface PrPhaseDeps {
 }
 
 /**
- * Phase 1 — PR creation + CI/conflict watch loop.
+ * Phase 1 — PR creation.
  *
  * Validates that branch + issue are present (returns `PR_FAILED_EXIT` if not),
- * pushes the branch, opens or surfaces a PR, then runs `fixConflictsAndCiLoop`
- * until the PR is both conflict-free and CI-green.
+ * pushes the branch, opens or surfaces a PR, enables auto-merge / converts a
+ * draft to ready, and returns success. The worker performs NO conflict or CI
+ * recovery — once the PR is open the ticket is marked done and the scheduler
+ * watcher (`prRecovery.*`) owns all recovery.
  *
- * Returns an effective exit code: 0 on success, PR_FAILED_EXIT or
- * CI_FAILED_EXIT on failure.
+ * Returns an effective exit code: 0 on success, PR_FAILED_EXIT on failure.
  */
 export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
-  const {
-    changeName,
-    cwd,
-    branch,
-    changeDir,
-    stateFilePath,
-    issue,
-    wantFixCi,
-    wantAutoMerge,
-    cfg,
-  } = input;
-  const {
-    cmd,
-    log,
-    emit,
-    respawnWorker,
-    registerPr,
-    onPrReady,
-    checkPrConflict,
-    resolveDependencyBaseBranch,
-  } = deps;
+  const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg } = input;
+  const { cmd, log, emit, respawnWorker, registerPr, onPrReady, resolveDependencyBaseBranch } =
+    deps;
 
   if (!branch || !issue) {
     log(
@@ -969,7 +765,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     return PR_FAILED_EXIT;
   }
 
-  const maxOuterAttempts = cfg.maxCiFixAttempts;
+  const maxOuterAttempts = MAX_PR_CREATE_ATTEMPTS;
   let onlyMetaAttempts = 0;
   let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
   const finalizeNoOpAsDone = cfg.finalizeNoOpAsDone !== false;
@@ -1068,43 +864,10 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   log(`  ${pr.created ? "opened" : "found existing"} PR: ${prUrl}`, "green");
   registerPr?.(changeName, prUrl);
 
-  let manualMergePending = false;
-  const prReadyNeeded = cfg.prDraft === true;
-
-  if (!prReadyNeeded && wantAutoMerge) {
-    const fallbackEnabled = cfg.manualMergeWhenAutoMergeDisabled !== false;
-    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
-
-    if (repoAllowsAutoMerge === false && fallbackEnabled) {
-      log(
-        `  repo has auto-merge disabled — will poll ${prUrl} and merge via gh pr merge once checks pass`,
-        "yellow",
-      );
-      manualMergePending = true;
-    } else {
-      try {
-        await cmd.run(["gh", "pr", "merge", prUrl, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
-        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
-        emit("auto-merge-enabled", cfg.autoMergeStrategy);
-      } catch (err) {
-        const e = err as Error & { stderr?: string };
-        const detail = e.stderr?.trim() || e.message;
-        log(`! failed to enable auto-merge on ${prUrl}: ${detail}`, "yellow");
-        if (fallbackEnabled && /auto[- ]merge/i.test(detail)) {
-          log(`  falling back to manual merge after CI passes for ${prUrl}`, "yellow");
-          manualMergePending = true;
-        }
-      }
-    }
-  } else if (prReadyNeeded && wantAutoMerge) {
-    // Defer merge: draft PRs can't use --auto; we'll merge after gh pr ready.
-    manualMergePending = true;
-  }
-
-  const ciResult = await fixConflictsAndCiLoop(ctx, prUrl, wantFixCi, checkPrConflict);
-  if (ciResult !== 0) return ciResult;
-
-  if (prReadyNeeded) {
+  // Convert a draft PR to ready first — no CI wait needed. From here GitHub's
+  // own auto-merge (and the scheduler watcher) handle CI; the worker is done.
+  let readyOk = true;
+  if (cfg.prDraft === true) {
     emit("pr-ready");
     try {
       await cmd.run(["gh", "pr", "ready", prUrl], cwd);
@@ -1112,27 +875,42 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     } catch (err) {
       const e = err as Error & { stderr?: string };
       log(`! gh pr ready failed for ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
-      manualMergePending = false;
+      readyOk = false;
     }
   }
 
-  if (manualMergePending) {
-    try {
-      await cmd.run(["gh", "pr", "merge", prUrl, `--${cfg.autoMergeStrategy}`], cwd);
-      log(`  manually merged (${cfg.autoMergeStrategy}) ${prUrl}`, "green");
-      emit("auto-merge-enabled", `manual:${cfg.autoMergeStrategy}`);
-    } catch (err) {
-      const e = err as Error & { stderr?: string };
-      log(`! manual merge failed for ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
+  // A draft that could not be converted to ready can't be auto-merged — skip it.
+  if (wantAutoMerge && readyOk) {
+    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
+    if (repoAllowsAutoMerge === false) {
+      // RLF-97: the worker no longer polls CI in-process, so it can't merge a
+      // repo with auto-merge disabled "once checks pass". Leave the PR open for
+      // a human / repo settings to merge instead of merging speculatively now.
+      log(
+        cfg.manualMergeWhenAutoMergeDisabled !== false
+          ? `  repo has auto-merge disabled — leaving ${prUrl} open for manual merge once checks pass`
+          : `  repo has auto-merge disabled (manual-merge fallback off) — ${prUrl} will not auto-merge`,
+        "yellow",
+      );
+    } else {
+      try {
+        await cmd.run(["gh", "pr", "merge", prUrl, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
+        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
+        emit("auto-merge-enabled", cfg.autoMergeStrategy);
+      } catch (err) {
+        const e = err as Error & { stderr?: string };
+        log(
+          `! failed to enable auto-merge on ${prUrl}: ${e.stderr?.trim() || e.message}`,
+          "yellow",
+        );
+      }
     }
   }
 
-  // Additive `setPrReady`: the PR is pushed, surfaced, CI-green, and in (or
-  // converted to) a non-draft ready state. Skip ONLY the immediate non-draft
-  // auto-merge path, where the PR is merged at once and never sits reviewable.
-  if (!(wantAutoMerge && !prReadyNeeded)) {
-    await onPrReady?.(prUrl);
-  }
+  // Additive `setPrReady`: the PR is pushed, surfaced, and (if a draft)
+  // converted to ready. With auto-merge now GitHub-side, the PR sits reviewable
+  // until its checks pass, so always surface it as ready-for-review.
+  await onPrReady?.(prUrl);
 
   return 0;
 }
@@ -1401,7 +1179,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     exitCode,
     useWorktree,
     wantPr,
-    wantFixCi,
     wantAutoMerge,
     wantValidateOnly,
     cfg,
@@ -1461,10 +1238,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
 
   // RLF-82: conflict-fix verify-only short-circuit. The worker iteration
   // owns the push (see `wire/prepare.ts::prepareTaskForTrigger`), so this
-  // branch never invokes `git push`, `createPrWithRetry`, `pushBranchSafely`,
-  // or `fixConflictsAndCiLoop`. It only verifies the PR's current
-  // mergeability via a single `fetchPrStatus` call and reacts to the
-  // outcome (clearConflicted on MERGEABLE; leave label in place otherwise).
+  // branch never invokes `git push` or `createPrWithRetry`. It only verifies
+  // the PR's current mergeability via a single `fetchPrStatus` call and reacts
+  // to the outcome (clearConflicted on MERGEABLE; leave label in place otherwise).
   if (input.mode === "conflict-fix" && effectiveCode === 0) {
     const identifier = issue?.identifier ?? changeName;
     let prUrl: string | null = input.prUrl ?? null;
@@ -1540,7 +1316,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi,
         wantAutoMerge,
         cfg,
       },
@@ -1551,7 +1326,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         respawnWorker,
         ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
         ...(deps.onPrReady !== undefined ? { onPrReady: deps.onPrReady } : {}),
-        ...(deps.checkPrConflict !== undefined ? { checkPrConflict: deps.checkPrConflict } : {}),
         ...(deps.resolveDependencyBaseBranch !== undefined
           ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }
           : {}),

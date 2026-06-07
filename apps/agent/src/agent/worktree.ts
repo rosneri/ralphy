@@ -15,6 +15,24 @@ export interface GitRunner {
 }
 
 /**
+ * Provisions the per-change worktree during `prepare`. Extracted behind an
+ * interface so the prepare/PR-open flow is drivable end-to-end in tests: the
+ * production default (see `defaultWorktreeProvider` in `wire/prepare.ts`) runs
+ * the real `createWorktree`, which lives under `~/.ralph/...` and touches the
+ * filesystem; an injected test provider returns a temp-dir cwd so a full-wire
+ * `createPr` run never reaches the real home directory.
+ */
+export interface WorktreeProvider {
+  create(input: {
+    projectRoot: string;
+    changeName: string;
+    baseBranch: string;
+    runner: GitRunner;
+  }): Promise<WorktreeHandle>;
+  seedMcpConfig(input: { projectRoot: string; worktreeCwd: string }): Promise<void>;
+}
+
+/**
  * Where worktrees live for a given project.
  *
  * Located at `~/.ralph/<project-basename>/worktrees`, OUTSIDE the project

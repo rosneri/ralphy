@@ -181,7 +181,7 @@ describe("SetupWizard render", () => {
       createElement(SetupWizard, {
         onComplete: () => {},
         initialMode: "customized",
-        onlyFields: ["stackPrsOnDependencies", "prTracker.enabled"],
+        onlyFields: ["stackPrsOnDependencies", "prRecovery.enabled"],
         initialValues: { createPrOnSuccess: true },
       }),
     );
@@ -268,7 +268,7 @@ describe("SetupWizard render", () => {
     expect(result).not.toBeNull();
     const md = result!;
     // The file is stamped to the current schema version...
-    expect(parseWorkflow(md).config.version).toBe(5);
+    expect(parseWorkflow(md).config.version).toBe(6);
     // ...and the user's existing settings are preserved (no data loss).
     expect(md).toContain("name: my-app");
     expect(md).toContain("team: ENG");

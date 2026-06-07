@@ -99,10 +99,11 @@ describe("flowMachine — conflict-fix transitions", () => {
     return a;
   }
 
-  test("conflict-fix → working on WORKER_SUCCEEDED", () => {
+  test("conflict-fix → awaiting-ci on WORKER_SUCCEEDED", () => {
     const a = conflictFix();
     a.send({ type: "WORKER_SUCCEEDED" });
-    expect(a.getSnapshot().value).toBe("working");
+    // A recovered PR waits for the watcher to re-check it, not "working".
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
   });
 
   test("conflict-fix → error on WORKER_FAILED", () => {
@@ -125,10 +126,11 @@ describe("flowMachine — ci-fix transitions", () => {
     return a;
   }
 
-  test("ci-fix → working on WORKER_SUCCEEDED", () => {
+  test("ci-fix → awaiting-ci on WORKER_SUCCEEDED", () => {
     const a = ciFix();
     a.send({ type: "WORKER_SUCCEEDED" });
-    expect(a.getSnapshot().value).toBe("working");
+    // A recovered PR waits for the watcher to re-check it, not "working".
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
   });
 
   test("ci-fix → error on WORKER_FAILED", () => {
@@ -253,17 +255,57 @@ describe("flowMachine — terminal states", () => {
     expect(a.getSnapshot().status).toBe("done");
   });
 
-  test("conflict-fix success cycles back to working (not done)", () => {
+  test("conflict-fix success cycles to awaiting-ci (not done, not working)", () => {
     const a = actor();
     a.send({ type: "CONFLICT_DETECTED" });
     a.send({ type: "WORKER_SUCCEEDED" });
-    expect(a.getSnapshot().value).toBe("working");
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
   });
 
-  test("ci-fix success cycles back to working", () => {
+  test("ci-fix success cycles to awaiting-ci", () => {
     const a = actor();
     a.send({ type: "CI_FAILED_DETECTED" });
     a.send({ type: "WORKER_SUCCEEDED" });
-    expect(a.getSnapshot().value).toBe("working");
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
+  });
+
+  test("awaiting-ci → done on PR_PASSED", () => {
+    const a = actor();
+    a.send({ type: "CONFLICT_DETECTED" });
+    a.send({ type: "WORKER_SUCCEEDED" }); // → awaiting-ci
+    a.send({ type: "PR_PASSED" });
+    expect(a.getSnapshot().value).toBe("done");
+    expect(a.getSnapshot().status).toBe("done");
+  });
+
+  test("working → awaiting-ci on PR_OPENED", () => {
+    const a = actor();
+    a.send({ type: "FRESH_PICKED_UP" });
+    a.send({ type: "PR_OPENED" });
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
+  });
+
+  test("awaiting-ci → review on REVIEW_TRIGGERED (mention on a deferred ticket)", () => {
+    const a = actor();
+    a.send({ type: "FRESH_PICKED_UP" });
+    a.send({ type: "PR_OPENED" }); // → awaiting-ci
+    a.send({ type: "REVIEW_TRIGGERED" });
+    expect(a.getSnapshot().value).toBe("review");
+  });
+
+  test("review → awaiting-ci on PR_OPENED (review pushed to the open PR)", () => {
+    const a = actor();
+    a.send({ type: "FRESH_PICKED_UP" });
+    a.send({ type: "PR_OPENED" }); // → awaiting-ci
+    a.send({ type: "REVIEW_TRIGGERED" }); // → review
+    a.send({ type: "PR_OPENED" }); // review worker exited on a PR-producing run
+    expect(a.getSnapshot().value).toBe("awaiting-ci");
+  });
+
+  test("review → done on WORKER_SUCCEEDED (mention on a non-PR / done ticket)", () => {
+    const a = actor();
+    a.send({ type: "REVIEW_TRIGGERED" }); // idle → review
+    a.send({ type: "WORKER_SUCCEEDED" });
+    expect(a.getSnapshot().value).toBe("done");
   });
 });

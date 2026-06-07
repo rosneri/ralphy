@@ -171,7 +171,7 @@ describe("agent parseArgs", () => {
 
   test("parses remaining boolean flags", async () => {
     const result = await parseArgs([
-      "--fix-ci",
+      "--pr-recovery",
       "--stack-prs",
       "--create-pr",
       "--code-review",
@@ -179,7 +179,7 @@ describe("agent parseArgs", () => {
       "--manual-test",
       "--debug",
     ]);
-    expect(result.fixCi).toBe(true);
+    expect(result.prRecoveryEnabled).toBe(true);
     expect(result.stackPrs).toBe(true);
     expect(result.codeReview).toBe(true);
     expect(result.jsonOutput).toBe(true);

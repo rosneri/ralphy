@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 5;
+export const CURRENT_WORKFLOW_VERSION = 6;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -225,10 +225,6 @@ export const WorkflowConfigSchema = z.object({
    *  When true (default), finalize the ticket as done with a "no changes needed"
    *  comment instead of respawning a doomed reapply loop and quarantining it. */
   finalizeNoOpAsDone: z.boolean().default(true),
-  fixCiOnFailure: z.boolean().default(false),
-  maxCiFixAttempts: z.number().int().positive().default(5),
-  ciPollIntervalSeconds: z.number().int().positive().default(30),
-  ignoreCiChecks: z.array(z.string()).default([]),
   engine: z.enum(["claude", "codex"]).default("claude"),
   model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
   linear: z
@@ -323,14 +319,6 @@ export const WorkflowConfigSchema = z.object({
     })
     .strict()
     .optional(),
-  ci: z
-    .object({
-      fix_on_failure: z.boolean().optional(),
-      max_attempts: z.number().int().positive().optional(),
-      poll_interval_seconds: z.number().int().positive().optional(),
-    })
-    .strict()
-    .optional(),
   preExistingErrorCheck: z
     .object({
       enabled: z.boolean().default(false),
@@ -347,21 +335,42 @@ export const WorkflowConfigSchema = z.object({
       label: "ralph:pre-existing-error",
       outputCharLimit: 4000,
     }),
-  /** RLF-173: scheduler-tier watcher that auto-recovers In-Review PRs
-   *  whose merge state goes red. Bails to `ralph:error` after
-   *  `maxRecoveryAttempts` failed recovery attempts so a stubbornly
-   *  broken PR can't bounce forever. */
-  prTracker: z
+  /** RLF-173 / RLF-97: unified PR-recovery watcher. After a worker opens a PR
+   *  the ticket rests in-review; the scheduler-tier watcher polls the in-review
+   *  PRs it tracks and (a) advances a ticket to done once its PR is mergeable
+   *  (CI green + no conflicts), and (b) auto-recovers any whose merge state goes
+   *  red — merge conflicts when `fixConflicts` is on, failing CI when `fixCi` is
+   *  on. It re-queues a fix worker each detection and bails to `ralph:error`
+   *  after `maxRecoverySessions` failed sessions so a stubbornly broken PR can't
+   *  bounce forever. The worker itself performs NO in-process recovery; all
+   *  recovery — and the move to done — is the watcher's job. `enabled: false`
+   *  turns the watcher off everywhere; the worker then marks the ticket done
+   *  immediately on PR open (no deferral, no recovery). */
+  prRecovery: z
     .object({
+      /** Master switch. When false, the watcher does no recovery and never
+       *  advances tickets to done — the worker marks done on PR open instead. */
       enabled: z.boolean().default(true),
-      maxRecoveryAttempts: z.number().int().positive().default(3),
-      advanceMergedToDone: z.boolean().default(false),
+      /** Recover failing CI by re-running the agent. Off leaves CI-red PRs for a
+       *  human (the watcher still advances mergeable PRs to done). */
+      fixCi: z.boolean().default(true),
+      /** Recover merge conflicts by re-running the agent. Off leaves conflicting
+       *  PRs for a human (the watcher still advances mergeable PRs to done). */
+      fixConflicts: z.boolean().default(true),
+      /** Give up auto-recovering a red PR after this many re-queue sessions,
+       *  then apply `setError` for a human. */
+      maxRecoverySessions: z.number().int().positive().default(3),
+      /** CI check names the watcher ignores when judging a PR green (e.g.
+       *  known-flaky jobs). */
+      ignoreChecks: z.array(z.string()).default([]),
     })
     .strict()
     .default({
       enabled: true,
-      maxRecoveryAttempts: 3,
-      advanceMergedToDone: false,
+      fixCi: true,
+      fixConflicts: true,
+      maxRecoverySessions: 3,
+      ignoreChecks: [],
     }),
   metaPrompt: z
     .object({

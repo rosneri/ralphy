@@ -215,6 +215,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       setInProgress: SET_IN_PROGRESS,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     expect(coord.queuedCount).toBe(1);
@@ -232,6 +233,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
 
@@ -252,6 +254,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
 
@@ -269,6 +272,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     // Reset the per-process conflictNotified dedup by re-instantiating
@@ -279,6 +283,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     // Poll 1 applied the setError label; on the next poll the issue carries it,
     // so the bail stays in effect (a cleared label is what releases it).
@@ -303,6 +308,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     expect(tracker.getAttempts("ENG-1")).toBe(0);
@@ -317,6 +323,7 @@ describe("AgentCoordinator + PrTracker integration", () => {
       concurrency: 0,
       setError: SET_ERROR,
       prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
     });
     await coord.pollOnce();
     expect(coord.queuedCount).toBe(0);
@@ -324,16 +331,62 @@ describe("AgentCoordinator + PrTracker integration", () => {
     expect(ctx.applies).toEqual([]);
   });
 
-  test("when no tracker is wired, behavior is unchanged (legacy demote-forever)", async () => {
+  test("RLF-97 bail-counter guard: UNKNOWN (pending CI) does NOT clear a mid-recovery counter", async () => {
+    const i = issue("u1", "ENG-1");
+    const ctx = makePrDeps([i]);
+    const tracker = new PrTracker({ projectRoot: root, maxRecoveryAttempts: 3, now: NOW });
+    // A recovery session is already in flight: the counter sits at 1.
+    await tracker.recordFailure("ENG-1", "ci_failed");
+    expect(tracker.getAttempts("ENG-1")).toBe(1);
+
+    // CI is mid-rerun, so checkPrStatus reports "unknown" (pending) — NOT
+    // "mergeable". The bug was pending collapsing into "mergeable", which clears
+    // the counter on every poll between re-runs so `maxRecoverySessions` never trips.
+    ctx.prByIssue.set("u1", { url: "https://gh/pr/1", status: "unknown" });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      setError: SET_ERROR,
+      prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.pollOnce();
+    // The counter must survive — clearing it here is the bail-counter-defeat bug.
+    expect(tracker.getAttempts("ENG-1")).toBe(1);
+  });
+
+  test("RLF-97 defect #1: prRecovery disabled → the merge-state scan is a no-op (off means off)", async () => {
     const i = issue("u1", "ENG-1");
     const ctx = makePrDeps([i]);
     ctx.prByIssue.set("u1", { url: "https://gh/pr/1", status: "conflicted" });
+    // No prRecovery opt at all ≡ disabled. Previously the scan still queued a
+    // conflict-fix (only the bail counter was gated); now nothing is queued.
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
       setError: SET_ERROR,
     });
     await coord.pollOnce();
-    expect(coord.queuedCount).toBe(1);
+    expect(coord.queuedCount).toBe(0);
     expect(ctx.applies).toEqual([]);
+  });
+
+  test("RLF-97: fixCi=false leaves a CI-failed PR alone but still recovers conflicts", async () => {
+    const conflicting = issue("u1", "ENG-1");
+    const ciRed = issue("u2", "ENG-2");
+    const ctx = makePrDeps([conflicting, ciRed]);
+    ctx.prByIssue.set("u1", { url: "https://gh/pr/1", status: "conflicted" });
+    ctx.prByIssue.set("u2", { url: "https://gh/pr/2", status: "ci_failed" });
+    const tracker = new PrTracker({ projectRoot: root, maxRecoveryAttempts: 3, now: NOW });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 0,
+      setInProgress: SET_IN_PROGRESS,
+      setError: SET_ERROR,
+      prTracker: tracker,
+      prRecovery: { enabled: true, fixCi: false, fixConflicts: true },
+    });
+    await coord.pollOnce();
+    // Conflict recovery fires; CI recovery does not.
+    expect(coord.queuedCount).toBe(1);
+    expect(tracker.getAttempts("ENG-1")).toBe(1);
+    expect(tracker.getAttempts("ENG-2")).toBe(0);
   });
 });

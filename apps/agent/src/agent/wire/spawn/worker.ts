@@ -26,7 +26,6 @@ import type { QueueTrigger } from "../../coordinator";
 import { defaultSpawn } from "./default";
 import { traceCmdRunner, type AgentRunners } from "../runners";
 import { resolveDependencyBaseBranchImpl } from "../pr-helpers";
-import { waitForMergeability } from "../../../shared/pr/wait-for-mergeability";
 import { agentRunStatePath } from "../../state/agent-run-state";
 import { runRetrospective, type RetroContext } from "@ralphy/retro";
 import { runEngine } from "@ralphy/engine/engine";
@@ -187,7 +186,6 @@ export function buildPostTaskInput(input: {
   exitCode: number;
   useWorktree: boolean;
   wantPr: boolean;
-  wantFixCi: boolean;
   wantAutoMerge: boolean;
   wantValidateOnly: boolean;
   trigger?: QueueTrigger;
@@ -208,17 +206,13 @@ export function buildPostTaskInput(input: {
     exitCode: input.exitCode,
     useWorktree: input.useWorktree,
     wantPr: input.wantPr,
-    wantFixCi: input.wantFixCi,
     wantAutoMerge: input.wantAutoMerge,
     wantValidateOnly: input.wantValidateOnly,
     cfg: {
       teardownScript: cfg.teardownScript ?? null,
       prBaseBranch: cfg.prBaseBranch,
       autoMergeStrategy: cfg.autoMergeStrategy,
-      maxCiFixAttempts: cfg.maxCiFixAttempts,
-      ciPollIntervalSeconds: cfg.ciPollIntervalSeconds,
       cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
-      ignoreCiChecks: cfg.ignoreCiChecks,
       stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
       neverTouch: cfg.boundaries.never_touch,
       metaOnlyFiles: cfg.boundaries.meta_only_files,
@@ -439,7 +433,6 @@ export function createSpawnWorker(
       : cmdRunner;
 
     const wantPrBase = args.createPr || cfg.createPrOnSuccess;
-    const wantFixCi = args.fixCi || cfg.fixCiOnFailure;
     const issueForChange = issueByChange.get(changeName);
     const wantAutoMerge = issueForChange
       ? issueMatchesGetIndicator(issueForChange, indicators.getAutoMerge)
@@ -532,7 +525,6 @@ export function createSpawnWorker(
           exitCode: code,
           useWorktree,
           wantPr,
-          wantFixCi,
           wantAutoMerge,
           wantValidateOnly,
           ...(trigger ? { trigger } : {}),
@@ -575,23 +567,6 @@ export function createSpawnWorker(
             onPhase: (phase: PostTaskPhase, detail?: string) =>
               onWorkerPhase(changeName, phase, detail),
           }),
-          checkPrConflict: async (prUrl: string) => {
-            const outcome = await waitForMergeability({
-              bailOnError: true,
-              probe: async () => {
-                const res = await tracedCmd.run(
-                  ["gh", "pr", "view", prUrl, "--json", "state,mergeable,mergeStateStatus"],
-                  cwd,
-                );
-                return JSON.parse(res.stdout || "{}") as {
-                  state?: string;
-                  mergeable?: string;
-                  mergeStateStatus?: string;
-                };
-              },
-            });
-            return outcome.kind === "conflicting";
-          },
           resolveDependencyBaseBranch: (issue) =>
             resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
         },

@@ -33,8 +33,7 @@ An iterative AI task execution framework. Ralphy runs Claude or Codex in a check
 - **Auto PR open** — push branch and `gh pr create` on clean exit; idempotent (surfaces existing PR if open).
 - **Auto-merge opt-in** — `getAutoMerge` triggers `gh pr merge --auto --squash|merge|rebase` right after PR creation.
 - **Stacked PRs** — `--stack-prs` opens against a blocker's head branch when a `blocked_by` Linear relation has exactly one open PR.
-- **CI fix loop** — on red CI, pulls failed logs, appends to steering, re-spawns until green or `maxCiFixAttempts` hit.
-- **Conflict re-fix** — `gh pr view`–driven; on `mergeable: CONFLICTING` enqueues a conflict-resolution task automatically.
+- **PR recovery (`prRecovery`)** — after a worker opens a PR the ticket rests in-review; a background watcher polls each tracked PR and advances the ticket to done once the PR is mergeable (CI green, no conflicts), re-queuing a fix worker when it goes red — merge conflicts when `prRecovery.fixConflicts` is on, failing CI when `prRecovery.fixCi` is on — bailing to `ralph:error` after `maxRecoverySessions`. With `prRecovery.enabled: false` the worker marks the ticket done immediately on PR open and nothing is watched. `--no-pr-recovery` disables it for a run.
 
 **Reviewer interaction**
 
@@ -91,7 +90,7 @@ Safeguards: `--max-iterations`, `--max-cost`, `--max-runtime`, `--max-failures`.
 
 ```bash
 export LINEAR_API_KEY=lin_api_xxx
-ralphy agent --linear-team ENG --linear-assignee me --concurrency 3 --create-pr --fix-ci
+ralphy agent --linear-team ENG --linear-assignee me --concurrency 3 --create-pr
 ```
 
 Each poll routes every matching issue into one of: **fresh** (Todo → scaffold + spawn), **resume** (In Progress → reattach), **conflict-fix** / **ci-fix** (PR red on GitHub → prepend fix task), or **review** / **code-review** (reviewer comments or `@ralphy` mention).

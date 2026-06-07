@@ -6,6 +6,7 @@ import {
   workflowPath,
   loadWorkflow,
   normalizeWorkflowMarkdown,
+  migrateWorkflowMarkdown,
   CURRENT_WORKFLOW_VERSION,
   DEFAULT_WORKFLOW_MD,
   type WorkflowConfig,
@@ -230,7 +231,9 @@ function initialValuesFromConfig(config: WorkflowConfig): Record<string, WizardV
   values["concurrency"] = config.concurrency;
   values["createPrOnSuccess"] = config.createPrOnSuccess;
   values["prBaseBranch"] = config.prBaseBranch;
-  values["fixCiOnFailure"] = config.fixCiOnFailure;
+  values["prRecovery.enabled"] = config.prRecovery.enabled;
+  values["prRecovery.fixCi"] = config.prRecovery.fixCi;
+  values["prRecovery.maxRecoverySessions"] = config.prRecovery.maxRecoverySessions;
   values["useWorktree"] = config.useWorktree;
   if (config.linear.team) values["linear.team"] = config.linear.team;
   // Carry the stored marker filter through verbatim (so label clauses survive a
@@ -322,7 +325,11 @@ async function editExisting(
   workflowFile?: string,
   onlyFields?: string[],
 ): Promise<number> {
-  const existing = await Bun.file(path).text();
+  // Migrate any pre-v6 PR-recovery keys to the `prRecovery` shape BEFORE the
+  // wizard applies answers onto the text — otherwise the old keys (which the
+  // wizard never touches) would survive alongside the new block. The in-memory
+  // `config` is already migrated by `loadWorkflow`; this aligns the on-disk text.
+  const { markdown: existing } = migrateWorkflowMarkdown(await Bun.file(path).text());
   // Re-detect so a repo-less existing file is offered the link step (backfill);
   // `withDetectedRepo` won't clobber a user-set project name.
   const detectedRepo = await detectRepoIdentity(projectRoot);

@@ -228,6 +228,7 @@ export function buildAgentCoordinator(
     diag,
     prByChange,
     getPollContext: () => pollContext,
+    ignoreCiChecks: cfg.prRecovery.ignoreChecks,
   });
 
   const prep = createPrepareHelpers({
@@ -242,6 +243,7 @@ export function buildAgentCoordinator(
     diag,
     maps: { cwdByChange, statesDirByChange, issueByChange, branchByChange, prByChange },
     scriptRunner,
+    ...(input.runners?.worktree ? { worktreeProvider: input.runners.worktree } : {}),
   });
 
   const fetchMentions = createMentionScanner({
@@ -353,16 +355,16 @@ export function buildAgentCoordinator(
     };
   }
 
-  // pr-tracker (RLF-173): persistent recovery counter for In-Review PRs.
-  // Disabled when the user passes `--no-pr-tracker` or sets
-  // `prTracker.enabled: false` in WORKFLOW.md. Lazily-loaded state file
+  // PR recovery (RLF-173 / RLF-97): persistent recovery counter for In-Review
+  // PRs. Disabled when the user passes `--no-pr-recovery` or sets
+  // `prRecovery.enabled: false` in WORKFLOW.md. Lazily-loaded state file
   // means the first `recordFailure` call materializes `.ralph/pr-tracker-state.json`.
-  const prTrackerEnabled =
-    args.prTrackerEnabled === undefined ? cfg.prTracker.enabled : args.prTrackerEnabled;
-  const prTracker = prTrackerEnabled
+  const prRecoveryEnabled =
+    args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
+  const prTracker = prRecoveryEnabled
     ? new PrTracker({
         projectRoot,
-        maxRecoveryAttempts: cfg.prTracker.maxRecoveryAttempts,
+        maxRecoveryAttempts: cfg.prRecovery.maxRecoverySessions,
       })
     : null;
 
@@ -406,6 +408,7 @@ export function buildAgentCoordinator(
         return c.map((x) => ({ body: x.body }));
       },
       checkPrStatus: prDiscovery.checkPrStatus,
+      hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>
         isChangeArchivedForIssue(issue, cwdByChange, projectRoot),
       onLog,
@@ -446,7 +449,13 @@ export function buildAgentCoordinator(
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
+      createsPrs: args.createPr || cfg.createPrOnSuccess,
       ...(prTracker ? { prTracker } : {}),
+      prRecovery: {
+        enabled: prRecoveryEnabled,
+        fixCi: cfg.prRecovery.fixCi,
+        fixConflicts: cfg.prRecovery.fixConflicts,
+      },
     },
   );
 
