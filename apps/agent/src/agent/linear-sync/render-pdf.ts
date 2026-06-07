@@ -361,6 +361,7 @@ function renderListItem(
   const tokens = item.tokens ?? [];
   let inlineRun: Tokens.Generic[] = [];
   let placedInline = false;
+  let renderedBlock = false;
   const placeInline = (): void => {
     if (inlineRun.length === 0) return;
     if (!placedInline) {
@@ -384,11 +385,20 @@ function renderListItem(
       continue;
     }
     placeInline();
+    // In a loose list the item's first child is a block (paragraph / nested
+    // list), so no inline run was placed and doc.y still points one line below
+    // the marker. Pull it back up to the marker line so the first block aligns
+    // with the bullet; later blocks flow naturally from there.
+    if (!placedInline && !renderedBlock) doc.y = startY;
     renderBlock(doc, tok, indent + LIST_INDENT);
+    renderedBlock = true;
   }
   placeInline();
 
-  if (!placedInline) {
+  // Only a genuinely empty item (bare marker, no inline and no block content)
+  // needs the cursor-reset filler. Doing this after blocks rendered would snap
+  // the cursor back up and overdraw the item's own content (RLF-225).
+  if (!placedInline && !renderedBlock) {
     doc.y = startY;
     doc.text(" ", bodyX, startY, { width: bodyWidth });
   }

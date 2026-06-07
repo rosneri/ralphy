@@ -1,10 +1,12 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { VERSION } from "@ralphy/version";
 import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
+import { applyAssigneeOverride } from "@ralphy/workflow";
 import type {
   IndicatorMap,
   IndicatorMarker,
+  LinearFilterValue,
   SetupMode,
   WizardAnswers,
   WizardValue,
@@ -76,9 +78,10 @@ export function buildFromAnswers(
   if (typeof concurrencyValue === "number" && concurrencyValue > 1) {
     values["useWorktree"] = true;
   }
-  // Compose the assignee select (+ optional specific-user value) into the single
-  // `linear.filter` expression. The choice/value are control fields, never
-  // written as frontmatter keys.
+  // Compose the assignee select (+ optional specific-user value) into the
+  // `linear.filter` marker list. The choice/value are control fields, never
+  // written as frontmatter keys. Any existing `label` clauses (advanced,
+  // config-file-only) are preserved — only the `assignee` clause is swapped.
   const assigneeChoice = values[LINEAR_ASSIGNEE_CHOICE_FIELD_ID];
   if (typeof assigneeChoice === "string") {
     let assignee: string | undefined;
@@ -88,7 +91,11 @@ export function buildFromAnswers(
     } else {
       assignee = assigneeChoice; // me / any / unassigned
     }
-    if (assignee) values["linear.filter"] = `assignee = ${assignee}`;
+    const existing = Array.isArray(values["linear.filter"])
+      ? (values["linear.filter"] as LinearFilterValue)
+      : [];
+    if (assignee) values["linear.filter"] = applyAssigneeOverride(existing, assignee);
+    else if (existing.length > 0) values["linear.filter"] = existing;
   }
   delete values[LINEAR_ASSIGNEE_CHOICE_FIELD_ID];
   delete values[LINEAR_ASSIGNEE_VALUE_FIELD_ID];
@@ -222,9 +229,14 @@ function computeEditing(
             : multilineFallback
           : "",
     optionIndex: initialOptionIndex(field, stored),
-    listItems: field.spec.kind === "list" && Array.isArray(stored) ? [...stored] : [],
+    listItems:
+      field.spec.kind === "list" && Array.isArray(stored)
+        ? stored.filter((item): item is string => typeof item === "string")
+        : [],
     selected:
-      field.spec.kind === "multiselect" && Array.isArray(stored) ? new Set(stored) : new Set(),
+      field.spec.kind === "multiselect" && Array.isArray(stored)
+        ? new Set(stored.filter((item): item is string => typeof item === "string"))
+        : new Set(),
   };
 }
 
@@ -376,6 +388,18 @@ export function SetupWizard({
     setVisited((prev) => new Set(prev).add(nextFields[index + 1]!.id));
     goTo(index + 1, source);
   };
+
+  // A migration whose diff is config-file-only (e.g. v5's `specAttachmentRevisions`)
+  // produces zero wizard fields. There is nothing to walk through, so finalize
+  // immediately — write the upgraded file (version stamp + default backfill on
+  // write) rather than rendering a dead empty screen that crashes on keypress.
+  useEffect(() => {
+    if (mode !== null && !building && fields.length === 0) {
+      onComplete(buildFromAnswers(mode, valuesToWrite(answers), buildMarkdown));
+      exit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, building, fields.length]);
 
   useInput(
     (input, key) => {

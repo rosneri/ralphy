@@ -13,7 +13,10 @@ describe("normalizeWorkflowMarkdown — defaults-fill", () => {
     expect(config.concurrency).toBe(3);
     // defaults filled
     expect(config.model).toBe("opus");
-    expect(config.prTracker.maxRecoveryAttempts).toBe(3);
+    expect(config.prRecovery.maxRecoverySessions).toBe(3);
+    // RLF-97: both CI and conflict recovery default ON.
+    expect(config.prRecovery.fixCi).toBe(true);
+    expect(config.prRecovery.fixConflicts).toBe(true);
     expect(config.linear.mentionHandle).toBe("@ralphy");
   });
 

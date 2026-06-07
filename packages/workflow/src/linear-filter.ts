@@ -1,68 +1,81 @@
 /**
- * Parser for the global `linear.filter` expression (RLF-206).
+ * Resolver for the global `linear.filter` marker list (RLF-206 → marker form).
  *
- * `linear.filter` replaces the old per-workflow `linear.assignee` string with a
- * small, extensible filter grammar applied to every Linear ticket fetch. The
- * initial grammar recognizes exactly one clause:
+ * `linear.filter` is a high-level "grab all" scope ANDed into every Linear
+ * ticket fetch (and, transitively, the GitHub PR searches rooted at those
+ * tickets). It is a marker list restricted to two kinds — `assignee` and
+ * `label`:
  *
- *   assignee = <value>      # value ∈ { me, any, unassigned, <email>, <user-id> }
+ *   - type: assignee   # value ∈ { me, any, unassigned, <email>, <user-id> }
+ *   - type: label      # an issue-label name the ticket MUST carry
  *
- * The parser maps the clause into the existing `LinearFilterSpec` assignee
- * fields so the GraphQL layer below it is untouched:
+ * The resolver folds those clauses into the fields the query layer already
+ * understands: the single assignee constraint (`assignee`/`anyAssignee`) and
+ * the must-have label list (`requireAllLabels`). Multiple `label` clauses are
+ * ANDed (the ticket must carry every one). At most one `assignee` clause is
+ * allowed — two would be contradictory under an equality constraint.
  *
- *   | filter value            | parsed result               |
- *   |-------------------------|-----------------------------|
- *   | (blank)                 | { assignee: "me" }          |
- *   | assignee = me           | { assignee: "me" }          |
- *   | assignee = any          | { anyAssignee: true }       |
- *   | assignee = unassigned   | { assignee: "unassigned" }  |
- *   | assignee = <email>      | { assignee: "<email>" }     |
- *   | assignee = <id>         | { assignee: "<id>" }        |
+ *   | assignee value      | resolved                    |
+ *   |---------------------|-----------------------------|
+ *   | me                  | { assignee: "me" }          |
+ *   | any                 | { anyAssignee: true }       |
+ *   | unassigned / (blank)| { assignee: "unassigned" }  |
+ *   | <email>             | { assignee: "<email>" }     |
+ *   | <user-id>           | { assignee: "<id>" }        |
  *
- * The grammar is deliberately a single helper so additional keys
- * (status/label/team/project) can be added later without touching call sites.
+ * When the filter omits an `assignee` clause, `assignee`/`anyAssignee` are left
+ * unset and the per-query default applies.
  */
 
-export interface LinearFilterResult {
-  /** Assignee selector passed straight to `LinearFilterSpec.assignee`. */
-  assignee?: string;
-  /** When true, skip the assignee constraint entirely (`assignee = any`). */
-  anyAssignee?: boolean;
-}
-
-/** Keys the filter grammar understands today. */
-const SUPPORTED_KEYS = new Set(["assignee"]);
+import type { LinearFilter, ResolvedLinearFilter } from "@ralphy/types";
 
 /**
- * Parse a single-clause `linear.filter` expression. A blank expression
- * defaults to `assignee = me`. Throws a clear error naming any unrecognized
- * key so a typo fails loudly at config-load time.
+ * Resolve the global `linear.filter` marker list into the assignee constraint
+ * and the must-have label set. Throws when more than one `assignee` clause is
+ * present so a contradictory filter fails loudly at config-load time.
  */
-export function parseLinearFilter(filter: string): LinearFilterResult {
-  const trimmed = filter.trim();
-  if (trimmed === "") return { assignee: "me" };
-
-  const eq = trimmed.indexOf("=");
-  if (eq < 0) {
+export function resolveLinearFilter(filter: LinearFilter): ResolvedLinearFilter {
+  const assigneeClauses = filter.filter((marker) => marker.type === "assignee");
+  if (assigneeClauses.length > 1) {
     throw new Error(
-      `Invalid linear.filter "${filter}": expected "<key> = <value>" (e.g. "assignee = me").`,
-    );
-  }
-  const key = trimmed.slice(0, eq).trim().toLowerCase();
-  const value = trimmed.slice(eq + 1).trim();
-
-  if (!SUPPORTED_KEYS.has(key)) {
-    throw new Error(
-      `Unrecognized linear.filter key "${key}" in "${filter}". Supported keys: ${[...SUPPORTED_KEYS].join(", ")}.`,
+      `Invalid linear.filter: at most one "assignee" clause is allowed, found ${assigneeClauses.length}.`,
     );
   }
 
-  // key === "assignee"
+  const requireAllLabels: string[] = [];
+  const seenLabels = new Set<string>();
+  for (const marker of filter) {
+    if (marker.type !== "label") continue;
+    if (seenLabels.has(marker.value)) continue;
+    seenLabels.add(marker.value);
+    requireAllLabels.push(marker.value);
+  }
+
+  const assigneeClause = assigneeClauses[0];
+  if (!assigneeClause) return { requireAllLabels };
+
+  const value = assigneeClause.value.trim();
   const lower = value.toLowerCase();
-  if (lower === "any") return { anyAssignee: true };
+  if (lower === "any") return { anyAssignee: true, requireAllLabels };
   // Blank value preserves the legacy "blank means unassigned" meaning.
-  if (lower === "" || lower === "unassigned") return { assignee: "unassigned" };
-  if (lower === "me") return { assignee: "me" };
+  if (lower === "" || lower === "unassigned") {
+    return { assignee: "unassigned", requireAllLabels };
+  }
+  if (lower === "me") return { assignee: "me", requireAllLabels };
   // Emails / ids are case-sensitive in Linear lookups — keep original case.
-  return { assignee: value };
+  return { assignee: value, requireAllLabels };
+}
+
+/**
+ * Apply a runtime assignee override (e.g. the `--linear-assignee` CLI flag) onto
+ * a config filter: drop any existing `assignee` clause and append the override,
+ * leaving the label clauses intact. A blank override returns the filter as-is.
+ */
+export function applyAssigneeOverride(filter: LinearFilter, assignee: string): LinearFilter {
+  const trimmed = assignee.trim();
+  if (trimmed === "") return filter;
+  return [
+    ...filter.filter((marker) => marker.type !== "assignee"),
+    { type: "assignee", value: trimmed },
+  ];
 }

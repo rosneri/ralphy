@@ -189,6 +189,18 @@ describe("linear-client transport", () => {
     expect(where.assignee).toBeUndefined();
   });
 
+  test("requireAllLabels ANDs a must-have label clause onto the mention-scan filter", async () => {
+    const { requests } = stubAndCapture([ok({ issues: { nodes: [] } })]);
+    await fetchMentionScanIssues("k", {
+      assignee: "me",
+      requireAllLabels: ["ralph"],
+      indicators: { getTodo: { filter: [{ type: "status", value: "Todo" }] } },
+    });
+    const where = requests()[0]!.variables.filter as Record<string, unknown>;
+    const andClauses = where.and as Record<string, unknown>[] | undefined;
+    expect(andClauses).toContainEqual({ labels: { some: { name: { eq: "ralph" } } } });
+  });
+
   test("bug_case: transient network error no longer throws without retry", async () => {
     // Bun's fetch throws this when a keep-alive socket dies mid-flight.
     // Regression guard: this used to propagate after a single attempt.
@@ -969,6 +981,33 @@ describe("buildIssueFilter", () => {
   test("omitting numbers adds no number key (regression guard)", () => {
     expect(buildIssueFilter({}).number).toBeUndefined();
     expect(buildIssueFilter({ numbers: [] }).number).toBeUndefined();
+  });
+
+  test("requireAllLabels adds one must-have label clause per label in an and-array", () => {
+    const f = buildIssueFilter({ requireAllLabels: ["ralph", "backend"] });
+    const andClauses = f.and as Record<string, unknown>[] | undefined;
+    expect(andClauses).toContainEqual({ labels: { some: { name: { eq: "ralph" } } } });
+    expect(andClauses).toContainEqual({ labels: { some: { name: { eq: "backend" } } } });
+  });
+
+  test("required labels are ANDed (must-have), not merged into the include OR-set", () => {
+    // include labels are an any-of set (`some.name.in`); a required global label
+    // must be its own mandatory clause so the result is (include-label) AND (ralph),
+    // never (include-label OR ralph). To avoid an unproven top-level-`labels` +
+    // `and[].labels` coexistence, the include set is consolidated into `and`.
+    const f = buildIssueFilter({
+      include: [{ type: "label", value: "auto-merge" }],
+      requireAllLabels: ["ralph"],
+    });
+    expect(f.labels).toBeUndefined();
+    const andClauses = f.and as Record<string, unknown>[] | undefined;
+    expect(andClauses).toContainEqual({ labels: { some: { name: { in: ["auto-merge"] } } } });
+    expect(andClauses).toContainEqual({ labels: { some: { name: { eq: "ralph" } } } });
+  });
+
+  test("empty/omitted requireAllLabels adds no and-clause (regression guard)", () => {
+    expect(buildIssueFilter({}).and).toBeUndefined();
+    expect(buildIssueFilter({ requireAllLabels: [] }).and).toBeUndefined();
   });
 });
 

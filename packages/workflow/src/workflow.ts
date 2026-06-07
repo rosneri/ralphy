@@ -5,6 +5,7 @@ import { DEFAULT_WORKFLOW_MD, FRONTMATTER_RE } from "./default";
 import { renderTemplate } from "./template";
 import { buildWorkflowMarkdown } from "./wizard";
 import { normalizeWorkflowMarkdown } from "./migrate/normalize";
+import { migrateWorkflowMarkdown } from "./migrate/pr-recovery";
 
 export type { WorkflowConfig } from "./schema";
 export { WorkflowConfigSchema, CURRENT_WORKFLOW_VERSION } from "./schema";
@@ -16,12 +17,14 @@ export {
   matchesIndicator,
   type ConfirmationTicketView,
 } from "./confirmation";
-export { parseLinearFilter, type LinearFilterResult } from "./linear-filter";
+export { resolveLinearFilter, applyAssigneeOverride } from "./linear-filter";
+export type { LinearFilter, LinearFilterMarker, ResolvedLinearFilter } from "@ralphy/types";
 export {
   normalizeWorkflowMarkdown,
   DEFAULT_APPROVAL_INDICATORS,
   type NormalizeResult,
 } from "./migrate/normalize";
+export { migrateWorkflowMarkdown, type MigrateResult } from "./migrate/pr-recovery";
 
 export interface ParsedWorkflow {
   config: WorkflowConfig;
@@ -96,7 +99,7 @@ function rejectInlineFilterArrays(raw: unknown, path: string): void {
 }
 
 /**
- * Bridge the new-shape blocks (`agent.engine`, `github.base_branch`, `ci.*`,
+ * Bridge the new-shape blocks (`agent.engine`, `github.base_branch`,
  * `worktree.*`) onto the flat fields the rest of the codebase already reads.
  * Top-level keys win when both are present so legacy configs keep working.
  */
@@ -134,12 +137,51 @@ function applyAliases(cfg: WorkflowConfig): void {
       cfg.setupScript = cfg.worktree.setup_script;
     }
   }
-  if (cfg.ci) {
-    if (cfg.ci.fix_on_failure !== undefined) cfg.fixCiOnFailure = cfg.ci.fix_on_failure;
-    if (cfg.ci.max_attempts !== undefined) cfg.maxCiFixAttempts = cfg.ci.max_attempts;
-    if (cfg.ci.poll_interval_seconds !== undefined) {
-      cfg.ciPollIntervalSeconds = cfg.ci.poll_interval_seconds;
-    }
+}
+
+/**
+ * Read the `version` stamp from a WORKFLOW.md's raw frontmatter, defaulting to
+ * 0 when it is missing, non-numeric, or the frontmatter is unparseable. This is
+ * the *on-disk* version — distinct from a loaded config's `version`, which a
+ * migration may have already bumped to current in memory. Callers that need to
+ * know which migrations a file has actually adopted (e.g. to offer the right
+ * migration diff) must use this, not the post-`loadWorkflow` value.
+ */
+export function readWorkflowVersion(text: string): number {
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) return 0;
+  try {
+    const raw = YAML.parse(match[1] ?? "", { schema: "core" }) as { version?: unknown } | null;
+    return typeof raw?.version === "number" ? raw.version : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Whether an on-disk WORKFLOW.md needs a *persisted* upgrade before it can be
+ * used as authored — i.e. a versioned migration would rewrite it, or it still
+ * fails to parse after migrate + normalize (genuinely broken, recreate
+ * territory). Cosmetic normalize-only staleness (a default-bearing key the file
+ * simply omits) is deliberately NOT an upgrade: that self-heals in memory on
+ * every load and never warrants interrupting the user.
+ *
+ * Used by the CLI to route a stale/invalid file into `ralphy init` instead of
+ * crashing or silently running against an unmigrated config.
+ */
+export function workflowNeedsUpgrade(text: string): boolean {
+  let migrated: { markdown: string; changed: boolean };
+  try {
+    migrated = migrateWorkflowMarkdown(text);
+  } catch {
+    return true;
+  }
+  if (migrated.changed) return true;
+  try {
+    parseWorkflow(normalizeWorkflowMarkdown(migrated.markdown).markdown);
+    return false;
+  } catch {
+    return true;
   }
 }
 
@@ -178,10 +220,17 @@ export async function loadWorkflow(
     return { config, body: extractDefaultBody(), path };
   }
   const text = await file.text();
+  // Versioned migration first: rewrite any pre-v6 PR-recovery keys into the
+  // `prRecovery` block from their real values. MUST run before the defaults-fill
+  // below — otherwise normalize would inject `prRecovery` defaults into a stale
+  // file ahead of anything reading the old keys.
+  const migrated = migrateWorkflowMarkdown(text);
   // Self-heal in-memory: backfill missing default-bearing keys and enforce the
   // confirmation-gate invariant. Persist only when the caller opts in.
-  const normalized = normalizeWorkflowMarkdown(text);
-  if (normalized.changed && options.persist) await Bun.write(path, normalized.markdown);
+  const normalized = normalizeWorkflowMarkdown(migrated.markdown);
+  if ((migrated.changed || normalized.changed) && options.persist) {
+    await Bun.write(path, normalized.markdown);
+  }
   return parseWorkflow(normalized.markdown, path);
 }
 

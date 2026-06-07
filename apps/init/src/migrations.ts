@@ -39,9 +39,6 @@ export const MIGRATIONS: Migration[] = [
       "preExistingErrorCheck.commands",
       "preExistingErrorCheck.baseBranch",
       "preExistingErrorCheck.label",
-      "prTracker.enabled",
-      "prTracker.maxRecoveryAttempts",
-      "prTracker.advanceMergedToDone",
       "openspec.reviewPhase.enabled",
       "openspec.reviewPhase.maxRounds",
       "openspec.reviewPhase.reviewerModel",
@@ -82,6 +79,21 @@ export const MIGRATIONS: Migration[] = [
       "'Ralph design #N' attachment. Config-file-only — set it in WORKFLOW.md " +
       "if you want the append audit trail.",
     fields: [],
+  },
+  {
+    version: 6,
+    description:
+      "PR recovery is unified under one `prRecovery` block (replacing " +
+      "`prTracker`, `fixCiOnFailure`, `maxCiFixAttempts`, `ciPollIntervalSeconds`, " +
+      "and `ignoreCiChecks`). Workers now open the PR and leave the ticket " +
+      "in-review; a single background watcher advances it to done once the PR is " +
+      "mergeable (CI green, no conflicts) and recovers red PRs — resolving merge " +
+      "conflicts AND fixing failing CI (both `prRecovery.fixConflicts` and " +
+      "`prRecovery.fixCi` default on; tune them in WORKFLOW.md). " +
+      "`prRecovery.enabled: false` turns the watcher off everywhere and marks the " +
+      "ticket done immediately on PR open. Your old values are migrated " +
+      "automatically; review them here or keep them.",
+    fields: ["prRecovery.enabled", "prRecovery.maxRecoverySessions", "prRecovery.ignoreChecks"],
   },
 ];
 

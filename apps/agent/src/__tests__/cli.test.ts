@@ -19,15 +19,9 @@ describe("agent parseArgs", () => {
     expect(result.concurrency).toBe(4);
   });
 
-  test("parses --linear-filter", async () => {
-    const result = await parseArgs(["--linear-filter", "assignee = any"]);
-    expect(result.linearFilter).toBe("assignee = any");
-  });
-
-  test("--linear-assignee is still parsed (deprecated)", async () => {
+  test("--linear-assignee overrides the assignee for this run", async () => {
     const result = await parseArgs(["--linear-assignee", "dev@example.com"]);
     expect(result.linearAssignee).toBe("dev@example.com");
-    expect(result.linearFilter).toBe("");
   });
 
   test("parses --worktree flag", async () => {
@@ -177,7 +171,7 @@ describe("agent parseArgs", () => {
 
   test("parses remaining boolean flags", async () => {
     const result = await parseArgs([
-      "--fix-ci",
+      "--pr-recovery",
       "--stack-prs",
       "--create-pr",
       "--code-review",
@@ -185,7 +179,7 @@ describe("agent parseArgs", () => {
       "--manual-test",
       "--debug",
     ]);
-    expect(result.fixCi).toBe(true);
+    expect(result.prRecoveryEnabled).toBe(true);
     expect(result.stackPrs).toBe(true);
     expect(result.codeReview).toBe(true);
     expect(result.jsonOutput).toBe(true);

@@ -9,6 +9,8 @@ import {
   renderTemplate,
   renderWorkflowPrompt,
   resolveBaselineCommands,
+  workflowNeedsUpgrade,
+  readWorkflowVersion,
   DEFAULT_WORKFLOW_MD,
 } from "../workflow";
 import { findBoundaryViolations } from "../boundaries";
@@ -166,33 +168,57 @@ describe("parseWorkflow", () => {
     expect(config.linear.syncTasksToComment).toBe(false);
   });
 
-  test("linear.filter defaults to 'assignee = me'", () => {
+  test("linear.filter defaults to an assignee = me marker", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
     expect((config.linear as Record<string, unknown>)["assignee"]).toBeUndefined();
   });
 
-  test("legacy linear.assignee folds into linear.filter", () => {
+  test("legacy linear.assignee folds into a linear.filter marker", () => {
     const { config } = parseWorkflow(`---\nlinear:\n  assignee: me\n---\n`);
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
     expect((config.linear as Record<string, unknown>)["assignee"]).toBeUndefined();
   });
 
-  test("legacy blank assignee folds to assignee = unassigned", () => {
+  test("legacy blank assignee folds to an unassigned marker", () => {
     const { config } = parseWorkflow(`---\nlinear:\n  assignee: ""\n---\n`);
-    expect(config.linear.filter).toBe("assignee = unassigned");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "unassigned" }]);
   });
 
-  test("legacy assignee email folds into a filter clause", () => {
+  test("legacy assignee email folds into a filter marker", () => {
     const { config } = parseWorkflow(`---\nlinear:\n  assignee: dev@example.com\n---\n`);
-    expect(config.linear.filter).toBe("assignee = dev@example.com");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "dev@example.com" }]);
   });
 
   test("explicit linear.filter wins over a legacy assignee", () => {
     const { config } = parseWorkflow(
-      `---\nlinear:\n  assignee: me\n  filter: assignee = any\n---\n`,
+      `---\nlinear:\n  assignee: me\n  filter:\n    - type: assignee\n      value: any\n---\n`,
     );
-    expect(config.linear.filter).toBe("assignee = any");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "any" }]);
+  });
+
+  test("linear.filter accepts label clauses alongside assignee", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  filter:\n    - type: assignee\n      value: me\n    - type: label\n      value: ralph\n---\n`,
+    );
+    expect(config.linear.filter).toEqual([
+      { type: "assignee", value: "me" },
+      { type: "label", value: "ralph" },
+    ]);
+  });
+
+  test("linear.filter rejects more than one assignee clause", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  filter:\n    - type: assignee\n      value: me\n    - type: assignee\n      value: any\n---\n`,
+      ),
+    ).toThrow(/at most one "assignee"/);
+  });
+
+  test("linear.filter rejects a non label/assignee clause", () => {
+    expect(() =>
+      parseWorkflow(`---\nlinear:\n  filter:\n    - type: status\n      value: Todo\n---\n`),
+    ).toThrow();
   });
 
   test("metaPrompt.effort defaults to auto", () => {
@@ -281,7 +307,7 @@ describe("loadWorkflow / ensureWorkflow", () => {
     const { config } = await loadWorkflow(tempDir, customPath);
     // in-memory heal: defaults are present to the runtime
     expect(config.model).toBe("opus");
-    expect(config.prTracker.maxRecoveryAttempts).toBe(3);
+    expect(config.prRecovery.maxRecoverySessions).toBe(3);
     // but the file on disk is untouched (no hot-path / worktree churn)
     expect(await Bun.file(customPath).text()).toBe(original);
   });
@@ -298,6 +324,25 @@ describe("loadWorkflow / ensureWorkflow", () => {
     const afterFirst = written;
     await loadWorkflow(tempDir, customPath, { persist: true });
     expect(await Bun.file(customPath).text()).toBe(afterFirst);
+  });
+
+  test("loadWorkflow migrates pre-v6 PR-recovery keys from their REAL values before defaults-fill", async () => {
+    // The ordering guard: if the defaults-fill ran first it would inject
+    // prRecovery DEFAULTS (enabled/fixCi true, sessions 3) and lose this user's
+    // real settings. Migrate-before-normalize must preserve them.
+    const legacyPath = join(tempDir, "legacy.md");
+    await Bun.write(
+      legacyPath,
+      `---\nversion: 5\nignoreCiChecks:\n  - flaky\nprTracker:\n  enabled: false\n  maxRecoveryAttempts: 7\n---\nbody\n`,
+    );
+    const { config } = await loadWorkflow(tempDir, legacyPath);
+    expect(config.version).toBe(6);
+    expect(config.prRecovery.enabled).toBe(false);
+    expect(config.prRecovery.fixCi).toBe(false);
+    expect(config.prRecovery.maxRecoverySessions).toBe(7);
+    expect(config.prRecovery.ignoreChecks).toEqual(["flaky"]);
+    // No persist → the on-disk file still carries the legacy shape untouched.
+    expect(await Bun.file(legacyPath).text()).toContain("prTracker");
   });
 
   test("loadWorkflow injects getApproved for an enabled gate (in-memory)", async () => {
@@ -525,5 +570,57 @@ describe("S12 — hostile-config negative tests", () => {
     expect(() => parseWorkflow(`---\nlinear:\n  specAttachmentRevisions: clobber\n---\n`)).toThrow(
       "invalid settings",
     );
+  });
+});
+
+describe("workflowNeedsUpgrade", () => {
+  test("the canonical default WORKFLOW.md does not need an upgrade", () => {
+    expect(workflowNeedsUpgrade(DEFAULT_WORKFLOW_MD)).toBe(false);
+  });
+
+  test("a file with the removed string linear.filter needs an upgrade", () => {
+    expect(
+      workflowNeedsUpgrade(`---\nversion: 6\nlinear:\n  filter: assignee = me\n---\nbody\n`),
+    ).toBe(true);
+  });
+
+  test("a file with legacy prRecovery keys needs an upgrade", () => {
+    expect(workflowNeedsUpgrade(`---\nversion: 5\nprTracker:\n  enabled: true\n---\nbody\n`)).toBe(
+      true,
+    );
+  });
+
+  test("a genuinely invalid file (still broken after migrate) needs an upgrade", () => {
+    expect(
+      workflowNeedsUpgrade(`---\nlinear:\n  specAttachmentRevisions: clobber\n---\nbody\n`),
+    ).toBe(true);
+  });
+
+  test("a file missing only a default-bearing key self-heals in memory (no upgrade)", () => {
+    // No legacy shape and parses fine — normalize backfills its defaults on
+    // load, which is intentionally not an upgrade.
+    expect(workflowNeedsUpgrade(`---\nproject:\n  name: demo\n---\nbody\n`)).toBe(false);
+  });
+});
+
+describe("readWorkflowVersion", () => {
+  test("reads the on-disk version stamp", () => {
+    expect(readWorkflowVersion(`---\nversion: 5\n---\nbody\n`)).toBe(5);
+  });
+
+  test("defaults to 0 when version is missing", () => {
+    expect(readWorkflowVersion(`---\nproject:\n  name: demo\n---\nbody\n`)).toBe(0);
+  });
+
+  test("defaults to 0 when there is no frontmatter", () => {
+    expect(readWorkflowVersion(`no frontmatter`)).toBe(0);
+  });
+
+  test("reports the raw version even when other settings are invalid", () => {
+    // The schema rejects a string linear.filter, but the version stamp is still
+    // readable — this is exactly why init reads the disk version directly.
+    expect(
+      readWorkflowVersion(`---\nversion: 5\nlinear:\n  filter: assignee = me\n---\nbody\n`),
+    ).toBe(5);
   });
 });

@@ -292,6 +292,7 @@
       "name": "@ralphy/workflow",
       "version": "0.0.0",
       "dependencies": {
+        "@ralphy/types": "*",
         "yaml": "*",
         "zod": "*",
       },

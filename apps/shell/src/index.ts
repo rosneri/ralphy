@@ -95,14 +95,25 @@ async function run(): Promise<number> {
   telemetry.capture("command_run", { subcommand });
   bus.emit({ type: "command_run", subcommand });
   try {
-    if (shouldOfferSetup(subcommand, argv.slice(1))) {
+    if (CONFIG_SUBCOMMANDS.has(subcommand)) {
       try {
-        const { maybeRunSetupWizard } = await import("@ralphy/init");
+        const { maybeRunSetupWizard, maybeUpgradeWorkflow } = await import("@ralphy/init");
         const { projectRoot, workflowFile } = parseWorkflowPathArgs(argv.slice(1));
-        await maybeRunSetupWizard(projectRoot, workflowFile);
+        // Missing file → first-run setup wizard (skipped for utility modes).
+        if (shouldOfferSetup(subcommand, argv.slice(1))) {
+          await maybeRunSetupWizard(projectRoot, workflowFile);
+        }
+        // Present but stale/invalid → start init to repair + persist, then ask
+        // the user to re-run rather than dispatching against a just-changed file.
+        if (await maybeUpgradeWorkflow(projectRoot, workflowFile)) {
+          process.stdout.write("\nWORKFLOW.md updated — re-run your command.\n");
+          telemetry.capture("command_exit", { subcommand, exit_code: 0 });
+          bus.emit({ type: "command_exit", subcommand, exit_code: 0 });
+          return 0;
+        }
       } catch (setupErr) {
-        // First-run setup is best-effort; downstream `ensureWorkflow` still
-        // writes a default if the wizard could not run.
+        // First-run setup / upgrade is best-effort; downstream `ensureWorkflow`
+        // and the in-memory self-heal in `loadWorkflow` still let work proceed.
         telemetry.captureError("setup_wizard_error", setupErr, { subcommand });
       }
     }

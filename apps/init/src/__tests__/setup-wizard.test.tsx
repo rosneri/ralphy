@@ -118,7 +118,7 @@ describe("SetupWizard render", () => {
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
     expect(config.linear.team).toBe("ENG");
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
   });
 
   test("down arrow switches options and enter confirms (mode picker)", async () => {
@@ -173,7 +173,7 @@ describe("SetupWizard render", () => {
     expect(result).not.toBeNull();
     const { config } = parseWorkflow(result!);
     expect(config.project.name).toBe("demo");
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
   });
 
   test("onlyFields restricts the walkthrough to the migration diff", () => {
@@ -181,7 +181,7 @@ describe("SetupWizard render", () => {
       createElement(SetupWizard, {
         onComplete: () => {},
         initialMode: "customized",
-        onlyFields: ["stackPrsOnDependencies", "prTracker.enabled"],
+        onlyFields: ["stackPrsOnDependencies", "prRecovery.enabled"],
         initialValues: { createPrOnSuccess: true },
       }),
     );
@@ -226,6 +226,52 @@ describe("SetupWizard render", () => {
     expect(md).not.toContain("createPrOnSuccess:");
     // Legacy content is preserved.
     expect(md).toContain("name: my-app");
+  });
+
+  test("a config-file-only migration (empty diff) finalizes without a keypress", async () => {
+    const ENTER = "\r";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    // A v4 file migrating to v5, whose only new setting is config-file-only —
+    // so the diff carries zero wizard fields.
+    const legacy = [
+      "---",
+      "version: 4",
+      "project:",
+      "  name: my-app",
+      "linear:",
+      "  team: ENG",
+      "---",
+      "Body.",
+    ].join("\n");
+    let result: string | null = null;
+    let threw = false;
+    const { stdin, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: (md: string) => (result = md),
+        initialMode: "customized",
+        onlyFields: [], // empty diff: nothing to ask
+        buildMarkdown: (answers) => applyAnswersToWorkflow(legacy, answers),
+      }),
+    );
+    // It must finalize on its own — the screen is empty, there is nothing to fill.
+    await tick();
+    // A stray Enter on the (already finalized) wizard must not crash.
+    try {
+      stdin.write(ENTER);
+      await tick();
+    } catch {
+      threw = true;
+    }
+    unmount();
+
+    expect(threw).toBe(false);
+    expect(result).not.toBeNull();
+    const md = result!;
+    // The file is stamped to the current schema version...
+    expect(parseWorkflow(md).config.version).toBe(6);
+    // ...and the user's existing settings are preserved (no data loss).
+    expect(md).toContain("name: my-app");
+    expect(md).toContain("team: ENG");
   });
 
   test("the prompt-body step pre-fills the body and replaces it on Ctrl-D", async () => {
@@ -338,13 +384,13 @@ describe("buildFromAnswers — concurrency forces worktrees", () => {
 });
 
 describe("buildFromAnswers — Linear assignee filter", () => {
-  test("a keyword choice composes the assignee clause", () => {
+  test("a keyword choice composes the assignee marker clause", () => {
     for (const choice of ["me", "any", "unassigned"]) {
       const md = buildFromAnswers("customized", {
         "project.name": "svc",
         "linear.assigneeChoice": choice,
       });
-      expect(parseWorkflow(md).config.linear.filter).toBe(`assignee = ${choice}`);
+      expect(parseWorkflow(md).config.linear.filter).toEqual([{ type: "assignee", value: choice }]);
     }
   });
 
@@ -354,7 +400,9 @@ describe("buildFromAnswers — Linear assignee filter", () => {
       "linear.assigneeChoice": "other",
       "linear.assigneeValue": "dev@example.com",
     });
-    expect(parseWorkflow(md).config.linear.filter).toBe("assignee = dev@example.com");
+    expect(parseWorkflow(md).config.linear.filter).toEqual([
+      { type: "assignee", value: "dev@example.com" },
+    ]);
     // The control fields never become frontmatter keys.
     expect(md).not.toContain("assigneeChoice");
     expect(md).not.toContain("assigneeValue");
@@ -366,7 +414,22 @@ describe("buildFromAnswers — Linear assignee filter", () => {
       "linear.assigneeChoice": "other",
       "linear.assigneeValue": "   ",
     });
-    expect(parseWorkflow(md).config.linear.filter).toBe("assignee = me");
+    expect(parseWorkflow(md).config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
+  });
+
+  test("preserves existing label clauses while swapping the assignee", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "linear.assigneeChoice": "any",
+      "linear.filter": [
+        { type: "assignee", value: "me" },
+        { type: "label", value: "ralph" },
+      ],
+    });
+    expect(parseWorkflow(md).config.linear.filter).toEqual([
+      { type: "label", value: "ralph" },
+      { type: "assignee", value: "any" },
+    ]);
   });
 });
 

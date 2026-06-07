@@ -93,6 +93,8 @@ describe("createLinearTrackerProvider", () => {
       apiKey: "k",
       team: "ENG",
       assignee: undefined,
+      anyAssignee: undefined,
+      requireAllLabels: undefined,
       indicators: makeIndicators(),
       resolvers,
       fetchMentions: async () => [],
@@ -113,6 +115,8 @@ describe("createLinearTrackerProvider", () => {
       apiKey: "k",
       team: "ENG",
       assignee: undefined,
+      anyAssignee: undefined,
+      requireAllLabels: undefined,
       indicators: makeIndicators(),
       resolvers,
       fetchMentions: async () => [],
@@ -142,6 +146,8 @@ describe("createLinearTrackerProvider", () => {
       apiKey: "k",
       team: "ENG",
       assignee: undefined,
+      anyAssignee: undefined,
+      requireAllLabels: undefined,
       indicators: makeIndicators(),
       resolvers,
       fetchMentions: async () => [mention],
@@ -163,6 +169,8 @@ describe("createLinearTrackerProvider", () => {
       apiKey: "k",
       team: "ENG",
       assignee: undefined,
+      anyAssignee: undefined,
+      requireAllLabels: undefined,
       indicators: makeIndicators(),
       resolvers,
       fetchMentions: async () => [],
@@ -185,24 +193,44 @@ describe("createLinearTrackerProvider", () => {
       apiKey: "k",
       team: "ENG",
       assignee: "me",
+      anyAssignee: false,
+      requireAllLabels: ["bug"],
       indicators,
       resolvers,
       fetchMentions: async () => [],
       ticketNumbers: [],
     });
     await noTickets.fetchDoneCandidates();
-    expect(fetchDoneCandidatesCalls[0]).toEqual(["k", "ENG", "me", indicators, undefined]);
+    expect(fetchDoneCandidatesCalls[0]).toEqual([
+      "k",
+      "ENG",
+      "me",
+      false,
+      ["bug"],
+      indicators,
+      undefined,
+    ]);
 
     const withTickets = createLinearTrackerProvider({
       apiKey: "k",
       team: "ENG",
       assignee: "me",
+      anyAssignee: true,
+      requireAllLabels: undefined,
       indicators,
       resolvers,
       fetchMentions: async () => [],
       ticketNumbers: [12, 34],
     });
     await withTickets.fetchDoneCandidates();
-    expect(fetchDoneCandidatesCalls[1]).toEqual(["k", "ENG", "me", indicators, [12, 34]]);
+    expect(fetchDoneCandidatesCalls[1]).toEqual([
+      "k",
+      "ENG",
+      "me",
+      true,
+      undefined,
+      indicators,
+      [12, 34],
+    ]);
   });
 });

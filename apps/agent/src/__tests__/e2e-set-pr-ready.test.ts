@@ -64,10 +64,7 @@ const baseCfg = {
   teardownScript: null,
   prBaseBranch: "main",
   autoMergeStrategy: "squash" as const,
-  maxCiFixAttempts: 3,
-  ciPollIntervalSeconds: 0,
   cleanupWorktreeOnSuccess: false,
-  ignoreCiChecks: [] as string[],
   stackPrsOnDependencies: false,
   neverTouch: [] as string[],
 };
@@ -120,7 +117,6 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: false,
         wantAutoMerge: false,
         cfg: baseCfg,
       },
@@ -167,7 +163,6 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: true,
         wantAutoMerge: true,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -183,7 +178,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
     expect(linear.applied.setPrReady).toContain("ENG-78");
   });
 
-  test("non-draft + auto-merge run skips setPrReady but still applies setDone (row 4)", async () => {
+  test("non-draft + auto-merge run applies setPrReady AND setDone (RLF-97: reviewable until CI passes)", async () => {
     const linear = createFakeLinear();
     const issue = linear.seed({ ...ISSUE, id: "u-4", identifier: "ENG-79" });
     const prUrl = "https://github.com/owner/repo/pull/404";
@@ -204,7 +199,6 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: false,
         wantAutoMerge: true,
         cfg: baseCfg,
       },
@@ -217,7 +211,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
       },
     );
     expect(code).toBe(0);
-    expect(linear.applied.setPrReady).not.toContain("ENG-79");
+    expect(linear.applied.setPrReady).toContain("ENG-79");
 
     // The coordinator still applies setDone on this clean exit.
     await linear.client.applyIndicator(issue, SET_DONE);

@@ -19,6 +19,10 @@ interface PrDiscoveryInput {
   prByChange: Map<string, string>;
   /** Initial poll context; refreshed by setter on each beforePoll. */
   getPollContext: () => PollContext;
+  /** CI check names the watcher ignores when judging a PR green — must match
+   *  what the in-`gh pr checks` filter uses elsewhere (RLF-97: previously this
+   *  watcher path dropped the configured ignore-list). */
+  ignoreCiChecks: string[];
 }
 
 interface PrDiscovery {
@@ -31,7 +35,16 @@ interface PrDiscovery {
 }
 
 export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
-  const { apiKey, projectRoot, cmdRunner, onLog, diag, prByChange, getPollContext } = input;
+  const {
+    apiKey,
+    projectRoot,
+    cmdRunner,
+    onLog,
+    diag,
+    prByChange,
+    getPollContext,
+    ignoreCiChecks,
+  } = input;
   const prUnavailable = new Map<string, number>();
   const prUrlByIssue = createPrUrlCache(5 * 60 * 1000);
 
@@ -156,8 +169,14 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     if (outcome.kind === "conflicting") return { url: prUrl, status: "conflicted" };
 
     try {
-      const ci = await getPrChecksStatus(prUrl, cmdRunner, projectRoot);
+      const ci = await getPrChecksStatus(prUrl, cmdRunner, projectRoot, undefined, ignoreCiChecks);
       if (ci.bucket === "fail") return { url: prUrl, status: "ci_failed" };
+      // RLF-97: CI still in progress is NOT mergeable. Reporting "mergeable"
+      // here clears the pr-tracker recovery counter on every poll between CI
+      // re-runs (scanPrMergeStates clears on "mergeable"), so `maxRecoverySessions`
+      // never trips for a PR that keeps flapping red. "unknown" is a scan no-op:
+      // no clear, no queue — the counter survives until CI settles to pass or fail.
+      if (ci.bucket === "pending") return { url: prUrl, status: "unknown" };
     } catch (err) {
       diag("ci", `! gh pr checks ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
     }

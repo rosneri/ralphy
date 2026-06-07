@@ -48,18 +48,18 @@ describe("buildWorkflowMarkdown", () => {
     const { config } = roundTrip("quick", {
       "project.name": "my-project",
       "linear.team": "ENG",
-      "linear.filter": "assignee = me",
+      "linear.filter": [{ type: "assignee", value: "me" }],
     });
     expect(config.project.name).toBe("my-project");
     expect(config.linear.team).toBe("ENG");
-    expect(config.linear.filter).toBe("assignee = me");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
     expect(config.createPrOnSuccess).toBe(false);
   });
 
   test("permissive mode flips PR/CI flags and disables manual merge", () => {
     const { config } = roundTrip("permissive", { "project.name": "p" });
     expect(config.createPrOnSuccess).toBe(true);
-    expect(config.fixCiOnFailure).toBe(true);
+    expect(config.prRecovery.fixCi).toBe(true);
     expect(config.manualMergeWhenAutoMergeDisabled).toBe(false);
   });
 
@@ -76,8 +76,8 @@ describe("buildWorkflowMarkdown", () => {
       prDraft: true,
       stackPrsOnDependencies: true,
       autoMergeStrategy: "rebase",
-      fixCiOnFailure: true,
-      maxCiFixAttempts: 8,
+      "prRecovery.enabled": true,
+      "prRecovery.maxRecoverySessions": 8,
       useWorktree: true,
       prBaseBranch: "develop",
     });
@@ -91,7 +91,7 @@ describe("buildWorkflowMarkdown", () => {
     expect(config.prDraft).toBe(true);
     expect(config.stackPrsOnDependencies).toBe(true);
     expect(config.autoMergeStrategy).toBe("rebase");
-    expect(config.maxCiFixAttempts).toBe(8);
+    expect(config.prRecovery.maxRecoverySessions).toBe(8);
     expect(config.useWorktree).toBe(true);
     expect(config.prBaseBranch).toBe("develop");
   });
@@ -99,12 +99,12 @@ describe("buildWorkflowMarkdown", () => {
   test("list fields round-trip as YAML sequences", () => {
     const { config } = roundTrip("customized", {
       rules: ["never break the build", "small commits"],
-      ignoreCiChecks: ["flaky-e2e"],
+      "prRecovery.ignoreChecks": ["flaky-e2e"],
       "boundaries.never_touch": ["dist/**", "vendor/**"],
       "linear.specAttachmentFormats": ["md", "pdf"],
     });
     expect(config.rules).toEqual(["never break the build", "small commits"]);
-    expect(config.ignoreCiChecks).toEqual(["flaky-e2e"]);
+    expect(config.prRecovery.ignoreChecks).toEqual(["flaky-e2e"]);
     expect(config.boundaries.never_touch).toEqual(["dist/**", "vendor/**"]);
     expect(config.linear.specAttachmentFormats).toEqual(["md", "pdf"]);
   });
@@ -116,7 +116,7 @@ describe("buildWorkflowMarkdown", () => {
       "linear.confirmationMode.maxConfirmationRounds": 2,
       "preExistingErrorCheck.enabled": true,
       "preExistingErrorCheck.baseBranch": "develop",
-      "prTracker.advanceMergedToDone": true,
+      "prRecovery.maxRecoverySessions": 5,
       "openspec.reviewPhase.enabled": true,
       "openspec.reviewPhase.maxRounds": 2,
     });
@@ -125,7 +125,7 @@ describe("buildWorkflowMarkdown", () => {
     expect(config.linear.confirmationMode.maxConfirmationRounds).toBe(2);
     expect(config.preExistingErrorCheck.enabled).toBe(true);
     expect(config.preExistingErrorCheck.baseBranch).toBe("develop");
-    expect(config.prTracker.advanceMergedToDone).toBe(true);
+    expect(config.prRecovery.maxRecoverySessions).toBe(5);
     expect(config.openspec.reviewPhase.enabled).toBe(true);
     expect(config.openspec.reviewPhase.maxRounds).toBe(2);
   });
@@ -180,11 +180,11 @@ describe("buildWorkflowMarkdown", () => {
     const { config } = roundTrip("customized", {
       "project.name": "app: the sequel",
       "commands.test": "bun test --filter '*: smoke'",
-      "linear.filter": "assignee = dev@example.com",
+      "linear.filter": [{ type: "assignee", value: "dev@example.com" }],
     });
     expect(config.project.name).toBe("app: the sequel");
     expect(config.commands.test).toBe("bun test --filter '*: smoke'");
-    expect(config.linear.filter).toBe("assignee = dev@example.com");
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "dev@example.com" }]);
   });
 });
 

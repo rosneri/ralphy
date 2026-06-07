@@ -68,10 +68,6 @@ describe("CLI flags S8 — parseAgentArgs cross-flag validation", () => {
     expect(result.createPr).toBe(false);
   });
 
-  test("S8.2: --fix-ci without --create-pr is rejected", async () => {
-    await expect(parseAgentArgs(["--fix-ci"])).rejects.toThrow("--fix-ci requires --create-pr");
-  });
-
   test("S8.2: --stack-prs without --create-pr is rejected", async () => {
     await expect(parseAgentArgs(["--stack-prs"])).rejects.toThrow(
       "--stack-prs requires --create-pr",

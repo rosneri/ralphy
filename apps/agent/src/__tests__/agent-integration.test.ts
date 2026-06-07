@@ -444,6 +444,8 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
       concurrency: 1,
       useWorktree: false,
       createPrOnSuccess: false,
+      // Conflict recovery defaults off (RLF-97); this flow exercises it, so opt in.
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
       linear: {
         team: "ENG",
         postComments: true,

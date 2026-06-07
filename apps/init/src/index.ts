@@ -6,6 +6,9 @@ import {
   workflowPath,
   loadWorkflow,
   normalizeWorkflowMarkdown,
+  migrateWorkflowMarkdown,
+  readWorkflowVersion,
+  workflowNeedsUpgrade,
   CURRENT_WORKFLOW_VERSION,
   DEFAULT_WORKFLOW_MD,
   type WorkflowConfig,
@@ -44,7 +47,7 @@ interface RunOptions {
   /** Start directly in this mode, skipping the mode picker. */
   initialMode?: "quick" | "permissive" | "customized";
   /** Field-id keyed values to prefill. */
-  initialValues?: Record<string, string | number | boolean>;
+  initialValues?: Record<string, WizardValue>;
   /**
    * Full answers from a resumed (backed-up) session. Used verbatim as the
    * wizard's initial values, bypassing repo injection so saved answers win.
@@ -114,9 +117,9 @@ async function clearSetupBackup(): Promise<void> {
  * untouched when nothing was detected.
  */
 function withDetectedRepo(
-  initial: Record<string, string | number | boolean> | undefined,
+  initial: Record<string, WizardValue> | undefined,
   repo: RepoIdentity | undefined,
-): Record<string, string | number | boolean> | undefined {
+): Record<string, WizardValue> | undefined {
   if (!repo) return initial;
   const values = { ...initial };
   values["repo.remote"] = repo.remote;
@@ -215,11 +218,37 @@ export async function maybeRunSetupWizard(
   });
 }
 
+/**
+ * Hook used by the real-work subcommands when WORKFLOW.md is present but stale
+ * or invalid (a versioned migration would rewrite it, or it no longer parses).
+ * Launches the same `ralphy init` flow that repairs and persists the file, then
+ * returns true so the caller can ask the user to re-run their command against
+ * the upgraded file.
+ *
+ * No-ops (returning false) when the file is missing, already current, or the
+ * session is non-interactive — in the non-interactive case the downstream
+ * in-memory self-heal in `loadWorkflow` still lets the command run.
+ */
+export async function maybeUpgradeWorkflow(
+  projectRoot?: string,
+  workflowFile?: string,
+): Promise<boolean> {
+  const root = projectRoot ?? (await findProjectRoot());
+  const path = workflowPath(root, workflowFile);
+  const file = Bun.file(path);
+  if (!(await file.exists())) return false;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  if (!workflowNeedsUpgrade(await file.text())) return false;
+
+  process.stdout.write("WORKFLOW.md needs an upgrade. Starting init…\n");
+  const initArgv = ["--project-root", root, ...(workflowFile ? ["--workflow", workflowFile] : [])];
+  await main(initArgv);
+  return true;
+}
+
 /** Prefill values (keyed by wizard field id) from an existing config. */
-function initialValuesFromConfig(
-  config: WorkflowConfig,
-): Record<string, string | number | boolean> {
-  const values: Record<string, string | number | boolean> = {};
+function initialValuesFromConfig(config: WorkflowConfig): Record<string, WizardValue> {
+  const values: Record<string, WizardValue> = {};
   if (config.project.name) values["project.name"] = config.project.name;
   if (config.project.language) values["project.language"] = config.project.language;
   if (config.project.framework) values["project.framework"] = config.project.framework;
@@ -232,15 +261,19 @@ function initialValuesFromConfig(
   values["concurrency"] = config.concurrency;
   values["createPrOnSuccess"] = config.createPrOnSuccess;
   values["prBaseBranch"] = config.prBaseBranch;
-  values["fixCiOnFailure"] = config.fixCiOnFailure;
+  values["prRecovery.enabled"] = config.prRecovery.enabled;
+  values["prRecovery.fixCi"] = config.prRecovery.fixCi;
+  values["prRecovery.maxRecoverySessions"] = config.prRecovery.maxRecoverySessions;
   values["useWorktree"] = config.useWorktree;
   if (config.linear.team) values["linear.team"] = config.linear.team;
-  // Translate the stored `assignee = <value>` filter back into the assignee
-  // select (+ specific-user value) the wizard now asks. Anything other than the
-  // three keywords becomes a "specific user" with its email/user-id prefilled.
-  if (config.linear.filter) {
-    const match = /^assignee\s*=\s*(.+)$/i.exec(config.linear.filter.trim());
-    const assignee = match ? match[1]!.trim() : "";
+  // Carry the stored marker filter through verbatim (so label clauses survive a
+  // re-run) and translate its assignee clause back into the assignee select
+  // (+ specific-user value) the wizard asks. Anything other than the three
+  // keywords becomes a "specific user" with its email/user-id prefilled.
+  if (config.linear.filter && config.linear.filter.length > 0) {
+    values["linear.filter"] = config.linear.filter;
+    const assigneeMarker = config.linear.filter.find((marker) => marker.type === "assignee");
+    const assignee = assigneeMarker?.value.trim() ?? "";
     if (assignee === "me" || assignee === "any" || assignee === "unassigned") {
       values["linear.assigneeChoice"] = assignee;
     } else if (assignee !== "") {
@@ -322,7 +355,11 @@ async function editExisting(
   workflowFile?: string,
   onlyFields?: string[],
 ): Promise<number> {
-  const existing = await Bun.file(path).text();
+  // Migrate any pre-v6 PR-recovery keys to the `prRecovery` shape BEFORE the
+  // wizard applies answers onto the text — otherwise the old keys (which the
+  // wizard never touches) would survive alongside the new block. The in-memory
+  // `config` is already migrated by `loadWorkflow`; this aligns the on-disk text.
+  const { markdown: existing } = migrateWorkflowMarkdown(await Bun.file(path).text());
   // Re-detect so a repo-less existing file is offered the link step (backfill);
   // `withDetectedRepo` won't clobber a user-set project name.
   const detectedRepo = await detectRepoIdentity(projectRoot);
@@ -380,13 +417,17 @@ export async function main(argv: string[]): Promise<number> {
     }
 
     // Outdated file → offer migration (fill the diff / review all / exit).
-    if (needsMigration(config.version)) {
-      const choice = await promptMigrate(config.version);
+    // Decide from the *on-disk* version: `loadWorkflow` runs the migration in
+    // memory and may have already bumped `config.version` to current, which
+    // would hide the very upgrade we want to surface.
+    const diskVersion = readWorkflowVersion(await Bun.file(path).text());
+    if (needsMigration(diskVersion)) {
+      const choice = await promptMigrate(diskVersion);
       if (choice === "exit") {
         process.stdout.write("Exited — WORKFLOW.md unchanged.\n");
         return 0;
       }
-      const onlyFields = choice === "diff" ? fieldsAddedSince(config.version) : undefined;
+      const onlyFields = choice === "diff" ? fieldsAddedSince(diskVersion) : undefined;
       return editExisting(projectRoot, path, config, workflowFile, onlyFields);
     }
 

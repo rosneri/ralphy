@@ -119,10 +119,7 @@ const baseCfg = {
   teardownScript: null,
   prBaseBranch: "main",
   autoMergeStrategy: "squash" as const,
-  maxCiFixAttempts: 3,
-  ciPollIntervalSeconds: 0,
   cleanupWorktreeOnSuccess: false,
-  ignoreCiChecks: [] as string[],
   stackPrsOnDependencies: false,
   neverTouch: [] as string[],
 };
@@ -170,7 +167,6 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: true,
         wantAutoMerge: false,
         cfg: { ...baseCfg, prDraft: true },
       },
@@ -203,7 +199,7 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
     expect(linear.applied.setDone).toContain("ENG-91");
   });
 
-  test("auto-merge ON (non-draft): straight to merge, no setPrReady, still Done", async () => {
+  test("auto-merge ON (non-draft): enables --auto, applies setPrReady, still Done", async () => {
     const branch = "ralph/my-change";
     const gh = makeGitHub();
     const linear = createFakeLinear();
@@ -217,7 +213,6 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
         changeDir,
         stateFilePath,
         issue,
-        wantFixCi: false,
         wantAutoMerge: true,
         cfg: baseCfg,
       },
@@ -231,16 +226,17 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
     );
     expect(code).toBe(0);
 
-    // Non-draft create, auto-merge enabled immediately, never readied.
+    // Non-draft create, auto-merge enabled (GitHub waits for CI), never readied.
     const url = gh.prUrlByBranch.get(branch)!;
     expect(gh.createCalls[0]).not.toContain("--draft");
     expect(gh.readyCalls).toHaveLength(0);
     expect(gh.autoMergeCalls).toEqual([url]);
 
-    // No intermediate setPrReady write on the immediate auto-merge path…
-    expect(linear.applied.setPrReady).not.toContain("ENG-92");
+    // RLF-97: --auto no longer merges instantly, so the PR is reviewable until
+    // CI passes — setPrReady fires.
+    expect(linear.applied.setPrReady).toContain("ENG-92");
 
-    // …but the coordinator still applies setDone on this clean exit.
+    // …and the coordinator still applies setDone on this clean exit.
     await linear.client.applyIndicator(issue, SET_DONE);
     expect(linear.applied.setDone).toContain("ENG-92");
   });

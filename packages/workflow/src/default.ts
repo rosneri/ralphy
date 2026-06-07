@@ -12,7 +12,7 @@ export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 export const DEFAULT_WORKFLOW_MD = `---
 # WORKFLOW.md schema version — managed by \`ralphy init\`. When a newer version
 # ships, re-running init migrates this file and fills in the new settings.
-version: 2
+version: 6
 
 project:
   name: ralphy
@@ -65,9 +65,12 @@ prBaseBranch: main
 stackPrsOnDependencies: false
 autoMergeStrategy: squash
 
-fixCiOnFailure: false
-maxCiFixAttempts: 5
-ciPollIntervalSeconds: 30
+prRecovery:
+  enabled: true
+  fixCi: true
+  fixConflicts: true
+  maxRecoverySessions: 3
+  ignoreChecks: []
 
 preExistingErrorCheck:
   enabled: false
@@ -77,7 +80,18 @@ preExistingErrorCheck:
   outputCharLimit: 4000
 
 linear:
-  filter: assignee = me
+  # Global filter ANDed into every Linear query (and the GitHub PR searches
+  # rooted at those issues). A marker list of \`assignee\` and \`label\` clauses;
+  # all are required. \`assignee\` value is me / any / unassigned / <email> / <id>.
+  # Example with a required label:
+  #   filter:
+  #     - type: assignee
+  #       value: me
+  #     - type: label
+  #       value: ralph
+  filter:
+    - type: assignee
+      value: me
   postComments: true
   updateEveryIterations: 10
   mentionTrigger: true

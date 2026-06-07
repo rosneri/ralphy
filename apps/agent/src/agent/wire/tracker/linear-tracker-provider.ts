@@ -19,6 +19,11 @@ export interface LinearTrackerProviderInput {
   apiKey: string;
   team: string | undefined;
   assignee: string | undefined;
+  /** Filter clauses scoping done-candidate fetches, mirroring the inline wiring:
+   *  `anyAssignee` widens the assignee match, `requireAllLabels` narrows to
+   *  issues carrying every listed label. */
+  anyAssignee: boolean | undefined;
+  requireAllLabels: string[] | undefined;
   indicators: Indicators;
   /** The indicator-dispatch resolvers built from the same Linear config.
    *  Shared with the rest of `wire.ts` (spawn, confirmation, baseline gate). */
@@ -34,7 +39,17 @@ export interface LinearTrackerProviderInput {
 export function createLinearTrackerProvider(
   input: LinearTrackerProviderInput,
 ): IssueTrackerProvider {
-  const { apiKey, team, assignee, indicators, resolvers, fetchMentions, ticketNumbers } = input;
+  const {
+    apiKey,
+    team,
+    assignee,
+    anyAssignee,
+    requireAllLabels,
+    indicators,
+    resolvers,
+    fetchMentions,
+    ticketNumbers,
+  } = input;
 
   // setDone/setError exclude an issue from the todo pool; setError alone keeps
   // an in-progress issue from being re-resumed. Mirrors the prior inline wiring.
@@ -51,6 +66,8 @@ export function createLinearTrackerProvider(
         apiKey,
         team,
         assignee,
+        anyAssignee,
+        requireAllLabels,
         indicators,
         ticketNumbers && ticketNumbers.length > 0 ? ticketNumbers : undefined,
       ),

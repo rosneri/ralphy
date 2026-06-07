@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { getStorage, getLayout, getArgs } from "@ralphy/context";
-import { parseLinearFilter } from "@ralphy/workflow";
+import { resolveLinearFilter, applyAssigneeOverride } from "@ralphy/workflow";
 import type { GetIndicator, Indicators, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
@@ -155,6 +155,7 @@ async function fetchBucketIssues(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
+  requireAllLabels: string[] | undefined,
   ticketNumbers: number[],
 ): Promise<LinearIssue[]> {
   if (!bucket.indicator || bucket.indicator.filter.length === 0) return [];
@@ -162,26 +163,12 @@ async function fetchBucketIssues(
     team,
     assignee,
     anyAssignee,
+    requireAllLabels,
     include: bucket.indicator.filter,
     exclude: bucket.exclude,
     ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
   };
   return fetchOpenIssues(apiKey, spec);
-}
-
-/**
- * Resolve the effective Linear filter from CLI overrides and config, then parse
- * it. `--linear-filter` wins over the deprecated `--linear-assignee` (converted
- * to a clause) over the WORKFLOW.md `linear.filter`.
- */
-function resolveLinearFilter(
-  filterOverride: string,
-  assigneeOverride: string,
-  configFilter: string,
-): { assignee?: string; anyAssignee?: boolean } {
-  const effective =
-    filterOverride || (assigneeOverride ? `assignee = ${assigneeOverride}` : "") || configFilter;
-  return parseLinearFilter(effective);
 }
 
 interface UnifiedRow extends SortableRow {
@@ -269,6 +256,7 @@ async function fetchAndPrintLinear(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
+  requireAllLabels: string[] | undefined,
   cwd: string,
   runner: CmdRunner,
   ignoreCiChecks: string[] = [],
@@ -289,6 +277,7 @@ async function fetchAndPrintLinear(
           team,
           assignee,
           anyAssignee,
+          requireAllLabels,
           ticketNumbers,
         );
         return { bucket, issues, error: null };
@@ -440,7 +429,6 @@ async function fetchAndPrintLinear(
 
 interface RunListInput {
   linearTeamOverride: string;
-  linearFilterOverride: string;
   linearAssigneeOverride: string;
   debug: boolean;
   name: string;
@@ -464,7 +452,6 @@ export async function runList(input: RunListInput): Promise<void> {
       identifier: name,
       projectRoot,
       linearTeamOverride: input.linearTeamOverride,
-      linearFilterOverride: input.linearFilterOverride,
       linearAssigneeOverride: input.linearAssigneeOverride,
     });
     return;
@@ -477,10 +464,8 @@ export async function runList(input: RunListInput): Promise<void> {
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
-  const { assignee, anyAssignee } = resolveLinearFilter(
-    input.linearFilterOverride,
-    input.linearAssigneeOverride,
-    cfg.linear.filter,
+  const { assignee, anyAssignee, requireAllLabels } = resolveLinearFilter(
+    applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
   const buckets = buildBuckets(indicators);
   const anyConfigured = buckets.some((b) => b.indicator && b.indicator.filter.length > 0);
@@ -523,9 +508,10 @@ export async function runList(input: RunListInput): Promise<void> {
     team,
     assignee,
     anyAssignee,
+    requireAllLabels,
     projectRoot,
     localCmdRunner,
-    cfg.ignoreCiChecks,
+    cfg.prRecovery.ignoreChecks,
     input.checks,
     input.review,
     ticketNumbers,
@@ -540,7 +526,6 @@ interface DebugInput {
   identifier: string;
   projectRoot: string;
   linearTeamOverride: string;
-  linearFilterOverride: string;
   linearAssigneeOverride: string;
 }
 
@@ -659,10 +644,8 @@ async function runListDebug(input: DebugInput): Promise<void> {
   const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
-  const { assignee, anyAssignee } = resolveLinearFilter(
-    input.linearFilterOverride,
-    input.linearAssigneeOverride,
-    cfg.linear.filter,
+  const { assignee, anyAssignee, requireAllLabels } = resolveLinearFilter(
+    applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
   const assigneeLabel = anyAssignee ? "any" : (assignee ?? "*");
 
@@ -718,6 +701,13 @@ async function runListDebug(input: DebugInput): Promise<void> {
       reasons.push(
         `assignee mismatch: issue=${issue.assignee ? (issue.assignee.email ?? issue.assignee.id) : "unassigned"}, config=${assigneeLabel}`,
       );
+    }
+    if (requireAllLabels && requireAllLabels.length > 0) {
+      const issueLabels = new Set(issue.labels.nodes.map((l) => l.name));
+      const missing = requireAllLabels.filter((label) => !issueLabels.has(label));
+      if (missing.length > 0) {
+        reasons.push(`missing required linear.filter label(s): ${missing.join(", ")}`);
+      }
     }
 
     const includeMatches = bucket.indicator.filter.some((m) => markerMatches(issue, m));

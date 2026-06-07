@@ -17,9 +17,8 @@ export type AgentMode = "agent" | "list" | "stop" | "status";
 export interface AgentParsedArgs extends CommonArgs {
   mode: AgentMode;
   linearTeam: string;
-  /** Global Linear filter expression (e.g. "assignee = me"); overrides config. */
-  linearFilter: string;
-  /** @deprecated Use `--linear-filter "assignee = <value>"` instead. */
+  /** Runtime assignee override (me / any / unassigned / <email> / <id>). Replaces
+   *  the `assignee` clause of the config's `linear.filter` for this run. */
   linearAssignee: string;
   pollInterval: number;
   concurrency: number;
@@ -28,7 +27,6 @@ export interface AgentParsedArgs extends CommonArgs {
    *  the config's `linear.indicators`; CLI wins on conflict. */
   indicators: Partial<Indicators>;
   createPr: boolean;
-  fixCi: boolean;
   /** Open the PR against a blocker's open-PR head branch when the Linear
    *  issue is blocked-by another issue with a single open GitHub PR. */
   stackPrs: boolean;
@@ -52,9 +50,9 @@ export interface AgentParsedArgs extends CommonArgs {
   preExistingErrorCheck?: boolean;
   /** Disable tmux session management; run agent in the foreground directly. */
   noTmux: boolean;
-  /** RLF-173 override: when defined, force pr-tracker on/off regardless of
-   *  the `prTracker.enabled` workflow config. `--no-pr-tracker` sets false. */
-  prTrackerEnabled?: boolean;
+  /** RLF-97 override: when defined, force PR recovery on/off regardless of
+   *  the `prRecovery.enabled` workflow config. `--no-pr-recovery` sets false. */
+  prRecoveryEnabled?: boolean;
   /** List mode: show failing CI check names per PR. */
   checks: boolean;
   /** List mode: show unresolved review comment count per PR. */
@@ -109,8 +107,7 @@ const HELP_TEXT = [
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
   "  --linear-team <key>     Linear team key (e.g. ENG)",
-  "  --linear-filter <expr>  Global Linear filter (e.g. 'assignee = me', 'assignee = any')",
-  "  --linear-assignee <id>  [deprecated] Filter by assignee; use --linear-filter instead",
+  "  --linear-assignee <id>  Assignee override (me / any / unassigned / <email> / <id>); overrides linear.filter's assignee clause",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",
   "  --concurrency <n>       Max concurrent task loops (default: 1)",
   "  --worktree              Run each task in its own git worktree",
@@ -122,13 +119,12 @@ const HELP_TEXT = [
   "                          --indicator setPrReady:status:In Review (additive ready marker)",
   "                          (attachment upserts a single 'Ralphy' entry; value = subtitle)",
   "  --create-pr             Push the worker branch and open a GitHub PR on success (needs --worktree)",
-  "  --fix-ci                After opening the PR, re-run on CI failures until green (needs --create-pr)",
   "  --stack-prs             Base the PR on a blocker issue's open-PR head branch when present (needs --create-pr)",
   "  --code-review           Watch open tracked PRs for unresolved review comments",
   "  --max-tickets <n>       Stop picking up new issues after N have been started (0 = unlimited)",
   "  --ticket <id>           Restrict issue discovery to specific ticket(s); repeatable or comma-separated (e.g. RLF-208 or 208)",
   "  --no-tmux               Disable tmux session management; run agent in the foreground directly",
-  "  --no-pr-tracker         Disable RLF-173 pr-tracker bail / recovery counter for this run",
+  "  --no-pr-recovery        Disable PR recovery (conflict + CI watcher) for this run; --pr-recovery forces it on",
   "  --json-output           Emit JSONL to stdout instead of the Ink dashboard (for scripting/CI)",
   "                          (auto-enabled when stdin is not a TTY, e.g. pipes / nohup / CI)",
   "  --json-log-file <path>  Mirror JSONL events to a file (works alongside TUI or --json-output)",
@@ -208,14 +204,12 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     ...common,
     mode: "agent",
     linearTeam: "",
-    linearFilter: "",
     linearAssignee: "",
     pollInterval: 0,
     concurrency: 0,
     worktree: false,
     indicators: {},
     createPr: false,
-    fixCi: false,
     stackPrs: false,
     codeReview: false,
     maxTickets: 0,
@@ -231,7 +225,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
 
   const state = emptyParseState();
   let expectLinearTeam = false;
-  let expectLinearFilter = false;
   let expectLinearAssignee = false;
   let expectPollInterval = false;
   let expectConcurrency = false;
@@ -244,11 +237,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     if (expectLinearTeam) {
       result.linearTeam = arg;
       expectLinearTeam = false;
-      continue;
-    }
-    if (expectLinearFilter) {
-      result.linearFilter = arg;
-      expectLinearFilter = false;
       continue;
     }
     if (expectLinearAssignee) {
@@ -296,9 +284,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
       case "--linear-team":
         expectLinearTeam = true;
         break;
-      case "--linear-filter":
-        expectLinearFilter = true;
-        break;
       case "--linear-assignee":
         expectLinearAssignee = true;
         break;
@@ -322,9 +307,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--create-pr":
         result.createPr = true;
-        break;
-      case "--fix-ci":
-        result.fixCi = true;
         break;
       case "--stack-prs":
         result.stackPrs = true;
@@ -359,11 +341,11 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
       case "--no-tmux":
         result.noTmux = true;
         break;
-      case "--no-pr-tracker":
-        result.prTrackerEnabled = false;
+      case "--no-pr-recovery":
+        result.prRecoveryEnabled = false;
         break;
-      case "--pr-tracker":
-        result.prTrackerEnabled = true;
+      case "--pr-recovery":
+        result.prRecoveryEnabled = true;
         break;
       default:
         if (VALID_MODES.has(arg)) {
@@ -378,9 +360,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   await resolvePromptFile(result, state);
   resolveWorkflowFile(result, state);
 
-  if (result.fixCi && !result.createPr) {
-    throw new Error("--fix-ci requires --create-pr");
-  }
   if (result.stackPrs && !result.createPr) {
     throw new Error("--stack-prs requires --create-pr");
   }
