@@ -238,6 +238,10 @@ function issueInAwaitingStatus(issue: LinearIssue, indicators: Indicators): bool
  *  instead of stranding in the awaiting status while implementation runs. When
  *  the awaiting marker was a label and status was already In Progress this is a
  *  harmless no-op. */
+/** Release the awaiting-confirmation marker (pull the ticket back to
+ *  in-progress). Returns true when it actually transitioned the ticket, false
+ *  when there was nothing to release (already cleared) — callers use this to log
+ *  the release exactly once instead of on every poll. */
 async function releaseAwaitingMarker(
   issue: LinearIssue,
   statePath: string,
@@ -246,7 +250,7 @@ async function releaseAwaitingMarker(
     applyIndicator: AwaitingDeps["applyIndicator"];
     onLog: AwaitingDeps["onLog"];
   },
-): Promise<void> {
+): Promise<boolean> {
   const { stateObj, confirmation } = await readConfirmationState(statePath);
   // Normally the local `awaitingMarkerAppliedAt` watermark tells us the ticket
   // was parked and needs restoring. But that stamp is per-process: if the park
@@ -255,7 +259,7 @@ async function releaseAwaitingMarker(
   // awaiting status on Linear. Fall back to the issue's current status so the
   // gate release still pulls it back to In Progress instead of stranding it.
   if (!confirmation.awaitingMarkerAppliedAt && !issueInAwaitingStatus(issue, deps.indicators)) {
-    return;
+    return false;
   }
   if (deps.indicators.clearAwaitingConfirmation) {
     try {
@@ -286,6 +290,7 @@ async function releaseAwaitingMarker(
       "yellow",
     );
   }
+  return true;
 }
 
 /** True when any confirmation indicator (`getApproved` / `getAutoApprove` /
@@ -378,13 +383,19 @@ export async function processAwaitingForIssue(
         persistedConfirmation: confirmation,
       });
     if (!active) {
-      deps.awaitingChangeSet.delete(changeName);
-      await releaseAwaitingMarker(issue, statePath, {
+      // gate-cleared is a one-time park→release transition (the gate was
+      // satisfied, e.g. approval landed). Log only when the ticket was actually
+      // parked — tracked in-process, or its marker cleared on Linear — otherwise
+      // a confirmed ticket resting in-review re-logs the release every poll.
+      const wasTracked = deps.awaitingChangeSet.delete(changeName);
+      const released = await releaseAwaitingMarker(issue, statePath, {
         indicators,
         applyIndicator: deps.applyIndicator,
         onLog: deps.onLog,
       });
-      deps.onLog(`  ${issue.identifier}: confirmation detect released — gate-cleared`);
+      if (wasTracked || released) {
+        deps.onLog(`  ${issue.identifier}: confirmation detect released — gate-cleared`);
+      }
       return false;
     }
     if (!hasUnchecked(tasks ?? "")) {

@@ -274,6 +274,46 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
+  test("gate-cleared logs only once across repeated polls (no per-poll spam)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-gate-spam-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        clearAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+      };
+
+      // Poll 1 — gate active, marker applied.
+      await processAwaitingForIssue(issue, deps);
+      // Gate bypassed from here on → inactive on every subsequent poll.
+      deps.cfg.linear.indicators.getAutoApprove = {
+        filter: [{ type: "label", value: "ralph:auto-approve" }],
+      };
+      issue.labels = ["ralph:auto-approve"];
+
+      // Polls 2..4 — gate stays inactive. The release is a one-time transition,
+      // so "gate-cleared" must be logged exactly once, not on every poll.
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+
+      const gateClearedLogs = captured.logs.filter((l) => /gate-cleared/.test(l));
+      expect(gateClearedLogs.length).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("clearAwaitingConfirmation fires on tasks-empty release", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-clear-tasks-"));
     try {
