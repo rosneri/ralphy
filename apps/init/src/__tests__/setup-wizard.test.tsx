@@ -228,6 +228,52 @@ describe("SetupWizard render", () => {
     expect(md).toContain("name: my-app");
   });
 
+  test("a config-file-only migration (empty diff) finalizes without a keypress", async () => {
+    const ENTER = "\r";
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+    // A v4 file migrating to v5, whose only new setting is config-file-only —
+    // so the diff carries zero wizard fields.
+    const legacy = [
+      "---",
+      "version: 4",
+      "project:",
+      "  name: my-app",
+      "linear:",
+      "  team: ENG",
+      "---",
+      "Body.",
+    ].join("\n");
+    let result: string | null = null;
+    let threw = false;
+    const { stdin, unmount } = render(
+      createElement(SetupWizard, {
+        onComplete: (md: string) => (result = md),
+        initialMode: "customized",
+        onlyFields: [], // empty diff: nothing to ask
+        buildMarkdown: (answers) => applyAnswersToWorkflow(legacy, answers),
+      }),
+    );
+    // It must finalize on its own — the screen is empty, there is nothing to fill.
+    await tick();
+    // A stray Enter on the (already finalized) wizard must not crash.
+    try {
+      stdin.write(ENTER);
+      await tick();
+    } catch {
+      threw = true;
+    }
+    unmount();
+
+    expect(threw).toBe(false);
+    expect(result).not.toBeNull();
+    const md = result!;
+    // The file is stamped to the current schema version...
+    expect(parseWorkflow(md).config.version).toBe(5);
+    // ...and the user's existing settings are preserved (no data loss).
+    expect(md).toContain("name: my-app");
+    expect(md).toContain("team: ENG");
+  });
+
   test("the prompt-body step pre-fills the body and replaces it on Ctrl-D", async () => {
     const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
     const captured: { md: string | null } = { md: null };

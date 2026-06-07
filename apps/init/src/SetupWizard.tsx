@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { VERSION } from "@ralphy/version";
 import { buildWorkflowMarkdown, indicatorsForPreset } from "@ralphy/workflow/wizard";
@@ -376,6 +376,18 @@ export function SetupWizard({
     setVisited((prev) => new Set(prev).add(nextFields[index + 1]!.id));
     goTo(index + 1, source);
   };
+
+  // A migration whose diff is config-file-only (e.g. v5's `specAttachmentRevisions`)
+  // produces zero wizard fields. There is nothing to walk through, so finalize
+  // immediately — write the upgraded file (version stamp + default backfill on
+  // write) rather than rendering a dead empty screen that crashes on keypress.
+  useEffect(() => {
+    if (mode !== null && !building && fields.length === 0) {
+      onComplete(buildFromAnswers(mode, valuesToWrite(answers), buildMarkdown));
+      exit();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, building, fields.length]);
 
   useInput(
     (input, key) => {
