@@ -130,3 +130,75 @@ describe("migrateWorkflowMarkdown (v5 → v6 prRecovery)", () => {
     expect(result.markdown).toBe(plain);
   });
 });
+
+describe("migrateWorkflowMarkdown (legacy linear.filter string → marker list)", () => {
+  test("converts `assignee = me` into a single assignee marker and parses", () => {
+    const result = migrateWorkflowMarkdown(wrap("version: 6\nlinear:\n  filter: assignee = me"));
+    expect(result.changed).toBe(true);
+    // Serialized as a grep-friendly block list, never inline JSON.
+    expect(result.markdown).toContain("- type: assignee");
+    expect(result.markdown).not.toContain("filter: assignee = me");
+    const { config } = parseWorkflow(result.markdown);
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
+  });
+
+  test.each([
+    ["assignee = any", "any"],
+    ["assignee = unassigned", "unassigned"],
+    ["", "me"],
+    ["assignee = teammate@doorloop.com", "teammate@doorloop.com"],
+  ])("maps the string %p to assignee value %p", (input, value) => {
+    const result = migrateWorkflowMarkdown(wrap(`version: 6\nlinear:\n  filter: ${input}`));
+    expect(result.changed).toBe(true);
+    const { config } = parseWorkflow(result.markdown);
+    expect(config.linear.filter).toEqual([{ type: "assignee", value }]);
+  });
+
+  test("drops the retired linear.assignee key when it rewrites a string filter", () => {
+    const result = migrateWorkflowMarkdown(
+      wrap("version: 6\nlinear:\n  assignee: me\n  filter: assignee = me"),
+    );
+    expect(result.changed).toBe(true);
+    expect(result.markdown).not.toMatch(/^\s*assignee: me$/m);
+    const { config } = parseWorkflow(result.markdown);
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
+  });
+
+  test("a marker-list filter is left unchanged (idempotent)", () => {
+    const input = wrap(
+      ["version: 6", "linear:", "  filter:", "    - type: assignee", "      value: me"].join("\n"),
+    );
+    const result = migrateWorkflowMarkdown(input);
+    expect(result.changed).toBe(false);
+    expect(result.markdown).toBe(input);
+  });
+
+  test("converting a string filter twice is idempotent", () => {
+    const once = migrateWorkflowMarkdown(wrap("version: 6\nlinear:\n  filter: assignee = me"));
+    const twice = migrateWorkflowMarkdown(once.markdown);
+    expect(twice.changed).toBe(false);
+    expect(twice.markdown).toBe(once.markdown);
+  });
+
+  test("migrates the string filter alongside the v5→v6 prRecovery keys in one pass", () => {
+    const result = migrateWorkflowMarkdown(
+      wrap(
+        [
+          "version: 5",
+          "prTracker:",
+          "  enabled: true",
+          "  maxRecoveryAttempts: 4",
+          "linear:",
+          "  assignee: me",
+          "  filter: assignee = me",
+        ].join("\n"),
+      ),
+    );
+    expect(result.changed).toBe(true);
+    expect(result.markdown).not.toContain("prTracker");
+    const { config } = parseWorkflow(result.markdown);
+    expect(config.version).toBe(CURRENT_WORKFLOW_VERSION);
+    expect(config.prRecovery.maxRecoverySessions).toBe(4);
+    expect(config.linear.filter).toEqual([{ type: "assignee", value: "me" }]);
+  });
+});

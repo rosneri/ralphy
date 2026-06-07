@@ -139,6 +139,52 @@ function applyAliases(cfg: WorkflowConfig): void {
   }
 }
 
+/**
+ * Read the `version` stamp from a WORKFLOW.md's raw frontmatter, defaulting to
+ * 0 when it is missing, non-numeric, or the frontmatter is unparseable. This is
+ * the *on-disk* version — distinct from a loaded config's `version`, which a
+ * migration may have already bumped to current in memory. Callers that need to
+ * know which migrations a file has actually adopted (e.g. to offer the right
+ * migration diff) must use this, not the post-`loadWorkflow` value.
+ */
+export function readWorkflowVersion(text: string): number {
+  const match = FRONTMATTER_RE.exec(text);
+  if (!match) return 0;
+  try {
+    const raw = YAML.parse(match[1] ?? "", { schema: "core" }) as { version?: unknown } | null;
+    return typeof raw?.version === "number" ? raw.version : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Whether an on-disk WORKFLOW.md needs a *persisted* upgrade before it can be
+ * used as authored — i.e. a versioned migration would rewrite it, or it still
+ * fails to parse after migrate + normalize (genuinely broken, recreate
+ * territory). Cosmetic normalize-only staleness (a default-bearing key the file
+ * simply omits) is deliberately NOT an upgrade: that self-heals in memory on
+ * every load and never warrants interrupting the user.
+ *
+ * Used by the CLI to route a stale/invalid file into `ralphy init` instead of
+ * crashing or silently running against an unmigrated config.
+ */
+export function workflowNeedsUpgrade(text: string): boolean {
+  let migrated: { markdown: string; changed: boolean };
+  try {
+    migrated = migrateWorkflowMarkdown(text);
+  } catch {
+    return true;
+  }
+  if (migrated.changed) return true;
+  try {
+    parseWorkflow(normalizeWorkflowMarkdown(migrated.markdown).markdown);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 export const WORKFLOW_FILE = "WORKFLOW.md";
 
 /**
