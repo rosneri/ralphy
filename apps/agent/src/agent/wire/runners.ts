@@ -1,9 +1,22 @@
+import { scrubGithubAppTokenEnv } from "@ralphy/engine/preflight";
 import type { CmdRunner } from "../pr";
 import type { GitRunner, WorktreeProvider } from "../worktree";
 
+/** Env for every git/gh subprocess Ralphy spawns: the current environment minus
+ *  `GITHUB_TOKEN`, so all GitHub operations authenticate via gh's own credential
+ *  (`GH_TOKEN` / keyring login) rather than a stray app-level token (e.g. one
+ *  auto-loaded from a project `.env`) that would otherwise shadow it. */
+const ghAuthEnv = (): Record<string, string | undefined> => scrubGithubAppTokenEnv();
+
 export const bunGitRunner: GitRunner = {
   run: async (args, cwd) => {
-    const proc = Bun.spawn({ cmd: ["git", ...args], cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn({
+      cmd: ["git", ...args],
+      cwd,
+      env: ghAuthEnv(),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
@@ -27,7 +40,7 @@ export const bunGitRunner: GitRunner = {
 
 export const bunCmdRunner: CmdRunner = {
   run: async (cmd, cwd) => {
-    const proc = Bun.spawn({ cmd, cwd, stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn({ cmd, cwd, env: ghAuthEnv(), stdout: "pipe", stderr: "pipe" });
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
