@@ -9,7 +9,11 @@ import {
 } from "../agent/config";
 import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
 import { buildAgentCoordinator as buildAgentCoordinatorImpl } from "../agent/wire";
-import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
+import {
+  runPreflight as runPreflightImpl,
+  type PreflightResult,
+  type PreflightOptions,
+} from "@ralphy/engine/preflight";
 import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
 import { waitForActiveWorkers } from "../runtime/shutdown";
 
@@ -85,7 +89,7 @@ interface AgentModeProps {
   /** Test injection — defaults to the real `loadRalphyConfig`. */
   loadConfig?: typeof loadRalphyConfigImpl;
   /** Test injection — defaults to the real `runPreflight`. */
-  runPreflight?: () => Promise<PreflightResult>;
+  runPreflight?: (opts?: PreflightOptions) => Promise<PreflightResult>;
 }
 
 interface LogLine {
@@ -481,7 +485,10 @@ export function AgentMode({
         throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
-      const pf = await runPreflight();
+      const pf = await runPreflight({
+        requireRepoWrite: args.createPr || cfg.createPrOnSuccess,
+        repoCwd: projectRoot,
+      });
       if (!pf.ok) {
         fileEmit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });
         setPreflightError({ tool: pf.tool, message: pf.message });
