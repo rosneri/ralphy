@@ -1,6 +1,7 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../agent/linear";
+import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
@@ -1058,7 +1059,20 @@ export class AgentCoordinator {
         const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
         const actor = await this.flowStore.getActor(issue.id, changeDir);
         if ((actor.getSnapshot().value as string) === "awaiting-ci") {
-          await this.advancePrToDone(issue, pr.url, actor, changeDir);
+          if (this.issueInSetDoneState(issue)) {
+            // The ticket is already in the setDone state but its actor rests in
+            // awaiting-ci — e.g. an already-Done ticket whose discovered PR was
+            // conflict-fixed and is now mergeable again. Re-applying setDone here
+            // would post a spurious "moving to done" comment, so just settle the
+            // actor to done without re-applying the indicator.
+            actor.send({ type: "PR_PASSED" });
+            if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+            if ((actor.getSnapshot().value as string) === "done") {
+              this.flowStore.disposeActor(issue.id);
+            }
+          } else {
+            await this.advancePrToDone(issue, pr.url, actor, changeDir);
+          }
         }
         continue;
       }
@@ -1194,6 +1208,15 @@ export class AgentCoordinator {
    * Linear write throws the actor stays in `awaiting-ci` and the next scan
    * retries the advance. Caller guarantees `actor` is in `awaiting-ci`.
    */
+  /** True when the issue already carries the `setDone` marker(s) — i.e. it is
+   *  already in the done state (status and/or label). Used to suppress a
+   *  redundant advance-to-done on a ticket that reached done by another path. */
+  private issueInSetDoneState(issue: LinearIssue): boolean {
+    const sd = this.opts.setDone;
+    if (!sd) return false;
+    return issueMatchesGetIndicator(issue, { filter: markersOf(sd) });
+  }
+
   private async advancePrToDone(
     issue: LinearIssue,
     prUrl: string,

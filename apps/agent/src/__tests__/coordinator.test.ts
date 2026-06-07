@@ -1186,6 +1186,71 @@ describe("AgentCoordinator — RLF-97 done-deferral + watcher advance", () => {
     expect(ctx.comments.some((c) => c.body.includes("promoted to conflict-fix flow"))).toBe(false);
     expect(ctx.logs.some((l) => l.text.includes("queued (resume)"))).toBe(true);
   });
+
+  test("recovery → awaiting-ci → advance: conflict-fix success then mergeable advances to done (real path)", async () => {
+    // The pure-discovery route into awaiting-ci: an in-progress ticket (never
+    // done) with a conflicting PR is conflict-fixed; on success the actor parks
+    // in awaiting-ci, and the next mergeable poll advances it to done. Exercises
+    // the machine transition + the actor-state gate without any injected PR flag.
+    const ticket = issue("a", "ENG-1");
+    ticket.state = { name: "In Progress", type: "started" };
+    const ctx = makeDeps();
+    ctx.setInProgress([ticket]); // resume-loop promotion site
+    ctx.setDoneCandidates([ticket]); // scan site (production unions both)
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+
+    // Poll 1: promoted to conflict-fix; worker spawns. setDone NOT applied.
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+    ctx.workers.get("change-eng-1")!.resolve(0); // conflict-fix success → awaiting-ci
+    await tick();
+    expect(ctx.applies.find((a) => a.id === "a" && a.ind === setDone)).toBeUndefined();
+
+    // Poll 2: PR is now mergeable → watcher advances the in-review ticket to done.
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+    expect(ctx.applies.filter((a) => a.id === "a" && a.ind === setDone).length).toBe(1);
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("mergeable"))).toBe(true);
+  });
+
+  test("recovered already-Done ticket is NOT re-advanced (no duplicate setDone / spurious comment)", async () => {
+    // Edge: a ticket already in the setDone state whose discovered PR was
+    // conflict-fixed lands in awaiting-ci. The next mergeable poll must settle
+    // the actor WITHOUT re-applying setDone or re-posting the advance comment.
+    const ticket = issue("a", "ENG-1");
+    ticket.state = { name: "Done", type: "completed" }; // already in setDone state
+    const ctx = makeDeps();
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0); // conflict-fix success → awaiting-ci
+    await tick();
+
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+    // Already Done → no re-advance: no setDone re-applied, no "mergeable" comment.
+    expect(ctx.applies.some((a) => a.id === "a" && a.ind === setDone)).toBe(false);
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("mergeable"))).toBe(false);
+  });
 });
 
 describe("AgentCoordinator — progress comments", () => {
