@@ -6,7 +6,11 @@ import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import { ensureRalphyConfig, loadRalphyConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
-import { runPreflight as runPreflightImpl, type PreflightResult } from "@ralphy/engine/preflight";
+import {
+  runPreflight as runPreflightImpl,
+  type PreflightResult,
+  type PreflightOptions,
+} from "@ralphy/engine/preflight";
 import { getProcessBus } from "@ralphy/events";
 import { waitForActiveWorkers } from "../runtime/shutdown";
 import {
@@ -74,7 +78,7 @@ export async function runAgentJson({
   projectRoot: string;
   statesDir: string;
   tasksDir: string;
-  runPreflight?: () => Promise<PreflightResult>;
+  runPreflight?: (opts?: PreflightOptions) => Promise<PreflightResult>;
 }): Promise<void> {
   await mkdir(join(homedir(), ".ralph"), { recursive: true }).catch(() => undefined);
 
@@ -104,7 +108,10 @@ export async function runAgentJson({
     return;
   }
 
-  const pf = await runPreflight();
+  const pf = await runPreflight({
+    requireRepoWrite: args.createPr || cfg.createPrOnSuccess,
+    repoCwd: projectRoot,
+  });
   if (!pf.ok) {
     emit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });
     process.exitCode = 2;
