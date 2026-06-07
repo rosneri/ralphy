@@ -162,10 +162,14 @@ linear:
   # Leave blank to watch every team.
   team: RLF
 
-  # Which issues to pick up by assignee. `assignee = any` watches every
-  # issue regardless of assignee (including unassigned); `assignee = me`
-  # only picks up issues assigned to the API key's user.
-  filter: assignee = any
+  # Global filter ANDed into every Linear query (and the GitHub PR searches
+  # rooted at those issues). A marker list of assignee/label clauses (all
+  # required). assignee value 'any' watches every issue regardless of assignee;
+  # 'me' only picks up issues assigned to the API key's user. Add 'label'
+  # clauses to require the ticket carry those labels.
+  filter:
+    - type: assignee
+      value: any
 
   # Post progress comments on the Linear issue while a task runs.
   postComments: true

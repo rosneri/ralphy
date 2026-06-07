@@ -69,6 +69,10 @@ export interface LinearFilterSpec {
   /** RLF-208: when non-empty, restrict to issues whose Linear `number` is in
    *  this set (ANDed with team/assignee/include/exclude). Set by `--ticket`. */
   numbers?: number[] | undefined;
+  /** Global `linear.filter` label clauses: every entry is a MUST-HAVE label
+   *  ANDed onto the query (the issue must carry all of them). Distinct from
+   *  `include` labels, which are an any-of set within a lifecycle indicator. */
+  requireAllLabels?: string[] | undefined;
 }
 
 const LINEAR_API = "https://api.linear.app/graphql";
@@ -220,6 +224,35 @@ function partition(markers: Marker[]): Partitioned {
 
 const RALPHY_ATTACHMENT_TITLE_FILTER = "Ralphy";
 
+/**
+ * AND every globally-required label onto `where` as its own mandatory clause —
+ * the issue must carry ALL of them. Each becomes a separate `{labels:{some:...}}`
+ * entry in `where.and` so it composes with (rather than overwrites) any include
+ * label set in `where.labels`. Shared by `buildIssueFilter` and the inline
+ * `fetchMentionScanIssues` builder so the global filter can never leak from one
+ * query surface. No-op when there are no required labels.
+ */
+export function applyRequiredLabels(
+  where: Record<string, unknown>,
+  requireAllLabels: string[] | undefined,
+): void {
+  if (!requireAllLabels || requireAllLabels.length === 0) return;
+  const and = (where.and as Record<string, unknown>[] | undefined) ?? [];
+  // If an include label set already sits at the top level (`where.labels`),
+  // move it into `and` and drop it — so the result never carries BOTH a
+  // top-level `labels` and `and[].labels`. This mirrors the exclude path's
+  // consolidation (the only filter shape the codebase has proven in production)
+  // and keeps the include OR-set ANDed with the required must-have clauses.
+  if (where.labels !== undefined) {
+    and.push({ labels: where.labels });
+    delete where.labels;
+  }
+  for (const label of requireAllLabels) {
+    and.push({ labels: { some: { name: { eq: label } } } });
+  }
+  where.and = and;
+}
+
 export function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   if (spec.team) where.team = { key: { eq: spec.team } };
@@ -320,6 +353,8 @@ export function buildIssueFilter(spec: LinearFilterSpec): Record<string, unknown
     }
   }
 
+  applyRequiredLabels(where, spec.requireAllLabels);
+
   return where;
 }
 
@@ -384,6 +419,8 @@ export async function fetchMentionScanIssues(
     anyAssignee?: boolean | undefined;
     /** RLF-208: when non-empty, constrain the scan to these ticket numbers. */
     numbers?: number[] | undefined;
+    /** Global `linear.filter` must-have labels (see {@link LinearFilterSpec}). */
+    requireAllLabels?: string[] | undefined;
     indicators: {
       getTodo?: GetIndicator | undefined;
       getInProgress?: GetIndicator | undefined;
@@ -418,6 +455,7 @@ export async function fetchMentionScanIssues(
   if (spec.numbers && spec.numbers.length > 0) {
     where.number = { in: spec.numbers };
   }
+  applyRequiredLabels(where, spec.requireAllLabels);
 
   const query = `query MentionScanIssues($filter: IssueFilter) {
     issues(filter: $filter, first: 50) {

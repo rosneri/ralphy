@@ -44,7 +44,7 @@ interface RunOptions {
   /** Start directly in this mode, skipping the mode picker. */
   initialMode?: "quick" | "permissive" | "customized";
   /** Field-id keyed values to prefill. */
-  initialValues?: Record<string, string | number | boolean>;
+  initialValues?: Record<string, WizardValue>;
   /**
    * Full answers from a resumed (backed-up) session. Used verbatim as the
    * wizard's initial values, bypassing repo injection so saved answers win.
@@ -114,9 +114,9 @@ async function clearSetupBackup(): Promise<void> {
  * untouched when nothing was detected.
  */
 function withDetectedRepo(
-  initial: Record<string, string | number | boolean> | undefined,
+  initial: Record<string, WizardValue> | undefined,
   repo: RepoIdentity | undefined,
-): Record<string, string | number | boolean> | undefined {
+): Record<string, WizardValue> | undefined {
   if (!repo) return initial;
   const values = { ...initial };
   values["repo.remote"] = repo.remote;
@@ -216,10 +216,8 @@ export async function maybeRunSetupWizard(
 }
 
 /** Prefill values (keyed by wizard field id) from an existing config. */
-function initialValuesFromConfig(
-  config: WorkflowConfig,
-): Record<string, string | number | boolean> {
-  const values: Record<string, string | number | boolean> = {};
+function initialValuesFromConfig(config: WorkflowConfig): Record<string, WizardValue> {
+  const values: Record<string, WizardValue> = {};
   if (config.project.name) values["project.name"] = config.project.name;
   if (config.project.language) values["project.language"] = config.project.language;
   if (config.project.framework) values["project.framework"] = config.project.framework;
@@ -235,12 +233,14 @@ function initialValuesFromConfig(
   values["fixCiOnFailure"] = config.fixCiOnFailure;
   values["useWorktree"] = config.useWorktree;
   if (config.linear.team) values["linear.team"] = config.linear.team;
-  // Translate the stored `assignee = <value>` filter back into the assignee
-  // select (+ specific-user value) the wizard now asks. Anything other than the
-  // three keywords becomes a "specific user" with its email/user-id prefilled.
-  if (config.linear.filter) {
-    const match = /^assignee\s*=\s*(.+)$/i.exec(config.linear.filter.trim());
-    const assignee = match ? match[1]!.trim() : "";
+  // Carry the stored marker filter through verbatim (so label clauses survive a
+  // re-run) and translate its assignee clause back into the assignee select
+  // (+ specific-user value) the wizard asks. Anything other than the three
+  // keywords becomes a "specific user" with its email/user-id prefilled.
+  if (config.linear.filter && config.linear.filter.length > 0) {
+    values["linear.filter"] = config.linear.filter;
+    const assigneeMarker = config.linear.filter.find((marker) => marker.type === "assignee");
+    const assignee = assigneeMarker?.value.trim() ?? "";
     if (assignee === "me" || assignee === "any" || assignee === "unassigned") {
       values["linear.assigneeChoice"] = assignee;
     } else if (assignee !== "") {
