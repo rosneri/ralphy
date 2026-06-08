@@ -28,6 +28,7 @@ function baseDeps(inProgress: LinearIssue[], bus: Bus): CoordinatorDeps {
     fetchInProgress: mock(async () => inProgress),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
+    fetchReview: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),

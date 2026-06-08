@@ -33,6 +33,7 @@ function baseDeps(opts: {
     fetchInProgress: mock(async () => opts.inProgress),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
+    fetchReview: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),

@@ -11,6 +11,9 @@
       "path": "../../packages/types"
     },
     {
+      "path": "../../packages/tracker"
+    },
+    {
       "path": "../../packages/output"
     },
     {

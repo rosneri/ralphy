@@ -31,7 +31,7 @@ interface LinearResolversInput {
   ticketNumbers?: number[] | undefined;
 }
 
-interface LinearResolvers {
+export interface LinearResolvers {
   applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   removeIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
   applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;

@@ -35,6 +35,7 @@ function makeDeps(todo: LinearIssue[] = []): {
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
+    fetchReview: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
