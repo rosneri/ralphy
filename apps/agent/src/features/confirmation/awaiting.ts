@@ -399,35 +399,41 @@ export async function processAwaitingForIssue(
       return false;
     }
     if (!hasUnchecked(tasks ?? "")) {
-      deps.awaitingChangeSet.delete(changeName);
-      await releaseAwaitingMarker(issue, statePath, {
+      const wasTracked = deps.awaitingChangeSet.delete(changeName);
+      const released = await releaseAwaitingMarker(issue, statePath, {
         indicators,
         applyIndicator: deps.applyIndicator,
         onLog: deps.onLog,
       });
-      deps.onLog(`  ${issue.identifier}: confirmation detect released — tasks-empty`);
+      if (wasTracked || released) {
+        deps.onLog(`  ${issue.identifier}: confirmation detect released — tasks-empty`);
+      }
       return false;
     }
     if (!planningComplete(tasks ?? "")) {
-      deps.awaitingChangeSet.delete(changeName);
-      await releaseAwaitingMarker(issue, statePath, {
+      const wasTracked = deps.awaitingChangeSet.delete(changeName);
+      const released = await releaseAwaitingMarker(issue, statePath, {
         indicators,
         applyIndicator: deps.applyIndicator,
         onLog: deps.onLog,
       });
-      deps.onLog(`  ${issue.identifier}: confirmation detect released — planning-incomplete`);
+      if (wasTracked || released) {
+        deps.onLog(`  ${issue.identifier}: confirmation detect released — planning-incomplete`);
+      }
       return false;
     }
     if (isStubArtifact(proposal) || isStubArtifact(design)) {
-      deps.awaitingChangeSet.delete(changeName);
-      await releaseAwaitingMarker(issue, statePath, {
+      const wasTracked = deps.awaitingChangeSet.delete(changeName);
+      const released = await releaseAwaitingMarker(issue, statePath, {
         indicators,
         applyIndicator: deps.applyIndicator,
         onLog: deps.onLog,
       });
-      deps.onLog(
-        `  ${issue.identifier}: confirmation detect released — proposal/design not yet filled in`,
-      );
+      if (wasTracked || released) {
+        deps.onLog(
+          `  ${issue.identifier}: confirmation detect released — proposal/design not yet filled in`,
+        );
+      }
       return false;
     }
     deps.awaitingChangeSet.add(changeName);

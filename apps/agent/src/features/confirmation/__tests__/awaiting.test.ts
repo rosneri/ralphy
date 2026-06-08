@@ -920,7 +920,7 @@ describe("processAwaitingForIssue", () => {
     }
   });
 
-  test("releases when Planning section has unchecked items", async () => {
+  test("never-parked ticket with incomplete planning does not log a release", async () => {
     const dir = mkdtempSync(join(tmpdir(), "awaiting-planning-incomplete-"));
     try {
       const issue = makeIssue();
@@ -949,8 +949,57 @@ describe("processAwaitingForIssue", () => {
       };
       const result = await processAwaitingForIssue(issue, makeDeps(dir, captured));
 
+      // Planning is incomplete, so the ticket was never parked into awaiting.
+      // There is nothing to release, so the "planning-incomplete" line must not
+      // fire — otherwise it re-logs on every poll while planning is in progress.
       expect(result).toBe(false);
-      expect(captured.logs.some((l) => /planning-incomplete/.test(l))).toBe(true);
+      expect(captured.logs.some((l) => /planning-incomplete/.test(l))).toBe(false);
+      expect(captured.awaitingChangeSet.has(changeName)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("planning-incomplete logs only once across repeated polls (no per-poll spam)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "awaiting-planning-spam-"));
+    try {
+      const issue = makeIssue();
+      const changeName = changeNameForIssue(issue);
+      const changeDir = join(dir, "openspec", "changes", changeName);
+      // Poll 1 — planning complete, proposal/design filled: the ticket parks.
+      await seedBugSnapshot(dir, changeName);
+
+      const captured: Captured = {
+        logs: [],
+        awaitingChangeSet: new Set<string>(),
+        reaped: [],
+        awaitingTickets: 0,
+      };
+      const deps = makeDeps(dir, captured);
+      deps.indicators = {
+        setAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+        clearAwaitingConfirmation: { type: "label", value: "ralph:awaiting-confirmation" },
+      };
+
+      const parked = await processAwaitingForIssue(issue, deps);
+      expect(parked).toBe(true);
+      expect(captured.awaitingChangeSet.has(changeName)).toBe(true);
+
+      // The AI re-opens planning — an unchecked item reappears in the Planning
+      // section. From here every poll takes the planning-incomplete branch.
+      await Bun.write(
+        join(changeDir, "tasks.md"),
+        "# Tasks\n\n## Planning\n\n- [x] first\n- [ ] reopened\n\n## Implementation\n\n- [ ] do the thing\n",
+      );
+
+      // Polls 2..4 — the release is a one-time park→release transition, so
+      // "planning-incomplete" must be logged exactly once, not on every poll.
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+      await processAwaitingForIssue(issue, deps);
+
+      const planningLogs = captured.logs.filter((l) => /planning-incomplete/.test(l));
+      expect(planningLogs.length).toBe(1);
       expect(captured.awaitingChangeSet.has(changeName)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
