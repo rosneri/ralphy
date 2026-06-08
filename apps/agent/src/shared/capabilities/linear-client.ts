@@ -1012,6 +1012,62 @@ export async function fetchAttachmentsForIssues(
   return out;
 }
 
+/** A single unresolved blocker of an issue (completed/cancelled pruned out). */
+interface BlockerRef {
+  id: string;
+  identifier: string;
+}
+
+/**
+ * Fetch the current `blocked_by` relations for a set of issues, freshly from
+ * Linear. Returns issueId → unresolved blockers (completed/cancelled states
+ * pruned, mirroring {@link fetchOpenIssues}).
+ *
+ * Used by stacked-PR resolution at PR-create time so a `blocked_by` link added
+ * *after* the worker spawned (a common ordering during planning) is still
+ * honored, rather than trusting the possibly-stale snapshot captured at spawn.
+ */
+export async function fetchBlockedByForIssues(
+  apiKey: string,
+  issueIds: string[],
+): Promise<Map<string, BlockerRef[]>> {
+  const out = new Map<string, BlockerRef[]>();
+  if (issueIds.length === 0) return out;
+
+  const query = `query IssuesBlockedBy($ids: [ID!]!) {
+    issues(filter: { id: { in: $ids } }, first: 250) {
+      nodes {
+        id
+        relations(first: 50) {
+          nodes { type relatedIssue { id identifier state { type } } }
+        }
+      }
+    }
+  }`;
+  const data = await linearRequest<{
+    issues: {
+      nodes: {
+        id: string;
+        relations?: {
+          nodes?: {
+            type: string;
+            relatedIssue: { id: string; identifier: string; state: { type: string } };
+          }[];
+        };
+      }[];
+    };
+  }>(apiKey, query, { ids: issueIds });
+
+  const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
+  for (const node of data.issues.nodes) {
+    const blockers = (node.relations?.nodes ?? [])
+      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
+      .map((r) => ({ id: r.relatedIssue.id, identifier: r.relatedIssue.identifier }));
+    out.set(node.id, blockers);
+  }
+  return out;
+}
+
 export async function findIssueAttachmentByTitle(
   apiKey: string,
   issueId: string,

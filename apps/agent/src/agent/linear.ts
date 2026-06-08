@@ -27,6 +27,7 @@ export {
   upsertRalphyAttachment,
   fetchIssueAttachments,
   fetchAttachmentsForIssues,
+  fetchBlockedByForIssues,
   findIssueAttachmentByTitle,
   fetchWorkflowStates,
   updateIssueState,

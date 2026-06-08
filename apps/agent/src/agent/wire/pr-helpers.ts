@@ -1,4 +1,9 @@
-import { fetchAttachmentsForIssues, baseBranchFromLabels, type LinearIssue } from "../linear";
+import {
+  fetchAttachmentsForIssues,
+  fetchBlockedByForIssues,
+  baseBranchFromLabels,
+  type LinearIssue,
+} from "../linear";
 import { createPullRequest, type CmdRunner } from "../pr";
 
 const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
@@ -65,13 +70,52 @@ function parsePrNumber(url: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** A blocker's open PR, tagged with the blocker issue id that owns it. */
+interface BlockerCandidate {
+  blockerId: string;
+  base: DependencyBase;
+}
+
+/**
+ * From a set of blockers that each have an open PR, pick the dependency *tip* —
+ * the single most-downstream blocker, i.e. the one that is (directly or
+ * transitively) blocked by all the others. In a chain `A ← B ← C`, an issue
+ * blocked by both `A` and `B` should stack onto `B` (which already contains
+ * `A`), not bail to `main`.
+ *
+ * The tip is the unique candidate whose id appears in *no other* candidate's
+ * `blocked_by` set (nothing else in the set depends on it being last). Returns
+ * null when there is no unique tip (genuinely independent blockers) so the
+ * caller falls back to the default base.
+ */
+function pickDependencyTip(
+  candidates: BlockerCandidate[],
+  blockedByOfCandidate: Map<string, Set<string>>,
+): BlockerCandidate | null {
+  const candidateIds = new Set(candidates.map((c) => c.blockerId));
+  // A candidate is "upstream" if some *other* candidate is blocked by it.
+  const upstream = new Set<string>();
+  for (const c of candidates) {
+    const blockers = blockedByOfCandidate.get(c.blockerId) ?? new Set<string>();
+    for (const otherId of blockers) {
+      if (otherId !== c.blockerId && candidateIds.has(otherId)) upstream.add(otherId);
+    }
+  }
+  const tips = candidates.filter((c) => !upstream.has(c.blockerId));
+  return tips.length === 1 ? (tips[0] as BlockerCandidate) : null;
+}
+
 /**
  * Standalone variant of the dependency-base resolver — exported so unit tests
  * can exercise it without booting the full coordinator. The closure inside
- * `buildAgentCoordinator` delegates to this. Keep behavior identical.
+ * `buildAgentCoordinator` delegates to this.
  *
- * Returns the blocker PR's identity (branch + ticket + PR) when exactly one
- * blocker has a single open PR; null otherwise (no blockers, ambiguous, or
+ * Re-resolves the issue's blockers *live* from Linear at call time (rather than
+ * trusting the snapshot captured when the worker spawned, which is often empty
+ * because the `blocked_by` link is added after work starts). Returns the blocker
+ * PR's identity (branch + ticket + PR) when a single open-PR blocker is found,
+ * or — when several blockers have open PRs — the unique dependency *tip*. Null
+ * otherwise (no blockers, no open blocker PR, genuinely independent blockers, or
  * lookup failure) so the caller falls back to the default base branch.
  */
 export async function resolveDependencyBaseBranchImpl(
@@ -80,7 +124,18 @@ export async function resolveDependencyBaseBranchImpl(
   runnerCwd: string,
   deps: { apiKey: string; onLog: (msg: string, color?: string) => void },
 ): Promise<DependencyBase | null> {
-  const blockerIds = issue.blockedByIds;
+  // Re-resolve blockers fresh; fall back to the spawn snapshot if Linear fails.
+  let blockerIds: string[];
+  try {
+    const live = await fetchBlockedByForIssues(deps.apiKey, [issue.id]);
+    blockerIds = (live.get(issue.id) ?? []).map((b) => b.id);
+  } catch (err) {
+    deps.onLog(
+      `! could not refresh blockers for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+    blockerIds = issue.blockedByIds;
+  }
   if (blockerIds.length === 0) return null;
 
   let attachmentsByBlocker: Awaited<ReturnType<typeof fetchAttachmentsForIssues>>;
@@ -94,7 +149,7 @@ export async function resolveDependencyBaseBranchImpl(
     return null;
   }
 
-  const candidates: DependencyBase[] = [];
+  const candidates: BlockerCandidate[] = [];
   for (const blockerId of blockerIds) {
     const attachments = attachmentsByBlocker.get(blockerId) ?? [];
     const prUrls = attachments
@@ -131,7 +186,7 @@ export async function resolveDependencyBaseBranchImpl(
       }
     }
     if (openPrs.length === 1) {
-      candidates.push(openPrs[0] as DependencyBase);
+      candidates.push({ blockerId, base: openPrs[0] as DependencyBase });
     } else if (openPrs.length > 1) {
       deps.onLog(
         `  ${issue.identifier}: blocker ${blockerId} has ${openPrs.length} open PRs — skipping dependency base resolution`,
@@ -140,14 +195,42 @@ export async function resolveDependencyBaseBranchImpl(
     }
   }
 
-  if (candidates.length === 1) return candidates[0] as DependencyBase;
-  if (candidates.length > 1) {
+  if (candidates.length === 1) return (candidates[0] as BlockerCandidate).base;
+  if (candidates.length === 0) return null;
+
+  // Several blockers have open PRs (a dependency chain). Stack onto the tip
+  // instead of bailing — but that needs each candidate's own blockers, so
+  // fetch them and resolve the most-downstream one.
+  let blockedByOfCandidate: Map<string, Set<string>>;
+  try {
+    const map = await fetchBlockedByForIssues(
+      deps.apiKey,
+      candidates.map((c) => c.blockerId),
+    );
+    blockedByOfCandidate = new Map(
+      [...map.entries()].map(([id, refs]) => [id, new Set(refs.map((r) => r.id))]),
+    );
+  } catch (err) {
     deps.onLog(
-      `  ${issue.identifier}: ${candidates.length} blockers have open PRs — falling back to default base`,
+      `! could not resolve dependency order for ${issue.identifier}: ${(err as Error).message}`,
+      "yellow",
+    );
+    return null;
+  }
+
+  const tip = pickDependencyTip(candidates, blockedByOfCandidate);
+  if (!tip) {
+    deps.onLog(
+      `  ${issue.identifier}: ${candidates.length} blockers have open PRs with no single dependency tip — falling back to default base`,
       "gray",
     );
+    return null;
   }
-  return null;
+  deps.onLog(
+    `  ${issue.identifier}: ${candidates.length} blockers have open PRs — stacking onto tip ${tip.base.blockerIdentifier ?? tip.blockerId}`,
+    "gray",
+  );
+  return tip.base;
 }
 
 /** Collaborators for {@link createOpenDraftPr}. Plain values + maps so the
