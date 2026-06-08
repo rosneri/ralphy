@@ -19,6 +19,7 @@ export {
   type MentionSource,
 } from "./provider-contract";
 export { createFakeLinear } from "./fake-linear";
+export { createFakeGithub, makeGithubContractBackend, type FakeGithub } from "./fake-github";
 export { createFakeGh } from "./fake-gh";
 export { createTmpFs } from "./tmp-fs";
 export { createTmpRepo } from "./tmp-repo";
