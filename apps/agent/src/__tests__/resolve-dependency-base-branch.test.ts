@@ -3,9 +3,11 @@ import { resolveDependencyBaseBranchImpl } from "../agent/wire";
 import type { CmdRunner } from "../agent/pr";
 import type { LinearIssue } from "../agent/linear";
 
+const ISSUE_ID = "dep-issue";
+
 function issueWithBlockers(ids: string[]): LinearIssue {
   return {
-    id: "dep-issue",
+    id: ISSUE_ID,
     identifier: "RLF-99",
     title: "dep",
     description: null,
@@ -20,9 +22,89 @@ function issueWithBlockers(ids: string[]): LinearIssue {
   };
 }
 
-describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
-  let originalFetch: typeof fetch;
+type BlockerSpec = { id: string; identifier?: string };
+type AttachmentSpec = { url: string };
 
+/**
+ * A `globalThis.fetch` stand-in that answers the two Linear GraphQL queries the
+ * resolver issues — `IssuesBlockedBy` (relations) and `IssuesAttachments` — by
+ * dispatching on the query body. `blockedBy`/`attachments` map an issue id to
+ * its data; unknown ids return empty.
+ */
+function makeLinearMock(opts: {
+  blockedBy?: Record<string, BlockerSpec[]>;
+  attachments?: Record<string, AttachmentSpec[]>;
+  blockedByStatus?: number;
+  attachmentsStatus?: number;
+  onCall?: (kind: "blockedBy" | "attachments", ids: string[]) => void;
+}): typeof fetch {
+  const impl = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const body = JSON.parse((init?.body as string) ?? "{}") as {
+      query: string;
+      variables: { ids: string[] };
+    };
+    const ids = body.variables.ids;
+    if (body.query.includes("IssuesBlockedBy")) {
+      opts.onCall?.("blockedBy", ids);
+      if (opts.blockedByStatus && opts.blockedByStatus >= 400) {
+        return new Response("blocked-by boom", { status: opts.blockedByStatus });
+      }
+      const nodes = ids.map((id) => ({
+        id,
+        relations: {
+          nodes: (opts.blockedBy?.[id] ?? []).map((b) => ({
+            type: "blocked_by",
+            relatedIssue: {
+              id: b.id,
+              identifier: b.identifier ?? b.id.toUpperCase(),
+              state: { type: "started" },
+            },
+          })),
+        },
+      }));
+      return new Response(JSON.stringify({ data: { issues: { nodes } } }), { status: 200 });
+    }
+    if (body.query.includes("IssuesAttachments")) {
+      opts.onCall?.("attachments", ids);
+      if (opts.attachmentsStatus && opts.attachmentsStatus >= 400) {
+        return new Response("attachments boom", { status: opts.attachmentsStatus });
+      }
+      const nodes = ids.map((id) => ({
+        id,
+        attachments: {
+          nodes: (opts.attachments?.[id] ?? []).map((a, i) => ({
+            id: `att-${id}-${i}`,
+            url: a.url,
+            sourceType: "github",
+            title: "feat",
+          })),
+        },
+      }));
+      return new Response(JSON.stringify({ data: { issues: { nodes } } }), { status: 200 });
+    }
+    return new Response("{}", { status: 200 });
+  };
+  return Object.assign(impl, { preconnect: () => {} });
+}
+
+/** A `gh pr view` runner that answers from a url → PR-fields map. */
+function makeGhRunner(
+  prs: Record<string, { state: string; headRefName: string; title: string }>,
+  sink?: string[][],
+): CmdRunner {
+  return {
+    run: async (args) => {
+      sink?.push(args);
+      const url = args[3] ?? "";
+      const pr = prs[url];
+      if (!pr) return { stdout: JSON.stringify({ state: "CLOSED" }), stderr: "" };
+      return { stdout: JSON.stringify({ ...pr, url }), stderr: "" };
+    },
+  };
+}
+
+describe("resolveDependencyBaseBranchImpl", () => {
+  let originalFetch: typeof fetch;
   beforeEach(() => {
     originalFetch = globalThis.fetch;
   });
@@ -30,99 +112,130 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("5 blockers trigger exactly one Linear request and resolve the single open PR", async () => {
-    const blockerIds = ["b1", "b2", "b3", "b4", "b5"];
-    const openPrUrl = "https://github.com/owner/repo/pull/777";
-    let linearCalls = 0;
-    let capturedIds: string[] = [];
-    const mockFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = async (
-      _input,
-      init,
-    ) => {
-      linearCalls += 1;
-      const body = JSON.parse((init?.body as string) ?? "{}") as {
-        variables: { ids: string[] };
-      };
-      capturedIds = body.variables.ids;
-      return new Response(
-        JSON.stringify({
-          data: {
-            issues: {
-              nodes: [
-                // Only one blocker has the open PR attachment; the others
-                // return empty attachment lists. The single-candidate branch
-                // should resolve to the PR's head branch.
-                {
-                  id: "b3",
-                  attachments: {
-                    nodes: [{ id: "a1", url: openPrUrl, sourceType: "github", title: "feat" }],
-                  },
-                },
-                { id: "b1", attachments: { nodes: [] } },
-                { id: "b2", attachments: { nodes: [] } },
-                { id: "b4", attachments: { nodes: [] } },
-                { id: "b5", attachments: { nodes: [] } },
-              ],
-            },
-          },
-        }),
-        { status: 200 },
-      );
-    };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
+  test("single blocker with one open PR resolves to that PR's head branch", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/777";
+    globalThis.fetch = makeLinearMock({
+      blockedBy: { [ISSUE_ID]: [{ id: "b3" }] },
+      attachments: { b3: [{ url: prUrl }] },
+    });
+    const runner = makeGhRunner({
+      [prUrl]: { state: "OPEN", headRefName: "feature/blocker-3", title: "RLF-42: build it" },
+    });
 
-    const ghCalls: string[][] = [];
-    const runner: CmdRunner = {
-      run: async (args) => {
-        ghCalls.push(args);
-        return {
-          stdout: JSON.stringify({
-            state: "OPEN",
-            headRefName: "feature/blocker-3",
-            title: "RLF-42: build the blocker",
-            url: openPrUrl,
-          }),
-          stderr: "",
-        };
-      },
-    };
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b3"]), runner, "/cwd", {
+      apiKey: "k",
+      onLog: () => {},
+    });
 
-    const out = await resolveDependencyBaseBranchImpl(
-      issueWithBlockers(blockerIds),
-      runner,
-      "/cwd",
-      { apiKey: "k", onLog: () => {} },
-    );
-
-    expect(linearCalls).toBe(1);
-    expect(capturedIds).toEqual(blockerIds);
-    expect(ghCalls).toHaveLength(1);
-    // The gh pr view query must request the fields needed to name the
-    // dependency clearly (ticket via title, PR via number/url).
-    expect(ghCalls[0]).toContain("state,headRefName,title,url");
     expect(out).toEqual({
       baseBranch: "feature/blocker-3",
-      prUrl: openPrUrl,
+      prUrl,
       prNumber: 777,
       blockerIdentifier: "RLF-42",
     });
   });
 
-  test("batched fetch failure logs a yellow line and returns null", async () => {
-    let linearCalls = 0;
-    const mockFetch: (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => Promise<Response> = async () => {
-      linearCalls += 1;
-      return new Response("upstream boom", { status: 500 });
-    };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
+  test("re-resolves blockers live: stale empty snapshot still stacks (gap #1)", async () => {
+    // Snapshot captured at spawn has NO blockers, but Linear now reports one
+    // with an open PR. The live re-fetch must pick it up.
+    const prUrl = "https://github.com/owner/repo/pull/501";
+    globalThis.fetch = makeLinearMock({
+      blockedBy: { [ISSUE_ID]: [{ id: "late" }] },
+      attachments: { late: [{ url: prUrl }] },
+    });
+    const runner = makeGhRunner({
+      [prUrl]: { state: "OPEN", headRefName: "ralph/late", title: "RLF-7: late link" },
+    });
 
-    const logs: { msg: string; color: string | undefined }[] = [];
-    const runner: CmdRunner = {
-      run: async () => ({ stdout: "", stderr: "" }),
-    };
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), runner, "/cwd", {
+      apiKey: "k",
+      onLog: () => {},
+    });
+
+    expect(out?.baseBranch).toBe("ralph/late");
+    expect(out?.blockerIdentifier).toBe("RLF-7");
+  });
+
+  test("chain of blockers with open PRs stacks onto the tip, not main (gap #2)", async () => {
+    // dep-issue blocked by both b418 and b419; b419 is itself blocked by b418.
+    // The tip is b419 (most downstream) — stack onto its branch.
+    const pr418 = "https://github.com/owner/repo/pull/418";
+    const pr419 = "https://github.com/owner/repo/pull/419";
+    globalThis.fetch = makeLinearMock({
+      blockedBy: {
+        [ISSUE_ID]: [{ id: "b418" }, { id: "b419" }],
+        b418: [],
+        b419: [{ id: "b418" }],
+      },
+      attachments: { b418: [{ url: pr418 }], b419: [{ url: pr419 }] },
+    });
+    const runner = makeGhRunner({
+      [pr418]: { state: "OPEN", headRefName: "ralph/lit-418", title: "LIT-418: schema" },
+      [pr419]: { state: "OPEN", headRefName: "ralph/lit-419", title: "LIT-419: read/write" },
+    });
+
+    const out = await resolveDependencyBaseBranchImpl(
+      issueWithBlockers(["b418", "b419"]),
+      runner,
+      "/cwd",
+      { apiKey: "k", onLog: () => {} },
+    );
+
+    expect(out?.baseBranch).toBe("ralph/lit-419");
+    expect(out?.blockerIdentifier).toBe("LIT-419");
+  });
+
+  test("genuinely independent blockers with open PRs have no tip → null", async () => {
+    const prA = "https://github.com/owner/repo/pull/10";
+    const prB = "https://github.com/owner/repo/pull/20";
+    globalThis.fetch = makeLinearMock({
+      blockedBy: { [ISSUE_ID]: [{ id: "ba" }, { id: "bb" }], ba: [], bb: [] },
+      attachments: { ba: [{ url: prA }], bb: [{ url: prB }] },
+    });
+    const runner = makeGhRunner({
+      [prA]: { state: "OPEN", headRefName: "ralph/a", title: "RLF-1: a" },
+      [prB]: { state: "OPEN", headRefName: "ralph/b", title: "RLF-2: b" },
+    });
+    const logs: { msg: string; color?: string | undefined }[] = [];
+
+    const out = await resolveDependencyBaseBranchImpl(
+      issueWithBlockers(["ba", "bb"]),
+      runner,
+      "/cwd",
+      { apiKey: "k", onLog: (msg, color) => logs.push({ msg, color }) },
+    );
+
+    expect(out).toBeNull();
+    expect(logs.some((l) => l.msg.includes("no single dependency tip"))).toBe(true);
+  });
+
+  test("live blocker fetch failure falls back to the spawn snapshot", async () => {
+    const prUrl = "https://github.com/owner/repo/pull/55";
+    globalThis.fetch = makeLinearMock({
+      blockedByStatus: 500, // live re-fetch fails → fall back to snapshot ["b1"]
+      attachments: { b1: [{ url: prUrl }] },
+    });
+    const runner = makeGhRunner({
+      [prUrl]: { state: "OPEN", headRefName: "ralph/b1", title: "RLF-3: snap" },
+    });
+    const logs: { msg: string; color?: string | undefined }[] = [];
+
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b1"]), runner, "/cwd", {
+      apiKey: "k",
+      onLog: (msg, color) => logs.push({ msg, color }),
+    });
+
+    expect(out?.baseBranch).toBe("ralph/b1");
+    expect(logs.some((l) => l.color === "yellow" && l.msg.includes("refresh blockers"))).toBe(true);
+  });
+
+  test("attachment fetch failure logs yellow and returns null", async () => {
+    globalThis.fetch = makeLinearMock({
+      blockedBy: { [ISSUE_ID]: [{ id: "b1" }, { id: "b2" }] },
+      attachmentsStatus: 500,
+    });
+    const runner = makeGhRunner({});
+    const logs: { msg: string; color?: string | undefined }[] = [];
 
     const out = await resolveDependencyBaseBranchImpl(
       issueWithBlockers(["b1", "b2"]),
@@ -132,33 +245,27 @@ describe("resolveDependencyBaseBranchImpl — batched attachment fetch", () => {
     );
 
     expect(out).toBeNull();
-    // Linear retries 5xx up to MAX_LINEAR_ATTEMPTS times, but we only care
-    // that exactly one log line was emitted that references the issue
-    // identifier and the "attachments for blockers" phrase.
-    expect(linearCalls).toBeGreaterThanOrEqual(1);
-    const yellowLines = logs.filter((l) => l.color === "yellow");
-    expect(yellowLines).toHaveLength(1);
-    expect(yellowLines[0]!.msg).toContain("RLF-99");
-    expect(yellowLines[0]!.msg).toContain("attachments for blockers");
+    const yellow = logs.filter((l) => l.color === "yellow");
+    expect(yellow).toHaveLength(1);
+    expect(yellow[0]!.msg).toContain("RLF-99");
+    expect(yellow[0]!.msg).toContain("attachments for blockers");
   });
 
-  test("empty blockedByIds short-circuits with null and no HTTP call", async () => {
-    let linearCalls = 0;
-    const mockFetch: (
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => Promise<Response> = async () => {
-      linearCalls += 1;
-      return new Response("{}", { status: 200 });
-    };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect });
+  test("no blockers (live + snapshot empty) returns null after one lookup", async () => {
+    const calls: string[] = [];
+    globalThis.fetch = makeLinearMock({
+      blockedBy: { [ISSUE_ID]: [] },
+      onCall: (kind) => calls.push(kind),
+    });
+    const runner = makeGhRunner({});
 
-    const runner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
     const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), runner, "/cwd", {
       apiKey: "k",
       onLog: () => {},
     });
+
     expect(out).toBeNull();
-    expect(linearCalls).toBe(0);
+    // One blocked-by lookup; no attachment fetch since there are no blockers.
+    expect(calls).toEqual(["blockedBy"]);
   });
 });

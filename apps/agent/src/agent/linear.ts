@@ -9,6 +9,7 @@ export type {
   LinearIssue,
   LinearFilterSpec,
   LinearComment,
+  BlockerRef,
 } from "../shared/capabilities/linear-client";
 export {
   fetchMentionScanIssues,
@@ -27,6 +28,7 @@ export {
   upsertRalphyAttachment,
   fetchIssueAttachments,
   fetchAttachmentsForIssues,
+  fetchBlockedByForIssues,
   findIssueAttachmentByTitle,
   fetchWorkflowStates,
   updateIssueState,
