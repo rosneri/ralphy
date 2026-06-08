@@ -21,7 +21,8 @@ import {
   statusLabelType,
   viewIssue,
 } from "../github/github-client";
-import { githubIdentifierStrategy } from "../github/identifier-strategy";
+import { githubIdentifierStrategy, linearIdentifierStrategy } from "../github/identifier-strategy";
+import type { LinearIssue } from "../linear-client";
 import { branchForChange } from "../../../agent/worktree";
 
 function fakeRunner(stdoutByCall: string[] = []) {
@@ -108,6 +109,21 @@ describe("githubIdentifierStrategy", () => {
     const issue = { number: 9, title: "Add dark mode" };
     expect(githubIdentifierStrategy.changeName(issue)).toBe(changeNameForGitHubIssue(issue));
     expect(githubIdentifierStrategy.branchName(issue)).toBe(branchNameForGitHubIssue(issue));
+  });
+});
+
+describe("linearIdentifierStrategy", () => {
+  const issue = { identifier: "RLF-232", title: "Add dark mode" } as LinearIssue;
+  test("scopeKey is the team key (identifier prefix)", () => {
+    expect(linearIdentifierStrategy.scopeKey(issue)).toBe("RLF");
+  });
+  test("changeName lowercases the identifier and slugs the title", () => {
+    expect(linearIdentifierStrategy.changeName(issue)).toBe("rlf-232-add-dark-mode");
+  });
+  test("branchName wraps changeName via branchForChange", () => {
+    expect(linearIdentifierStrategy.branchName(issue)).toBe(
+      branchForChange(linearIdentifierStrategy.changeName(issue)),
+    );
   });
 });
 
