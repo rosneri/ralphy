@@ -9,7 +9,6 @@ export type {
   LinearIssue,
   LinearFilterSpec,
   LinearComment,
-  BlockerRef,
 } from "../shared/capabilities/linear-client";
 export {
   fetchMentionScanIssues,

@@ -1013,7 +1013,7 @@ export async function fetchAttachmentsForIssues(
 }
 
 /** A single unresolved blocker of an issue (completed/cancelled pruned out). */
-export interface BlockerRef {
+interface BlockerRef {
   id: string;
   identifier: string;
 }
