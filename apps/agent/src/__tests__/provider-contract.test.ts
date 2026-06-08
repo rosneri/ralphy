@@ -1,6 +1,11 @@
-// Drives the backend-parametrized provider contract against FakeLinear so the
-// nx `test` target (`bun test apps/agent/src`) executes it in CI. A future
-// FakeGithub proves itself by adding a sibling call with its own adapter.
-import { makeLinearContractBackend, runProviderContract } from "../../test/harness";
+// Drives the backend-parametrized provider contract against both FakeLinear and
+// FakeGithub so the nx `test` target (`bun test apps/agent/src`) executes it in
+// CI. The two sibling calls prove the same kit is genuinely tracker-agnostic.
+import {
+  makeGithubContractBackend,
+  makeLinearContractBackend,
+  runProviderContract,
+} from "../../test/harness";
 
 runProviderContract(makeLinearContractBackend);
+runProviderContract(makeGithubContractBackend);
