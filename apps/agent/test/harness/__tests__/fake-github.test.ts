@@ -6,7 +6,7 @@ const seed = (over: Partial<SeedIssue> = {}): SeedIssue => ({
   id: over.id ?? "1",
   identifier: over.identifier ?? "#1",
   title: over.title ?? "x",
-  labels: over.labels,
+  ...(over.labels !== undefined ? { labels: over.labels } : {}),
 });
 
 const ids = async (p: Promise<{ identifier: string }[]>) => (await p).map((i) => i.identifier);
