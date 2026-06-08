@@ -519,6 +519,68 @@ describe("buildTaskPrompt — validateOnComplete", () => {
     }));
 });
 
+describe("buildTaskPrompt — handoff", () => {
+  test("always appends the write-handoff instruction", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("## Write Handoff (do this LAST, before you finish)");
+      expect(prompt).toContain(join(tempDir, "handoff.md"));
+      expect(prompt).toContain("do NOT commit it");
+    }));
+
+  test("write-handoff instruction is present even when no handoff.md exists (first iteration)", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      // No handoff.md on disk.
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("## Write Handoff (do this LAST, before you finish)");
+      expect(prompt).not.toContain("Previous Iteration Handoff");
+    }));
+
+  test("injects the prior handoff before the current task section when handoff.md has content", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(
+        join(tempDir, "tasks.md"),
+        ["## 1. Work", "- [ ] Do the thing"].join("\n"),
+        "utf-8",
+      );
+      writeFileSync(
+        join(tempDir, "handoff.md"),
+        "Did setup. Remaining: wire the handler. Decision: used storage abstraction.",
+        "utf-8",
+      );
+
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).toContain("# Previous Iteration Handoff (context from the last iteration)");
+      expect(prompt).toContain("Remaining: wire the handler");
+      expect(prompt.indexOf("Previous Iteration Handoff")).toBeLessThan(
+        prompt.indexOf("Current Task Section"),
+      );
+    }));
+
+  test("omits the handoff block when handoff.md is absent", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("Previous Iteration Handoff");
+    }));
+
+  test("omits the handoff block when handoff.md is whitespace-only", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      writeFileSync(join(tempDir, "handoff.md"), "   \n\t\n  \n", "utf-8");
+      const prompt = buildTaskPrompt(state, tempDir);
+      expect(prompt).not.toContain("Previous Iteration Handoff");
+    }));
+});
+
 describe("buildPhasePrompt — execute uses buildTaskPrompt", () => {
   test("execute phase output ends with buildTaskPrompt output when meta-prompt disabled", () =>
     withStorage(() => {
