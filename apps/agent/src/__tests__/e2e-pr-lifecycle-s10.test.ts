@@ -503,6 +503,7 @@ describe("S10 — PR lifecycle", () => {
     await coord.init();
 
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     // Conflict-fix worker spawned (triggered by the pre-existing CONFLICTING PR)
@@ -562,6 +563,7 @@ describe("S10 — PR lifecycle", () => {
 
     // Poll 1: fresh spawn
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(workers.has(changeName)).toBe(true);
 
@@ -582,6 +584,7 @@ describe("S10 — PR lifecycle", () => {
     // checkPrStatus returns null (CLOSED) → maybePromoteFinishedConflicted returns false
     // → issue queued as resume (implement)
     const poll2 = await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     // The In Progress issue gets queued as resume (implement fallback)
