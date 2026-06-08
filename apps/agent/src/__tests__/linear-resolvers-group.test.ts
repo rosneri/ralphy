@@ -82,6 +82,68 @@ describe("resolveLabelId — group-scoped lookup", () => {
     expect(id).toBe("lbl-ralphy-error");
   });
 
+  test("applying a grouped label swaps out a sibling from the same exclusive group", async () => {
+    // The issue already carries `approved` (group "Ralphy"); applying `error`
+    // from the same exclusive group must remove `approved` first, then add
+    // `error` — otherwise Linear rejects the second add.
+    const groupedLabelsHandler = (body: Captured): unknown => {
+      if (body.query.includes("issueLabels")) {
+        const isWorkspace = body.query.includes("WorkspaceLabels");
+        return {
+          issueLabels: {
+            nodes: isWorkspace
+              ? []
+              : [
+                  { id: "lbl-ralphy-error", name: "error", parent: { name: "Ralphy" } },
+                  { id: "lbl-ralphy-approved", name: "approved", parent: { name: "Ralphy" } },
+                ],
+          },
+        };
+      }
+      if (body.query.includes("issueAddLabel")) return { issueAddLabel: { success: true } };
+      if (body.query.includes("issueRemoveLabel")) return { issueRemoveLabel: { success: true } };
+      if (body.query.includes("teams(filter")) return { teams: { nodes: [{ id: "team-rlf-id" }] } };
+      return {};
+    };
+    const { calls } = stubFetch(groupedLabelsHandler);
+    const resolvers = createLinearResolvers({
+      apiKey: "k",
+      team: "RLF",
+      assignee: undefined,
+      diag: () => {},
+    });
+
+    const issue = { identifier: "RLF-1", id: "issue-1", labels: ["approved"] } as LinearIssue;
+    await resolvers.applyMarker(issue, { type: "label", value: "error", group: "Ralphy" });
+
+    const removed = calls.find((c) => c.query.includes("issueRemoveLabel"));
+    const added = calls.find((c) => c.query.includes("issueAddLabel"));
+    expect(removed?.variables).toMatchObject({ id: "issue-1", labelId: "lbl-ralphy-approved" });
+    expect(added?.variables).toMatchObject({ id: "issue-1", labelId: "lbl-ralphy-error" });
+    // The label we are adding must not be removed as a "sibling".
+    expect(
+      calls.some(
+        (c) =>
+          c.query.includes("issueRemoveLabel") && c.variables["labelId"] === "lbl-ralphy-error",
+      ),
+    ).toBe(false);
+  });
+
+  test("a grouped label with no conflicting sibling is added without any removal", async () => {
+    const { calls } = stubFetch(defaultLabelsHandler);
+    const resolvers = createLinearResolvers({
+      apiKey: "k",
+      team: "RLF",
+      assignee: undefined,
+      diag: () => {},
+    });
+    // Issue carries an unrelated, ungrouped label — nothing to swap.
+    const issue = { identifier: "RLF-1", id: "issue-1", labels: ["Bug"] } as LinearIssue;
+    await resolvers.applyMarker(issue, { type: "label", value: "error", group: "Ralphy" });
+
+    expect(calls.some((c) => c.query.includes("issueRemoveLabel"))).toBe(false);
+  });
+
   test("without group, callers still resolve top-level labels by exact name", async () => {
     // The no-group code path is unchanged for top-level labels — guard that
     // we still hit the cache on the bare key when the label isn't nested.
