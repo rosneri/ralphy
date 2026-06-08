@@ -2,25 +2,15 @@ import type { GetIndicator } from "@ralphy/types";
 import { type OrderableIssue, orderIssuesHierarchically } from "@ralphy/core/ordering";
 import type { LinearIssue } from "../agent/linear";
 import { issueMatchesGetIndicator } from "../agent/linear";
+import type { MentionTrigger } from "@ralphy/tracker";
+
+/** Re-exported from `@ralphy/tracker` (RLF-223 M1). Kept here so the existing
+ *  imports from `queue-order` / the coordinator re-export compile untouched. */
+export type { MentionTrigger };
 
 /** Semantic origin of a queued issue. Carries intent for logging, comment
  *  posting and label flow; does NOT influence ordering — that's `priority`. */
 export type QueueTrigger = "fresh" | "resume" | "conflict-fix" | "ci-fix" | "review";
-
-/** Per-issue review trigger emitted by mention scanning. Carries the
- *  comment that should become the next task verbatim, so the worker
- *  doesn't have to guess which of N comments matters. */
-export interface MentionTrigger {
-  /** Where the trigger originated.
-   *  - "linear" / "github": an `@<handle>` mention on a comment.
-   *  - "github-review": one or more unresolved review-thread comments on
-   *     an open, unapproved PR. Body carries a pre-built digest. */
-  source: "linear" | "github" | "github-review";
-  body: string;
-  createdAt: string;
-  author?: string;
-  url?: string;
-}
 
 export interface QueueEntry {
   issue: LinearIssue;
