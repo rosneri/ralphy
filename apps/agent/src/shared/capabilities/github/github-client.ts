@@ -27,21 +27,21 @@ import { runCapability } from "../run-capability";
 // Provider-neutral output types
 // ---------------------------------------------------------------------------
 
-export interface TrackedIssueState {
+interface TrackedIssueState {
   /** Raw provider state name, e.g. "OPEN" / "CLOSED" (or a status-label name). */
   name: string;
   /** Provider-neutral lifecycle bucket, aligned with Linear's `state.type`. */
   type: "unstarted" | "started" | "completed" | "canceled";
 }
 
-export interface TrackedComment {
+interface TrackedComment {
   id: string;
   body: string;
   createdAt: string;
   user: { name: string; email: string | null } | null;
 }
 
-export interface TrackedIssue {
+interface TrackedIssue {
   /** Provider-qualified id; for GitHub the node id or `#123` fallback. */
   id: string;
   /** Display identifier, e.g. "#123". */
@@ -59,7 +59,7 @@ export interface TrackedIssue {
 }
 
 /** List-then-filter spec for `listIssues`. */
-export interface GitHubFilterSpec {
+interface GitHubFilterSpec {
   state?: "open" | "closed" | "all";
   /** Repeated `--label` flags — ANDed by `gh`. */
   labels?: string[];
@@ -69,7 +69,7 @@ export interface GitHubFilterSpec {
 }
 
 /** Optional execution context shared by every function. */
-export interface GitHubClientCtx {
+interface GitHubClientCtx {
   bus?: Bus;
 }
 
@@ -77,7 +77,7 @@ export interface GitHubClientCtx {
 // Identifier parsing / slugging
 // ---------------------------------------------------------------------------
 
-export interface ParsedGitHubIdentifier {
+interface ParsedGitHubIdentifier {
   /** null for a bare `#123` / `123`. */
   owner: string | null;
   repo: string | null;
@@ -225,7 +225,7 @@ export function deriveTrackedState(
   return { name: state, type: "unstarted" };
 }
 
-export function mapGhComment(json: GhCommentJson): TrackedComment {
+function mapGhComment(json: GhCommentJson): TrackedComment {
   const login = json.author?.login;
   return {
     id: json.id ?? "",
@@ -391,7 +391,7 @@ export async function removeLabel(
   );
 }
 
-export interface CreateLabelOpts {
+interface CreateLabelOpts {
   color?: string;
   description?: string;
   force?: boolean;
@@ -411,7 +411,7 @@ export async function createLabel(
   await ghRun(runner, cwd, "create-label", args, ctx);
 }
 
-export interface TrackedLabel {
+interface TrackedLabel {
   name: string;
   id: string;
   description: string;
@@ -431,7 +431,7 @@ export async function listLabels(
   }));
 }
 
-export interface CloseIssueOpts {
+interface CloseIssueOpts {
   reason?: "completed" | "not planned";
 }
 

@@ -15,7 +15,7 @@ import type { LinearIssue } from "../linear-client";
 import { branchForChange } from "../../../agent/worktree";
 import { githubIdentifierStrategyImpl, type GitHubIssueRef } from "./github-client";
 
-export interface IdentifierStrategy<I> {
+interface IdentifierStrategy<I> {
   /** Cache/scope key — Linear: team key; GitHub: `owner/repo` or "". */
   scopeKey(issue: I): string;
   /** OpenSpec change-name slug for the issue. */
