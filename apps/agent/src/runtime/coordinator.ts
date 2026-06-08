@@ -1,6 +1,6 @@
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
@@ -183,15 +183,15 @@ const emptyPollResult = (): PollResult => ({
 
 export interface CoordinatorDeps {
   /** Issues to pick up. Empty array if `getTodo` isn't configured. */
-  fetchTodo: () => Promise<LinearIssue[]>;
+  fetchTodo: () => Promise<TrackedIssue[]>;
   /** Issues to resume after restart. Empty array if `getInProgress` isn't configured. */
-  fetchInProgress: () => Promise<LinearIssue[]>;
+  fetchInProgress: () => Promise<TrackedIssue[]>;
   /** Done issues with new `@ralphy` mentions on Linear or their tracked
    *  GitHub PR. Empty array if mention scanning is disabled. */
-  fetchMentions: () => Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]>;
+  fetchMentions: () => Promise<{ issue: TrackedIssue; trigger: MentionTrigger }[]>;
   /** Issues with `setDone` applied that ralph should scan for PR conflicts.
    *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
-  fetchDoneCandidates: () => Promise<LinearIssue[]>;
+  fetchDoneCandidates: () => Promise<TrackedIssue[]>;
   /**
    * Forward-compat (RLF-223 M2): issues in the configured `getReview` bucket.
    * Completes the `IssueTrackerProvider` surface so `CoordinatorDeps` is a
@@ -200,7 +200,7 @@ export interface CoordinatorDeps {
    * `fetchMentions` (the scanner enqueues `trigger: "review"`). A future
    * milestone wires a real review poll here.
    */
-  fetchReview: () => Promise<LinearIssue[]>;
+  fetchReview: () => Promise<TrackedIssue[]>;
   /**
    * Side-effect: create or reuse a worktree, scaffold the change directory
    * when its `tasks.md` is missing, and run the project's setup script.
@@ -208,7 +208,7 @@ export interface CoordinatorDeps {
    * task prepending (conflict-fix / review) is handled by
    * `prepareTaskForTrigger` after this resolves.
    */
-  prepare: (issue: LinearIssue) => Promise<PrepareResult>;
+  prepare: (issue: TrackedIssue) => Promise<PrepareResult>;
   /**
    * Optional second-stage prep: prepend a directive task to `tasks.md`
    * and reactivate the loop's state file. Called after `prepare` succeeds
@@ -217,7 +217,7 @@ export interface CoordinatorDeps {
    * dep so the prepend stays observable; absence is treated as a no-op.
    */
   prepareTaskForTrigger?: (
-    issue: LinearIssue,
+    issue: TrackedIssue,
     changeName: string,
     trigger: QueueTrigger,
     mention?: MentionTrigger,
@@ -225,20 +225,20 @@ export interface CoordinatorDeps {
   /** Spawn the worker subprocess for `changeName`. The `trigger` is forwarded
    *  so the post-task harness can branch on it (e.g. RLF-82 conflict-fix
    *  verify-only path). */
-  spawnWorker: (changeName: string, issue: LinearIssue, trigger: QueueTrigger) => WorkerHandle;
+  spawnWorker: (changeName: string, issue: TrackedIssue, trigger: QueueTrigger) => WorkerHandle;
   /** Apply a SetIndicator (label add and/or status set) to the issue. */
-  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  applyIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
   /** Remove a SetIndicator's labels from the issue. Status removal is a no-op. */
-  removeIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  removeIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
   /** Post a comment to the Linear issue. */
-  postComment: (issue: LinearIssue, body: string) => Promise<void>;
+  postComment: (issue: TrackedIssue, body: string) => Promise<void>;
   /** Fetch existing Linear comments — used for "started" idempotency. */
   fetchComments: (issueId: string) => Promise<{ body: string }[]>;
   /** Check the status of a known PR — mergeable, conflicted, or red on CI.
    *  Returns null if no PR is known for this issue (branch deleted, never
    *  created). `unknown` is used when GitHub hasn't computed mergeability
    *  yet or `gh` failed; the caller skips acting on it. */
-  checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatusBucket } | null>;
+  checkPrStatus: (issue: TrackedIssue) => Promise<{ url: string; status: PrStatusBucket } | null>;
   /** True when the worker has registered an open PR for this change this run
    *  (reads the shared `prByChange` map). Used at worker-exit to decide whether
    *  to defer `setDone` to the watcher (PR open + recovery enabled) or apply it
@@ -251,7 +251,7 @@ export interface CoordinatorDeps {
    *  finished-but-conflicted in-progress tickets so they can be promoted
    *  into the conflict-fix flow. Optional — when omitted, the conflict
    *  promotion check is a no-op. */
-  isChangeArchivedForIssue?: (issue: LinearIssue) => Promise<boolean>;
+  isChangeArchivedForIssue?: (issue: TrackedIssue) => Promise<boolean>;
   onLog: (text: string, color?: string) => void;
   /** Log lines that should be persisted to the on-disk agent log but not
    *  surfaced in the UI panel (e.g. the per-poll summary). Dropped silently
@@ -295,13 +295,13 @@ export interface CoordinatorDeps {
    *  in-progress path. Stub features in `features/registry.ts` all return
    *  `null` from `detect`, so wiring this dep is observable only as bus
    *  events — behavior is unchanged until a slice replaces its stub. */
-  buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
+  buildFeatureCtx?: (issue: TrackedIssue) => FeatureCtx | null;
   /** Optional: return the absolute path to the openspec change directory for
    *  the given issue (`openspec/changes/<changeName>/`). Used by the flow
    *  machine actor store to persist snapshots to `.ralph-state.json` between
    *  polls. When omitted, snapshots are held in memory only and the flow
    *  machine starts fresh after each coordinator restart. */
-  getChangeDir?: (issue: LinearIssue) => string | null;
+  getChangeDir?: (issue: TrackedIssue) => string | null;
 }
 
 interface CoordinatorOptions {
@@ -341,7 +341,7 @@ export interface ActiveWorker {
   changeName: string;
   issueId: string;
   issueIdentifier: string;
-  issue: LinearIssue;
+  issue: TrackedIssue;
   trigger: QueueTrigger;
   /** Worker working directory from {@link PrepareResult.cwd}. Lets the
    *  awaiting-reap / done syncTasks flush read the change artifacts from the
@@ -478,9 +478,9 @@ export class AgentCoordinator {
     if (this.stopped) return emptyPollResult();
     this.deps.beforePoll?.();
 
-    let todo: LinearIssue[] = [];
-    let inProgress: LinearIssue[] = [];
-    let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+    let todo: TrackedIssue[] = [];
+    let inProgress: TrackedIssue[] = [];
+    let mentions: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
     try {
       [todo, inProgress, mentions] = await Promise.all([
         this.deps.fetchTodo(),
@@ -694,7 +694,7 @@ export class AgentCoordinator {
    * branches still own the in-progress path in that case.
    */
   private async walkRegistryForInProgress(
-    inProgress: readonly LinearIssue[],
+    inProgress: readonly TrackedIssue[],
   ): Promise<Map<FeatureId, Set<string>>> {
     const claimed = new Map<FeatureId, Set<string>>();
     if (!this.deps.buildFeatureCtx) return claimed;
@@ -752,7 +752,7 @@ export class AgentCoordinator {
    * Returns true when the ticket was promoted (or is already promoted) and
    * should be skipped from the in-progress queue this poll.
    */
-  private async maybePromoteFinishedConflicted(issue: LinearIssue): Promise<boolean> {
+  private async maybePromoteFinishedConflicted(issue: TrackedIssue): Promise<boolean> {
     let pr: { url: string; status: PrStatusBucket } | null;
     try {
       pr = await this.deps.checkPrStatus(issue);
@@ -840,7 +840,7 @@ export class AgentCoordinator {
    *  `todo` view — i.e. they're either completed or external. The Linear
    *  fetch already filters out blockers in completed/cancelled states, so
    *  any remaining blocker is genuinely open. */
-  private dependenciesResolved(issue: LinearIssue): boolean {
+  private dependenciesResolved(issue: TrackedIssue): boolean {
     if (issue.blockedByIds.length === 0) return true;
     const openIds = new Set([
       ...this.queue.map((q) => q.issue.id),
@@ -989,7 +989,7 @@ export class AgentCoordinator {
     // this gate the scan re-queued conflict-fix / ci-fix workers regardless of
     // the setting (only the bail counter was gated) — so "off" never meant off.
     if (!this.opts.prRecovery?.enabled) return counts;
-    let candidates: LinearIssue[] = [];
+    let candidates: TrackedIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
     } catch (err) {
@@ -1220,14 +1220,14 @@ export class AgentCoordinator {
   /** True when the issue already carries the `setDone` marker(s) — i.e. it is
    *  already in the done state (status and/or label). Used to suppress a
    *  redundant advance-to-done on a ticket that reached done by another path. */
-  private issueInSetDoneState(issue: LinearIssue): boolean {
+  private issueInSetDoneState(issue: TrackedIssue): boolean {
     const sd = this.opts.setDone;
     if (!sd) return false;
     return issueMatchesGetIndicator(issue, { filter: markersOf(sd) });
   }
 
   private async advancePrToDone(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     prUrl: string,
     actor: Awaited<ReturnType<typeof this.flowStore.getActor>>,
     changeDir: string | undefined,
@@ -1300,7 +1300,7 @@ export class AgentCoordinator {
    *  longer carries it — i.e. a human cleared the label to request a retry.
    *  Used to release a pr-tracker bail. Returns false when no label-type
    *  setError is configured (then a bail only clears on a mergeable PR). */
-  private errorMarkerCleared(issue: LinearIssue): boolean {
+  private errorMarkerCleared(issue: TrackedIssue): boolean {
     const se = this.opts.setError;
     if (!se) return false;
     const wantLabels = markersOf(se)
@@ -1312,7 +1312,7 @@ export class AgentCoordinator {
   }
 
   private async prTrackerBail(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     prUrl: string,
     reason: "conflicting" | "ci_failed",
   ): Promise<boolean> {
@@ -1441,7 +1441,7 @@ export class AgentCoordinator {
   }
 
   private async launchWorker(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     trigger: QueueTrigger,
     mention?: MentionTrigger,
   ): Promise<void> {
@@ -1635,7 +1635,7 @@ export class AgentCoordinator {
    *  the issue (or re-queues on restart/reap), and kicks the next spawn. */
   private async finalizeWorkerExit(
     worker: ActiveWorker,
-    issue: LinearIssue,
+    issue: TrackedIssue,
     prep: PrepareResult,
     trigger: QueueTrigger,
     code: number,
@@ -1787,7 +1787,7 @@ export class AgentCoordinator {
   }
 
   private async notifyExited(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     changeName: string,
     code: number,
     trigger: QueueTrigger,

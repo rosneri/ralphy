@@ -1,8 +1,7 @@
 import type { GetIndicator } from "@ralphy/types";
 import { type OrderableIssue, orderIssuesHierarchically } from "@ralphy/core/ordering";
-import type { LinearIssue } from "../agent/linear";
 import { issueMatchesGetIndicator } from "../agent/linear";
-import type { MentionTrigger } from "@ralphy/tracker";
+import type { MentionTrigger, TrackedIssue } from "@ralphy/tracker";
 
 /** Re-exported from `@ralphy/tracker` (RLF-223 M1). Kept here so the existing
  *  imports from `queue-order` / the coordinator re-export compile untouched. */
@@ -13,7 +12,7 @@ export type { MentionTrigger };
 export type QueueTrigger = "fresh" | "resume" | "conflict-fix" | "ci-fix" | "review";
 
 export interface QueueEntry {
-  issue: LinearIssue;
+  issue: TrackedIssue;
   trigger: QueueTrigger;
   /** Lower wins. Computed at enqueue time from the trigger semantics
    *  (resume=0, conflict-fix=1, ci-fix=2, review=3, fresh=4). Sort uses
@@ -47,12 +46,12 @@ function isAutoMergeBoost(e: QueueEntry, getAutoMerge?: GetIndicator | undefined
   return e.trigger === "conflict-fix" && issueMatchesGetIndicator(e.issue, getAutoMerge);
 }
 
-/** Project a {@link LinearIssue} onto the pure {@link OrderableIssue} shape
+/** Project a {@link TrackedIssue} onto the pure {@link OrderableIssue} shape
  *  consumed by `orderIssuesHierarchically`. Shared by the queue builder and the
  *  `agent list` command so both order issues identically. `tiebreak`, when
  *  provided, is threaded as the item-level sub-tiebreak (the queue passes the
  *  trigger `priority`); the list omits it. */
-export function linearIssueToOrderable(issue: LinearIssue, tiebreak?: number): OrderableIssue {
+export function linearIssueToOrderable(issue: TrackedIssue, tiebreak?: number): OrderableIssue {
   return {
     id: issue.id,
     ...(issue.project
