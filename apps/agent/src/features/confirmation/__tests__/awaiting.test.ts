@@ -670,7 +670,7 @@ describe("processAwaitingForIssue", () => {
       await processAwaitingForIssue(issue, deps);
       await processAwaitingForIssue(issue, deps);
 
-      const planPosts = commentBodies.filter((b) => b.includes("📋 Ralphy plan ready"));
+      const planPosts = commentBodies.filter((b) => b.includes("🤖 Ralphy · plan ready"));
       // Regression guard: openDraftPrOnce used to persist a stale confirmation
       // object (askedAt: null) right after postPlanReadyCommentOnce stamped
       // askedAt, making the second poll post the identical comment again.
@@ -707,7 +707,7 @@ describe("processAwaitingForIssue", () => {
       await processAwaitingForIssue(issue, deps);
       await processAwaitingForIssue(issue, deps);
 
-      const planPosts = commentBodies.filter((b) => b.includes("📋 Ralphy plan ready"));
+      const planPosts = commentBodies.filter((b) => b.includes("🤖 Ralphy · plan ready"));
       expect(planPosts.length).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -866,7 +866,7 @@ describe("processAwaitingForIssue", () => {
 
       commentBodies.length = 0;
       await processAwaitingForIssue(issue, deps);
-      const planBody = commentBodies.find((b) => b.includes("📋 Ralphy plan ready"));
+      const planBody = commentBodies.find((b) => b.includes("🤖 Ralphy · plan ready"));
       expect(planBody).toBeDefined();
       expect(planBody!).toContain("ralph:approved");
       expect(planBody!).toContain("@ralphy revise:");
@@ -912,7 +912,7 @@ describe("processAwaitingForIssue", () => {
 
       commentBodies.length = 0;
       await processAwaitingForIssue(issue, deps);
-      const planBody = commentBodies.find((b) => b.includes("📋 Ralphy plan ready"));
+      const planBody = commentBodies.find((b) => b.includes("🤖 Ralphy · plan ready"));
       expect(planBody).toBeDefined();
       expect(planBody!).toContain("ask your operator to approve");
     } finally {

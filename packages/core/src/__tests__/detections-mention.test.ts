@@ -73,15 +73,21 @@ describe("hasMentionTrigger", () => {
 });
 
 describe("buildMentionAckComment", () => {
+  test("leads with the unified title and a mention-ack marker", () => {
+    const result = buildMentionAckComment("@ralphy please retry");
+    expect(result.startsWith("🤖 Ralphy · picked up your mention")).toBe(true);
+    expect(result).toContain("<!-- ralphy:v=1 type=mention-ack -->");
+  });
+
   test("without author uses Acknowledged greeting", () => {
     const result = buildMentionAckComment("@ralphy please retry");
-    expect(result).toContain("👀 Acknowledged!");
+    expect(result).toContain("Acknowledged — picked up your mention");
     expect(result).toContain("> @ralphy please retry");
   });
 
   test("with author uses Got it greeting", () => {
     const result = buildMentionAckComment("@ralphy please retry", "alice");
-    expect(result).toContain("👀 Got it, alice!");
+    expect(result).toContain("Got it, alice — picked up your mention");
     expect(result).toContain("> @ralphy please retry");
   });
 
@@ -102,7 +108,7 @@ describe("buildMentionAckComment", () => {
     const longLine = "a".repeat(250);
     const result = buildMentionAckComment(longLine);
     expect(result).toContain("…");
-    const excerpt = result.split("> ")[1]!;
+    const excerpt = result.split("> ")[1]!.split("\n")[0]!;
     expect(excerpt.replace("…", "")).toHaveLength(200);
   });
 

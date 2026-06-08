@@ -1,4 +1,5 @@
 import type { SetIndicator } from "@ralphy/types";
+import { buildRalphyComment } from "@ralphy/comms";
 import type { ConfirmationState } from "./state";
 import { stripCodeMarkup } from "../../agent/wire/task-bodies";
 
@@ -94,9 +95,15 @@ export async function inspectAwaitingTicket(
       if (cfg.postComments) {
         try {
           await deps.postComment(
-            `⚠ Ralphy: confirmation gate stuck after ${next.rounds} revise round(s) ` +
-              `(max ${cfg.maxConfirmationRounds}). Applying \`ralph:stuck\` — ` +
-              `clear the label to retry, or apply the approval marker to proceed.`,
+            buildRalphyComment({
+              type: "confirmation-stuck",
+              action: "confirmation gate stuck",
+              body:
+                `Confirmation gate stuck after ${next.rounds} revise round(s) ` +
+                `(max ${cfg.maxConfirmationRounds}). Applying \`ralph:stuck\` — ` +
+                `clear the label to retry, or apply the approval marker to proceed.`,
+              fields: { rounds: next.rounds },
+            }),
           );
         } catch (err) {
           deps.log(`! plan-stuck comment failed: ${(err as Error).message}`, "yellow");
@@ -148,7 +155,12 @@ export async function inspectAwaitingTicket(
     if (cfg.postComments) {
       try {
         await deps.postComment(
-          `🔁 Ralphy: revise request acknowledged — restarting at design (round ${next.rounds + 1}/${cfg.maxConfirmationRounds}).`,
+          buildRalphyComment({
+            type: "revise-ack",
+            action: "revise request acknowledged",
+            body: `Revise request acknowledged — restarting at design (round ${next.rounds + 1}/${cfg.maxConfirmationRounds}).`,
+            fields: { round: next.rounds + 1 },
+          }),
         );
       } catch (err) {
         deps.log(`! revise ack comment failed: ${(err as Error).message}`, "yellow");
@@ -183,8 +195,14 @@ export async function inspectAwaitingTicket(
     if (elapsedMs >= limitMs && cfg.postComments) {
       try {
         await deps.postComment(
-          `⏰ Ralphy: still awaiting confirmation on this plan (round ${next.rounds + 1}/${cfg.maxConfirmationRounds}). ` +
-            `Approve to continue or reply \`${cfg.mentionHandle} revise: <reason>\` to send it back.`,
+          buildRalphyComment({
+            type: "confirmation-reminder",
+            action: "awaiting confirmation",
+            body:
+              `Still awaiting confirmation on this plan (round ${next.rounds + 1}/${cfg.maxConfirmationRounds}). ` +
+              `Approve to continue or reply \`${cfg.mentionHandle} revise: <reason>\` to send it back.`,
+            fields: { round: next.rounds + 1 },
+          }),
         );
         next.lastReminderAt = nowIso;
       } catch (err) {

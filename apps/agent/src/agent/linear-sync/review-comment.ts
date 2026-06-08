@@ -10,6 +10,8 @@
  *   ⚠️ cap reached — N open finding(s) remain; attaching review-findings.md
  */
 
+import { buildRalphyComment } from "@ralphy/comms";
+
 export interface ReviewCommentDeps {
   apiKey: string;
   issueId: string;
@@ -35,18 +37,24 @@ export function formatReviewRoundComment(
   const { openFindings, roundNumber, capReached } = input;
   const prefix = `**[${changeName}] Self-review round ${roundNumber}**`;
 
+  let detail: string;
   if (capReached && openFindings > 0) {
     const findings = input.findingsContent
       ? `\n\n**Open findings:**\n\`\`\`\n${input.findingsContent.trim()}\n\`\`\``
       : "";
-    return `${prefix}\n\n⚠️ Cap reached — ${openFindings} open finding(s) remain. Proceeding to done.${findings}`;
+    detail = `${prefix}\n\n⚠️ Cap reached — ${openFindings} open finding(s) remain. Proceeding to done.${findings}`;
+  } else if (openFindings === 0) {
+    detail = `${prefix}\n\n✅ No findings — review passed. Proceeding to done.`;
+  } else {
+    detail = `${prefix}\n\n🔎 ${openFindings} finding(s) — looping back for a fix cycle.`;
   }
 
-  if (openFindings === 0) {
-    return `${prefix}\n\n✅ No findings — review passed. Proceeding to done.`;
-  }
-
-  return `${prefix}\n\n🔎 ${openFindings} finding(s) — looping back for a fix cycle.`;
+  return buildRalphyComment({
+    type: "review-round",
+    action: `self-review round ${roundNumber}`,
+    body: detail,
+    fields: { change: changeName, round: roundNumber, open: openFindings },
+  });
 }
 
 /**

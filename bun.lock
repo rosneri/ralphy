@@ -41,6 +41,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ralphy/cli-args": "workspace:*",
+        "@ralphy/comms": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
@@ -183,6 +184,10 @@
         "@ralphy/workflow": "workspace:*",
       },
     },
+    "packages/comms": {
+      "name": "@ralphy/comms",
+      "version": "0.0.0",
+    },
     "packages/content": {
       "name": "@ralphy/content",
       "version": "0.0.0",
@@ -200,6 +205,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ralphy/change-store": "workspace:*",
+        "@ralphy/comms": "workspace:*",
         "@ralphy/content": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/events": "workspace:*",
@@ -895,6 +901,8 @@
     "@ralphy/change-store": ["@ralphy/change-store@workspace:packages/change-store"],
 
     "@ralphy/cli-args": ["@ralphy/cli-args@workspace:packages/cli-args"],
+
+    "@ralphy/comms": ["@ralphy/comms@workspace:packages/comms"],
 
     "@ralphy/content": ["@ralphy/content@workspace:packages/content"],
 

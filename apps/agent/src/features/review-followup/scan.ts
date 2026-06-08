@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
 import { writeField, readSlotSidecar } from "@ralphy/core/state";
+import { buildRalphyComment } from "@ralphy/comms";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { worktreesDir } from "../../agent/worktree";
 import type { LinearIssue } from "../../agent/linear";
@@ -204,7 +205,12 @@ async function maybePingStaleReviewer(
   const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(prUrl);
   if (!m) return;
   const [, owner, repo, num] = m;
-  const body = `🔔 @${reviewer} — Ralph has been waiting ${elapsedH.toFixed(0)}h on a re-review for ${prUrl}. Could you take another look when you have a moment?`;
+  const body = buildRalphyComment({
+    type: "reviewer-ping",
+    action: "nudging reviewer",
+    body: `@${reviewer} — Ralph has been waiting ${elapsedH.toFixed(0)}h on a re-review for ${prUrl}. Could you take another look when you have a moment?`,
+    fields: { reviewer },
+  });
   try {
     await deps.cmdRunner.run(
       ["gh", "api", `repos/${owner}/${repo}/issues/${num}/comments`, "-f", `body=${body}`],
@@ -220,7 +226,8 @@ async function maybePingStaleReviewer(
 /**
  * Inspect an open PR for unresolved review-thread comments. Returns a
  * `github-review` trigger if there is at least one reviewer comment
- * newer than Ralph's last `🔁 picked up` ack.
+ * newer than Ralph's last review-pickup ack (`lastRalphPickup`, resolved by
+ * the caller via `findLastRalphPickupISO`).
  */
 export async function scanCodeReview(
   issue: LinearIssue,

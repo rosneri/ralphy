@@ -969,7 +969,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     expect(spawnForChange![nameIdx + 1]).toBe(changeName);
 
     // Started comment posted
-    expect(linear.comments.some((c) => c.body.includes("Ralph started working"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=started"))).toBe(true);
 
     // Let the post-spawn comment-sync / spec-attachments pass settle before
     // reaping the worker. That async sync emits a `spec-attachments: …
@@ -991,7 +991,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       issueId: "uuid-eng-1",
       statusName: "Done",
     });
-    expect(linear.comments.some((c) => c.body.includes("Ralph completed"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=completed"))).toBe(true);
     expect(linear.issues.get("uuid-eng-1")!.state.name).toBe("Done");
 
     // No error label was applied along the happy path
@@ -1183,10 +1183,8 @@ describe("agent characterization — Stage-0 regression net", () => {
     // plan-ready Linear comment posted exactly once.
     await coord.pollOnce();
     await coord.whenSettled();
-    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
-    const planReadyCount = linear.comments.filter((c) =>
-      c.body.includes("Ralphy plan ready"),
-    ).length;
+    expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
+    const planReadyCount = linear.comments.filter((c) => c.body.includes("type=plan-ready")).length;
     expect(planReadyCount).toBe(1);
     // Worker for the change is gone (reaped).
     expect(coord.activeWorkers.some((w) => w.changeName === changeName)).toBe(false);
@@ -1212,7 +1210,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     expect(tasksAfterRevise).toContain("Regenerating after revise request");
     expect(linear.reactions).toContainEqual({ commentId: "revise-1", emoji: "👀" });
     // Plan-ready comment still posted exactly once across both polls.
-    expect(linear.comments.filter((c) => c.body.includes("Ralphy plan ready")).length).toBe(1);
+    expect(linear.comments.filter((c) => c.body.includes("type=plan-ready")).length).toBe(1);
 
     // Confirmation state on disk reflects rounds=1 and a non-null
     // lastReviseConsumedAt watermark so a duplicate revise comment
@@ -1391,7 +1389,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // Poll 2: gate fires — plan-ready posted, worker reaped.
       await coord.pollOnce();
       await coord.whenSettled();
-      expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+      expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
       // The PR for the change now goes CONFLICTING while the ticket is
       // still gated awaiting approval.
@@ -1423,7 +1421,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // The gate did NOT post a duplicate plan-ready while the conflict
       // was being addressed.
       const planReadyCount = linear.comments.filter((c) =>
-        c.body.includes("Ralphy plan ready"),
+        c.body.includes("type=plan-ready"),
       ).length;
       expect(planReadyCount).toBe(1);
     },
@@ -1530,7 +1528,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 2: gate fires — plan-ready posted, worker reaped.
     await coord.pollOnce();
     await coord.whenSettled();
-    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
     // The PR for the change now has FAILING CI while the ticket is
     // still gated awaiting approval.
@@ -1561,9 +1559,7 @@ describe("agent characterization — Stage-0 regression net", () => {
 
     // The gate did NOT post a duplicate plan-ready while CI was being
     // addressed.
-    const planReadyCount = linear.comments.filter((c) =>
-      c.body.includes("Ralphy plan ready"),
-    ).length;
+    const planReadyCount = linear.comments.filter((c) => c.body.includes("type=plan-ready")).length;
     expect(planReadyCount).toBe(1);
   });
 
@@ -1673,7 +1669,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // Poll 2: gate fires — plan-ready posted, worker reaped.
       await coord.pollOnce();
       await coord.whenSettled();
-      expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+      expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
       // Populate tasks.md with unchecked implementation items so the
       // post-approval phase resolves to `implement` rather than `done`.
@@ -1737,7 +1733,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       // exactly once — the user is NOT asked to re-approve after the
       // conflict-fix reset.
       const planReadyCount = linear.comments.filter((c) =>
-        c.body.includes("Ralphy plan ready"),
+        c.body.includes("type=plan-ready"),
       ).length;
       expect(planReadyCount).toBe(1);
     },
@@ -1865,7 +1861,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     // Poll 2: gate fires (rounds=0), plan-ready posted, worker reaped.
     await coord.pollOnce();
     await coord.whenSettled();
-    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
     // Inject revise #1 (createdAt strictly after the askedAt watermark).
     linear.addExternalComment("uuid-eng-6", {

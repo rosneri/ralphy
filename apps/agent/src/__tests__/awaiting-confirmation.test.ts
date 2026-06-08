@@ -204,7 +204,7 @@ describe("inspectAwaitingTicket — reminder cadence", () => {
     );
     expect(outcome).toBe("stay-awaiting");
     expect(next.lastReminderAt).toBe(now.toISOString());
-    expect(rec.postedComments.some((b) => /still awaiting confirmation/.test(b))).toBe(true);
+    expect(rec.postedComments.some((b) => /awaiting confirmation/i.test(b))).toBe(true);
   });
 
   test("does not re-post reminder before timeoutHours have elapsed since lastReminderAt", async () => {

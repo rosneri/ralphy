@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@ralphy/change-store": "workspace:*",
+    "@ralphy/comms": "workspace:*",
     "@ralphy/content": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/events": "workspace:*",

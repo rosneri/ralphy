@@ -13,6 +13,7 @@ import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-f
 import type { FeatureCtx, FeatureId } from "../features/types";
 import type { PrTracker } from "../features/pr-tracker";
 import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
+import { buildRalphyComment, isStartedComment } from "@ralphy/comms";
 import type { FlowAssignment, FlowId } from "./types";
 
 /**
@@ -43,27 +44,44 @@ function completionCommentBody(args: {
 }): string {
   const { noChanges, ok, trigger, changeName, code } = args;
   if (noChanges) {
-    return (
-      `ℹ️ Ralph completed all tasks for this issue but produced no code changes — ` +
-      `the requested work appears to already be present on the base branch (or was a ` +
-      `no-op). No PR was opened. Change: \`${changeName}\`\n\n` +
-      `Marking this done; please verify the work is genuinely in place. If it is not, ` +
-      `reopen the issue with more specifics.`
-    );
+    return buildRalphyComment({
+      type: "completed-noop",
+      action: "completed — no code changes",
+      body:
+        `Completed all tasks for this issue but produced no code changes — the requested ` +
+        `work appears to already be present on the base branch (or was a no-op). No PR was ` +
+        `opened. Change: \`${changeName}\`\n\n` +
+        `Marking this done; please verify the work is genuinely in place. If it is not, ` +
+        `reopen the issue with more specifics.`,
+      fields: { change: changeName },
+    });
   }
   if (!ok) {
-    return (
-      `✗ Ralph exited with code ${code} on this issue. Change: \`${changeName}\`\n\n` +
-      `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
-      `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the ` +
-      `underlying failure, then remove the error marker on this Linear issue (or run ` +
-      `\`ralph clean --name ${changeName}\`) to clear the quarantine.`
-    );
+    return buildRalphyComment({
+      type: "exited",
+      action: `exited with code ${code}`,
+      body:
+        `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
+        `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the ` +
+        `underlying failure, then remove the error marker on this Linear issue (or run ` +
+        `\`ralph clean --name ${changeName}\`) to clear the quarantine. Change: \`${changeName}\``,
+      fields: { change: changeName, code },
+    });
   }
   if (trigger === "conflict-fix") {
-    return `✅ Ralph resolved merge conflicts on this issue. Change: \`${changeName}\``;
+    return buildRalphyComment({
+      type: "conflicts-resolved",
+      action: "resolved merge conflicts",
+      body: `Change: \`${changeName}\``,
+      fields: { change: changeName },
+    });
   }
-  return `✅ Ralph completed work on this issue. Change: \`${changeName}\``;
+  return buildRalphyComment({
+    type: "completed",
+    action: "completed work",
+    body: `Change: \`${changeName}\``,
+    fields: { change: changeName },
+  });
 }
 
 /** Spawn shape — same as before. */
@@ -814,7 +832,12 @@ export class AgentCoordinator {
       try {
         await this.deps.postComment(
           issue,
-          `⚠️ ${ref} is ${stateLabel} — promoted to ${trigger} flow.`,
+          buildRalphyComment({
+            type: "promoted",
+            action: `promoted to ${trigger} flow`,
+            body: `${ref} is ${stateLabel} — promoted to ${trigger} flow.`,
+            fields: { trigger, pr: extractPrNumber(pr.url) ?? pr.url },
+          }),
         );
         this.deps.onLog(`  ${issue.identifier}: posted ${trigger}-promotion comment`, "gray");
       } catch (err) {
@@ -884,7 +907,12 @@ export class AgentCoordinator {
       try {
         await this.deps.postComment(
           w.issue,
-          `🔄 Ralph progress update: iteration ${count} on \`${w.changeName}\``,
+          buildRalphyComment({
+            type: "progress",
+            action: `progress update — iteration ${count}`,
+            body: `Iteration ${count} on \`${w.changeName}\``,
+            fields: { change: w.changeName, iter: count },
+          }),
         );
         w.lastReportedIteration = count;
         this.deps.onLog(
@@ -1118,7 +1146,12 @@ export class AgentCoordinator {
           try {
             await this.deps.postComment(
               issue,
-              `⚠ Ralph detected merge conflicts on this PR (${pr.url}) — re-running to resolve`,
+              buildRalphyComment({
+                type: "conflict-detected",
+                action: "detected merge conflicts",
+                body: `Detected merge conflicts on this PR (${pr.url}) — re-running to resolve.`,
+                fields: { pr: extractPrNumber(pr.url) ?? pr.url },
+              }),
             );
           } catch (err) {
             this.deps.onLog(
@@ -1169,7 +1202,12 @@ export class AgentCoordinator {
           try {
             await this.deps.postComment(
               issue,
-              `⚠ Ralph detected failing CI on this PR (${pr.url}) — re-running to fix`,
+              buildRalphyComment({
+                type: "ci-failed",
+                action: "detected failing CI",
+                body: `Detected failing CI on this PR (${pr.url}) — re-running to fix.`,
+                fields: { pr: extractPrNumber(pr.url) ?? pr.url },
+              }),
             );
           } catch (err) {
             this.deps.onLog(
@@ -1273,7 +1311,12 @@ export class AgentCoordinator {
       try {
         await this.deps.postComment(
           issue,
-          `✅ Ralph verified this PR (${prUrl}) is mergeable (CI green, no conflicts) — moving to done`,
+          buildRalphyComment({
+            type: "verified",
+            action: "verified PR mergeable",
+            body: `Verified this PR (${prUrl}) is mergeable (CI green, no conflicts) — moving to done.`,
+            fields: { pr: extractPrNumber(prUrl) ?? prUrl },
+          }),
         );
       } catch (err) {
         this.deps.onLog(
@@ -1355,7 +1398,12 @@ export class AgentCoordinator {
         try {
           await this.deps.postComment(
             issue,
-            `❌ Ralph gave up auto-recovering this PR (${prUrl}) after ${decision.attempts} attempts — last failure: ${human}. The \`ralph:error\` label has been applied; clear it (or merge the PR) once a human has looked at it.`,
+            buildRalphyComment({
+              type: "recovery-gaveup",
+              action: "gave up auto-recovering PR",
+              body: `Gave up auto-recovering this PR (${prUrl}) after ${decision.attempts} attempts — last failure: ${human}. The \`ralph:error\` label has been applied; clear it (or merge the PR) once a human has looked at it.`,
+              fields: { pr: extractPrNumber(prUrl) ?? prUrl, attempts: decision.attempts },
+            }),
           );
         } catch (err) {
           this.deps.onLog(
@@ -1521,7 +1569,12 @@ export class AgentCoordinator {
       try {
         await this.deps.postComment(
           issue,
-          `🔁 Ralph picked up new review comments${sourceTag}. Tracking change: \`${prep.changeName}\``,
+          buildRalphyComment({
+            type: "review-pickup",
+            action: "picked up review comments",
+            body: `Picked up new review comments${sourceTag}. Tracking change: \`${prep.changeName}\``,
+            fields: { change: prep.changeName },
+          }),
         );
       } catch (err) {
         this.deps.onLog(
@@ -1537,7 +1590,7 @@ export class AgentCoordinator {
       let alreadyPosted = false;
       try {
         const comments = await this.deps.fetchComments(issue.id);
-        alreadyPosted = comments.some((c) => c.body.startsWith("🤖 Ralph started working"));
+        alreadyPosted = comments.some((c) => isStartedComment(c.body));
       } catch (err) {
         this.deps.onLog(
           `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
@@ -1548,7 +1601,12 @@ export class AgentCoordinator {
         try {
           await this.deps.postComment(
             issue,
-            `🤖 Ralph started working on this issue. Tracking change: \`${prep.changeName}\``,
+            buildRalphyComment({
+              type: "started",
+              action: "started working",
+              body: `Tracking change: \`${prep.changeName}\``,
+              fields: { change: prep.changeName },
+            }),
           );
           this.deps.onLog(`  ${issue.identifier}: posted "started" comment`, "gray");
         } catch (err) {
