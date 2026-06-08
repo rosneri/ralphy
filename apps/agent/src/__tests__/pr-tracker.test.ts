@@ -167,6 +167,7 @@ function makePrDeps(doneCandidates: LinearIssue[]): PrCtx {
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => [] as { issue: LinearIssue; trigger: MentionTrigger }[]),
     fetchDoneCandidates: mock(async () => doneCandidates),
+    fetchReview: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),

@@ -41,6 +41,7 @@ function makeCtx() {
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
+    fetchReview: mock(async () => []),
     prepare: mock(async (i: LinearIssue) => {
       return { changeName: `change-${i.identifier.toLowerCase()}` };
     }),

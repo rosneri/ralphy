@@ -402,6 +402,9 @@ export function buildAgentCoordinator(
       fetchInProgress: tracker.fetchInProgress,
       fetchMentions: tracker.fetchMentions,
       fetchDoneCandidates: tracker.fetchDoneCandidates,
+      // Forward-compat (RLF-223 M2): completes the provider surface in the deps
+      // bag. Not polled today — see CoordinatorDeps.fetchReview.
+      fetchReview: tracker.fetchReview,
       prepare: prep.prepare,
       prepareTaskForTrigger: prep.prepareTaskForTrigger,
       spawnWorker,

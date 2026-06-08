@@ -193,6 +193,15 @@ export interface CoordinatorDeps {
    *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
   fetchDoneCandidates: () => Promise<LinearIssue[]>;
   /**
+   * Forward-compat (RLF-223 M2): issues in the configured `getReview` bucket.
+   * Completes the `IssueTrackerProvider` surface so `CoordinatorDeps` is a
+   * faithful superset of the provider. **Not polled today** — `pollOnce` never
+   * calls this and `buckets.review` stays `0`; review work still flows through
+   * `fetchMentions` (the scanner enqueues `trigger: "review"`). A future
+   * milestone wires a real review poll here.
+   */
+  fetchReview: () => Promise<LinearIssue[]>;
+  /**
    * Side-effect: create or reuse a worktree, scaffold the change directory
    * when its `tasks.md` is missing, and run the project's setup script.
    * Returns the change name and (when known) the PR URL. Trigger-specific

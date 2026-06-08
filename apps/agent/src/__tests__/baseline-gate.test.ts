@@ -26,6 +26,7 @@ function makeCoordinator(): AgentCoordinator {
     fetchInProgress: async () => [],
     fetchMentions: async () => [],
     fetchDoneCandidates: async () => [],
+    fetchReview: async () => [],
     prepare: async () => ({ changeName: "x" }),
     spawnWorker: () => ({ exited: Promise.resolve(0), kill: () => {} }),
     applyIndicator: async () => {},
