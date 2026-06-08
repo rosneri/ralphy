@@ -11,7 +11,7 @@
   "ignore": ["reset.d.ts", "scripts/debug-agent.ts", "scripts/xstate-mcp-server.ts"],
   "workspaces": {
     ".": {
-      "entry": [".claude/hooks/__tests__/**/*.{ts,tsx}"]
+      "entry": [".claude/hooks/__tests__/**/*.{ts,tsx}", "scripts/__tests__/**/*.ts"]
     },
     "apps/init": {
       "entry": ["src/**/__tests__/**/*.{ts,tsx}"]
