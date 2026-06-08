@@ -533,7 +533,7 @@ describe("S3 — coordinator flow routing", () => {
     await tick();
 
     // Gate fires for issue1: "Ralphy plan ready" comment posted
-    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
     // Issue2 must also be picked up (new-ticket spawn)
     const spawn2 = spawnCalls.find((c) => c.includes(changeName2));
@@ -1299,7 +1299,7 @@ describe("S3 — coordinator flow routing", () => {
     // Poll 2: gate fires (rounds=0), plan-ready posted
     await coord.pollOnce();
     await tick();
-    expect(linear.comments.some((c) => c.body.includes("Ralphy plan ready"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
     // Inject a revise comment to bump rounds to 1 (== cap)
     const issueObj = linear.issues.get("uuid-s311-1")!;

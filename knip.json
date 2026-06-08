@@ -90,6 +90,9 @@
     },
     "packages/events": {
       "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
+    },
+    "packages/comms": {
+      "entry": ["src/**/*.ts"]
     }
   }
 }

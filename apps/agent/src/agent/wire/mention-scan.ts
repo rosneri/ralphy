@@ -21,8 +21,36 @@ import {
   fetchPrIssueComments,
   postGithubPrComment,
 } from "../../features/mention/github";
-import { isRalphComment, containsHandle, findLastRalphPickupISO } from "./task-bodies";
+import {
+  isRalphComment,
+  containsHandle,
+  findLastRalphPickupISO,
+  findLastMentionAckISO,
+} from "./task-bodies";
 import type { Indicators } from "@ralphy/types";
+
+/** Newest of a set of ISO timestamps (nulls ignored), or null when all null. */
+function latestIso(...values: (string | null)[]): string | null {
+  let latest: string | null = null;
+  for (const value of values) {
+    if (value && (latest === null || value > latest)) latest = value;
+  }
+  return latest;
+}
+
+/** Linear/GitHub reject a duplicate reaction ("conflict on insert of Reaction"
+ *  / "already exists"). That is not a failure — the comment is already marked
+ *  seen — so the scan treats it as idempotent success instead of logging it
+ *  every poll. */
+function isAlreadyReactedError(err: unknown): boolean {
+  const e = err as { messages?: string[]; message?: string };
+  const text = [...(e?.messages ?? []), e?.message ?? ""].join(" ").toLowerCase();
+  return (
+    text.includes("conflict on insert of reaction") ||
+    text.includes("already exists") ||
+    text.includes("already reacted")
+  );
+}
 
 interface MentionScanInput {
   apiKey: string;
@@ -129,12 +157,19 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
     for (const issue of candidates) {
       const comments = issue.comments ?? [];
       const lastRalphPickup = findLastRalphPickupISO(comments);
+      // Gate fresh mentions on the newest of the review-pickup ack AND the
+      // mention ack. The mention ack is what makes this self-suppressing: once
+      // we answer a mention, its ack (newer than the mention) advances the
+      // watermark, so the next poll skips it — regardless of whether the issue
+      // is fresh, resuming, or in review. Without it, a mention on an
+      // already-in-progress issue re-acks every poll (BAN-467).
+      const linearMentionGate = latestIso(lastRalphPickup, findLastMentionAckISO(comments));
 
       if (wantMention) {
         for (const c of comments) {
           if (isRalphComment(c.body)) continue;
           if (!containsHandle(c.body, handle)) continue;
-          if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
+          if (linearMentionGate && c.createdAt <= linearMentionGate) continue;
           out.push({
             issue,
             trigger: {
@@ -153,11 +188,13 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
               queued.add(issue.id);
               break;
             }
-            diag(
-              "mention",
-              `! mention scan: Linear reaction failed for ${issue.identifier}: ${formatLinearError(err)}`,
-              "yellow",
-            );
+            if (!isAlreadyReactedError(err)) {
+              diag(
+                "mention",
+                `! mention scan: Linear reaction failed for ${issue.identifier}: ${formatLinearError(err)}`,
+                "yellow",
+              );
+            }
           }
           if (cfg.linear.postComments !== false) {
             try {
@@ -193,10 +230,12 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
 
       if (wantMention) {
         const ghComments = await fetchPrIssueComments(cmdRunner, projectRoot, prUrl, onLog);
+        const ghMentionGate = latestIso(lastRalphPickup, findLastMentionAckISO(ghComments));
         const prMatch = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(prUrl);
         for (const c of ghComments) {
+          if (isRalphComment(c.body)) continue;
           if (!containsHandle(c.body, handle)) continue;
-          if (lastRalphPickup && c.createdAt <= lastRalphPickup) continue;
+          if (ghMentionGate && c.createdAt <= ghMentionGate) continue;
           out.push({
             issue,
             trigger: {
@@ -218,11 +257,13 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
                 "👀",
               );
             } catch (err) {
-              diag(
-                "mention",
-                `! mention scan: GitHub reaction failed for ${prUrl}: ${formatLinearError(err)}`,
-                "yellow",
-              );
+              if (!isAlreadyReactedError(err)) {
+                diag(
+                  "mention",
+                  `! mention scan: GitHub reaction failed for ${prUrl}: ${formatLinearError(err)}`,
+                  "yellow",
+                );
+              }
             }
             if (cfg.linear.postComments !== false) {
               await postGithubPrComment(

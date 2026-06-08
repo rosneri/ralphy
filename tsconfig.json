@@ -9,6 +9,9 @@
       "path": "./packages/tracker"
     },
     {
+      "path": "./packages/comms"
+    },
+    {
       "path": "./packages/output"
     },
     {

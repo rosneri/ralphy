@@ -1,3 +1,5 @@
+import { buildRalphyComment } from "@ralphy/comms";
+
 export interface MentionInputs {
   comments: Array<{ body: string; isRalph: boolean }>;
   triggerPhrase: string;
@@ -17,7 +19,11 @@ export function buildMentionAckComment(body: string, author?: string): string {
   const truncated = firstLine.slice(0, 200);
   const excerpt = truncated + (truncated.length < firstLine.length ? "…" : "");
   const greeting = author
-    ? `👀 Got it, ${author}! I've picked up your mention and queued a review pass.`
-    : `👀 Acknowledged! I've picked up your mention and queued a review pass.`;
-  return `${greeting}\n\n> ${excerpt}`;
+    ? `Got it, ${author} — picked up your mention and queued a review pass.`
+    : `Acknowledged — picked up your mention and queued a review pass.`;
+  return buildRalphyComment({
+    type: "mention-ack",
+    action: "picked up your mention",
+    body: `${greeting}\n\n> ${excerpt}`,
+  });
 }

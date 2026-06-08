@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
+import { buildRalphyComment } from "@ralphy/comms";
 import { gateActive, hasUnchecked, planningComplete } from "@ralphy/core/detections";
 import { isStubArtifact } from "@ralphy/core/openspec-phase";
 import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
@@ -95,10 +96,15 @@ async function postPlanReadyCommentOnce(
   if (confirmation.askedAt) return;
   const approvalSentence = describeApprovalMarker(deps.cfg.linear.indicators.getApproved);
   const handle = deps.cfg.linear.mentionHandle;
-  const body =
-    `📋 Ralphy plan ready for \`${changeName}\` — review proposal.md / design.md / tasks.md ` +
-    `and ${approvalSentence} to continue, ` +
-    `or reply with \`${handle} revise: <reason>\` to send it back to design.`;
+  const body = buildRalphyComment({
+    type: "plan-ready",
+    action: "plan ready",
+    body:
+      `Plan ready for \`${changeName}\` — review proposal.md / design.md / tasks.md ` +
+      `and ${approvalSentence} to continue, ` +
+      `or reply with \`${handle} revise: <reason>\` to send it back to design.`,
+    fields: { change: changeName },
+  });
   try {
     await addIssueComment(deps.apiKey, issue.id, body);
   } catch (err) {

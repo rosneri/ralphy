@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@ralphy/cli-args": "workspace:*",
+    "@ralphy/comms": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",

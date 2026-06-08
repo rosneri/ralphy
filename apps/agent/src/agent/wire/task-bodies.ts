@@ -1,3 +1,4 @@
+import { isMentionAckComment, isPickupComment } from "@ralphy/comms";
 import type { MentionTrigger } from "../../queue/queue-order";
 export { isRalphComment } from "../../shared/utils/ralph-comment";
 
@@ -74,13 +75,31 @@ export function buildMentionTaskBody(trigger: MentionTrigger, issueUrl: string):
   ].join("\n");
 }
 
-/** Newest ISO timestamp from Ralph's `🔁 picked up` review acks, or null. */
+/** Newest ISO timestamp from Ralph's review-pickup acks, or null. Recognises
+ *  the unified `review-pickup` marker and the legacy `🔁 Ralph picked up`
+ *  lead via {@link isPickupComment}. */
 export function findLastRalphPickupISO(
   comments: { body: string; createdAt: string }[],
 ): string | null {
   let latest: string | null = null;
   for (const c of comments) {
-    if (!/^🔁\s*Ralph picked up/.test(c.body.trimStart())) continue;
+    if (!isPickupComment(c.body)) continue;
+    if (latest === null || c.createdAt > latest) latest = c.createdAt;
+  }
+  return latest;
+}
+
+/** Newest ISO timestamp of a Ralph mention acknowledgment, or null. The
+ *  mention scan gates on this so a mention it already answered is not re-acked
+ *  on the next poll — the durable record is the ack comment itself, which
+ *  works regardless of trigger (fresh / resume / review). See
+ *  {@link isMentionAckComment}. */
+export function findLastMentionAckISO(
+  comments: { body: string; createdAt: string }[],
+): string | null {
+  let latest: string | null = null;
+  for (const c of comments) {
+    if (!isMentionAckComment(c.body)) continue;
     if (latest === null || c.createdAt > latest) latest = c.createdAt;
   }
   return latest;

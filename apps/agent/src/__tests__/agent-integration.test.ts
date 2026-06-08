@@ -506,7 +506,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     await waitForWorker(workers, changeName);
 
     // Started comment posted (postComments=true)
-    expect(linear.comments.some((c) => c.body.includes("Ralph started working"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=started"))).toBe(true);
 
     // ---- 4. Worker exits cleanly → setDone ----
     workers.get(changeName)!.resolve(0);
@@ -516,7 +516,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
       issueId: "uuid-eng-1",
       statusName: "Done",
     });
-    expect(linear.comments.some((c) => c.body.includes("Ralph completed"))).toBe(true);
+    expect(linear.comments.some((c) => c.body.includes("type=completed"))).toBe(true);
 
     // The issue's status is now "Done" in the fake; subsequent getTodo
     // polls won't pick it up.

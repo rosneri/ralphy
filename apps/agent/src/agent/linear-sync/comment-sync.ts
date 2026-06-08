@@ -14,6 +14,7 @@
 
 import { dirname, join } from "node:path";
 import { readSlotSidecar, writeSlotField } from "@ralphy/core/state";
+import { buildRalphyComment } from "@ralphy/comms";
 import { renderTasksBlock } from "./index";
 import { type LogFn, sha256Hex } from "./utils";
 
@@ -137,7 +138,12 @@ async function readTasksMd(changeDir: string, log: LogFn): Promise<string | null
 }
 
 function renderTasksCommentBody(tasksMd: string, changeName: string, iteration: number): string {
-  return renderTasksBlock(tasksMd, { changeName, iteration });
+  return buildRalphyComment({
+    type: "tasks",
+    action: "task progress",
+    body: renderTasksBlock(tasksMd, { changeName, iteration }),
+    fields: { change: changeName, iter: iteration },
+  });
 }
 
 /**
@@ -279,7 +285,12 @@ export async function postPlanCommentOnce(deps: BaseDeps): Promise<string | null
   if (designSummary) {
     parts.push("", "**Design**", "", designSummary);
   }
-  const body = parts.join("\n");
+  const body = buildRalphyComment({
+    type: "plan",
+    action: "plan",
+    body: parts.join("\n"),
+    fields: { change: deps.changeName },
+  });
 
   let id: string;
   try {
@@ -305,7 +316,12 @@ export async function postPlanCommentOnce(deps: BaseDeps): Promise<string | null
  */
 export async function postSteeringAndRefreshTasks(deps: SteeringDeps): Promise<void> {
   const firstLine = deps.message.split(/\r?\n/, 1)[0]!.trim() || deps.message.trim();
-  const steeringBody = `### ${STEERING_COMMENT_TITLE}\n\n${deps.message.trim()}`;
+  const steeringBody = buildRalphyComment({
+    type: "steering",
+    action: "steering",
+    body: `### ${STEERING_COMMENT_TITLE}\n\n${deps.message.trim()}`,
+    fields: { change: deps.changeName },
+  });
 
   try {
     await deps.mutations.createIssueComment(deps.apiKey, deps.issueId, steeringBody);
