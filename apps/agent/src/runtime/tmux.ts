@@ -60,9 +60,16 @@ export function createSession(name: string, command: string[], env: Record<strin
     envArgs.push("-e", `${key}=${value}`);
   }
 
-  // Always pause after exit so the user can read the output before the pane closes.
+  // Crash-only fallback: the agent's own UI holds the pane open on a handled
+  // error (failed preflight, init throw) via the shared hold-to-close pause and
+  // then exits 0, so we only pause here when it exits non-zero — i.e. it crashed
+  // or died before that pause could render. This avoids a second "press Enter"
+  // prompt stacking on top of the in-app one.
   const quoted = command.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-  const shellCmd = `${quoted}; printf '\\n[ralphy exited — press Enter to close]\\n'; read`;
+  const shellCmd =
+    `${quoted}; code=$?; ` +
+    `if [ "$code" -ne 0 ]; then ` +
+    `printf '\\n[ralphy crashed (exit %s) — press Enter to close]\\n' "$code"; read _; fi`;
 
   const result = Bun.spawnSync({
     cmd: ["tmux", "new-session", "-d", "-s", name, ...envArgs, "sh", "-c", shellCmd],

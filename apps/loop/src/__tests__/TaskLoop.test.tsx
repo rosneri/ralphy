@@ -1184,6 +1184,86 @@ describe("TaskLoop", () => {
     });
   });
 
+  test("pauses on an abnormal stop so the reason stays readable until Enter", async () => {
+    // A clean-exit usage limit is an abnormal stop — the pane must not close
+    // before the operator reads it. ink-testing-library reports raw mode as
+    // supported, mirroring an interactive terminal.
+    runEngineMock.mockImplementationOnce(async () => ({
+      exitCode: 0,
+      usage: null,
+      sessionId: null,
+      rateLimited: true,
+    }));
+
+    await withLayout(async () => {
+      const taskDir = join(tempDir, "pause-task");
+      mkdirSync(taskDir, { recursive: true });
+      writeState(taskDir, makeState({ name: "pause-task" }));
+
+      const opts = {
+        name: "pause-task",
+        prompt: "Pause prompt",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 5,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        changeStore: stubChangeStore,
+      };
+
+      const { lastFrame, stdin } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      // The loop stopped, but the pane is held open with a close prompt
+      // instead of unmounting immediately and hiding the reason.
+      expect(lastFrame()).toContain("rate/usage limit");
+      expect(lastFrame()).toContain("Press Enter to close");
+
+      // The Enter handler is wired to unmount; exercising it must not throw.
+      // (ink-testing-library retains the final frame after unmount, so there
+      // is nothing further to assert on the frame here.)
+      stdin.write("\r");
+      await new Promise((r) => setTimeout(r, 50));
+    });
+  });
+
+  test("a clean completion exits without a close prompt", async () => {
+    await withLayout(async () => {
+      const taskDir = join(tempDir, "clean-done-task");
+      mkdirSync(taskDir, { recursive: true });
+      writeState(taskDir, makeState({ name: "clean-done-task" }));
+      writeFileSync(join(taskDir, "tasks.md"), "- [x] one\n", "utf-8");
+
+      const opts = {
+        name: "clean-done-task",
+        prompt: "Clean done",
+        engine: "claude" as const,
+        model: "opus",
+        maxIterations: 1,
+        maxCostUsd: 0,
+        maxRuntimeMinutes: 0,
+        maxConsecutiveFailures: 5,
+        delay: 0,
+        log: false,
+        verbose: false,
+        manualTest: false,
+        changeStore: stubChangeStore,
+      };
+
+      const { frames } = render(<TaskLoop opts={opts} />);
+      await new Promise((r) => setTimeout(r, 500));
+
+      const allText = frames.join("\n");
+      expect(allText).toContain("All tasks completed");
+      expect(allText).not.toContain("Press Enter to close");
+    });
+  });
+
   test("malformed core reinit leaves the specAttachments sidecar intact", async () => {
     await withLayout(async () => {
       const taskDir = join(tempDir, "spec-attach-task");

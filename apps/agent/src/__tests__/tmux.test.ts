@@ -118,7 +118,7 @@ describe("createSession", () => {
       "RALPH_AGENT_MANAGED=1",
       "sh",
       "-c",
-      "'ralph' 'agent'; printf '\\n[ralphy exited — press Enter to close]\\n'; read",
+      "'ralph' 'agent'; code=$?; if [ \"$code\" -ne 0 ]; then printf '\\n[ralphy crashed (exit %s) — press Enter to close]\\n' \"$code\"; read _; fi",
     ]);
   });
 
