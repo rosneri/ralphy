@@ -56,7 +56,7 @@ function recordingCmd(): { cmd: CmdRunner; calls: string[][] } {
 describe("tracker.kind selection", () => {
   test("kind: github polls via gh and never calls the Linear API", async () => {
     let linearCalled = false;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("linear.app")) linearCalled = true;
       throw Object.assign(new Error("unexpected fetch in github mode"), { url });

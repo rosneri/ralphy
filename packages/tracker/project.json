@@ -1,0 +1,42 @@
+{
+  "name": "tracker",
+  "sourceRoot": "packages/tracker/src",
+  "tags": ["scope:shared"],
+  "targets": {
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "oxlint --config .oxlintrc.json packages/tracker/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "fmt:check": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "oxfmt --check packages/tracker/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc -b packages/tracker/tsconfig.json",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test packages/tracker/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage src",
+        "cwd": "{projectRoot}"
+      }
+    }
+  }
+}

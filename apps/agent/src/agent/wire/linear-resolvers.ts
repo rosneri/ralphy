@@ -37,9 +37,10 @@ interface LinearResolversInput {
  * `fetchDoneCandidates` method, which `wire.ts` binds from the standalone
  * {@link fetchDoneCandidatesWith} since it needs the indicator map), plus the
  * extra `resolveLabelId` helper used internally. Typed as an extension so any
- * drift from the provider contract is a compile error.
+ * drift from the provider contract is a compile error. Exported so the
+ * `createLinearTrackerProvider` seam (RLF-223) can take it as input.
  */
-interface LinearResolvers extends Omit<TrackerProvider, "fetchDoneCandidates"> {
+export interface LinearResolvers extends Omit<TrackerProvider, "fetchDoneCandidates"> {
   resolveLabelId: (issue: LinearIssue, name: string, group?: string) => Promise<string | null>;
 }
 

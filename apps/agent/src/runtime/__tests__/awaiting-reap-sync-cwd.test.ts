@@ -38,6 +38,7 @@ describe("AgentCoordinator — awaiting-reap syncTasks flush carries worker cwd"
       fetchInProgress: mock(async () => []),
       fetchMentions: mock(async () => []),
       fetchDoneCandidates: mock(async () => []),
+      fetchReview: mock(async () => []),
       prepare: mock(async (i: LinearIssue) => ({
         changeName: `change-${i.identifier.toLowerCase()}`,
         cwd: "/wt/rlf-300",

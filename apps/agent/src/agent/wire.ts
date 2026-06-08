@@ -6,7 +6,7 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import { addIssueComment, fetchIssueComments, type LinearIssue } from "./linear";
+import type { LinearIssue } from "./linear";
 import { projectLayout, GAVEUP_COUNT_FILE } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -21,9 +21,15 @@ import {
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
-import { createLinearResolvers, fetchDoneCandidatesWith } from "./wire/linear-resolvers";
+import {
+  createLinearResolvers,
+  fetchDoneCandidatesWith,
+  type LinearResolvers,
+} from "./wire/linear-resolvers";
 import { createGithubTrackerProvider, githubIndicators } from "./wire/tracker/github";
+import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
 import type { TrackerProvider } from "./wire/tracker/types";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
@@ -206,10 +212,27 @@ export function buildAgentCoordinator(
       return code;
     });
 
-  // Select the tracker provider. Both conform to TrackerProvider, so the
-  // coordinator wiring below is provider-agnostic. The Linear path binds
-  // `fetchDoneCandidates` from the standalone helper (it needs the indicator
-  // map); the GitHub provider implements it directly.
+  // Linear's GraphQL resolver bag (RLF-223). Only built in Linear mode; it is
+  // both the source of the unified `provider` below and the input to the
+  // `createLinearTrackerProvider` seam. GitHub mode drives the loop off the
+  // gh-CLI provider instead, so it stays null.
+  const resolvers: LinearResolvers | null = isGithubTracker
+    ? null
+    : createLinearResolvers({
+        apiKey,
+        team,
+        assignee,
+        anyAssignee,
+        requireAllLabels,
+        diag,
+        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+      });
+
+  // The provider-agnostic indicator-dispatch + fetch surface used directly by
+  // spawn / confirmation / baseline (and as the base for the GitHub tracker
+  // seam below). Both branches conform to TrackerProvider. The Linear path
+  // binds `fetchDoneCandidates` from the standalone helper (it needs the
+  // indicator map); the GitHub provider implements it directly.
   const provider: TrackerProvider = isGithubTracker
     ? createGithubTrackerProvider({
         issues: cfg.github?.issues,
@@ -218,15 +241,7 @@ export function buildAgentCoordinator(
         diag,
       })
     : {
-        ...createLinearResolvers({
-          apiKey,
-          team,
-          assignee,
-          anyAssignee,
-          requireAllLabels,
-          diag,
-          ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-        }),
+        ...resolvers!,
         fetchDoneCandidates: () =>
           fetchDoneCandidatesWith(
             apiKey,
@@ -305,6 +320,39 @@ export function buildAgentCoordinator(
         stalePingedAt,
         lastHandledReviewActivity,
         resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
+      });
+
+  // RLF-223 (M1) + RLF-234: the tracker-neutral provider seam injected into
+  // `CoordinatorDeps` below, so the coordinator never references a concrete
+  // backend. Linear wraps its transport + resolvers + mention scanner via
+  // `createLinearTrackerProvider`; GitHub builds the same `IssueTrackerProvider`
+  // shape from the gh-CLI `provider`. Mentions, review and comment-fetch are
+  // Linear-only today — GitHub returns empty sets (see design "Out of scope").
+  const tracker: IssueTrackerProvider = isGithubTracker
+    ? {
+        fetchTodo: () => provider.fetchByGet(indicators.getTodo, excludeFromTodo),
+        fetchInProgress: () =>
+          provider.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
+        fetchReview: async () => [],
+        fetchMentions,
+        fetchDoneCandidates: () => provider.fetchDoneCandidates(),
+        applyIndicator: provider.applyIndicator,
+        removeIndicator: provider.removeIndicator,
+        // Progress comments route through a `gh issue comment` via the
+        // provider's comment marker.
+        postComment: (issue, body) => provider.applyMarker(issue, { type: "comment", value: body }),
+        fetchComments: async () => [],
+      }
+    : createLinearTrackerProvider({
+        apiKey,
+        team,
+        assignee,
+        anyAssignee,
+        requireAllLabels,
+        indicators,
+        resolvers: resolvers!,
+        fetchMentions,
+        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
       });
 
   const spawnWorker = createSpawnWorker({
@@ -427,27 +475,20 @@ export function buildAgentCoordinator(
       beforePoll: () => {
         pollContext = new PollContext();
       },
-      fetchTodo: () => provider.fetchByGet(indicators.getTodo, excludeFromTodo),
-      fetchInProgress: () =>
-        provider.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
-      fetchMentions,
-      fetchDoneCandidates: () => provider.fetchDoneCandidates(),
+      fetchTodo: tracker.fetchTodo,
+      fetchInProgress: tracker.fetchInProgress,
+      fetchMentions: tracker.fetchMentions,
+      fetchDoneCandidates: tracker.fetchDoneCandidates,
+      // Forward-compat (RLF-223 M2): completes the provider surface in the deps
+      // bag. Not polled today — see CoordinatorDeps.fetchReview.
+      fetchReview: tracker.fetchReview,
       prepare: prep.prepare,
       prepareTaskForTrigger: prep.prepareTaskForTrigger,
       spawnWorker,
-      applyIndicator: provider.applyIndicator,
-      removeIndicator: provider.removeIndicator,
-      // Progress comments route through the active tracker: Linear's GraphQL
-      // mutation, or a `gh issue comment` via the provider's comment marker.
-      postComment: isGithubTracker
-        ? (issue, body) => provider.applyMarker(issue, { type: "comment", value: body })
-        : (issue, body) => addIssueComment(apiKey, issue.id, body),
-      fetchComments: isGithubTracker
-        ? async () => []
-        : async (issueId) => {
-            const c = await fetchIssueComments(apiKey, issueId);
-            return c.map((x) => ({ body: x.body }));
-          },
+      applyIndicator: tracker.applyIndicator,
+      removeIndicator: tracker.removeIndicator,
+      postComment: tracker.postComment,
+      fetchComments: tracker.fetchComments,
       checkPrStatus: prDiscovery.checkPrStatus,
       hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>

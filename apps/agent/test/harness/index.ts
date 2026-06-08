@@ -81,6 +81,9 @@ export async function createHarness(opts: CreateHarnessOptions): Promise<Extende
     fetchInProgress: () => linear.client.fetchInProgress(),
     fetchMentions: () => linear.client.fetchMentions(),
     fetchDoneCandidates: () => linear.client.fetchDoneCandidates(),
+    // Forward-compat (RLF-223 M2): mirrors the other client delegations so
+    // FakeLinear's fetchReview is reachable. Not polled by pollOnce today.
+    fetchReview: () => linear.client.fetchReview(),
     fetchComments: (issueId) => linear.client.fetchComments(issueId),
     prepare: async (issue) => {
       const changeName = `change-${issue.identifier.toLowerCase()}`;
