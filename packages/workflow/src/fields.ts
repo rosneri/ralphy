@@ -131,6 +131,10 @@ const isOn =
   (answers: Record<string, WizardValue>): boolean =>
     answers[id] === true;
 
+/** Gate for the GitHub Issues sub-options — only asked when GitHub is the tracker. */
+const trackerIsGithub = (answers: Record<string, WizardValue>): boolean =>
+  answers["tracker.kind"] === "github";
+
 /**
  * Concurrency > 1 forces isolated git worktrees on — parallel tasks each need
  * their own working copy or they clobber each other's files. The wizard hides
@@ -250,6 +254,75 @@ const CUSTOMIZED_FIELDS: Field[] = [
     description:
       "Show detailed per-task output (passes --verbose to the task sub-process) for extra diagnostics.",
     spec: no(),
+  },
+
+  // ── Tracker ──
+  {
+    id: "tracker.kind",
+    label: "Issue tracker",
+    description:
+      "Which issue tracker drives the loop: 'linear' (the default) or 'github' (GitHub Issues, via the gh CLI).",
+    spec: {
+      kind: "select",
+      options: [
+        { label: "Linear", value: "linear" },
+        { label: "GitHub", value: "github" },
+      ],
+    },
+  },
+  {
+    id: "github.issues.repo",
+    label: "GitHub repository (owner/name)",
+    hint: "blank = detected from origin",
+    description:
+      "The owner/name of the GitHub repo whose issues drive the loop. Leave blank to use the repo detected from the git 'origin' remote.",
+    emptyLabel: "detected from origin",
+    spec: { kind: "text", placeholder: "owner/name" },
+    when: trackerIsGithub,
+  },
+  {
+    id: "github.issues.label",
+    label: "Todo label",
+    hint: "blank = any open issue",
+    description:
+      "Only pick up GitHub issues carrying this label. Leave blank to consider every open issue.",
+    emptyLabel: "any open issue",
+    spec: { kind: "text", placeholder: "ralph:todo" },
+    when: trackerIsGithub,
+  },
+  {
+    id: "github.issues.assignee",
+    label: "Assignee filter",
+    hint: "blank = any assignee; @me = you",
+    description:
+      "Only pick up GitHub issues assigned to this login. Use '@me' for yourself; leave blank to ignore the assignee.",
+    emptyLabel: "any assignee",
+    spec: { kind: "text", placeholder: "@me" },
+    when: trackerIsGithub,
+  },
+  {
+    id: "github.issues.statusLabels.inProgress",
+    label: "In-progress label",
+    description:
+      "GitHub label applied to an issue while Ralphy is actively working on it (and removed from the todo label).",
+    spec: { kind: "text", placeholder: "ralph:in-progress" },
+    when: trackerIsGithub,
+  },
+  {
+    id: "github.issues.statusLabels.done",
+    label: "Done label",
+    description:
+      "GitHub label applied to an issue when its work completes; the issue is also closed.",
+    spec: { kind: "text", placeholder: "ralph:done" },
+    when: trackerIsGithub,
+  },
+  {
+    id: "github.issues.statusLabels.error",
+    label: "Error label",
+    description:
+      "GitHub label applied to an issue when Ralphy quarantines it after repeated failures.",
+    spec: { kind: "text", placeholder: "ralph:error" },
+    when: trackerIsGithub,
   },
 
   // ── Scheduling ──

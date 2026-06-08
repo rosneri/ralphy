@@ -12,7 +12,7 @@ export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 export const DEFAULT_WORKFLOW_MD = `---
 # WORKFLOW.md schema version — managed by \`ralphy init\`. When a newer version
 # ships, re-running init migrates this file and fills in the new settings.
-version: 6
+version: 7
 
 project:
   name: ralphy
@@ -78,6 +78,16 @@ preExistingErrorCheck:
   baseBranch: main
   label: "ralph:pre-existing-error"
   outputCharLimit: 4000
+
+tracker:
+  kind: linear
+
+github:
+  issues:
+    statusLabels:
+      inProgress: "ralph:in-progress"
+      done: "ralph:done"
+      error: "ralph:error"
 
 linear:
   # Global filter ANDed into every Linear query (and the GitHub PR searches

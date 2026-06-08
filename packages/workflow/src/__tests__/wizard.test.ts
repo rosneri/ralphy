@@ -273,4 +273,36 @@ describe("applyAnswersToWorkflow (editing an existing file)", () => {
     expect(config.rules).toEqual(["keep tests green"]);
     expect(updated).toContain("Custom body for {{ issue.identifier }}.");
   });
+
+  test("tracker.kind + github.issues.* answers round-trip to the same values", () => {
+    const values: Record<string, WizardValue> = {
+      "tracker.kind": "github",
+      "github.issues.repo": "acme/widgets",
+      "github.issues.label": "ralph:todo",
+      "github.issues.assignee": "@me",
+      "github.issues.statusLabels.inProgress": "wip",
+      "github.issues.statusLabels.done": "shipped",
+      "github.issues.statusLabels.error": "broken",
+    };
+    const { config } = roundTrip("customized", values);
+    expect(config.tracker.kind).toBe("github");
+    expect(config.github?.issues?.repo).toBe("acme/widgets");
+    expect(config.github?.issues?.label).toBe("ralph:todo");
+    expect(config.github?.issues?.assignee).toBe("@me");
+    expect(config.github?.issues?.statusLabels).toEqual({
+      inProgress: "wip",
+      done: "shipped",
+      error: "broken",
+    });
+  });
+
+  test("the default template documents the tracker + github.issues keys", () => {
+    const md = buildWorkflowMarkdown({ mode: "quick", values: {} });
+    expect(md).toContain("tracker:");
+    expect(md).toContain("kind: linear");
+    expect(md).toContain("statusLabels:");
+    // The github.issues status-label defaults are the documented ralph:* values.
+    expect(md).toContain('inProgress: "ralph:in-progress"');
+    expect(parseWorkflow(md).config.tracker.kind).toBe("linear");
+  });
 });

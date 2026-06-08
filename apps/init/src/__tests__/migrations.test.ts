@@ -12,7 +12,7 @@ import { findField } from "@ralphy/workflow/fields";
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
     expect(LATEST_MIGRATION_VERSION).toBe(CURRENT_WORKFLOW_VERSION);
-    expect(CURRENT_WORKFLOW_VERSION).toBe(6);
+    expect(CURRENT_WORKFLOW_VERSION).toBe(7);
   });
 
   test("version 2 introduces repo.link", () => {
@@ -45,6 +45,27 @@ describe("migrations registry", () => {
       "prRecovery.maxRecoverySessions",
       "prRecovery.ignoreChecks",
     ]);
+  });
+
+  test("version 7 offers the tracker.kind switch and github.issues block", () => {
+    const v7 = MIGRATIONS.find((m) => m.version === 7);
+    expect(v7?.description).toContain("tracker");
+    expect(v7?.fields).toEqual([
+      "tracker.kind",
+      "github.issues.repo",
+      "github.issues.label",
+      "github.issues.assignee",
+      "github.issues.statusLabels.inProgress",
+      "github.issues.statusLabels.done",
+      "github.issues.statusLabels.error",
+    ]);
+  });
+
+  test("fieldsAddedSince(6) includes the v7 tracker + github.issues ids", () => {
+    const added = fieldsAddedSince(6);
+    expect(added).toContain("tracker.kind");
+    expect(added).toContain("github.issues.repo");
+    expect(added).toContain("github.issues.statusLabels.error");
   });
 
   test("the retired prTracker / fixCiOnFailure field ids are gone from every migration", () => {
