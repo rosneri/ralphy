@@ -543,7 +543,7 @@ export function buildAgentCoordinator(
 
   coordRef.current = coord;
 
-  const filterDesc = describeIndicators(indicators, team, assignee, anyAssignee);
+  const filterDesc = describeIndicators(indicators, team, assignee, anyAssignee, requireAllLabels);
 
   const runBaselineGateOnce = createBaselineGateRunner({
     args,
