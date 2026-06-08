@@ -1,5 +1,6 @@
 import type { GetIndicator, Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
+import type { TrackerProvider } from "./tracker/types";
 import {
   fetchOpenIssues,
   fetchWorkflowStates,
@@ -31,21 +32,15 @@ interface LinearResolversInput {
   ticketNumbers?: number[] | undefined;
 }
 
-interface LinearResolvers {
-  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
-  removeIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
-  applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;
+/**
+ * The Linear resolver surface. Conforms to {@link TrackerProvider} (minus the
+ * `fetchDoneCandidates` method, which `wire.ts` binds from the standalone
+ * {@link fetchDoneCandidatesWith} since it needs the indicator map), plus the
+ * extra `resolveLabelId` helper used internally. Typed as an extension so any
+ * drift from the provider contract is a compile error.
+ */
+interface LinearResolvers extends Omit<TrackerProvider, "fetchDoneCandidates"> {
   resolveLabelId: (issue: LinearIssue, name: string, group?: string) => Promise<string | null>;
-  fetchByGet: (
-    inc: SetIndicator | { filter: Marker[] } | undefined,
-    excl: Marker[],
-  ) => Promise<LinearIssue[]>;
-  /** For use by callers needing label resolution with a raw team key. */
-  resolveLabelIdForTeam: (
-    teamKey: string,
-    labelName: string,
-    group?: string,
-  ) => Promise<string | null>;
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {

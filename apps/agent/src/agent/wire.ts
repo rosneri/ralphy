@@ -22,10 +22,13 @@ import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
 import { createLinearResolvers, fetchDoneCandidatesWith } from "./wire/linear-resolvers";
+import { createGithubTrackerProvider, githubIndicators } from "./wire/tracker/github";
+import type { TrackerProvider } from "./wire/tracker/types";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
 import { createMentionScanner, isChangeArchivedForIssue } from "./wire/mention-scan";
+import type { MentionTrigger } from "./coordinator";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
@@ -123,10 +126,13 @@ export function buildAgentCoordinator(
   const concurrency = args.concurrency || cfg.concurrency;
   const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
 
-  const indicators: Indicators = mergeIndicators(
-    cfg.linear.indicators as Record<string, unknown>,
-    args.indicators,
-  );
+  // The tracker selection (RLF-234). GitHub mode synthesizes label-based
+  // indicators from `github.issues` and drives the loop off the `gh` CLI; Linear
+  // mode is unchanged (config indicators + CLI overrides).
+  const isGithubTracker = cfg.tracker.kind === "github";
+  const indicators: Indicators = isGithubTracker
+    ? githubIndicators(cfg.github?.issues)
+    : mergeIndicators(cfg.linear.indicators as Record<string, unknown>, args.indicators);
   const team = args.linearTeam || cfg.linear.team;
   // The global `linear.filter` (marker list of label + assignee clauses) scopes
   // every Linear query and, transitively, the GitHub PR searches rooted at those
@@ -140,7 +146,13 @@ export function buildAgentCoordinator(
   // number without a team or an identifier whose team disagrees.
   const ticketNumbers = resolveTicketNumbers(args.ticketTokens, team);
 
-  const excludeFromTodo = unionMarkers(indicators.setDone, indicators.setError);
+  // GitHub mode lists open issues by label; without a dedicated todo label the
+  // todo fetch returns every open issue, so the in-progress label must also be
+  // excluded or in-flight work is re-picked. Linear's todo fetch is scoped by
+  // its getTodo status filter, so its exclusion set stays as before.
+  const excludeFromTodo = isGithubTracker
+    ? unionMarkers(indicators.setDone, indicators.setError, indicators.setInProgress)
+    : unionMarkers(indicators.setDone, indicators.setError);
 
   const gitRunner = input.runners?.git ?? bunGitRunner;
   const cmdRunner = input.runners?.cmd ?? bunCmdRunner;
@@ -194,15 +206,38 @@ export function buildAgentCoordinator(
       return code;
     });
 
-  const resolvers = createLinearResolvers({
-    apiKey,
-    team,
-    assignee,
-    anyAssignee,
-    requireAllLabels,
-    diag,
-    ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-  });
+  // Select the tracker provider. Both conform to TrackerProvider, so the
+  // coordinator wiring below is provider-agnostic. The Linear path binds
+  // `fetchDoneCandidates` from the standalone helper (it needs the indicator
+  // map); the GitHub provider implements it directly.
+  const provider: TrackerProvider = isGithubTracker
+    ? createGithubTrackerProvider({
+        issues: cfg.github?.issues,
+        cmdRunner,
+        projectRoot,
+        diag,
+      })
+    : {
+        ...createLinearResolvers({
+          apiKey,
+          team,
+          assignee,
+          anyAssignee,
+          requireAllLabels,
+          diag,
+          ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+        }),
+        fetchDoneCandidates: () =>
+          fetchDoneCandidatesWith(
+            apiKey,
+            team,
+            assignee,
+            anyAssignee,
+            requireAllLabels,
+            indicators,
+            ticketNumbers.length > 0 ? ticketNumbers : undefined,
+          ),
+      };
 
   // RLF-208: when a ticket is targeted but it matches none of the configured
   // get-indicator buckets, the loop will pick up nothing — surface that so the
@@ -246,26 +281,31 @@ export function buildAgentCoordinator(
     ...(input.runners?.worktree ? { worktreeProvider: input.runners.worktree } : {}),
   });
 
-  const fetchMentions = createMentionScanner({
-    apiKey,
-    args,
-    cfg,
-    team,
-    assignee,
-    anyAssignee,
-    requireAllLabels,
-    indicators,
-    projectRoot,
-    useWorktree,
-    cmdRunner,
-    onLog,
-    diag,
-    cwdByChange,
-    ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-    stalePingedAt,
-    lastHandledReviewActivity,
-    resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
-  });
+  // Mention / code-review re-engagement is Linear-only (queries Linear for
+  // mentions of the bot handle). GitHub mode skips it — richer GitHub parity is
+  // a follow-up (see design "Out of scope").
+  const fetchMentions = isGithubTracker
+    ? async (): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> => []
+    : createMentionScanner({
+        apiKey,
+        args,
+        cfg,
+        team,
+        assignee,
+        anyAssignee,
+        requireAllLabels,
+        indicators,
+        projectRoot,
+        useWorktree,
+        cmdRunner,
+        onLog,
+        diag,
+        cwdByChange,
+        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+        stalePingedAt,
+        lastHandledReviewActivity,
+        resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
+      });
 
   const spawnWorker = createSpawnWorker({
     args,
@@ -278,7 +318,7 @@ export function buildAgentCoordinator(
     indicators,
     cmdRunner,
     gitRunner,
-    applyIndicator: resolvers.applyIndicator,
+    applyIndicator: provider.applyIndicator,
     bus,
     onLog,
     diag,
@@ -324,8 +364,8 @@ export function buildAgentCoordinator(
         cwdOf: (cn) => cwdByChange.get(cn),
         awaitingChangeSet,
         reapForAwaiting: (cn) => coordRef.current?.reapForAwaiting(cn),
-        applyIndicator: resolvers.applyIndicator,
-        applyMarker: resolvers.applyMarker,
+        applyIndicator: provider.applyIndicator,
+        applyMarker: provider.applyMarker,
         // prDraft: open the draft PR at the design-ready/park point. See
         // createOpenDraftPr — reuses the idempotent createPullRequest and skips
         // the meta-only guard so a design-only PR isn't blocked.
@@ -368,45 +408,46 @@ export function buildAgentCoordinator(
       })
     : null;
 
-  const commentSync = createCommentSyncHooks({
-    apiKey,
-    cfg,
-    projectRoot,
-    onLog,
-    diag,
-    cwdByChange,
-    issueByChange,
-  });
+  // Task/spec sync to a sticky comment + spec attachments are Linear-only.
+  // GitHub mode disables them (see design "Out of scope").
+  const commentSync = isGithubTracker
+    ? { enabled: false as const }
+    : createCommentSyncHooks({
+        apiKey,
+        cfg,
+        projectRoot,
+        onLog,
+        diag,
+        cwdByChange,
+        issueByChange,
+      });
 
   const coord = new AgentCoordinator(
     {
       beforePoll: () => {
         pollContext = new PollContext();
       },
-      fetchTodo: () => resolvers.fetchByGet(indicators.getTodo, excludeFromTodo),
+      fetchTodo: () => provider.fetchByGet(indicators.getTodo, excludeFromTodo),
       fetchInProgress: () =>
-        resolvers.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
+        provider.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
       fetchMentions,
-      fetchDoneCandidates: () =>
-        fetchDoneCandidatesWith(
-          apiKey,
-          team,
-          assignee,
-          anyAssignee,
-          requireAllLabels,
-          indicators,
-          ticketNumbers.length > 0 ? ticketNumbers : undefined,
-        ),
+      fetchDoneCandidates: () => provider.fetchDoneCandidates(),
       prepare: prep.prepare,
       prepareTaskForTrigger: prep.prepareTaskForTrigger,
       spawnWorker,
-      applyIndicator: resolvers.applyIndicator,
-      removeIndicator: resolvers.removeIndicator,
-      postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
-      fetchComments: async (issueId) => {
-        const c = await fetchIssueComments(apiKey, issueId);
-        return c.map((x) => ({ body: x.body }));
-      },
+      applyIndicator: provider.applyIndicator,
+      removeIndicator: provider.removeIndicator,
+      // Progress comments route through the active tracker: Linear's GraphQL
+      // mutation, or a `gh issue comment` via the provider's comment marker.
+      postComment: isGithubTracker
+        ? (issue, body) => provider.applyMarker(issue, { type: "comment", value: body })
+        : (issue, body) => addIssueComment(apiKey, issue.id, body),
+      fetchComments: isGithubTracker
+        ? async () => []
+        : async (issueId) => {
+            const c = await fetchIssueComments(apiKey, issueId);
+            return c.map((x) => ({ body: x.body }));
+          },
       checkPrStatus: prDiscovery.checkPrStatus,
       hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>
@@ -473,7 +514,7 @@ export function buildAgentCoordinator(
     gitRunner,
     coord,
     onLog,
-    resolveLabelIdForTeam: resolvers.resolveLabelIdForTeam,
+    resolveLabelIdForTeam: provider.resolveLabelIdForTeam,
   });
 
   return {
