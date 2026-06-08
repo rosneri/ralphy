@@ -45,7 +45,7 @@ export interface GithubMarkerVocab {
   lifecycleLabels: string[];
 }
 
-export interface GithubTrackerDeps {
+interface GithubTrackerDeps {
   /** Transport for `gh` invocations (the `gh` capability's runner). */
   runner: CmdRunner;
   /** Working directory passed to every `gh` call. */
