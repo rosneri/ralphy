@@ -66,6 +66,38 @@ function tail(s: string | undefined, n: number): string {
   return t.trim();
 }
 
+/** Upper bound on an honored `Retry-After` hint — clamps a hostile/huge value
+ *  (mirrors `MAX_RETRY_AFTER_MS` in `linear-client.ts`). */
+export const MAX_GH_RETRY_AFTER_MS = 60_000;
+
+const RETRY_AFTER_RE = /retry-?after[:\s]+([^\n\r]+)/i;
+const TRY_AGAIN_RE = /try again in (\d+)\s*seconds?/i;
+
+/**
+ * Parse a `Retry-After` / `retry-after` hint (seconds or HTTP-date) out of a
+ * `gh` failure's stderr/message and return it in milliseconds. Falls back to a
+ * `try again in N seconds` phrasing GitHub sometimes emits. Returns undefined
+ * when no parseable hint is present (caller then uses exponential backoff).
+ */
+export function parseGhRetryAfter(err: unknown): number | undefined {
+  const e = (err ?? {}) as GhError;
+  const blob = `${e.message ?? ""}\n${e.stderr ?? ""}`;
+
+  const header = RETRY_AFTER_RE.exec(blob);
+  if (header) {
+    const value = header[1]!.trim();
+    const asNum = Number(value);
+    if (Number.isFinite(asNum)) return Math.max(0, asNum * 1000);
+    const asDate = Date.parse(value);
+    if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now());
+  }
+
+  const tryAgain = TRY_AGAIN_RE.exec(blob);
+  if (tryAgain) return Math.max(0, Number(tryAgain[1]) * 1000);
+
+  return undefined;
+}
+
 export function formatGhError(err: unknown): string {
   const e = (err ?? {}) as GhError;
   const code = typeof e.code === "number" ? e.code : "?";
@@ -87,10 +119,17 @@ export function isTransientGhError(err: unknown): boolean {
   return TRANSIENT_PATTERNS.some((p) => p.test(blob));
 }
 
+function expoBackoffMs(attempt: number): number {
+  return Math.min(2000, 200 * 2 ** (attempt - 1));
+}
+
 const GH_RETRY: RetryPolicy = {
   maxAttempts: 3,
   isRetryable: isTransientGhError,
-  delayMs: (attempt) => Math.min(2000, 200 * 2 ** (attempt - 1)),
+  // Honor a server `Retry-After` hint (clamped) when present, else fall back
+  // to exponential backoff. Auth errors never reach here (non-retryable).
+  delayMs: (attempt, err) =>
+    Math.min(MAX_GH_RETRY_AFTER_MS, parseGhRetryAfter(err) ?? expoBackoffMs(attempt)),
 };
 
 export const gh: Capability<GhRunArgs, GhResult> = {

@@ -17,6 +17,7 @@ import {
   type LinearIssue,
   type LinearFilterSpec,
 } from "../linear";
+import { linearIdentifierStrategy } from "../../shared/capabilities/github/identifier-strategy";
 
 interface LinearResolversInput {
   apiKey: string;
@@ -51,7 +52,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
   const teamIdCache = new Map<string, string>();
-  const teamKeyOf = (issue: LinearIssue): string => issue.identifier.split("-")[0]!;
+  const teamKeyOf = (issue: LinearIssue): string => linearIdentifierStrategy.scopeKey(issue);
 
   async function resolveStateId(issue: LinearIssue, name: string): Promise<string | null> {
     const t = teamKeyOf(issue);

@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createBus } from "@ralphy/events";
 import { runCapability } from "../run-capability";
-import { gh, ghCapability, formatGhError, isAuthError, isTransientGhError } from "../gh-client";
+import {
+  gh,
+  ghCapability,
+  formatGhError,
+  isAuthError,
+  isTransientGhError,
+  parseGhRetryAfter,
+  MAX_GH_RETRY_AFTER_MS,
+} from "../gh-client";
 import type { CmdRunner } from "../../../agent/pr";
 
 interface FakeError extends Error {
@@ -128,5 +136,53 @@ describe("gh-client capability", () => {
     expect(calls.length).toBe(3);
     expect(counts["gh.cmd.failed"]).toBe(1);
     expect(counts["gh.cmd.started"]).toBe(1);
+  });
+});
+
+describe("rate-limit Retry-After backoff", () => {
+  test("parseGhRetryAfter reads seconds, HTTP-date, and try-again phrasing", () => {
+    expect(parseGhRetryAfter(mkErr("x", "Retry-After: 2", 1))).toBe(2000);
+    expect(parseGhRetryAfter(mkErr("x", "retry-after: 5", 1))).toBe(5000);
+    expect(
+      parseGhRetryAfter(mkErr("x", "You have exceeded a rate limit. Try again in 30 seconds.", 1)),
+    ).toBe(30000);
+    expect(parseGhRetryAfter(mkErr("x", "HTTP 502 bad gateway", 1))).toBeUndefined();
+  });
+
+  test("delayMs honors a Retry-After hint (clamped to the maximum)", () => {
+    const withHint = mkErr("rate", "API rate limit exceeded\nRetry-After: 2", 1);
+    expect(gh.retryPolicy.delayMs(1, withHint)).toBe(2000);
+    const hostile = mkErr("rate", "Retry-After: 999999", 1);
+    expect(gh.retryPolicy.delayMs(1, hostile)).toBe(MAX_GH_RETRY_AFTER_MS);
+  });
+
+  test("delayMs falls back to exponential backoff when no hint is present", () => {
+    const noHint = mkErr("rate", "rate limit exceeded", 1);
+    expect(gh.retryPolicy.delayMs(1, noHint)).toBe(200);
+    expect(gh.retryPolicy.delayMs(2, noHint)).toBe(400);
+  });
+
+  test("rate-limit failure with Retry-After is retried then succeeds", async () => {
+    const { runner, calls } = fakeRunner([
+      { err: mkErr("boom", "API rate limit exceeded\nRetry-After: 2", 1) },
+      { ok: { stdout: "ok", stderr: "" } },
+    ]);
+    const out = await runCapability(
+      { ...gh, retryPolicy: { ...gh.retryPolicy, delayMs: () => 0 } },
+      { runner, cwd: "/tmp", args: ["issue", "list"] },
+    );
+    expect(out.stdout).toBe("ok");
+    expect(calls.length).toBe(2);
+  });
+
+  test("auth error during a list is not retried", async () => {
+    const { runner, calls } = fakeRunner([
+      { err: mkErr("nope", "HTTP 401: Bad credentials", 1) },
+      { ok: { stdout: "should-not-run", stderr: "" } },
+    ]);
+    await expect(
+      runCapability(gh, { runner, cwd: "/tmp", args: ["issue", "list"] }),
+    ).rejects.toBeDefined();
+    expect(calls.length).toBe(1);
   });
 });
