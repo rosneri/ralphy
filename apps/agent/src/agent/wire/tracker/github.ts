@@ -44,7 +44,7 @@ function identifierForNumber(n: number): string {
 }
 
 /** Map a `gh` issue into the `LinearIssue` shape the loop consumes. The fields
- *  outside the {@link TrackerIssue} subset are filled with inert defaults. */
+ *  the loop never reads are filled with inert defaults. */
 function toLinearIssue(gh: GhIssue): LinearIssue {
   const open = (gh.state ?? "OPEN").toUpperCase() === "OPEN";
   return {
@@ -244,5 +244,5 @@ export function githubIndicators(issues: GithubIssuesConfig | undefined): Indica
   };
 }
 
-/** Exported for `wire.ts` to synthesize GitHub label indicators + for tests. */
-export { identifierForNumber, DEFAULT_STATUS_LABELS };
+/** Exported for tests. */
+export { identifierForNumber };
