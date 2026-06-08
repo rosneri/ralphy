@@ -336,7 +336,7 @@ describe("loadWorkflow / ensureWorkflow", () => {
       `---\nversion: 5\nignoreCiChecks:\n  - flaky\nprTracker:\n  enabled: false\n  maxRecoveryAttempts: 7\n---\nbody\n`,
     );
     const { config } = await loadWorkflow(tempDir, legacyPath);
-    expect(config.version).toBe(6);
+    expect(config.version).toBe(7);
     expect(config.prRecovery.enabled).toBe(false);
     expect(config.prRecovery.fixCi).toBe(false);
     expect(config.prRecovery.maxRecoverySessions).toBe(7);

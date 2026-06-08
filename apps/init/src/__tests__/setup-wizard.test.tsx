@@ -268,7 +268,7 @@ describe("SetupWizard render", () => {
     expect(result).not.toBeNull();
     const md = result!;
     // The file is stamped to the current schema version...
-    expect(parseWorkflow(md).config.version).toBe(6);
+    expect(parseWorkflow(md).config.version).toBe(7);
     // ...and the user's existing settings are preserved (no data loss).
     expect(md).toContain("name: my-app");
     expect(md).toContain("team: ENG");
@@ -380,6 +380,48 @@ describe("buildFromAnswers — concurrency forces worktrees", () => {
     const onByConcurrency = fieldsForMode("customized", { concurrency: 4 }).map((f) => f.id);
     expect(onByConcurrency).toContain("setupScript");
     expect(onByConcurrency).toContain("teardownScript");
+  });
+});
+
+describe("buildFromAnswers — tracker selection", () => {
+  test("github answers write tracker.kind + github.issues.* keys", () => {
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "tracker.kind": "github",
+      "github.issues.repo": "acme/widgets",
+      "github.issues.label": "ralph:todo",
+      "github.issues.statusLabels.inProgress": "wip",
+    });
+    const { config } = parseWorkflow(md);
+    expect(config.tracker.kind).toBe("github");
+    expect(config.github?.issues?.repo).toBe("acme/widgets");
+    expect(config.github?.issues?.label).toBe("ralph:todo");
+    expect(config.github?.issues?.statusLabels.inProgress).toBe("wip");
+  });
+
+  test("Linear selection drops any lingering github.issues.* answers", () => {
+    // Simulates exploring the GitHub branch then switching back to Linear: the
+    // stale github answers must not land in the file.
+    const md = buildFromAnswers("customized", {
+      "project.name": "svc",
+      "tracker.kind": "linear",
+      "github.issues.repo": "acme/widgets",
+      "github.issues.label": "ralph:todo",
+    });
+    const { config } = parseWorkflow(md);
+    expect(config.tracker.kind).toBe("linear");
+    expect(config.github?.issues?.repo).toBeUndefined();
+    expect(config.github?.issues?.label).toBeUndefined();
+    expect(md).not.toContain("acme/widgets");
+  });
+
+  test("the github.issues questions only appear when GitHub is the tracker", () => {
+    const linearIds = fieldsForMode("customized", { "tracker.kind": "linear" }).map((f) => f.id);
+    expect(linearIds).not.toContain("github.issues.repo");
+    expect(linearIds).toContain("tracker.kind");
+    const githubIds = fieldsForMode("customized", { "tracker.kind": "github" }).map((f) => f.id);
+    expect(githubIds).toContain("github.issues.repo");
+    expect(githubIds).toContain("github.issues.statusLabels.error");
   });
 });
 

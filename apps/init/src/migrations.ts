@@ -95,6 +95,25 @@ export const MIGRATIONS: Migration[] = [
       "automatically; review them here or keep them.",
     fields: ["prRecovery.enabled", "prRecovery.maxRecoverySessions", "prRecovery.ignoreChecks"],
   },
+  {
+    version: 7,
+    description:
+      "Pick your issue tracker: Linear (default) or GitHub Issues. The new " +
+      "`tracker.kind` switch selects the provider; choosing GitHub drives the " +
+      "loop off `gh` issues, filtered by `github.issues.label`/`assignee` and " +
+      "moved through the `github.issues.statusLabels` (in-progress / done / " +
+      "error). Existing files default to Linear, so nothing changes unless you " +
+      "switch.",
+    fields: [
+      "tracker.kind",
+      "github.issues.repo",
+      "github.issues.label",
+      "github.issues.assignee",
+      "github.issues.statusLabels.inProgress",
+      "github.issues.statusLabels.done",
+      "github.issues.statusLabels.error",
+    ],
+  },
 ];
 
 /** The highest version any migration lands on. Asserted to equal CURRENT. */

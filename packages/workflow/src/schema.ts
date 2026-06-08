@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 6;
+export const CURRENT_WORKFLOW_VERSION = 7;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -227,6 +227,15 @@ export const WorkflowConfigSchema = z.object({
   finalizeNoOpAsDone: z.boolean().default(true),
   engine: z.enum(["claude", "codex"]).default("claude"),
   model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
+  /** Which issue tracker drives the loop. Defaults to `linear`, so a file with
+   *  no `tracker` block behaves exactly as before. `github` selects the GitHub
+   *  Issues provider (built on the `gh` CLI; see `github.issues`). */
+  tracker: z
+    .object({
+      kind: z.enum(["linear", "github"]).default("linear"),
+    })
+    .strict()
+    .default({ kind: "linear" }),
   linear: z
     .preprocess(
       foldLegacyAssignee,
@@ -298,6 +307,33 @@ export const WorkflowConfigSchema = z.object({
     .object({
       base_branch: z.string().optional(),
       auto_merge_strategy: z.enum(["squash", "merge", "rebase"]).optional(),
+      /** GitHub Issues provider settings, consulted only when
+       *  `tracker.kind === "github"`. Optional so a github block carrying only
+       *  `base_branch`/`auto_merge_strategy` still validates. */
+      issues: z
+        .object({
+          /** `owner/name`; defaults to the repo detected from `origin`. */
+          repo: z.string().optional(),
+          /** Label that marks an issue as a pick-up candidate (the todo filter). */
+          label: z.string().optional(),
+          /** Filter to issues assigned to this login (e.g. a username or `@me`). */
+          assignee: z.string().optional(),
+          /** Labels applied as the issue moves through the loop lifecycle. */
+          statusLabels: z
+            .object({
+              inProgress: z.string().default("ralph:in-progress"),
+              done: z.string().default("ralph:done"),
+              error: z.string().default("ralph:error"),
+            })
+            .strict()
+            .default({
+              inProgress: "ralph:in-progress",
+              done: "ralph:done",
+              error: "ralph:error",
+            }),
+        })
+        .strict()
+        .optional(),
     })
     .strict()
     .optional(),

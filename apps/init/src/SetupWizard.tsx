@@ -155,6 +155,15 @@ export function buildFromAnswers(
       }
     }
   }
+  // GitHub Issues settings are only meaningful when GitHub is the tracker. If
+  // the user explored the GitHub branch and then switched back to Linear, the
+  // `github.issues.*` answers linger in the map but their questions are gated
+  // out — drop them so a Linear file never carries stray github keys.
+  if (values["tracker.kind"] !== "github") {
+    for (const id of Object.keys(values)) {
+      if (id.startsWith("github.issues.")) delete values[id];
+    }
+  }
   // `repo.link` is a control answer, not a frontmatter key. When confirmed, the
   // injected `repo.*` identity is written; when declined (or never shown), the
   // identity is dropped so no `repo` block is emitted. Either way the control
