@@ -1,65 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { createFakeLinear } from "../fake-linear";
 
+// The backend-neutral provider surface (fetch filtering, comment/mention
+// round-trips, apply/remove logging, lifecycle exclusion, additive setPrReady)
+// is asserted by the shared kit in `provider-contract.ts` and driven against
+// FakeLinear from `apps/agent/src/__tests__/provider-contract.test.ts`. The
+// cases below cover only FakeLinear-internal behavior the kit does not reach:
+// its specific marker-classification vocabulary, project-marker handling, the
+// comment-marker `fetchTodo` path, and the seed-mutation helpers.
 describe("createFakeLinear", () => {
-  test("filters fetchTodo/inProgress/review by marker", async () => {
-    const linear = createFakeLinear({
-      getTodo: { filter: [{ type: "label", value: "ralphy:todo" }] },
-      getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
-      getReview: { filter: [{ type: "label", value: "ralphy:review" }] },
-    });
-    linear.seed({ id: "1", identifier: "RLF-1", title: "todo", labels: ["ralphy:todo"] });
-    linear.seed({
-      id: "2",
-      identifier: "RLF-2",
-      title: "in-progress",
-      state: { name: "In Progress", type: "started" },
-    });
-    linear.seed({ id: "4", identifier: "RLF-4", title: "review", labels: ["ralphy:review"] });
-
-    expect((await linear.client.fetchTodo()).map((i) => i.identifier)).toEqual(["RLF-1"]);
-    expect((await linear.client.fetchInProgress()).map((i) => i.identifier)).toEqual(["RLF-2"]);
-    expect((await linear.client.fetchReview()).map((i) => i.identifier)).toEqual(["RLF-4"]);
-  });
-
-  test("postComment + fetchComments round-trip", async () => {
-    const linear = createFakeLinear();
-    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
-    await linear.client.postComment(issue, "hello");
-    expect((await linear.client.fetchComments("1"))[0]?.body).toBe("hello");
-  });
-
-  test("pushMention is surfaced via fetchMentions", async () => {
-    const linear = createFakeLinear();
-    linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
-    linear.pushMention("1", "linear", "@ralphy ping", new Date("2025-01-02T00:00:00Z"));
-    const m = await linear.client.fetchMentions();
-    expect(m).toHaveLength(1);
-    expect(m[0]?.trigger.body).toBe("@ralphy ping");
-    expect(m[0]?.trigger.source).toBe("linear");
-  });
-
-  test("applyIndicator / removeIndicator round-trips and logs to applied", async () => {
-    const linear = createFakeLinear();
-    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
-    await linear.client.applyIndicator(issue, { type: "label", value: "ralphy:in-progress" });
-    await linear.client.applyIndicator(issue, { type: "status", value: "Done" });
-    expect(linear.applied.setInProgress).toContain("RLF-1");
-    expect(linear.applied.setDone).toContain("RLF-1");
-  });
-
-  test("RLF-214: applyIndicator buckets setPrReady additively alongside setDone", async () => {
-    const linear = createFakeLinear();
-    const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
-    // Additive: a single run applies both, ready first then done.
-    await linear.client.applyIndicator(issue, { type: "status", value: "In Review" });
-    await linear.client.applyIndicator(issue, { type: "status", value: "Done" });
-    expect(linear.applied.setPrReady).toContain("RLF-1");
-    expect(linear.applied.setDone).toContain("RLF-1");
-    // setPrReady's "In Review" status must NOT be mis-bucketed as setInProgress.
-    expect(linear.applied.setInProgress).not.toContain("RLF-1");
-  });
-
   test("RLF-214: setPrReady label marker (ralphy:pr-ready) is bucketed before setInProgress", async () => {
     const linear = createFakeLinear();
     const issue = linear.seed({ id: "1", identifier: "RLF-1", title: "x" });
@@ -76,18 +25,6 @@ describe("createFakeLinear", () => {
     expect(linear.applied.setError).toContain("RLF-1");
     const updated = linear.issues().find((i) => i.id === "1");
     expect(updated?.project?.id).toBe("proj-1");
-  });
-
-  test("removeIndicator logs clearReview", async () => {
-    const linear = createFakeLinear();
-    const issue = linear.seed({
-      id: "1",
-      identifier: "RLF-1",
-      title: "x",
-      labels: ["ralphy:review"],
-    });
-    await linear.client.removeIndicator(issue, { type: "label", value: "ralphy:review" });
-    expect(linear.applied.clearReview).toContain("RLF-1");
   });
 
   test("fetchTodo with a comment marker picks up issues whose non-Ralph comment matches", async () => {

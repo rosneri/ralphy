@@ -1,0 +1,215 @@
+import { describe, expect, test } from "bun:test";
+import type { SetIndicator } from "@ralphy/types";
+import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
+import { createFakeLinear, type FakeLinearIndicators } from "./fake-linear";
+import type { AppliedLog, FakeLinearComment, LinearClientLike, SeedIssue } from "./types";
+
+/** Which fetch bucket an issue is seeded into by {@link ProviderContractBackend.seedInBucket}. */
+export type ContractBucket = "todo" | "inProgress" | "review" | "doneCandidate";
+
+/** Origin of a pushed mention, mirroring `MentionTrigger.source`. */
+export type MentionSource = "linear" | "github" | "github-review";
+
+/**
+ * The backend adapter the contract kit is parametrized over. Any issue-tracker
+ * fake (FakeLinear today, a future FakeGithub) implements this interface once
+ * and plugs straight into {@link runProviderContract} with zero kit edits.
+ *
+ * The kit asserts *behavior* — which bucket an issue lands in and what the
+ * applied log records — never the exact marker spelling. The adapter is free to
+ * choose whatever markers make those transitions observable in its fake.
+ */
+export interface ProviderContractBackend {
+  /** Provider surface under test. */
+  readonly client: LinearClientLike;
+  /** Side-effect log the provider writes through. */
+  readonly applied: AppliedLog;
+
+  /** Seed an issue already placed in `bucket` so the matching `fetch*` returns
+   *  it. The adapter chooses the bucket markers (see the Linear adapter). */
+  seedInBucket(bucket: ContractBucket, seed: SeedIssue): LinearIssue;
+
+  /** Indicators the kit feeds to `client.applyIndicator` /
+   *  `client.removeIndicator`. The adapter guarantees these transitions are
+   *  observable through the fetch buckets and the applied log. */
+  readonly set: {
+    inProgress: SetIndicator;
+    done: SetIndicator;
+    prReady: SetIndicator;
+    error: SetIndicator;
+    /** Removed (not applied) to exercise `clearReview`. */
+    review: SetIndicator;
+  };
+
+  pushComment(issueId: string, body: string, author?: string): void;
+  pushMention(issueId: string, source: MentionSource, body: string, at: Date): void;
+  comments(issueId: string): readonly FakeLinearComment[];
+  issues(): readonly LinearIssue[];
+}
+
+const ids = (issues: readonly LinearIssue[]): string[] => issues.map((i) => i.identifier);
+
+/**
+ * Backend-parametrized provider contract. Call it at the top level of a
+ * `*.test.ts` file with a fresh-backend factory; every case obtains its own
+ * isolated backend via `makeBackend()` so exclusion assertions never become
+ * order-dependent.
+ */
+export function runProviderContract(makeBackend: () => ProviderContractBackend): void {
+  describe("provider contract", () => {
+    describe("fetch buckets", () => {
+      test("each fetch* returns only the issue seeded into its bucket", async () => {
+        const b = makeBackend();
+        b.seedInBucket("todo", { id: "t", identifier: "C-TODO", title: "todo" });
+        b.seedInBucket("inProgress", { id: "p", identifier: "C-PROG", title: "in progress" });
+        b.seedInBucket("review", { id: "r", identifier: "C-REVIEW", title: "review" });
+        b.seedInBucket("doneCandidate", { id: "d", identifier: "C-DONE", title: "done" });
+
+        expect(ids(await b.client.fetchTodo())).toEqual(["C-TODO"]);
+        expect(ids(await b.client.fetchInProgress())).toEqual(["C-PROG"]);
+        expect(ids(await b.client.fetchReview())).toEqual(["C-REVIEW"]);
+        expect(ids(await b.client.fetchDoneCandidates())).toEqual(["C-DONE"]);
+      });
+    });
+
+    describe("round-trips", () => {
+      test("postComment then fetchComments returns the body", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.postComment(issue, "hello");
+        const bodies = (await b.client.fetchComments(issue.id)).map((c) => c.body);
+        expect(bodies).toContain("hello");
+      });
+
+      test("human pushComment is surfaced by fetchComments", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        b.pushComment(issue.id, "human note", "Alice");
+        const bodies = (await b.client.fetchComments(issue.id)).map((c) => c.body);
+        expect(bodies).toContain("human note");
+      });
+
+      test("pushMention surfaces via fetchMentions with body + source", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        b.pushMention(issue.id, "linear", "@ralphy ping", new Date("2025-01-02T00:00:00Z"));
+        const mentions = await b.client.fetchMentions();
+        expect(mentions).toHaveLength(1);
+        expect(mentions[0]?.trigger.body).toBe("@ralphy ping");
+        expect(mentions[0]?.trigger.source).toBe("linear");
+      });
+    });
+
+    describe("indicator side effects", () => {
+      test("applyIndicator(inProgress) records setInProgress", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.applyIndicator(issue, b.set.inProgress);
+        expect(b.applied.setInProgress).toContain("C-1");
+      });
+
+      test("removeIndicator(review) records clearReview", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("review", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.removeIndicator(issue, b.set.review);
+        expect(b.applied.clearReview).toContain("C-1");
+      });
+    });
+
+    describe("lifecycle exclusion & bucketing", () => {
+      test("setInProgress moves an issue out of todo into in-progress", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.applyIndicator(issue, b.set.inProgress);
+        expect(ids(await b.client.fetchTodo())).not.toContain("C-1");
+        expect(ids(await b.client.fetchInProgress())).toContain("C-1");
+        expect(b.applied.setInProgress).toContain("C-1");
+      });
+
+      test("setDone excludes from in-progress and lands in done candidates", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("inProgress", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.applyIndicator(issue, b.set.done);
+        expect(ids(await b.client.fetchInProgress())).not.toContain("C-1");
+        expect(b.applied.setDone).toContain("C-1");
+        expect(ids(await b.client.fetchDoneCandidates())).toContain("C-1");
+      });
+
+      test("setError excludes from todo", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.applyIndicator(issue, b.set.error);
+        expect(ids(await b.client.fetchTodo())).not.toContain("C-1");
+        expect(b.applied.setError).toContain("C-1");
+      });
+
+      test("setPrReady is additive and not mis-bucketed as setInProgress", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("todo", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.applyIndicator(issue, b.set.prReady);
+        expect(b.applied.setPrReady).toContain("C-1");
+        expect(b.applied.setInProgress).not.toContain("C-1");
+      });
+
+      test("clearReview drops an issue from the review bucket", async () => {
+        const b = makeBackend();
+        const issue = b.seedInBucket("review", { id: "1", identifier: "C-1", title: "x" });
+        await b.client.removeIndicator(issue, b.set.review);
+        expect(ids(await b.client.fetchReview())).not.toContain("C-1");
+        expect(b.applied.clearReview).toContain("C-1");
+      });
+    });
+  });
+}
+
+// --- Linear adapter ---------------------------------------------------------
+
+/**
+ * Mutually-exclusive, status-based lifecycle vocabulary. Status buckets never
+ * overlap, so a transition that changes an issue's status genuinely removes it
+ * from one bucket and adds it to another — which is what makes exclusion
+ * observable in `FakeLinear`, whose `filterBy` is OR-only with no `exclude`.
+ * The `review` bucket is label-driven and parked on a neutral `In Review`
+ * status so it never leaks into the status-keyed `Todo` bucket.
+ */
+const LINEAR_INDICATORS: FakeLinearIndicators = {
+  getTodo: { filter: [{ type: "status", value: "Todo" }] },
+  getInProgress: { filter: [{ type: "status", value: "In Progress" }] },
+  getReview: { filter: [{ type: "label", value: "ralphy:review" }] },
+  getDoneCandidates: { filter: [{ type: "status", value: "Done" }] },
+};
+
+const BUCKET_STATE: Record<ContractBucket, { name: string; type: string }> = {
+  todo: { name: "Todo", type: "unstarted" },
+  inProgress: { name: "In Progress", type: "started" },
+  review: { name: "In Review", type: "started" },
+  doneCandidate: { name: "Done", type: "completed" },
+};
+
+/**
+ * Linear adapter wiring `createFakeLinear` into the contract kit. Each call
+ * returns a fresh, isolated backend.
+ */
+export function makeLinearContractBackend(): ProviderContractBackend {
+  const fake = createFakeLinear(LINEAR_INDICATORS);
+  return {
+    client: fake.client,
+    applied: fake.applied,
+    seedInBucket: (bucket, seed) => {
+      const labels =
+        bucket === "review" ? [...(seed.labels ?? []), "ralphy:review"] : (seed.labels ?? []);
+      return fake.seed({ ...seed, state: BUCKET_STATE[bucket], labels });
+    },
+    set: {
+      inProgress: { type: "status", value: "In Progress" },
+      done: { type: "status", value: "Done" },
+      prReady: { type: "status", value: "In Review" },
+      error: { type: "status", value: "Error" },
+      review: { type: "label", value: "ralphy:review" },
+    },
+    pushComment: fake.pushComment,
+    pushMention: fake.pushMention,
+    comments: fake.comments,
+    issues: fake.issues,
+  };
+}

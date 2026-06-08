@@ -11,6 +11,13 @@ import { getScenario } from "./scenarios";
 import type { HarnessCtx } from "./types";
 
 export type { HarnessCtx, ScenarioStep, SeedIssue, LinearClientLike } from "./types";
+export {
+  runProviderContract,
+  makeLinearContractBackend,
+  type ProviderContractBackend,
+  type ContractBucket,
+  type MentionSource,
+} from "./provider-contract";
 export { createFakeLinear } from "./fake-linear";
 export { createFakeGh } from "./fake-gh";
 export { createTmpFs } from "./tmp-fs";
