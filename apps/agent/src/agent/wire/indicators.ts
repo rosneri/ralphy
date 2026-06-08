@@ -42,10 +42,14 @@ export function describeIndicators(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee?: boolean,
+  requireAllLabels?: readonly string[],
 ): string {
   const parts: string[] = [];
   parts.push(`team=${team ?? "*"}`);
   parts.push(`assignee=${anyAssignee ? "any" : (assignee ?? "*")}`);
+  if (requireAllLabels && requireAllLabels.length > 0) {
+    parts.push(`labels=[${requireAllLabels.join(",")}]`);
+  }
   if (indicators.getTodo) {
     parts.push(`todo=[${indicators.getTodo.filter.map((m) => `${m.type}:${m.value}`).join(",")}]`);
   }
