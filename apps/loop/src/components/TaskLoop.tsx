@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { Box, Static, Text, useApp, useInput, useStdin } from "ink";
+import { useState, useRef, useMemo } from "react";
+import { Box, Static, Text, useInput, useStdin } from "ink";
 import { TextInput } from "@inkjs/ui";
 import { Banner } from "./Banner";
 import { IterationHeader } from "./IterationHeader";
@@ -8,6 +8,7 @@ import { StatusBar } from "./StatusBar";
 import { StopMessage } from "./StopMessage";
 import { useLoop, type LogEntry } from "../hooks/useLoop";
 import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
+import { useHoldToClose } from "@ralphy/ui-shared/useHoldToClose";
 import { getLayout } from "@ralphy/context";
 import type { LoopOptions } from "../loop";
 
@@ -113,7 +114,6 @@ export function SteerInput({ onSubmit }: { onSubmit: (msg: string) => void }) {
 }
 
 export function TaskLoop({ opts }: TaskLoopProps) {
-  const { exit } = useApp();
   const loop = useLoop(opts);
   const { isRawModeSupported } = useStdin();
   const { resizeKey } = useTerminalSize();
@@ -131,11 +131,15 @@ export function TaskLoop({ opts }: TaskLoopProps) {
     [loop.logLines],
   );
 
-  useEffect(() => {
-    if (!loop.isRunning) {
-      exit();
-    }
-  }, [loop.isRunning, exit]);
+  // Shared with the agent TUI: on an abnormal stop (anything but a clean
+  // "completed") the pane is held open so the StopMessage — the rate/usage
+  // limit, failure, or other reason — stays readable until the operator presses
+  // Enter. A clean finish, or a piped `--from-agent` worker with no TTY, closes
+  // immediately.
+  const { awaitingClose } = useHoldToClose({
+    finished: !loop.isRunning,
+    hold: loop.stopReason !== null && loop.stopReason !== "completed",
+  });
 
   if (!loop.state) return null;
 
@@ -196,6 +200,7 @@ export function TaskLoop({ opts }: TaskLoopProps) {
             maxRuntimeMinutes={opts.maxRuntimeMinutes}
             consecutiveFailures={loop.consecutiveFailures}
           />
+          {awaitingClose && <Text color="cyan">{"\n"}Press Enter to close…</Text>}
         </>
       )}
     </Box>

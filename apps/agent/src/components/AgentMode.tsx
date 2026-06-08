@@ -54,6 +54,7 @@ import {
 } from "@ralphy/core/openspec-phase";
 import { logSession, logCoord, logPhase } from "@ralphy/log";
 import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
+import { useHoldToClose } from "@ralphy/ui-shared/useHoldToClose";
 import { SteeringField } from "./SteeringField";
 import { appendSteeringMessage } from "@ralphy/core/loop";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
@@ -391,6 +392,28 @@ export function AgentMode({
   const [preflightError, setPreflightError] = useState<{ tool: string; message: string } | null>(
     null,
   );
+  // Set to the intended exit code when the agent hits an unrecoverable error
+  // (failed preflight, init throw). Drives the shared hold-to-close pause so the
+  // reason stays on screen until the operator presses Enter — the same
+  // mechanism the task loop uses. `heldRef` records whether we actually paused
+  // (interactive TTY) so we can exit clean on acknowledgment and let the tmux
+  // crash fallback stay quiet, versus surfacing the real code on an immediate
+  // (non-interactive) close.
+  const [fatalExit, setFatalExit] = useState<number | null>(null);
+  const heldRef = useRef(false);
+  const { awaitingClose } = useHoldToClose({
+    finished: fatalExit !== null,
+    hold: true,
+    onClose: () => {
+      // Acknowledged in-app → exit clean so the tmux crash fallback stays quiet;
+      // closed immediately (no TTY) → surface the real failure code.
+      const code = heldRef.current ? 0 : (fatalExit ?? 0);
+      setTimeout(() => process.exit(code), 200);
+    },
+  });
+  useEffect(() => {
+    if (awaitingClose) heldRef.current = true;
+  }, [awaitingClose]);
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
   /** Index into activeWorkers of the focused worker card (0-based). */
@@ -492,11 +515,7 @@ export function AgentMode({
       if (!pf.ok) {
         fileEmit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });
         setPreflightError({ tool: pf.tool, message: pf.message });
-        process.exitCode = 2;
-        setTimeout(() => {
-          exit();
-          setTimeout(() => process.exit(2), 200);
-        }, 100);
+        setFatalExit(2);
         return;
       }
 
@@ -671,11 +690,9 @@ export function AgentMode({
       const message = err instanceof Error ? err.message : String(err);
       fileEmit({ type: "error", code: "init_failure", text: message });
       appendLog(`! ${message}`, "red");
-      // Delay exit so React can render the error in the logs panel before unmounting.
-      setTimeout(() => {
-        exit();
-        setTimeout(() => process.exit(1), 200);
-      }, 100);
+      // The shared hold-to-close pause renders the error and waits for Enter
+      // (interactive) before unmounting; the red log above stays visible.
+      setFatalExit(1);
     });
 
     let shuttingDown = false;
@@ -853,6 +870,7 @@ export function AgentMode({
           ✖ Preflight failed — {preflightError.tool}
         </Text>
         <Text color="red">{preflightError.message}</Text>
+        {awaitingClose && <Text color="cyan">{"\n"}Press Enter to close…</Text>}
       </Box>
     );
   }
@@ -1521,6 +1539,7 @@ export function AgentMode({
           );
         })}
       </Box>
+      {awaitingClose && <Text color="cyan">Stopped — press Enter to close…</Text>}
     </Box>
   );
 }
