@@ -112,6 +112,45 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     }
   }
 
+  /**
+   * Linear label groups are exclusive — an issue can hold at most one label
+   * per group. Before adding a grouped label, strip any sibling from the same
+   * group the issue already carries, otherwise `issueAddLabel` is rejected
+   * (surfaced as "Linear API returned errors"), which is what stalls a
+   * `setError`/`setConflicted` on an issue that still has e.g. `approved`.
+   *
+   * `issue.labels` holds bare child names, so a sibling is any current label
+   * whose `${group}:${name}` resolves in the (already-populated) label cache to
+   * a different id than the one we are about to add. Removal failures are
+   * non-fatal — the add is still attempted.
+   */
+  async function stripSiblingGroupLabels(
+    issue: LinearIssue,
+    group: string,
+    keepId: string,
+  ): Promise<void> {
+    const map = labelCache.get(teamKeyOf(issue));
+    if (!map) return;
+    for (const name of issue.labels) {
+      const siblingId = map.get(`${group}:${name}`.toLowerCase());
+      if (!siblingId || siblingId === keepId) continue;
+      try {
+        await removeLabelFromIssue(apiKey, issue.id, siblingId);
+        diag(
+          "linear-marker",
+          `  → ${issue.identifier} -label='${group}:${name}' (group swap)`,
+          "gray",
+        );
+      } catch (err) {
+        diag(
+          "linear-marker",
+          `! could not remove sibling label '${group}:${name}' from ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
+  }
+
   async function applyMarker(issue: LinearIssue, m: Marker): Promise<void> {
     if (m.type === "status") {
       const id = await resolveStateId(issue, m.value);
@@ -154,6 +193,9 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
         err.issue = issue.identifier;
         throw err;
       }
+      // Exclusive Linear groups reject a second label from the same group;
+      // swap out any sibling the issue already carries before adding.
+      if (m.group) await stripSiblingGroupLabels(issue, m.group, id);
       await addLabelToIssue(apiKey, issue.id, id);
       diag("linear-marker", `  → ${issue.identifier} +label='${display}'`, "gray");
     }
