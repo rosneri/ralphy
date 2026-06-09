@@ -119,7 +119,9 @@ export function isCommentNotFoundError(err: unknown): boolean {
   return (
     text.includes("not found") ||
     text.includes("could not find") ||
-    text.includes("entity not found")
+    text.includes("entity not found") ||
+    // GitHub GraphQL wording when a comment node id no longer resolves.
+    text.includes("could not resolve")
   );
 }
 

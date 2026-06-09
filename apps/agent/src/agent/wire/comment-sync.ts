@@ -26,6 +26,13 @@ interface CommentSyncInput {
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
   issueByChange: Map<string, LinearIssue>;
+  /** Tracker-specific comment mutations. Defaults to the Linear trio. */
+  commentMutations?: CommentMutations;
+  /** Whether the backend credentials are ready. Defaults to `Boolean(apiKey)`. */
+  credentialsReady?: boolean;
+  /** Whether the backend supports spec attachments. Defaults to `true`
+   *  (Linear); GitHub has no attachments API, so it passes `false`. */
+  attachmentsSupported?: boolean;
 }
 
 interface CommentSyncHooks {
@@ -44,12 +51,15 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   // Wire the hook when *either* is on — gating spec attachments behind
   // `syncTasksToComment` previously left `syncSpecsAsAttachments: true` dead
   // whenever the sticky comment was disabled (no design PDF on the issue).
-  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
-  const specAttachmentsEnabled = Boolean(cfg.linear.syncSpecsAsAttachments && apiKey);
+  const credsReady = input.credentialsReady ?? Boolean(apiKey);
+  const attachmentsSupported = input.attachmentsSupported ?? true;
+  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment) && credsReady;
+  const specAttachmentsEnabled =
+    attachmentsSupported && Boolean(cfg.linear.syncSpecsAsAttachments) && credsReady;
   const enabled = commentsEnabled || specAttachmentsEnabled;
   if (!enabled) return { enabled: false };
 
-  const commentMutations: CommentMutations = {
+  const commentMutations: CommentMutations = input.commentMutations ?? {
     createIssueComment,
     updateIssueComment,
     deleteIssueComment,

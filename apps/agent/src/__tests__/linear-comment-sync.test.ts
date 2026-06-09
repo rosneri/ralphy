@@ -106,6 +106,11 @@ describe("isCommentNotFoundError", () => {
   test("detects 'could not find' on message string", () => {
     expect(isCommentNotFoundError(new Error("Could not find the requested entity"))).toBe(true);
   });
+  test("detects GitHub GraphQL 'Could not resolve to a node' wording", () => {
+    expect(
+      isCommentNotFoundError(new Error("Could not resolve to a node with the global id of 'IC_x'")),
+    ).toBe(true);
+  });
   test("returns false for unrelated errors", () => {
     expect(isCommentNotFoundError(new Error("rate limited"))).toBe(false);
   });
