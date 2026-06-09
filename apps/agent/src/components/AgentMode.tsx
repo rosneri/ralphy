@@ -20,6 +20,7 @@ import {
   pipelineStages,
   statusLabel,
   buildBoardTree,
+  orderActiveWorkersFirst,
   STATUS_GLYPH,
   PIPELINE_NODES,
   type TicketRow,
@@ -830,10 +831,11 @@ export function AgentMode({
   // recompute the index each render and clamp a null/missing id to the first
   // row, so focus survives rows being added/removed/reordered between polls.
   const board = pollStatus.lastBoard;
-  // Dependency-ordered view of the board: blocked rows nest under their
-  // in-board blockers. This is the rendered AND navigable order, so ↑/↓ move
-  // along what the user sees.
-  const tree = buildBoardTree(board);
+  // Dependency-ordered view of the board: rows with a live worker are pinned to
+  // the top, then blocked rows nest under their in-board blockers. This is the
+  // rendered AND navigable order, so ↑/↓ move along what the user sees.
+  const liveWorkerIds = new Set(coordRef.current?.activeWorkers.map((w) => w.issueId) ?? []);
+  const tree = buildBoardTree(orderActiveWorkersFirst(board, liveWorkerIds));
   const focusedIndex = (() => {
     if (tree.length === 0) return -1;
     const i = tree.findIndex((t) => t.row.id === focusedId);

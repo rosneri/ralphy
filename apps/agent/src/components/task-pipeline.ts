@@ -243,6 +243,26 @@ interface BoardTreeRow {
 }
 
 /**
+ * Stable-partition the board so rows backed by a *live worker* lead, keeping
+ * relative order within each group. Apply before {@link buildBoardTree} so
+ * active work heads the list while its dependents still nest beneath it.
+ *
+ * "Active by worker" is liveness the row state alone can't express: a `working`
+ * row with no spawned worker is merely waiting for a slot, so the caller passes
+ * the actually-running worker ids rather than keying off state.
+ */
+export function orderActiveWorkersFirst(
+  rows: TicketRow[],
+  activeWorkerIds: ReadonlySet<string>,
+): TicketRow[] {
+  if (activeWorkerIds.size === 0) return rows.slice();
+  const active: TicketRow[] = [];
+  const rest: TicketRow[] = [];
+  for (const r of rows) (activeWorkerIds.has(r.id) ? active : rest).push(r);
+  return [...active, ...rest];
+}
+
+/**
  * Order the flat board into a dependency tree: every ticket is placed after the
  * blockers that are *also on the board* and indented one level below the
  * deepest of them, so a blocked ticket reads as nested under what it waits on.
