@@ -52,7 +52,6 @@ export type AgentModeBuildCoordinator = (
   pollInterval: number;
   getWorkerCwd: (changeName: string) => string | undefined;
   runBaselineGate: () => Promise<void>;
-  getGaveUpTotal: () => Promise<number>;
 };
 import {
   phasePipeline,
@@ -179,6 +178,18 @@ function fmtCmd(argv: string[]): string {
 }
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/** Board states that imply a worker should be running. A row in one of these
+ *  with no active worker is waiting for a worker slot — surfaced as a "waiting
+ *  for worker" mark in place of the (meaningless, not-yet-ticking) age timer. */
+const WORKER_WAIT_STATES = new Set<TicketRow["state"]>([
+  "queued",
+  "working",
+  "in-progress",
+  "conflict-fix",
+  "ci-fix",
+  "review",
+]);
 
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -480,10 +491,6 @@ export function AgentMode({
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   /** Toggled by Ctrl+L — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
-  // Durable count of give-ups (non-zero / non-NO_CHANGES worker exits),
-  // re-derived each poll from persisted `.ralph-state.json:gaveUpCount` so it
-  // survives agent restarts rather than resetting per session.
-  const [gaveUpCount, setGaveUpCount] = useState(0);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   /** Tickets parked in `awaiting-confirmation`, populated by `onAwaitingTicket`
@@ -561,114 +568,112 @@ export function AgentMode({
         return;
       }
 
-      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate, getGaveUpTotal } =
-        buildCoordinator({
-          args,
-          cfg,
-          projectRoot,
-          statesDir,
-          tasksDir,
-          apiKey,
-          onLog: (text, color) => {
-            const ev: Record<string, unknown> = { type: "log", text };
-            if (color !== undefined) ev["color"] = color;
-            fileEmit(ev);
-            appendLog(text, color);
-          },
-          onFileLog: (text) => logCoord(text),
-          onWorkersChanged: () => setTick((t) => t + 1),
-          onWorkerStarted: (changeName, dir, logFile, changeDir) => {
-            fileEmit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
-            logSession(`worker-started ${changeName} log=${logFile}`, logFile);
-            workerMetaRef.current.set(changeName, {
-              startedAt: Date.now(),
-              statesDir: dir,
-              logFile,
-              changeDir,
-              iter: 0,
-              phase: "working",
-              phaseDetail: "",
-              phaseStartedAt: Date.now(),
-              currentTask: null,
-              subtasks: [],
-              taskProgress: null,
-              openspecPhase: null,
-              reviewRounds: 0,
-              prUrl: null,
-              currentCmd: null,
-              tail: [],
-            });
-          },
-          onWorkerExited: (changeName) => {
-            fileEmit({ type: "worker_exited", changeName });
-            const m = workerMetaRef.current.get(changeName);
-            logSession(`worker-exited ${changeName}`, m?.logFile);
-            workerMetaRef.current.delete(changeName);
-          },
-          onWorkerPhase: (changeName, phase, detail) => {
-            const ev: Record<string, unknown> = { type: "worker_phase", changeName, phase };
-            if (detail !== undefined) ev["detail"] = detail;
-            fileEmit(ev);
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (m.phase !== phase) m.phaseStartedAt = Date.now();
-            m.phase = phase;
-            m.phaseDetail = detail ?? "";
-            logPhase(changeName, m.logFile, phase, detail);
-          },
-          onWorkerOutput: (changeName, line) => {
-            const clean = cleanOutputLine(line);
-            if (clean) fileEmit({ type: "worker_output", changeName, line: clean });
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (!clean) return;
-            m.tail.push(clean);
-            if (m.tail.length > TAIL_BUFFER_SIZE)
-              m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
-          },
-          onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
-            if (state === "start") {
-              fileEmit({ type: "worker_cmd_start", changeName, cmd });
-            } else {
-              fileEmit({
-                type: "worker_cmd_end",
-                changeName,
-                cmd,
-                durationMs: durationMs ?? 0,
-                ok: ok ?? true,
-              });
-            }
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (state === "start") {
-              m.currentCmd = { argv: cmd, startedAt: Date.now() };
-            } else {
-              m.currentCmd = null;
-            }
-          },
-          onWorkerPr: (changeName, prUrl) => {
-            fileEmit({ type: "worker_pr", changeName, prUrl });
-            const m = workerMetaRef.current.get(changeName);
-            if (m) m.prUrl = prUrl;
-          },
-          onAwaitingTicket: (info) => {
+      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildCoordinator({
+        args,
+        cfg,
+        projectRoot,
+        statesDir,
+        tasksDir,
+        apiKey,
+        onLog: (text, color) => {
+          const ev: Record<string, unknown> = { type: "log", text };
+          if (color !== undefined) ev["color"] = color;
+          fileEmit(ev);
+          appendLog(text, color);
+        },
+        onFileLog: (text) => logCoord(text),
+        onWorkersChanged: () => setTick((t) => t + 1),
+        onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+          fileEmit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
+          logSession(`worker-started ${changeName} log=${logFile}`, logFile);
+          workerMetaRef.current.set(changeName, {
+            startedAt: Date.now(),
+            statesDir: dir,
+            logFile,
+            changeDir,
+            iter: 0,
+            phase: "working",
+            phaseDetail: "",
+            phaseStartedAt: Date.now(),
+            currentTask: null,
+            subtasks: [],
+            taskProgress: null,
+            openspecPhase: null,
+            reviewRounds: 0,
+            prUrl: null,
+            currentCmd: null,
+            tail: [],
+          });
+        },
+        onWorkerExited: (changeName) => {
+          fileEmit({ type: "worker_exited", changeName });
+          const m = workerMetaRef.current.get(changeName);
+          logSession(`worker-exited ${changeName}`, m?.logFile);
+          workerMetaRef.current.delete(changeName);
+        },
+        onWorkerPhase: (changeName, phase, detail) => {
+          const ev: Record<string, unknown> = { type: "worker_phase", changeName, phase };
+          if (detail !== undefined) ev["detail"] = detail;
+          fileEmit(ev);
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (m.phase !== phase) m.phaseStartedAt = Date.now();
+          m.phase = phase;
+          m.phaseDetail = detail ?? "";
+          logPhase(changeName, m.logFile, phase, detail);
+        },
+        onWorkerOutput: (changeName, line) => {
+          const clean = cleanOutputLine(line);
+          if (clean) fileEmit({ type: "worker_output", changeName, line: clean });
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (!clean) return;
+          m.tail.push(clean);
+          if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
+        },
+        onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
+          if (state === "start") {
+            fileEmit({ type: "worker_cmd_start", changeName, cmd });
+          } else {
             fileEmit({
-              type: "awaiting_confirmation",
-              changeName: info.changeName,
-              issueIdentifier: info.issueIdentifier,
-              issueUrl: info.issueUrl,
-              since: info.since,
-              round: info.round,
+              type: "worker_cmd_end",
+              changeName,
+              cmd,
+              durationMs: durationMs ?? 0,
+              ok: ok ?? true,
             });
-            gatedTicketsRef.current.set(info.changeName, {
-              issueIdentifier: info.issueIdentifier,
-              issueUrl: info.issueUrl,
-              issueTitle: info.issueTitle,
-              since: info.since,
-              round: info.round,
-            });
-          },
-        });
+          }
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (state === "start") {
+            m.currentCmd = { argv: cmd, startedAt: Date.now() };
+          } else {
+            m.currentCmd = null;
+          }
+        },
+        onWorkerPr: (changeName, prUrl) => {
+          fileEmit({ type: "worker_pr", changeName, prUrl });
+          const m = workerMetaRef.current.get(changeName);
+          if (m) m.prUrl = prUrl;
+        },
+        onAwaitingTicket: (info) => {
+          fileEmit({
+            type: "awaiting_confirmation",
+            changeName: info.changeName,
+            issueIdentifier: info.issueIdentifier,
+            issueUrl: info.issueUrl,
+            since: info.since,
+            round: info.round,
+          });
+          gatedTicketsRef.current.set(info.changeName, {
+            issueIdentifier: info.issueIdentifier,
+            issueUrl: info.issueUrl,
+            issueTitle: info.issueTitle,
+            since: info.since,
+            round: info.round,
+          });
+        },
+      });
       setEffective({ concurrency, pollInterval });
 
       fileEmit({
@@ -702,14 +707,6 @@ export function AgentMode({
         const { found, added, buckets, prStatus, board } = await coord.pollOnce();
         if (cancelled) return;
         fileEmit({ type: "poll_done", found, added, buckets, prStatus });
-        // Durable gave-up total: re-derived from each change's persisted
-        // `.ralph-state.json` so it survives agent restarts (the live count
-        // is written to disk by the worker's post-task `recordGaveUp`).
-        getGaveUpTotal()
-          .then((total) => {
-            if (!cancelled) setGaveUpCount(total);
-          })
-          .catch(() => undefined);
         if (added > 0) {
           appendLog(`  ${added} new issue${added === 1 ? "" : "s"} queued (found ${found} open)`);
         }
@@ -996,7 +993,6 @@ export function AgentMode({
                   <Text color="green"> ● recover{cfg.prRecovery.fixCi ? "+CI" : ""}</Text>
                 )}
                 {cfg.useWorktree && <Text color="green"> ● worktree</Text>}
-                {gaveUpCount > 0 && <Text color="red"> │ gave-up ×{gaveUpCount}</Text>}
               </Text>
             )}
           </Text>
@@ -1078,12 +1074,16 @@ export function AgentMode({
                         const meta = activeW
                           ? workerMetaRef.current.get(activeW.changeName)
                           : undefined;
+                        // A work-state row with no live worker is waiting for a
+                        // worker slot — show a "waiting for worker" mark instead
+                        // of a timer that is not yet counting anything.
+                        const waitingForWorker = !activeW && WORKER_WAIT_STATES.has(row.state);
                         // AGE: live worker uptime when active; else time since the
                         // first recovery failure; else unknown.
                         let age = "–";
                         if (meta?.startedAt) {
                           age = fmtElapsed(now - meta.startedAt);
-                        } else if (row.recovery?.firstFailedAt) {
+                        } else if (!waitingForWorker && row.recovery?.firstFailedAt) {
                           const failedAt = Date.parse(row.recovery.firstFailedAt);
                           if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
                         }
@@ -1110,10 +1110,14 @@ export function AgentMode({
                               {"  "}
                               {statusLabel(row)}
                             </Text>
-                            <Text dimColor>
-                              {"  "}
-                              {age}
-                            </Text>
+                            {waitingForWorker ? (
+                              <Text color="yellow">{"  waiting for worker"}</Text>
+                            ) : (
+                              <Text dimColor>
+                                {"  "}
+                                {age}
+                              </Text>
+                            )}
                             {prUrl && (
                               <>
                                 <Text dimColor>{"  ↗"}</Text>

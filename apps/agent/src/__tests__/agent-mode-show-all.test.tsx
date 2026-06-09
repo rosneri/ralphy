@@ -100,7 +100,6 @@ function makeBuilder(workers: ActiveWorker[], changeDir: string): AgentModeBuild
       pollInterval: 999,
       getWorkerCwd: () => undefined,
       runBaselineGate: async () => {},
-      getGaveUpTotal: async () => 0,
     };
   };
 }

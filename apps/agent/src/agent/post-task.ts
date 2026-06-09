@@ -1,5 +1,4 @@
-import { join, dirname } from "node:path";
-import { GAVEUP_COUNT_FILE } from "@ralphy/core/layout";
+import { join } from "node:path";
 import { AGENT_TASKS_FILENAME, prependFixTask } from "@ralphy/core/tasks-md";
 import { fsChange } from "../shared/capabilities/fs-change";
 import { git as gitCap } from "../shared/capabilities/git";
@@ -1142,29 +1141,6 @@ export async function runValidateOnlyPhase(
  * `PR_FAILED_EXIT` or `CI_FAILED_EXIT` when post-task work fails. The
  * coordinator uses this to decide whether to mark the issue processed.
  */
-/**
- * Bump the durable per-change give-up tally when a worker gives up. Writes a
- * single-integer sidecar (`GAVEUP_COUNT_FILE`) beside `.ralph-state.json`
- * rather than mutating the state file itself: the state file has concurrent
- * async writers (loop, confirmation gate) that a second read-modify-write
- * would clobber. The sidecar has exactly one writer (this function, one worker
- * per change), so the plain read-add-write needs no locking.
- */
-async function recordGaveUp(
-  stateFilePath: string,
-  log: PostTaskDeps["log"],
-  changeName: string,
-): Promise<void> {
-  const path = join(dirname(stateFilePath), GAVEUP_COUNT_FILE);
-  try {
-    const file = Bun.file(path);
-    const current = (await file.exists()) ? Number.parseInt(await file.text(), 10) || 0 : 0;
-    await Bun.write(path, String(current + 1) + "\n");
-  } catch (err) {
-    log(`! could not record gave-up for ${changeName}: ${(err as Error).message}`, "yellow");
-  }
-}
-
 export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Promise<number> {
   const { log, cmd, git, runScript } = deps;
   const emit = (phase: PostTaskPhase, detail?: string) => deps.onPhase?.(phase, detail);
@@ -1222,7 +1198,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       effectiveCode === 0 ? "done" : "gave-up",
       effectiveCode !== 0 ? `exit ${effectiveCode}` : undefined,
     );
-    if (effectiveCode !== 0) await recordGaveUp(stateFilePath, log, changeName);
     await runWorktreeCleanupPhase(
       { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
       { git, log, emit },
@@ -1279,7 +1254,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
           "red",
         );
         emit("gave-up", "unpushed conflict resolution");
-        await recordGaveUp(stateFilePath, log, changeName);
         await runWorktreeCleanupPhase(
           { changeName, cwd, projectRoot, useWorktree, effectiveCode: PR_FAILED_EXIT, cfg },
           { git, log, emit },
@@ -1386,7 +1360,6 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
   // surface it as done on the dashboard, not "gave-up".
   const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
   emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
-  if (!succeeded) await recordGaveUp(stateFilePath, log, changeName);
 
   // Retrospective (opt-in, --agent-debug): runs before worktree cleanup so the
   // worktree artifacts + state file are still readable. The dep never throws;

@@ -102,7 +102,6 @@ function makeBuilderWithAwaiting(
       pollInterval: 60,
       getWorkerCwd: () => undefined,
       runBaselineGate: async () => {},
-      getGaveUpTotal: async () => 0,
     };
   };
 }

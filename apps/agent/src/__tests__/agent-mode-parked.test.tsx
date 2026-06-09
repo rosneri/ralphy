@@ -76,7 +76,6 @@ function makeBuilder(coord: AgentModeCoordinator): AgentModeBuildCoordinator {
     pollInterval: 999,
     getWorkerCwd: () => undefined,
     runBaselineGate: async () => {},
-    getGaveUpTotal: async () => 0,
   });
 }
 
