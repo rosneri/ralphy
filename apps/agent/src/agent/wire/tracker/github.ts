@@ -81,7 +81,12 @@ function labelValues(markers: Marker[]): string[] {
  * this provider only has to translate label/comment markers into `gh` calls:
  * fetching by label, moving labels, commenting, and closing on done.
  */
-export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerProvider {
+export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerProvider & {
+  /** List open issues for the mention scan (todo + in-progress, no Search-API). */
+  listOpenIssues: () => Promise<LinearIssue[]>;
+  /** Resolve the `owner/name` slug (configured, else detected from origin). */
+  repo: () => Promise<string>;
+} {
   const { cmdRunner, projectRoot, diag } = input;
   const statusLabels = input.issues?.statusLabels ?? DEFAULT_STATUS_LABELS;
   const todoLabel = input.issues?.label;
@@ -226,6 +231,22 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     }
   }
 
+  /** Open issues the mention scan reads comments for: the todo bucket plus
+   *  in-progress (a picked-up issue sheds the todo label, so it would otherwise
+   *  fall out of scope), deduped by number. With no configured todo label every
+   *  open issue is the todo bucket, so a single unfiltered list suffices. No
+   *  Search-API. */
+  async function listOpenIssues(): Promise<LinearIssue[]> {
+    if (!todoLabel || todoLabel.trim() === "") return listIssues([]);
+    const [todo, inProgress] = await Promise.all([
+      listIssues(["--label", todoLabel.trim()]),
+      listIssues(["--label", statusLabels.inProgress]),
+    ]);
+    const byId = new Map<string, LinearIssue>();
+    for (const i of [...todo, ...inProgress]) byId.set(i.id, i);
+    return [...byId.values()];
+  }
+
   async function fetchDoneCandidates(): Promise<LinearIssue[]> {
     // Issues still carrying the in-progress label are the ones whose PRs the
     // watcher scans for conflict / CI status.
@@ -245,6 +266,8 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     applyMarker,
     fetchDoneCandidates,
     resolveLabelIdForTeam,
+    listOpenIssues,
+    repo,
   };
 }
 

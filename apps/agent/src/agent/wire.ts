@@ -33,8 +33,11 @@ import type { IssueTrackerProvider } from "@ralphy/tracker";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
-import { createMentionScanner, isChangeArchivedForIssue } from "./wire/mention-scan";
-import type { MentionTrigger } from "./coordinator";
+import {
+  createGithubMentionScanner,
+  createMentionScanner,
+  isChangeArchivedForIssue,
+} from "./wire/mention-scan";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
@@ -229,13 +232,19 @@ export function buildAgentCoordinator(
   // seam below). Both branches conform to TrackerProvider. The Linear path
   // binds `fetchDoneCandidates` from the standalone helper (it needs the
   // indicator map); the GitHub provider implements it directly.
-  const provider: TrackerProvider = isGithubTracker
+  // Built only in GitHub mode; retained as a typed handle so the mention
+  // scanner can reach the GitHub-specific `listOpenIssues` / `repo` seams that
+  // the tracker-neutral `TrackerProvider` does not expose.
+  const githubProvider = isGithubTracker
     ? createGithubTrackerProvider({
         issues: cfg.github?.issues,
         cmdRunner,
         projectRoot,
         diag,
       })
+    : null;
+  const provider: TrackerProvider = githubProvider
+    ? githubProvider
     : {
         ...resolvers!,
         fetchDoneCandidates: () =>
@@ -292,11 +301,20 @@ export function buildAgentCoordinator(
     ...(input.runners?.worktree ? { worktreeProvider: input.runners.worktree } : {}),
   });
 
-  // Mention / code-review re-engagement is Linear-only (queries Linear for
-  // mentions of the bot handle). GitHub mode skips it — richer GitHub parity is
-  // a follow-up (see design "Out of scope").
-  const fetchMentions = isGithubTracker
-    ? async (): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> => []
+  // Mention re-engagement (RLF-240). Linear mode queries Linear for mentions of
+  // the bot handle; GitHub mode scans open issue comments over REST (no
+  // Search-API) via the dedicated scanner. Both are gated on
+  // `linear.mentionTrigger` inside the scanner.
+  const fetchMentions = githubProvider
+    ? createGithubMentionScanner({
+        cfg,
+        cmdRunner,
+        projectRoot,
+        onLog,
+        diag,
+        listOpenIssues: githubProvider.listOpenIssues,
+        repo: githubProvider.repo,
+      })
     : createMentionScanner({
         apiKey,
         args,
