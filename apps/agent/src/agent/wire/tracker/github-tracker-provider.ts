@@ -19,7 +19,7 @@
  * coordinator or the XState machines.
  */
 
-import type { SetIndicator } from "@ralphy/types";
+import type { Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
 import type { LinearIssue } from "../../../shared/capabilities/linear-client";
@@ -100,14 +100,28 @@ export function mapGithubIssue(raw: RawGithubIssue): LinearIssue {
   };
 }
 
+/**
+ * Flatten a marker to the literal GitHub label name it applies. GitHub has no
+ * label groups (Linear does), so a grouped `label` marker
+ * (`{ type: "label", value: "error", group: "Ralphy" }`) collapses to the
+ * single flat label `Ralphy:error` — matching the nested name Linear resolves.
+ * An ungrouped `label` marker keeps its bare `value`; non-`label` markers are
+ * returned unchanged (their `value`).
+ */
+export function flattenLabel(marker: Marker): string {
+  if (marker.type === "label" && marker.group) return `${marker.group}:${marker.value}`;
+  return marker.value;
+}
+
 /** True when an indicator's markers denote "done" (status `done` or any
- *  label whose final `:`-segment is `done`, e.g. `status:done`). */
+ *  label whose final `:`-segment is `done`, e.g. `status:done` or a grouped
+ *  `{ value: "done", group: "status" }` that flattens to `status:done`). */
 function isDoneIndicator(set: SetIndicator): boolean {
   const markers = markersOf(set);
   return markers.some(
     (m) =>
       (m.type === "status" && m.value.toLowerCase() === "done") ||
-      (m.type === "label" && /(^|:)done$/i.test(m.value)),
+      (m.type === "label" && /(^|:)done$/i.test(flattenLabel(m))),
   );
 }
 
@@ -128,7 +142,7 @@ export function githubIndicatorAction(
   if (op === "add" && isDoneIndicator(set)) return { kind: "close" };
   const labels = markersOf(set)
     .filter((m) => m.type === "label")
-    .map((m) => m.value);
+    .map(flattenLabel);
   return { kind: op === "remove" ? "remove-label" : "add-label", labels };
 }
 
@@ -146,6 +160,34 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
     const { stdout } = await run(["issue", "list", ...flags, "--json", ISSUE_FIELDS]);
     const raw = JSON.parse(stdout || "[]") as RawGithubIssue[];
     return raw.map(mapGithubIssue);
+  }
+
+  /**
+   * Lazily-seeded, case-insensitive set of label names known to exist in the
+   * repo. `null` until the first `ensureLabelsExist` call lists them. GitHub
+   * label names are unique case-insensitively, so comparison is lowercased.
+   */
+  let knownLabels: Set<string> | null = null;
+
+  /**
+   * Create any of `labels` that do not yet exist in the repo, so a subsequent
+   * `gh issue edit --add-label` cannot fail on a missing label (GitHub, unlike
+   * Linear, does not auto-create labels on use). Idempotent: the known-label
+   * set is listed once and reused, so repeat applies issue no extra `label
+   * list` and an already-present label is never re-created.
+   */
+  async function ensureLabelsExist(labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    if (knownLabels === null) {
+      const { stdout } = await run(["label", "list", "--json", "name"]);
+      const existing = JSON.parse(stdout || "[]") as { name: string }[];
+      knownLabels = new Set(existing.map((l) => l.name.toLowerCase()));
+    }
+    for (const label of labels) {
+      if (knownLabels.has(label.toLowerCase())) continue;
+      await run(["label", "create", label]);
+      knownLabels.add(label.toLowerCase());
+    }
   }
 
   return {
@@ -170,6 +212,7 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
         return;
       }
       if (action.labels.length === 0) return;
+      await ensureLabelsExist(action.labels);
       await run(["issue", "edit", issue.id, "--add-label", action.labels.join(",")]);
     },
     removeIndicator: async (issue, ind) => {
