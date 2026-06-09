@@ -21,7 +21,8 @@ import {
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
-import { createGithubTrackerProvider, githubIndicators } from "./wire/tracker/github";
+import { createGithubProvider, githubIndicators } from "./wire/tracker/github";
+import { createGithubTrackerProvider } from "./wire/tracker/github-tracker-provider";
 import { createLinearProvider } from "./wire/tracker/linear";
 import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
 import type { TrackerProvider } from "./wire/tracker/types";
@@ -215,7 +216,7 @@ export function buildAgentCoordinator(
   // handle exposes `resolvers` for the `createLinearTrackerProvider` seam below.
   // Each is built only in its own mode, so the other's config may be unset.
   const githubProvider = isGithubTracker
-    ? createGithubTrackerProvider({
+    ? createGithubProvider({
         issues: cfg.github?.issues,
         cmdRunner,
         projectRoot,
@@ -313,27 +314,20 @@ export function buildAgentCoordinator(
         resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
       });
 
-  // RLF-223 (M1) + RLF-234: the tracker-neutral provider seam injected into
-  // `CoordinatorDeps` below, so the coordinator never references a concrete
-  // backend. Linear wraps its transport + resolvers + mention scanner via
-  // `createLinearTrackerProvider`; GitHub builds the same `IssueTrackerProvider`
-  // shape from the gh-CLI `provider`. Mentions, review and comment-fetch are
-  // Linear-only today — GitHub returns empty sets (see design "Out of scope").
+  // RLF-223 (M1) + RLF-234 + RLF-229: the tracker-neutral provider seam injected
+  // into `CoordinatorDeps` below, so the coordinator never references a concrete
+  // backend. Both backends are now built by a named factory delegating to their
+  // transport: Linear via `createLinearTrackerProvider`, GitHub via
+  // `createGithubTrackerProvider`. GitHub's `fetchComments` reads real issue
+  // comments (started-idempotency); `fetchReview` is intentionally empty
+  // (mentions-driven) — see the factory and design "Out of scope".
   const tracker: IssueTrackerProvider = isGithubTracker
-    ? {
-        fetchTodo: () => provider.fetchByGet(indicators.getTodo, excludeFromTodo),
-        fetchInProgress: () =>
-          provider.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
-        fetchReview: async () => [],
+    ? createGithubTrackerProvider({
+        provider: githubProvider!,
+        indicators,
+        excludeFromTodo,
         fetchMentions,
-        fetchDoneCandidates: () => provider.fetchDoneCandidates(),
-        applyIndicator: provider.applyIndicator,
-        removeIndicator: provider.removeIndicator,
-        // Progress comments route through a `gh issue comment` via the
-        // provider's comment marker.
-        postComment: (issue, body) => provider.applyMarker(issue, { type: "comment", value: body }),
-        fetchComments: async () => [],
-      }
+      })
     : createLinearTrackerProvider({
         apiKey,
         team,

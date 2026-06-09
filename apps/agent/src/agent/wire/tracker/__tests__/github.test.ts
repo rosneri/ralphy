@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CmdRunner } from "../../../pr";
 import type { TrackedIssue } from "@ralphy/tracker";
 import {
-  createGithubTrackerProvider,
+  createGithubProvider,
   githubIndicators,
   identifierForNumber,
   type GithubIssuesConfig,
@@ -35,7 +35,7 @@ const diag = () => {};
 
 function provider(replies: Record<string, string> = {}, issues = ISSUES) {
   const { runner, calls } = fakeRunner(replies);
-  const p = createGithubTrackerProvider({ issues, cmdRunner: runner, projectRoot: "/repo", diag });
+  const p = createGithubProvider({ issues, cmdRunner: runner, projectRoot: "/repo", diag });
   return { p, calls };
 }
 
@@ -51,7 +51,7 @@ const ghIssueJson = JSON.stringify([
   },
 ]);
 
-describe("createGithubTrackerProvider — fetch", () => {
+describe("createGithubProvider — fetch", () => {
   test("fetchByGet lists open issues by the filter label and maps to TrackedIssue", async () => {
     const { p, calls } = provider({ "gh issue list": ghIssueJson });
     const issues = await p.fetchByGet({ filter: [{ type: "label", value: "ralph:todo" }] }, []);
@@ -110,6 +110,30 @@ describe("createGithubTrackerProvider — fetch", () => {
     expect(listCall).toContain("--label");
     expect(listCall).toContain("ralph:in-progress");
   });
+
+  test("fetchComments returns the issue's comment bodies via gh issue view", async () => {
+    const { p, calls } = provider({
+      "gh issue view": JSON.stringify({ comments: [{ body: "first" }, { body: "second" }] }),
+    });
+    const bodies = (await p.fetchComments("42")).map((c) => c.body);
+    const viewCall = calls.find((c) => c[2] === "view")!;
+    expect(viewCall).toContain("42");
+    expect(viewCall).toContain("--json");
+    expect(viewCall).toContain("comments");
+    expect(viewCall).toContain("--repo");
+    expect(viewCall).toContain("acme/widgets");
+    expect(bodies).toEqual(["first", "second"]);
+  });
+
+  test("fetchComments on an issue with no comments returns [] (empty stdout)", async () => {
+    const { p } = provider({ "gh issue view": "" });
+    expect(await p.fetchComments("42")).toEqual([]);
+  });
+
+  test("fetchComments tolerates an explicit empty comments array", async () => {
+    const { p } = provider({ "gh issue view": JSON.stringify({ comments: [] }) });
+    expect(await p.fetchComments("42")).toEqual([]);
+  });
 });
 
 const issue: TrackedIssue = {
@@ -127,7 +151,7 @@ const issue: TrackedIssue = {
   blockedByIds: [],
 };
 
-describe("createGithubTrackerProvider — lifecycle mapping", () => {
+describe("createGithubProvider — lifecycle mapping", () => {
   test("setInProgress adds the in-progress label and removes the todo label", async () => {
     const { p, calls } = provider();
     await p.applyIndicator(issue, { type: "label", value: "ralph:in-progress" });
@@ -174,7 +198,7 @@ describe("createGithubTrackerProvider — lifecycle mapping", () => {
   });
 });
 
-describe("createGithubTrackerProvider — attachment sticky upsert", () => {
+describe("createGithubProvider — attachment sticky upsert", () => {
   /** Provider backed by a stateful comment store so repeated attachment
    *  applies exercise the real list → find → edit/create flow. */
   function stickyProvider() {
@@ -204,7 +228,7 @@ describe("createGithubTrackerProvider — attachment sticky upsert", () => {
     const trackWarn = (_area: string, message: string, color?: string) => {
       if (color === "yellow") warnings.push(message);
     };
-    const p = createGithubTrackerProvider({
+    const p = createGithubProvider({
       issues: ISSUES,
       cmdRunner: runner,
       projectRoot: "/repo",
@@ -248,7 +272,7 @@ describe("createGithubTrackerProvider — attachment sticky upsert", () => {
   });
 });
 
-describe("createGithubTrackerProvider — repo resolution", () => {
+describe("createGithubProvider — repo resolution", () => {
   test("detects the repo from origin when none is configured", async () => {
     const { p, calls } = provider(
       { "gh repo view": "acme/detected\n", "gh issue list": "[]" },
@@ -270,7 +294,7 @@ describe("createGithubTrackerProvider — repo resolution", () => {
         return { stdout: "[]", stderr: "" };
       },
     };
-    const p = createGithubTrackerProvider({
+    const p = createGithubProvider({
       issues: { ...ISSUES, repo: undefined },
       cmdRunner: failing,
       projectRoot: "/repo",

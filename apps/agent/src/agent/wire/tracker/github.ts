@@ -81,11 +81,13 @@ function labelValues(markers: Marker[]): string[] {
  * this provider only has to translate label/comment markers into `gh` calls:
  * fetching by label, moving labels, commenting, and closing on done.
  */
-export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerProvider & {
+export function createGithubProvider(input: GithubTrackerInput): TrackerProvider & {
   /** List open issues for the mention scan (todo + in-progress, no Search-API). */
   listOpenIssues: () => Promise<TrackedIssue[]>;
   /** Resolve the `owner/name` slug (configured, else detected from origin). */
   repo: () => Promise<string>;
+  /** The issue's comment bodies, via `gh issue view <id> --json comments`. */
+  fetchComments: (issueId: string) => Promise<{ body: string }[]>;
 } {
   const { cmdRunner, projectRoot, diag } = input;
   const statusLabels = input.issues?.statusLabels ?? DEFAULT_STATUS_LABELS;
@@ -253,6 +255,18 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     return listIssues(["--label", statusLabels.inProgress]);
   }
 
+  /** The issue's comment bodies, backing the coordinator's started-idempotency
+   *  check. An issue with no comments yields `[]` (empty/`{}` stdout guarded). */
+  async function fetchComments(issueNumber: string): Promise<{ body: string }[]> {
+    const r = await repo();
+    const { stdout } = await cmdRunner.run(
+      ["gh", "issue", "view", issueNumber, "--repo", r, "--json", "comments"],
+      projectRoot,
+    );
+    const parsed = JSON.parse(stdout.trim() || "{}") as { comments?: { body: string }[] };
+    return (parsed.comments ?? []).map((c) => ({ body: c.body }));
+  }
+
   // GitHub has no team-scoped label-id concept; the baseline gate's Linear
   // label creation is a no-op here.
   async function resolveLabelIdForTeam(): Promise<string | null> {
@@ -268,6 +282,7 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     resolveLabelIdForTeam,
     listOpenIssues,
     repo,
+    fetchComments,
   };
 }
 
