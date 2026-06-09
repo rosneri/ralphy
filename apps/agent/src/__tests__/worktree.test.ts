@@ -76,6 +76,8 @@ describe("worktree helpers", () => {
     const expected = join(expectedWtRoot(proj), "eng-1");
     expect(handle.cwd).toBe(expected);
     expect(handle.branch).toBe("ralph/eng-1");
+    // Freshly provisioned worktree → created=true so setup runs once.
+    expect(handle.created).toBe(true);
     const fetchCall = calls.find((c) => c.args[0] === "fetch");
     expect(fetchCall?.args).toEqual(["fetch", "origin", "main"]);
     const addCall = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")!;
@@ -129,8 +131,11 @@ describe("worktree helpers", () => {
       "worktree list --porcelain": { stdout: "" },
       "rev-parse --verify --quiet refs/heads/ralph/eng-2": { stdout: "abc123" },
     });
-    await createWorktree(proj, "eng-2", "main", runner);
+    const handle = await createWorktree(proj, "eng-2", "main", runner);
     const expected = join(expectedWtRoot(proj), "eng-2");
+    // A new worktree directory is checked out onto the existing branch →
+    // created=true (deps must be installed in the new working copy).
+    expect(handle.created).toBe(true);
     expect(calls.find((c) => c.args[0] === "fetch")).toBeUndefined();
     const addCall = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")!;
     expect(addCall.args).toEqual(["worktree", "add", expected, "ralph/eng-2"]);
@@ -149,6 +154,9 @@ describe("worktree helpers", () => {
     });
     const handle = await createWorktree(proj, "eng-3", "main", runner);
     expect(handle.cwd).toBe(path);
+    // Existing worktree directory reused (resume) → created=false so the
+    // setup script is NOT re-run on this prepare.
+    expect(handle.created).toBe(false);
     // No add, no rev-parse — but the hook install must still happen.
     expect(calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")).toBeUndefined();
     expect(calls.find((c) => c.args[0] === "rev-parse")).toBeUndefined();

@@ -114,6 +114,15 @@ export const MIGRATIONS: Migration[] = [
       "github.issues.statusLabels.error",
     ],
   },
+  {
+    version: 8,
+    description:
+      "Pull requests Ralph opens can now carry GitHub labels via `prLabels`. " +
+      "List the labels to attach to every PR (they must already exist in the " +
+      "repo; a missing label is skipped, never fatal). Only asked when " +
+      "PR-creation is enabled — leave empty to attach no labels.",
+    fields: ["prLabels"],
+  },
 ];
 
 /** The highest version any migration lands on. Asserted to equal CURRENT. */

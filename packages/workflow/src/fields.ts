@@ -397,9 +397,9 @@ const CUSTOMIZED_FIELDS: Field[] = [
   },
   {
     id: "setupScript",
-    label: "Worktree setup script (runs before each task)",
+    label: "Worktree setup script (runs once per worktree)",
     description:
-      "Part of the worktree flow: a shell script run once in each task's fresh worktree before the task starts — e.g. to install dependencies in the new working copy.",
+      "Part of the worktree flow: a shell script run once when a task's worktree is first created — e.g. to install dependencies in the new working copy. It does NOT re-run on resume, conflict-fix, ci-fix, or review re-runs that reuse an existing worktree.",
     spec: { kind: "text" },
     when: worktreeEnabled,
   },

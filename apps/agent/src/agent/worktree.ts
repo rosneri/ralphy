@@ -7,6 +7,14 @@ export interface WorktreeHandle {
   cwd: string;
   /** Branch name created for this worktree. */
   branch: string;
+  /**
+   * True when this call provisioned a brand-new worktree directory (either by
+   * creating a fresh branch or by checking out an existing branch into a new
+   * directory); false when an existing worktree directory was reused (resume).
+   * Callers use this to run one-time-per-worktree setup (e.g. installing
+   * dependencies) only on first creation, not on every resume.
+   */
+  created: boolean;
 }
 
 export interface GitRunner {
@@ -133,7 +141,7 @@ async function provisionWorktree(
   const list = await runner.run(["worktree", "list", "--porcelain"], projectRoot);
   if (list.stdout.includes(`worktree ${cwd}\n`)) {
     await installPrePushHook(cwd, runner);
-    return { cwd, branch };
+    return { cwd, branch, created: false };
   }
 
   // Does the branch already exist locally?
@@ -147,13 +155,13 @@ async function provisionWorktree(
   if (branchExists) {
     await runner.run(["worktree", "add", cwd, branch], projectRoot);
     await installPrePushHook(cwd, runner);
-    return { cwd, branch };
+    return { cwd, branch, created: true };
   }
 
   await runner.run(["fetch", "origin", baseBranch], projectRoot);
   await runner.run(["worktree", "add", "-b", branch, cwd, `origin/${baseBranch}`], projectRoot);
   await installPrePushHook(cwd, runner);
-  return { cwd, branch };
+  return { cwd, branch, created: true };
 }
 
 /**

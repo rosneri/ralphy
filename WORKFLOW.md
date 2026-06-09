@@ -100,8 +100,9 @@ useWorktree: true
 # reclaim disk space.
 cleanupWorktreeOnSuccess: false
 
-# Shell script run once before each task starts — e.g. to install
-# dependencies.
+# Shell script run once when a task's worktree is first created — e.g. to
+# install dependencies. It does NOT re-run on resume/conflict-fix/ci-fix/review
+# re-runs that reuse an existing worktree.
 setupScript: bun i
 
 # When a task succeeds, automatically push the branch and open a GitHub pull
