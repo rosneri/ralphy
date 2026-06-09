@@ -15,7 +15,12 @@ import {
   type LinearIssue,
 } from "../linear";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
-import { worktreeDirNameForIssue, type GitRunner, type WorktreeProvider } from "../worktree";
+import {
+  worktreeDirNameForIssue,
+  type GitRunner,
+  type WorktreeHandle,
+  type WorktreeProvider,
+} from "../worktree";
 import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
 import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./task-bodies";
 
@@ -109,15 +114,19 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     scaffoldTasksDir: string;
     scaffoldStatesDir: string;
     branch: string | null;
+    /** Whether the worktree was newly provisioned this call (true) vs reused
+     *  (false), or `null` when not running in worktree mode. */
+    worktreeCreated: boolean | null;
   }> {
     let workerCwd = projectRoot;
     let scaffoldTasksDir = tasksDir;
     let scaffoldStatesDir = statesDir;
     let branch: string | null = null;
-    if (!useWorktree) return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
+    if (!useWorktree)
+      return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch, worktreeCreated: null };
     const probeName = worktreeDirNameForIssue(issue);
     const baseBranch = baseBranchFromLabels(issue.labels) ?? cfg.prBaseBranch;
-    let wt: { cwd: string; branch: string };
+    let wt: WorktreeHandle;
     try {
       wt = await worktreeProvider.create({
         projectRoot,
@@ -151,11 +160,12 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
         "yellow",
       );
     }
-    return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch };
+    return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch, worktreeCreated: wt.created };
   }
 
   async function prepare(issue: LinearIssue): Promise<PrepareResult> {
-    const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch } = await setupWorktree(issue);
+    const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch, worktreeCreated } =
+      await setupWorktree(issue);
 
     let changeName: string;
     const wtLayoutPre = projectLayout(workerCwd);
@@ -225,7 +235,12 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     maps.issueByChange.set(changeName, issue);
     if (branch) maps.branchByChange.set(changeName, branch);
 
-    if (cfg.setupScript) {
+    // Run the setup script only on first provisioning of the worktree, not on
+    // every resume/conflict-fix/ci-fix/review re-prepare. `worktreeCreated`
+    // is the authoritative signal in worktree mode; in non-worktree mode it is
+    // null, so fall back to `isFresh` (first scaffold) to preserve run-once.
+    const runSetup = worktreeCreated ?? isFresh;
+    if (cfg.setupScript && runSetup) {
       await runScript("setup", cfg.setupScript, workerCwd);
     }
 

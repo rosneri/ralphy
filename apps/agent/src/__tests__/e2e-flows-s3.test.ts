@@ -1142,7 +1142,7 @@ describe("S3 — coordinator flow routing", () => {
       create: async (input) => {
         const cwd = join(tempDir, "wt", input.changeName);
         await mkdir(cwd, { recursive: true });
-        return { cwd, branch: `ralph/${input.changeName}` };
+        return { cwd, branch: `ralph/${input.changeName}`, created: true };
       },
       seedMcpConfig: async () => {},
     };

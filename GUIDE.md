@@ -307,7 +307,7 @@ preExistingErrorCheck:
 
 With `useWorktree: true` (or `--worktree`) each task runs in an isolated worktree at `~/.ralph/<project>/worktrees/<change-name>` checked out onto a fresh `ralph/<change-name>` branch. Concurrent workers can't stomp on each other, and the worker's cwd _is_ the worktree.
 
-- **`setupScript`** — `sh -c`-run inside the worktree right after scaffolding (e.g. `bun install`, `cp .env.example .env`).
+- **`setupScript`** — `sh -c`-run inside the worktree once, only when the worktree is first created (e.g. `bun install`, `cp .env.example .env`). It does _not_ re-run on resume/conflict-fix/ci-fix/review re-runs that reuse an existing worktree.
 - **`teardownScript`** — `sh -c`-run after the loop exits and (optional) worktree cleanup.
 
 Both scripts receive `WORKSPACE_ROOT` in their environment — the absolute path to the origin repository (the parent of the worktree). Use it to reference project-root files from inside a worktree, e.g. `cp "$WORKSPACE_ROOT/.env.example" .env`.
