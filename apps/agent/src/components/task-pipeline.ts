@@ -232,7 +232,7 @@ export function statusLabel(row: TicketRow): string {
  */
 /** One row of the dependency-ordered board: the ticket, its indent depth, and
  *  the identifiers of the in-board blockers the indentation expresses. */
-export interface BoardTreeRow {
+interface BoardTreeRow {
   row: TicketRow;
   /** 0 for a root (no in-board blocker); otherwise `max(blocker depth) + 1`. */
   depth: number;
