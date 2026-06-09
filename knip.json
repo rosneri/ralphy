@@ -93,6 +93,9 @@
     },
     "packages/comms": {
       "entry": ["src/**/*.ts"]
+    },
+    "packages/tracker": {
+      "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
     }
   }
 }
