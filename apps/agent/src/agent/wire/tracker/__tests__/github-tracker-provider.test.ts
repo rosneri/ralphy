@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { CmdRunner } from "../../../pr";
 import {
   createGithubTrackerProvider,
+  flattenLabel,
   githubIndicatorAction,
   mapGithubIssue,
   type GithubMarkerVocab,
@@ -87,6 +88,20 @@ describe("mapGithubIssue", () => {
   });
 });
 
+describe("flattenLabel", () => {
+  test("grouped label flattens to group:value", () => {
+    expect(flattenLabel({ type: "label", value: "error", group: "Ralphy" })).toBe("Ralphy:error");
+  });
+
+  test("ungrouped label keeps its bare value", () => {
+    expect(flattenLabel({ type: "label", value: "status:in-progress" })).toBe("status:in-progress");
+  });
+
+  test("non-label marker returns its value unchanged", () => {
+    expect(flattenLabel({ type: "status", value: "Done" })).toBe("Done");
+  });
+});
+
 describe("githubIndicatorAction", () => {
   test("done label classifies as close", () => {
     expect(githubIndicatorAction({ type: "label", value: "status:done" })).toEqual({
@@ -109,6 +124,19 @@ describe("githubIndicatorAction", () => {
     expect(githubIndicatorAction({ type: "label", value: "status:done" }, "remove")).toEqual({
       kind: "remove-label",
       labels: ["status:done"],
+    });
+  });
+
+  test("grouped label flattens to group:value in add-label", () => {
+    expect(githubIndicatorAction({ type: "label", value: "error", group: "Ralphy" })).toEqual({
+      kind: "add-label",
+      labels: ["Ralphy:error"],
+    });
+  });
+
+  test("grouped done label still classifies as close", () => {
+    expect(githubIndicatorAction({ type: "label", value: "done", group: "status" })).toEqual({
+      kind: "close",
     });
   });
 });
@@ -169,18 +197,62 @@ describe("fetch buckets build correct gh argv", () => {
 describe("indicator side effects build correct gh argv", () => {
   const issue = mapGithubIssue({ number: 9, state: "OPEN" });
 
-  test("applyIndicator(in-progress) issues issue edit --add-label", async () => {
+  test("applyIndicator(in-progress) ensures the label then issues issue edit --add-label", async () => {
+    // Empty label list (default "[]") → the label is missing and gets created
+    // before the edit.
     const { client, calls } = makeProvider();
     await client.applyIndicator(issue, { type: "label", value: "status:in-progress" });
-    expect(calls[0]).toEqual([
-      "gh",
-      "issue",
-      "edit",
-      "9",
-      "--add-label",
-      "status:in-progress",
-      "--repo",
-      "acme/widgets",
+    expect(calls).toEqual([
+      ["gh", "label", "list", "--json", "name", "--repo", "acme/widgets"],
+      ["gh", "label", "create", "status:in-progress", "--repo", "acme/widgets"],
+      ["gh", "issue", "edit", "9", "--add-label", "status:in-progress", "--repo", "acme/widgets"],
+    ]);
+  });
+
+  test("applyIndicator creates a missing label before the edit", async () => {
+    const { client, calls } = makeProvider([JSON.stringify([{ name: "ralphy:todo" }])]);
+    await client.applyIndicator(issue, { type: "label", value: "status:in-progress" });
+    expect(calls.map((c) => c.slice(0, 3))).toEqual([
+      ["gh", "label", "list"],
+      ["gh", "label", "create"],
+      ["gh", "issue", "edit"],
+    ]);
+    expect(calls[1]).toContain("status:in-progress");
+  });
+
+  test("applyIndicator does not re-create an existing label", async () => {
+    const { client, calls } = makeProvider([JSON.stringify([{ name: "status:in-progress" }])]);
+    await client.applyIndicator(issue, { type: "label", value: "status:in-progress" });
+    expect(calls).toEqual([
+      ["gh", "label", "list", "--json", "name", "--repo", "acme/widgets"],
+      ["gh", "issue", "edit", "9", "--add-label", "status:in-progress", "--repo", "acme/widgets"],
+    ]);
+  });
+
+  test("existing label match is case-insensitive (no re-create)", async () => {
+    const { client, calls } = makeProvider([JSON.stringify([{ name: "Status:In-Progress" }])]);
+    await client.applyIndicator(issue, { type: "label", value: "status:in-progress" });
+    expect(calls.some((c) => c[1] === "label" && c[2] === "create")).toBe(false);
+  });
+
+  test("repeat applyIndicator does not re-list or re-create (cache hit)", async () => {
+    const { client, calls } = makeProvider();
+    await client.applyIndicator(issue, { type: "label", value: "status:in-progress" });
+    const afterFirst = calls.length;
+    await client.applyIndicator(issue, { type: "label", value: "status:in-progress" });
+    // Second apply: only the edit, no further list/create.
+    expect(calls.slice(afterFirst)).toEqual([
+      ["gh", "issue", "edit", "9", "--add-label", "status:in-progress", "--repo", "acme/widgets"],
+    ]);
+  });
+
+  test("grouped label is created and added as group:value", async () => {
+    const { client, calls } = makeProvider();
+    await client.applyIndicator(issue, { type: "label", value: "error", group: "Ralphy" });
+    expect(calls).toEqual([
+      ["gh", "label", "list", "--json", "name", "--repo", "acme/widgets"],
+      ["gh", "label", "create", "Ralphy:error", "--repo", "acme/widgets"],
+      ["gh", "issue", "edit", "9", "--add-label", "Ralphy:error", "--repo", "acme/widgets"],
     ]);
   });
 
