@@ -276,18 +276,17 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
     expect(pickupCommentBodies.some((b) => b.includes("Linear @mention"))).toBe(true);
   });
 
-  test("ack comment is posted immediately on Linear mention when postComments: true", async () => {
+  test("hidden mention-ack marker is posted on Linear mention when postComments: true", async () => {
     const { pickupCommentBodies } = await runMentionPoll(tempDir, {});
-    expect(
-      pickupCommentBodies.some((b) => b.includes("Got it, alice") || b.includes("Acknowledged")),
-    ).toBe(true);
+    // The ack comment is only the invisible marker — the visible ack is the 👀
+    // reaction. No greeting prose.
+    expect(pickupCommentBodies.some((b) => b.includes("type=mention-ack"))).toBe(true);
+    expect(pickupCommentBodies.some((b) => b.includes("picked up your mention"))).toBe(false);
   });
 
-  test("no ack comment posted when postComments: false", async () => {
+  test("no mention-ack marker posted when postComments: false", async () => {
     const { pickupCommentBodies } = await runMentionPoll(tempDir, { postComments: false });
-    expect(
-      pickupCommentBodies.some((b) => b.includes("Got it") || b.includes("Acknowledged")),
-    ).toBe(false);
+    expect(pickupCommentBodies.some((b) => b.includes("type=mention-ack"))).toBe(false);
   });
 
   test("mention scan uses inline comments without per-issue fetchIssueComments (RLF-66)", async () => {

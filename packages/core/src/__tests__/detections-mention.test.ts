@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { hasMentionTrigger, buildMentionAckComment } from "../detections/mention";
+import { isMentionAckComment, isRalphyComment } from "@ralphy/comms";
 
 describe("hasMentionTrigger", () => {
   test("non-Ralph comment contains phrase → true", () => {
@@ -105,40 +106,18 @@ describe("hasMentionTrigger", () => {
 });
 
 describe("buildMentionAckComment", () => {
-  test("leads with the unified title and a mention-ack marker", () => {
-    const result = buildMentionAckComment("@ralphy please retry");
-    expect(result.startsWith("🤖 Ralphy · picked up your mention")).toBe(true);
-    expect(result).toContain("<!-- ralphy:v=1 type=mention-ack -->");
+  test("is only the hidden mention-ack marker — no visible prose", () => {
+    const result = buildMentionAckComment();
+    // The whole comment is the HTML-comment marker (invisible in the tracker
+    // UI); the visible acknowledgment is the 👀 reaction the scan adds.
+    expect(result).toBe("<!-- ralphy:v=1 type=mention-ack status=handled -->");
+    expect(result.startsWith("🤖 Ralphy")).toBe(false);
+    expect(result).not.toContain("picked up your mention");
   });
 
-  test("without author uses Acknowledged greeting and no quote", () => {
-    const result = buildMentionAckComment("@ralphy please retry");
-    expect(result).toContain("Acknowledged — picked up your mention");
-    expect(result).not.toContain("@ralphy please retry");
-  });
-
-  test("with author uses Got it greeting and no quote", () => {
-    const result = buildMentionAckComment("@ralphy please retry", "alice");
-    expect(result).toContain("Got it, alice — picked up your mention");
-    expect(result).not.toContain("@ralphy please retry");
-  });
-
-  test("does not contain any blockquote line", () => {
-    const result = buildMentionAckComment("@ralphy please retry", "alice");
-    expect(result.split("\n").some((line) => line.startsWith(">"))).toBe(false);
-  });
-
-  test("multiline body is not echoed at all", () => {
-    const result = buildMentionAckComment("first line\nsecond line\nthird line");
-    expect(result).not.toContain("first line");
-    expect(result).not.toContain("second line");
-    expect(result).not.toContain("third line");
-  });
-
-  test("long body is neither echoed nor truncated with ellipsis", () => {
-    const longLine = "a".repeat(250);
-    const result = buildMentionAckComment(longLine);
-    expect(result).not.toContain("a".repeat(20));
-    expect(result).not.toContain("…");
+  test("is recognised as a mention-ack watermark and as a Ralphy comment", () => {
+    const result = buildMentionAckComment();
+    expect(isMentionAckComment(result)).toBe(true);
+    expect(isRalphyComment(result)).toBe(true);
   });
 });

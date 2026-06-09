@@ -198,11 +198,9 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
           }
           if (cfg.linear.postComments !== false) {
             try {
-              await createIssueComment(
-                apiKey,
-                issue.id,
-                buildMentionAckComment(c.body, c.user?.name),
-              );
+              // Posts only the hidden mention-ack marker — the visible ack is the
+              // 👀 reaction above. The marker is the dedup watermark.
+              await createIssueComment(apiKey, issue.id, buildMentionAckComment());
             } catch (err) {
               diag(
                 "mention",
@@ -266,11 +264,13 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
               }
             }
             if (cfg.linear.postComments !== false) {
+              // Hidden mention-ack marker only — the visible ack is the 👀
+              // reaction above. The marker is the dedup watermark.
               await postGithubPrComment(
                 cmdRunner,
                 projectRoot,
                 prUrl,
-                buildMentionAckComment(c.body, c.author),
+                buildMentionAckComment(),
                 onLog,
               );
             }

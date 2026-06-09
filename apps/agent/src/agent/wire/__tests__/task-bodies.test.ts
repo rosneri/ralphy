@@ -34,7 +34,7 @@ describe("findLastMentionAckISO — re-ack dedup (BAN-467)", () => {
     const comments = [
       { body: "@ralphy-read revise: use the toggle", createdAt: mentionAt },
       {
-        body: buildMentionAckComment("@ralphy-read revise: use the toggle", "Neriya"),
+        body: buildMentionAckComment(),
         createdAt: ackAt,
       },
     ];
@@ -60,7 +60,7 @@ describe("findLastMentionAckISO — re-ack dedup (BAN-467)", () => {
   it("findLastRalphPickupISO stays scoped to review-pickup, not mention-acks", () => {
     const comments = [
       {
-        body: buildMentionAckComment("@ralphy hi", "Neriya"),
+        body: buildMentionAckComment(),
         createdAt: "2026-06-08T12:00:00.000Z",
       },
     ];

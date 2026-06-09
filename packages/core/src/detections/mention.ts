@@ -1,4 +1,4 @@
-import { buildRalphyComment, isRalphyComment } from "@ralphy/comms";
+import { buildRalphyMarker, isRalphyComment } from "@ralphy/comms";
 
 export interface MentionInputs {
   comments: Array<{ body: string; isRalph: boolean }>;
@@ -19,13 +19,14 @@ export function hasMentionTrigger(inputs: MentionInputs): boolean {
   );
 }
 
-export function buildMentionAckComment(_body: string, author?: string): string {
-  const greeting = author
-    ? `Got it, ${author} — picked up your mention and queued a review pass.`
-    : `Acknowledged — picked up your mention and queued a review pass.`;
-  return buildRalphyComment({
-    type: "mention-ack",
-    action: "picked up your mention",
-    body: greeting,
-  });
+/**
+ * The mention acknowledgment. The visible feedback is the 👀 reaction the scan
+ * adds to the human's mention comment; the comment Ralphy posts is *only* the
+ * hidden marker (an HTML comment, invisible in the tracker UI), so it adds no
+ * prose noise while still serving as the dedup watermark that
+ * {@link isMentionAckComment} / `findLastMentionAckISO` use to close the
+ * re-ack-every-poll loop.
+ */
+export function buildMentionAckComment(): string {
+  return buildRalphyMarker("mention-ack", { status: "handled" });
 }
