@@ -1,11 +1,11 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { resolveDependencyBaseBranchImpl } from "../agent/wire";
 import type { CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 const ISSUE_ID = "dep-issue";
 
-function issueWithBlockers(ids: string[]): LinearIssue {
+function issueWithBlockers(ids: string[]): TrackedIssue {
   return {
     id: ISSUE_ID,
     identifier: "RLF-99",

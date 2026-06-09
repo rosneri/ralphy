@@ -1,10 +1,10 @@
 import { describe, expect, test, mock } from "bun:test";
 import { parseAgentArgs } from "../cli";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { createNoopBus } from "@ralphy/events";
 
-function issue(id: string, identifier: string, priority = 3): LinearIssue {
+function issue(id: string, identifier: string, priority = 3): TrackedIssue {
   return {
     id,
     identifier,
@@ -25,7 +25,7 @@ interface FakeWorker {
   resolve: (code: number) => void;
 }
 
-function makeDeps(todo: LinearIssue[] = []): {
+function makeDeps(todo: TrackedIssue[] = []): {
   deps: CoordinatorDeps;
   workers: Map<string, FakeWorker>;
 } {
@@ -36,7 +36,7 @@ function makeDeps(todo: LinearIssue[] = []): {
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     fetchReview: mock(async () => []),
-    prepare: mock(async (i: LinearIssue) => ({
+    prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
     spawnWorker: mock((changeName: string) => {

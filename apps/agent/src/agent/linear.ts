@@ -5,11 +5,7 @@
  * surrounding code is migrated to the new path.
  */
 
-export type {
-  LinearIssue,
-  LinearFilterSpec,
-  LinearComment,
-} from "../shared/capabilities/linear-client";
+export type { LinearFilterSpec } from "../shared/capabilities/linear-client";
 export {
   fetchMentionScanIssues,
   fetchOpenIssues,

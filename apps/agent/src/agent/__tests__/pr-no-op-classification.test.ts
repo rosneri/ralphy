@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createPullRequest, type CmdRunner } from "../pr";
-import type { LinearIssue } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 // Exercises createPullRequest's meta-only classification: distinguishing a
 // genuine no-op (branch history only ever touched meta files) from a lost
@@ -8,7 +8,7 @@ import type { LinearIssue } from "../linear";
 
 const META = ["openspec/**", "**/tasks.md"];
 
-const issue: LinearIssue = {
+const issue: TrackedIssue = {
   id: "i1",
   identifier: "LIT-300",
   title: "Eliminate disables",

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createOpenDraftPr } from "../pr-helpers";
 import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-function makeIssue(labels: string[] = []): LinearIssue {
+function makeIssue(labels: string[] = []): TrackedIssue {
   return {
     id: "u-1",
     identifier: "ENG-9",

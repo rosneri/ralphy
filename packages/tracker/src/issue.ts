@@ -1,13 +1,12 @@
 /**
  * Tracker-neutral issue and comment shapes.
  *
- * These were extracted from the Linear GraphQL client (`LinearIssue` /
- * `LinearComment`) as part of RLF-223 (M1 — provider seam). They are the
- * canonical types the coordinator/queue/wire layers depend on; the Linear
- * transport keeps `LinearIssue = TrackedIssue` / `LinearComment =
- * TrackedComment` back-compat aliases so no consuming file needs edits beyond
- * the rename. A second tracker source (GitHub Issues, M2) populates the same
- * shape from its own backend.
+ * These were extracted from the Linear GraphQL client as part of RLF-223
+ * (M1 — provider seam) and are the canonical, provider-neutral types every
+ * consumer (coordinator/queue/wire layers, the Linear client, the GitHub
+ * tracker) depends on directly (RLF-227 retired the Linear-named aliases).
+ * A second tracker source (GitHub Issues, M2) populates the same shape from
+ * its own backend.
  */
 
 export interface TrackedComment {

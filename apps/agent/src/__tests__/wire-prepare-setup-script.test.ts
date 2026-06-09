@@ -17,11 +17,11 @@ import { loadRalphyConfig } from "../agent/config";
 import { createPrepareHelpers } from "../agent/wire/prepare";
 import { changeNameForIssue } from "../agent/scaffold";
 import type { GitRunner, WorktreeProvider } from "../agent/worktree";
-import type { LinearIssue } from "../shared/capabilities/linear-client";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 let tempDir: string;
 
-const ISSUE: LinearIssue = {
+const ISSUE: TrackedIssue = {
   id: "uuid-eng-1",
   identifier: "ENG-1",
   title: "Add dark mode",
@@ -71,7 +71,7 @@ function emptyMaps() {
   return {
     cwdByChange: new Map<string, string>(),
     statesDirByChange: new Map<string, string>(),
-    issueByChange: new Map<string, LinearIssue>(),
+    issueByChange: new Map<string, TrackedIssue>(),
     branchByChange: new Map<string, string>(),
     prByChange: new Map<string, string>(),
   };

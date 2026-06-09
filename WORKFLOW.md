@@ -233,15 +233,21 @@ linear:
           value: In Progress
         - type: status
           value: Planned
+    # Releases a parked ticket from the confirmation gate. `approved` is the
+    # manual human approval; `auto-merge` tickets are trusted to flow through
+    # unattended, so they count as approved too (no separate getAutoApprove).
     getApproved:
       filter:
         - type: label
           value: approved
           group: Ralphy
-    # Issues matching this skip the confirmation gate entirely (go straight to
-    # implementation without waiting for the `approved` label). Auto-merge
-    # tickets are trusted to flow through unattended, so they auto-approve too.
-    getAutoApprove:
+        - type: label
+          value: auto-merge
+          group: Ralphy
+    # Issues matching this get GitHub auto-merge enabled on their PR at worker
+    # completion (`gh pr merge --auto`), so the PR merges itself once checks
+    # pass. Without this indicator nothing is ever treated as auto-merge.
+    getAutoMerge:
       filter:
         - type: label
           value: auto-merge

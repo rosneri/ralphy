@@ -12,7 +12,7 @@
  * API (subject to a 30 req/min cap) is never used on a per-poll basis.
  *
  * Output is provider-neutral: `TrackedIssue` / `TrackedComment` deliberately
- * converge with `LinearIssue` / `LinearComment` so downstream consumers can
+ * converge with `TrackedIssue` / `TrackedComment` so downstream consumers can
  * treat both providers uniformly. `state.type` is derived from open/closed +
  * `stateReason` + status labels (see `deriveTrackedState`).
  */

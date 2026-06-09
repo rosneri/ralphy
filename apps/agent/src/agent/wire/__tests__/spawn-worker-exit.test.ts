@@ -9,7 +9,7 @@ import { runPostTask } from "../../post-task";
 import { loadRalphyConfig } from "../../config";
 import { parseAgentArgs } from "../../../cli";
 import type { AgentRunners } from "../runners";
-import type { LinearIssue } from "../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { AgentCoordinator } from "../../coordinator";
 
 // Drive the spawn-worker exit handler in isolation: a fake `spawnWorker`
@@ -75,7 +75,7 @@ interface Harness {
     cwdByChange: Map<string, string>;
     statesDirByChange: Map<string, string>;
     branchByChange: Map<string, string>;
-    issueByChange: Map<string, LinearIssue>;
+    issueByChange: Map<string, TrackedIssue>;
   };
 }
 
@@ -102,7 +102,7 @@ async function buildHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const cwdByChange = new Map<string, string>([[CHANGE, tempDir]]);
   const statesDirByChange = new Map<string, string>([[CHANGE, join(tempDir, ".ralph", "tasks")]]);
   const branchByChange = new Map<string, string>([[CHANGE, "feat/x"]]);
-  const issueByChange = new Map<string, LinearIssue>();
+  const issueByChange = new Map<string, TrackedIssue>();
 
   const awaitingChangeSet = new Set<string>();
   if (awaiting) awaitingChangeSet.add(CHANGE);

@@ -14,9 +14,9 @@ import { tmpdir } from "node:os";
 import { runPrPhase } from "../agent/post-task";
 import { createOpenDraftPr } from "../agent/wire/pr-helpers";
 import type { CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-const ISSUE: LinearIssue = {
+const ISSUE: TrackedIssue = {
   id: "u-1",
   identifier: "ENG-42",
   title: "Add feature",

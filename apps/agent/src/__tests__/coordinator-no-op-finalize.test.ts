@@ -1,7 +1,7 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 
 // When a worker exits NO_CHANGES_EXIT (branch only ever touched meta files —
@@ -9,7 +9,7 @@ import type { SetIndicator } from "@ralphy/types";
 // ticket as DONE with an honest "no changes" comment, NOT quarantine it with
 // setError. This is the LIT-300 fix: a no-op must not re-summon or quarantine.
 
-function issue(id: string, identifier: string): LinearIssue {
+function issue(id: string, identifier: string): TrackedIssue {
   return {
     id,
     identifier,
@@ -43,7 +43,7 @@ function makeCtx() {
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     fetchReview: mock(async () => []),
-    prepare: mock(async (i: LinearIssue) => ({
+    prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
     spawnWorker: mock(() => {

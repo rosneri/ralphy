@@ -12,7 +12,7 @@ mock.module("node:os", () => ({
 }));
 import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
-import type { LinearIssue } from "../../../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import * as linear from "../../../agent/linear";
 import type { RalphyConfig } from "../../../agent/config";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
@@ -41,7 +41,7 @@ afterAll(() => {
   mock.restore();
 });
 
-function makeIssue(): LinearIssue {
+function makeIssue(): TrackedIssue {
   return {
     id: "uuid-rlf-200",
     identifier: "RLF-200",
@@ -261,8 +261,8 @@ describe("processAwaitingForIssue", () => {
 
       // Poll 1 — gate active, marker applied.
       await processAwaitingForIssue(issue, deps);
-      // Bypass gate via getAutoApprove indicator → gate clears next poll.
-      deps.cfg.linear.indicators.getAutoApprove = {
+      // Approve via getApproved indicator → gate clears next poll.
+      deps.cfg.linear.indicators.getApproved = {
         filter: [{ type: "label", value: "ralph:auto-approve" }],
       };
       issue.labels = ["ralph:auto-approve"];
@@ -295,8 +295,8 @@ describe("processAwaitingForIssue", () => {
 
       // Poll 1 — gate active, marker applied.
       await processAwaitingForIssue(issue, deps);
-      // Gate bypassed from here on → inactive on every subsequent poll.
-      deps.cfg.linear.indicators.getAutoApprove = {
+      // Approved from here on → released on every subsequent poll.
+      deps.cfg.linear.indicators.getApproved = {
         filter: [{ type: "label", value: "ralph:auto-approve" }],
       };
       issue.labels = ["ralph:auto-approve"];

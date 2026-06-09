@@ -14,12 +14,8 @@ import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
 import type { GitRunner } from "../../worktree";
-import {
-  fetchIssueComments,
-  issueMatchesGetIndicator,
-  type LinearComment,
-  type LinearIssue,
-} from "../../linear";
+import { fetchIssueComments, issueMatchesGetIndicator } from "../../linear";
+import type { TrackedComment, TrackedIssue } from "@ralphy/tracker";
 import {
   runPostTask,
   type PostTaskInput,
@@ -47,7 +43,7 @@ function localDateStamp(d: Date): string {
 }
 
 /** Build a compact ticket digest from the issue + its comments for the retro. */
-function buildTicketDigest(issue: LinearIssue | null, comments: LinearComment[]): string {
+function buildTicketDigest(issue: TrackedIssue | null, comments: TrackedComment[]): string {
   if (!issue) return "(ticket details unavailable)";
   const lines = [`Title: ${issue.title}`, "", issue.description?.trim() || "(no description)"];
   if (comments.length > 0) {
@@ -101,7 +97,7 @@ export interface WorkerChangeMaps {
   cwdByChange: Map<string, string>;
   statesDirByChange: Map<string, string>;
   branchByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
 }
 
 /**
@@ -187,7 +183,7 @@ export function buildPostTaskInput(input: {
   changeDir: string;
   stateFilePath: string;
   branch: string | null;
-  issue: LinearIssue | null;
+  issue: TrackedIssue | null;
   exitCode: number;
   useWorktree: boolean;
   wantPr: boolean;
@@ -248,7 +244,7 @@ interface SpawnWorkerInput {
   gitRunner: GitRunner;
   /** Apply a Linear set-indicator. Used to wire the additive `setPrReady`
    *  marker from the PR phase (`onPrReady`). */
-  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
+  applyIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
   /** Event bus — used to capture `agent_indicator_failed` when a `setPrReady`
    *  write throws, mirroring the coordinator's `setDone` failure handling. */
   bus: Bus;
@@ -260,7 +256,7 @@ interface SpawnWorkerInput {
   cwdByChange: Map<string, string>;
   statesDirByChange: Map<string, string>;
   branchByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
   /** Optional read-only view of the wire's per-change PR cache. Lets the
    *  conflict-fix verify path resolve the PR URL even when no worktree
    *  branch is tracked. */
@@ -289,7 +285,7 @@ export function createSpawnWorker(
   input: SpawnWorkerInput,
 ): (
   changeName: string,
-  issue?: LinearIssue,
+  issue?: TrackedIssue,
   trigger?: QueueTrigger,
 ) => { exited: Promise<number>; kill: () => void } {
   const {
@@ -341,7 +337,7 @@ export function createSpawnWorker(
       const prUrl = prByChange?.get(info.changeName) ?? null;
       let digest = "(ticket details unavailable)";
       if (info.issue) {
-        let comments: LinearComment[] = [];
+        let comments: TrackedComment[] = [];
         try {
           comments = await fetchIssueComments(apiKey, info.issue.id);
         } catch {
@@ -381,7 +377,7 @@ export function createSpawnWorker(
 
   return function spawnWorker(
     changeName: string,
-    _issue?: LinearIssue,
+    _issue?: TrackedIssue,
     trigger?: QueueTrigger,
   ): { exited: Promise<number>; kill: () => void } {
     const cwd = cwdByChange.get(changeName) ?? projectRoot;

@@ -381,7 +381,7 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
     expect(seen[1]!.assignee).toEqual({ id: { eq: "user-id-xyz" } });
   });
 
-  test("maps nodes into LinearIssue shape and filters Done blockers", async () => {
+  test("maps nodes into TrackedIssue shape and filters Done blockers", async () => {
     stubFetch(() => ({
       issues: {
         nodes: [

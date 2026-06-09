@@ -9,7 +9,7 @@ import { loadRalphyConfig } from "../../../config";
 import { parseAgentArgs } from "../../../../cli";
 import type { AgentRunners } from "../../runners";
 import type { GitRunner } from "../../../worktree";
-import type { LinearIssue } from "../../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { AgentCoordinator } from "../../../coordinator";
 
 // Drive `createSpawnWorker` end-to-end through its exit handler with an injected
@@ -101,7 +101,7 @@ async function buildHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const cwdByChange = new Map<string, string>([[CHANGE, worktreeCwd]]);
   const statesDirByChange = new Map<string, string>([[CHANGE, join(tempDir, ".ralph", "tasks")]]);
   const branchByChange = new Map<string, string>([[CHANGE, "ralph/x"]]);
-  const issueByChange = new Map<string, LinearIssue>();
+  const issueByChange = new Map<string, TrackedIssue>();
 
   const coordStub: Pick<AgentCoordinator, "isAwaitingConfirmation"> = {
     isAwaitingConfirmation: () => false,

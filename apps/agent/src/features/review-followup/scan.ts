@@ -4,7 +4,7 @@ import { writeField, readSlotSidecar } from "@ralphy/core/state";
 import { buildRalphyComment } from "@ralphy/comms";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { worktreesDir } from "../../agent/worktree";
-import type { LinearIssue } from "../../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { CmdRunner } from "../../agent/pr";
 import type { MentionTrigger } from "../../agent/coordinator";
 
@@ -186,7 +186,7 @@ async function fetchPrReviewState(
 /** Post a single GitHub PR ping comment when Ralph has been waiting on
  *  a reviewer for >codeReviewStaleHours. Idempotent via prByPinged. */
 async function maybePingStaleReviewer(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   prUrl: string,
   state: PrReviewState,
   newestReviewerActivity: string,
@@ -230,7 +230,7 @@ async function maybePingStaleReviewer(
  * the caller via `findLastRalphPickupISO`).
  */
 export async function scanCodeReview(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   prUrl: string,
   lastRalphPickup: string | null,
   deps: ReviewScanDeps,

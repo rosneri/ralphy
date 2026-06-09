@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { createGithubMentionScanner } from "../agent/wire/mention-scan";
 import { buildMentionAckComment } from "@ralphy/core/detections";
 import type { CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 const REPO = "acme/widgets";
 
-function issue(number: number): LinearIssue {
+function issue(number: number): TrackedIssue {
   return {
     id: String(number),
     identifier: `issue-${number}`,
@@ -72,7 +72,7 @@ function makeCfg(overrides: { postComments?: boolean; mentionTrigger?: boolean }
 
 function makeScanner(
   commentsByIssue: Record<number, GhComment[]>,
-  candidates: LinearIssue[],
+  candidates: TrackedIssue[],
   opts: { postComments?: boolean; failReaction?: boolean; mentionTrigger?: boolean } = {},
 ) {
   const { runner, calls } = makeRunner(

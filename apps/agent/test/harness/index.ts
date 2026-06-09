@@ -1,5 +1,5 @@
 import type { CoordinatorDeps, PrepareResult } from "../../src/runtime/coordinator";
-import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { createNoopBus } from "@ralphy/events";
 import { createFakeLinear, type FakeLinear, type FakeLinearIndicators } from "./fake-linear";
 import { createFakeGh, type FakeGh } from "./fake-gh";
@@ -51,7 +51,7 @@ const DEFAULT_INDICATORS: FakeLinearIndicators = {
 
 interface PendingWorker {
   changeName: string;
-  issue: LinearIssue;
+  issue: TrackedIssue;
   resolveExit: (code: number) => void;
   exited: Promise<number>;
 }

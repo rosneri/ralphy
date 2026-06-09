@@ -19,12 +19,12 @@
  * coordinator or the XState machines.
  */
 
-import type { Marker, SetIndicator } from "@ralphy/types";
+import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../../shared/capabilities/linear-client";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
+import { issueMatchesGetIndicator } from "../../../shared/capabilities/linear-client";
 import type { MentionTrigger } from "../../../queue/queue-order";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
 
 /** `--json` fields requested from `gh issue list` / `gh issue view`. */
 const ISSUE_FIELDS = "number,title,body,url,state,labels,assignees,createdAt";
@@ -43,6 +43,12 @@ export interface GithubMarkerVocab {
    * done is represented by the issue being closed, not by a label.
    */
   lifecycleLabels: string[];
+  /**
+   * Namespace identifying single-valued status labels. Applying a status label
+   * strips any other label under this prefix so an open issue carries at most
+   * one `status:*` label. Defaults to `"status:"` when omitted.
+   */
+  statusPrefix?: string;
 }
 
 interface GithubTrackerDeps {
@@ -70,7 +76,7 @@ interface RawGithubIssue {
 }
 
 /**
- * Pure mapper from a raw `gh` issue JSON object to the shared `LinearIssue`
+ * Pure mapper from a raw `gh` issue JSON object to the shared `TrackedIssue`
  * shape. Kept free of any `gh` invocation so it is unit-testable in isolation.
  *
  * - `number` → `identifier` (`#<n>`) and `id` (`<n>`).
@@ -79,7 +85,7 @@ interface RawGithubIssue {
  * - `labels[].name` → `string[]`.
  * - first `assignees[]` entry → the single `assignee` field.
  */
-export function mapGithubIssue(raw: RawGithubIssue): LinearIssue {
+export function mapGithubIssue(raw: RawGithubIssue): TrackedIssue {
   const closed = (raw.state ?? "OPEN").toUpperCase() === "CLOSED";
   const first = raw.assignees?.[0];
   return {
@@ -147,20 +153,46 @@ export function githubIndicatorAction(
 }
 
 /**
+ * Existing `prefix`-namespaced labels on an issue that must be stripped when
+ * `addLabels` are applied, to preserve the single-active-status invariant: an
+ * open issue carries at most one label under `prefix`. Returns the labels in
+ * `currentLabels` that start with `prefix` but are not among `addLabels` (so a
+ * status being re-applied is never reported as stale). Non-`prefix` labels are
+ * never returned — only the status namespace is single-valued.
+ */
+export function staleStatusLabels(
+  currentLabels: string[],
+  addLabels: string[],
+  prefix: string,
+): string[] {
+  const adding = new Set(addLabels);
+  return currentLabels.filter((l) => l.startsWith(prefix) && !adding.has(l));
+}
+
+/**
  * Build a `GithubTrackerProvider` over the injected `gh` runner. Returns the
  * structural `IssueTrackerProvider` surface; no coordinator/machine imports.
  */
 export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrackerProvider {
   const { runner, cwd, repo, vocab } = deps;
+  const statusPrefix = vocab.statusPrefix ?? "status:";
 
   const run = (args: string[]) => runner.run(["gh", ...args, "--repo", repo], cwd);
 
   /** Run `gh issue list` with the given state/label flags and map the output. */
-  async function listIssues(flags: string[]): Promise<LinearIssue[]> {
+  async function listIssues(flags: string[]): Promise<TrackedIssue[]> {
     const { stdout } = await run(["issue", "list", ...flags, "--json", ISSUE_FIELDS]);
     const raw = JSON.parse(stdout || "[]") as RawGithubIssue[];
     return raw.map(mapGithubIssue);
   }
+
+  // Convention `GetIndicator`s shared with the pure matcher so GitHub and Linear
+  // agree on what "matches this bucket". The server-side `--label` narrowing is
+  // retained (cheap, fewer rows); the matcher is the membership decision.
+  const inProgressGet: GetIndicator = {
+    filter: [{ type: "label", value: vocab.inProgressLabel }],
+  };
+  const reviewGet: GetIndicator = { filter: [{ type: "label", value: vocab.reviewLabel }] };
 
   /**
    * Lazily-seeded, case-insensitive set of label names known to exist in the
@@ -197,8 +229,14 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrack
       // from the todo bucket even though they keep the selection label.
       return issues.filter((i) => !i.labels.some((l) => vocab.lifecycleLabels.includes(l)));
     },
-    fetchInProgress: () => listIssues(["--state", "open", "--label", vocab.inProgressLabel]),
-    fetchReview: () => listIssues(["--state", "open", "--label", vocab.reviewLabel]),
+    fetchInProgress: async () => {
+      const issues = await listIssues(["--state", "open", "--label", vocab.inProgressLabel]);
+      return issues.filter((i) => issueMatchesGetIndicator(i, inProgressGet));
+    },
+    fetchReview: async () => {
+      const issues = await listIssues(["--state", "open", "--label", vocab.reviewLabel]);
+      return issues.filter((i) => issueMatchesGetIndicator(i, reviewGet));
+    },
     fetchDoneCandidates: () => listIssues(["--state", "closed"]),
     fetchComments: async (issueId: string) => {
       const { stdout } = await run(["issue", "view", issueId, "--json", "comments"]);
@@ -213,7 +251,12 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrack
       }
       if (action.labels.length === 0) return;
       await ensureLabelsExist(action.labels);
-      await run(["issue", "edit", issue.id, "--add-label", action.labels.join(",")]);
+      // Single-active-status: strip any prior `status:*` label in the same edit
+      // so the open issue carries at most one status label.
+      const stale = staleStatusLabels(issue.labels, action.labels, statusPrefix);
+      const args = ["issue", "edit", issue.id, "--add-label", action.labels.join(",")];
+      if (stale.length > 0) args.push("--remove-label", stale.join(","));
+      await run(args);
     },
     removeIndicator: async (issue, ind) => {
       const action = githubIndicatorAction(ind, "remove");
@@ -226,6 +269,6 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrack
     // M4 owns the full GitHub mention scan (cross-issue `@ralphy` search +
     // review-thread digest). For the MVP this provider returns no mentions; the
     // contract kit exercises mentions only against the fully-featured fake.
-    fetchMentions: async (): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> => [],
+    fetchMentions: async (): Promise<{ issue: TrackedIssue; trigger: MentionTrigger }[]> => [],
   };
 }

@@ -15,10 +15,10 @@ import {
   createAttachmentForUrl,
   deleteAttachment,
   findIssueAttachmentByTitle,
-  type LinearIssue,
 } from "../linear";
 import type { CmdRunner } from "../pr";
 import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 interface CommentSyncInput {
   apiKey: string;
@@ -27,7 +27,7 @@ interface CommentSyncInput {
   onLog: (text: string, color?: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
   /** Tracker-specific comment mutations. Defaults to the Linear trio. */
   commentMutations?: CommentMutations;
   /** Whether the backend credentials are ready. Defaults to `Boolean(apiKey)`. */
@@ -176,7 +176,7 @@ interface TrackerCommentSyncInput {
   onLog: (text: string, color?: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
   cmdRunner: CmdRunner;
   /** Resolves the GitHub `owner/name` slug (githubProvider.repo). */
   githubRepo?: () => Promise<string>;

@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createPullRequest, type CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-const issue: LinearIssue = {
+const issue: TrackedIssue = {
   id: "u1",
   identifier: "ENG-7",
   title: "Add feature",

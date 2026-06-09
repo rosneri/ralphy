@@ -5,14 +5,15 @@ import {
   flattenLabel,
   githubIndicatorAction,
   mapGithubIssue,
+  staleStatusLabels,
   type GithubMarkerVocab,
 } from "../github-tracker-provider";
 
 const VOCAB: GithubMarkerVocab = {
   selectionLabel: "ralphy:todo",
   inProgressLabel: "status:in-progress",
-  reviewLabel: "ralphy:review",
-  lifecycleLabels: ["status:in-progress", "ralphy:review", "status:pr-ready", "status:error"],
+  reviewLabel: "status:in-review",
+  lifecycleLabels: ["status:in-progress", "status:in-review", "status:pr-ready", "status:error"],
 };
 
 /** Records every argv and replays canned stdout in FIFO order. */
@@ -141,6 +142,40 @@ describe("githubIndicatorAction", () => {
   });
 });
 
+describe("staleStatusLabels", () => {
+  test("returns empty when no prior status label is present", () => {
+    expect(staleStatusLabels(["ralphy:todo"], ["status:in-progress"], "status:")).toEqual([]);
+  });
+
+  test("returns the single prior status label being superseded", () => {
+    expect(
+      staleStatusLabels(["ralphy:todo", "status:in-progress"], ["status:in-review"], "status:"),
+    ).toEqual(["status:in-progress"]);
+  });
+
+  test("ignores non-status labels", () => {
+    expect(
+      staleStatusLabels(["ralphy:todo", "ralphy:branch:main"], ["status:in-progress"], "status:"),
+    ).toEqual([]);
+  });
+
+  test("excludes the label being re-applied (idempotent re-apply)", () => {
+    expect(staleStatusLabels(["status:in-progress"], ["status:in-progress"], "status:")).toEqual(
+      [],
+    );
+  });
+
+  test("returns multiple stale status markers, keeping any being re-applied", () => {
+    expect(
+      staleStatusLabels(
+        ["status:in-progress", "status:error", "ralphy:todo"],
+        ["status:in-review", "status:error"],
+        "status:",
+      ),
+    ).toEqual(["status:in-progress"]);
+  });
+});
+
 describe("fetch buckets build correct gh argv", () => {
   test("fetchTodo lists open + selection label and drops lifecycle-labelled issues", async () => {
     const { client, calls } = makeProvider([
@@ -171,7 +206,9 @@ describe("fetch buckets build correct gh argv", () => {
   });
 
   test("fetchInProgress filters by in-progress label", async () => {
-    const { client, calls } = makeProvider([issueJson()]);
+    const { client, calls } = makeProvider([
+      issueJson({ labels: [{ name: "status:in-progress" }] }),
+    ]);
     await client.fetchInProgress();
     expect(calls[0]).toContain("--label");
     expect(calls[0]).toContain("status:in-progress");
@@ -180,9 +217,9 @@ describe("fetch buckets build correct gh argv", () => {
   });
 
   test("fetchReview filters by review label", async () => {
-    const { client, calls } = makeProvider([issueJson()]);
+    const { client, calls } = makeProvider([issueJson({ labels: [{ name: "status:in-review" }] })]);
     await client.fetchReview();
-    expect(calls[0]).toContain("ralphy:review");
+    expect(calls[0]).toContain("status:in-review");
   });
 
   test("fetchDoneCandidates lists closed issues", async () => {
@@ -256,6 +293,61 @@ describe("indicator side effects build correct gh argv", () => {
     ]);
   });
 
+  test("applyIndicator on a fresh transition emits no --remove-label", async () => {
+    const { client, calls } = makeProvider();
+    const fresh = mapGithubIssue({ number: 9, state: "OPEN", labels: [{ name: "ralphy:todo" }] });
+    await client.applyIndicator(fresh, { type: "label", value: "status:in-progress" });
+    const editCall = calls.find((c) => c[1] === "issue" && c[2] === "edit");
+    expect(editCall).toEqual([
+      "gh",
+      "issue",
+      "edit",
+      "9",
+      "--add-label",
+      "status:in-progress",
+      "--repo",
+      "acme/widgets",
+    ]);
+    expect(editCall).not.toContain("--remove-label");
+  });
+
+  test("applyIndicator on in-progress → review strips the prior status label", async () => {
+    const { client, calls } = makeProvider();
+    const inProgress = mapGithubIssue({
+      number: 9,
+      state: "OPEN",
+      labels: [{ name: "ralphy:todo" }, { name: "status:in-progress" }],
+    });
+    await client.applyIndicator(inProgress, { type: "label", value: "status:in-review" });
+    const editCall = calls.find((c) => c[1] === "issue" && c[2] === "edit");
+    expect(editCall).toEqual([
+      "gh",
+      "issue",
+      "edit",
+      "9",
+      "--add-label",
+      "status:in-review",
+      "--remove-label",
+      "status:in-progress",
+      "--repo",
+      "acme/widgets",
+    ]);
+  });
+
+  test("applyIndicator never strips non-status labels during a transition", async () => {
+    const { client, calls } = makeProvider();
+    const withMarkers = mapGithubIssue({
+      number: 9,
+      state: "OPEN",
+      labels: [{ name: "ralphy:todo" }, { name: "status:in-progress" }],
+    });
+    await client.applyIndicator(withMarkers, { type: "label", value: "status:in-review" });
+    const editCall = calls.find((c) => c[1] === "issue" && c[2] === "edit");
+    const removeIdx = editCall?.indexOf("--remove-label") ?? -1;
+    expect(editCall?.[removeIdx + 1]).toBe("status:in-progress");
+    expect(editCall).not.toContain("ralphy:todo");
+  });
+
   test("applyIndicator(done) issues issue close", async () => {
     const { client, calls } = makeProvider();
     await client.applyIndicator(issue, { type: "label", value: "status:done" });
@@ -264,14 +356,14 @@ describe("indicator side effects build correct gh argv", () => {
 
   test("removeIndicator issues issue edit --remove-label", async () => {
     const { client, calls } = makeProvider();
-    await client.removeIndicator(issue, { type: "label", value: "ralphy:review" });
+    await client.removeIndicator(issue, { type: "label", value: "status:in-review" });
     expect(calls[0]).toEqual([
       "gh",
       "issue",
       "edit",
       "9",
       "--remove-label",
-      "ralphy:review",
+      "status:in-review",
       "--repo",
       "acme/widgets",
     ]);

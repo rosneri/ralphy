@@ -1,11 +1,11 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps } from "../coordinator";
-import type { LinearIssue } from "../../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { Bus, EmitInput } from "@ralphy/events";
 import type { FeatureCtx } from "../../features/types";
 import { recordingBus } from "../../__test-utils__/recording-bus";
 
-function makeIssue(id: string, identifier: string, labels: string[] = []): LinearIssue {
+function makeIssue(id: string, identifier: string, labels: string[] = []): TrackedIssue {
   return {
     id,
     identifier,
@@ -23,8 +23,8 @@ function makeIssue(id: string, identifier: string, labels: string[] = []): Linea
 }
 
 function baseDeps(opts: {
-  todo: LinearIssue[];
-  inProgress: LinearIssue[];
+  todo: TrackedIssue[];
+  inProgress: TrackedIssue[];
   bus: Bus;
   onSpawn: () => void;
 }): CoordinatorDeps {
@@ -34,7 +34,7 @@ function baseDeps(opts: {
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     fetchReview: mock(async () => []),
-    prepare: mock(async (i: LinearIssue) => ({
+    prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
     spawnWorker: mock(() => {
