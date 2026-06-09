@@ -912,6 +912,33 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     expect(setErrorApplies()).toBe(2);
   });
 
+  test("a recovery worker that exits non-zero applies setError (not silently stranded)", async () => {
+    // Regression guard: the flow machine routes WORKER_FAILED → `error` (final),
+    // so a crashing conflict-fix worker can't reach `quarantined` via re-detection.
+    // The worker-exit handler's not-ok branch must still apply setError so the
+    // human is notified — the safety net does not depend on quarantine.
+    const setError: SetIndicator = { type: "label", value: "ralph:error" };
+    const ctx = makeDeps();
+    const tk = issue("a", "ENG-1");
+    ctx.setDoneCandidates([tk]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setError,
+      // High threshold → the first detection queues conflict-fix (not quarantine).
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true, maxRecoverySessions: 5 },
+    });
+    await coord.init();
+    await coord.pollOnce(); // detect conflict → queue + spawn conflict-fix worker
+    await tick();
+    expect(ctx.workers.has("change-eng-1")).toBe(true);
+
+    ctx.workers.get("change-eng-1")!.resolve(2); // recovery worker crashes
+    await tick();
+
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setError });
+  });
+
   test("conflicted count is a standing level — survives across polls without re-detection", async () => {
     const ctx = makeDeps();
     const tk = issue("a", "ENG-1");
