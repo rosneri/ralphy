@@ -1,4 +1,4 @@
-import { createActor, type Actor, type SnapshotFrom } from "xstate";
+import { createActor, type Actor, type SnapshotFrom, type InspectionEvent } from "xstate";
 import { flowMachine, type FlowAssignment, type FlowInput } from "./flow.machine";
 import { writeField, readSlotSidecar } from "../state/store";
 import type { Bus } from "@ralphy/events";
@@ -9,6 +9,19 @@ export interface FlowActorDeps {
   bus: Bus;
   persist: (issueId: string, assignment: FlowAssignment) => Promise<void> | void;
   graceMs?: number;
+  /**
+   * Observational hook fired on every *value* transition of a flow actor.
+   * Read-only — XState `inspect` cannot alter the machine, so this can never
+   * change stop/flow behavior. Used to append a debuggable per-change
+   * transition timeline. `changeDir` is whatever {@link FlowActorStore.getActor}
+   * was called with (`undefined` for in-memory-only actors). No-op events
+   * (same value in, same value out) are not reported.
+   */
+  onTransition?: (
+    issueId: string,
+    changeDir: string | undefined,
+    transition: { from: string; event: string; to: string },
+  ) => void;
 }
 
 export class FlowActorStore {
@@ -44,6 +57,8 @@ export class FlowActorStore {
         : {}),
     };
 
+    const inspector = this.deps?.onTransition ? this.makeInspect(key, changeDir) : null;
+
     if (changeDir) {
       const snapshot = await this.loadSnapshot(changeDir);
       if (snapshot !== null && this.isValidSnapshot(snapshot)) {
@@ -51,7 +66,9 @@ export class FlowActorStore {
           const a = createActor(this.machine, {
             snapshot: snapshot as SnapshotFrom<typeof flowMachine>,
             input,
+            ...(inspector ? { inspect: inspector.inspect } : {}),
           });
+          inspector?.setRoot(a);
           a.start();
           if (a.getSnapshot().value !== undefined) {
             this.actors.set(key, a);
@@ -69,10 +86,52 @@ export class FlowActorStore {
       }
     }
 
-    const a = createActor(this.machine, { input });
+    const a = createActor(this.machine, {
+      input,
+      ...(inspector ? { inspect: inspector.inspect } : {}),
+    });
+    inspector?.setRoot(a);
     a.start();
     this.actors.set(key, a);
     return a;
+  }
+
+  /**
+   * Build the per-actor `inspect` closure for the transition timeline. Only the
+   * root flow actor's value changes are reported — the spawned `preemption`
+   * child's inspection events also arrive here and are filtered out by the
+   * `actorRef === root` check. Errors in the callback are swallowed so logging
+   * can never break the actor.
+   */
+  private makeInspect(
+    issueId: string,
+    changeDir: string | undefined,
+  ): {
+    inspect: (event: InspectionEvent) => void;
+    setRoot: (actor: Actor<typeof flowMachine>) => void;
+  } {
+    let root: Actor<typeof flowMachine> | undefined;
+    let previous: string | undefined;
+    const inspect = (event: InspectionEvent): void => {
+      if (event.type !== "@xstate.snapshot" || event.actorRef !== root) return;
+      const value = (event.snapshot as { value?: unknown }).value;
+      const to = typeof value === "string" ? value : JSON.stringify(value);
+      const eventType = (event.event as { type?: string }).type ?? "?";
+      if (previous !== undefined && previous !== to) {
+        try {
+          this.deps?.onTransition?.(issueId, changeDir, { from: previous, event: eventType, to });
+        } catch {
+          /* observational — never let logging break the actor */
+        }
+      }
+      previous = to;
+    };
+    return {
+      inspect,
+      setRoot: (actor) => {
+        root = actor;
+      },
+    };
   }
 
   /**

@@ -50,6 +50,19 @@ describe("PrTracker — state machine", () => {
     expect(t.isBailed("ENG-1")).toBe(false);
   });
 
+  test("getEntry returns the entry after a failure, undefined otherwise", async () => {
+    const t = new PrTracker({ projectRoot: root, maxRecoveryAttempts: 3, now: NOW });
+    expect(t.getEntry("ENG-1")).toBeUndefined();
+    await t.recordFailure("ENG-1", "ci_failed");
+    expect(t.getEntry("ENG-1")).toMatchObject({
+      attempts: 1,
+      lastReason: "ci_failed",
+      firstFailedAt: NOW().toISOString(),
+    });
+    await t.clear("ENG-1");
+    expect(t.getEntry("ENG-1")).toBeUndefined();
+  });
+
   test("threshold reached → first bail flagged, subsequent bails dedup", async () => {
     const t = new PrTracker({ projectRoot: root, maxRecoveryAttempts: 3, now: NOW });
     await t.recordFailure("ENG-1", "conflicting");

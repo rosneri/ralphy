@@ -88,6 +88,7 @@ function makeBuilderWithAwaiting(
           prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
           phase: {},
           flow: {},
+          board: [],
         };
       },
       stop: () => {},
@@ -118,33 +119,6 @@ describe("AgentMode awaiting-confirmation", () => {
     if (savedKey === undefined) delete process.env["LINEAR_API_KEY"];
     else process.env["LINEAR_API_KEY"] = savedKey;
     await rm(tmpRoot, { recursive: true, force: true });
-  });
-
-  test("renders `awaiting N` in the POLL STATUS row when buckets.awaiting > 0", async () => {
-    const { lastFrame, unmount } = render(
-      React.createElement(AgentMode, {
-        args: baseArgs,
-        projectRoot: tmpRoot,
-        statesDir: join(tmpRoot, "states"),
-        tasksDir: join(tmpRoot, "tasks"),
-        appendSteering: async () => {},
-        buildCoordinator: makeBuilderWithAwaiting(2),
-        ensureConfig: ensureConfigStub,
-        loadConfig: loadConfigStub,
-        runPreflight: async () => ({ ok: true as const }),
-      }),
-    );
-    await flush();
-    // Strip ANSI styling: when color is enabled (e.g. FORCE_COLOR in CI) ink
-    // injects escape codes between the bucket label and its count, which would
-    // break the `\s+` regexes below even though the visible text is unchanged.
-    const frame = stripVTControlCharacters(lastFrame() ?? "");
-    // Ink wraps long lines inside the POLL STATUS box on narrow widths and
-    // splits words across rows. The bucket label fragments ("await" + "ing")
-    // and the count appear in the same row, so we just look for both parts.
-    expect(frame).toContain("await");
-    expect(frame).toMatch(/await[a-z]*\s+2/);
-    unmount();
   });
 
   test("renders a [GATE] card for each ticket reported via onAwaitingTicket", async () => {

@@ -1,8 +1,16 @@
+import { appendFile } from "node:fs/promises";
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
+import { changeNameForIssue } from "../agent/scaffold";
+import {
+  machineStateToTicketState,
+  type TicketRow,
+  type TicketState,
+  type TicketRecovery,
+} from "../components/task-pipeline";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
@@ -158,6 +166,12 @@ export interface PollResult {
   /** Per-change activity flow — independent of `phase`. Empty when the poll
    *  did not derive any. */
   flow: Record<string, Flow>;
+  /** One lifecycle-pipeline row per live ticket, ordered active-worker →
+   *  queued → in-progress → todo → mention (first occurrence wins on dedup).
+   *  The TUI renders this as the unified TASKS board; `buckets` / `prStatus`
+   *  remain for `--json-output` and telemetry. Empty on paused / stopped /
+   *  failed polls. */
+  board: TicketRow[];
 }
 const emptyPrStatus = (): PrStatusCounts => ({
   mergeable: 0,
@@ -197,6 +211,7 @@ const emptyPollResult = (): PollResult => ({
   prStatus: emptyPrStatus(),
   phase: {},
   flow: {},
+  board: [],
 });
 
 export interface CoordinatorDeps {
@@ -391,6 +406,10 @@ export interface ActiveWorker {
   reapedForAwaiting: boolean;
 }
 
+/** Which input source a board row was resolved from, in precedence order.
+ *  Decides the base state before pr-tracker overlays apply. */
+type TicketSourceKind = "worker" | "queued" | "in-progress" | "todo" | "mention";
+
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
  *  workers continue. The gate clears it once the trunk is green again. */
@@ -448,7 +467,22 @@ export class AgentCoordinator {
   ) {
     this.bus = deps.bus ?? createNoopBus();
     const providedMachine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
-    this.flowStore = new FlowActorStore({ bus: this.bus, persist: () => {} }, providedMachine);
+    this.flowStore = new FlowActorStore(
+      {
+        bus: this.bus,
+        persist: () => {},
+        // Append a debuggable per-change transition timeline next to the flow
+        // snapshot (`.ralph-state.flow.json`). Fire-and-forget — this is an
+        // observational side channel and must never block or break a poll.
+        onTransition: (_issueId, changeDir, transition) => {
+          if (!changeDir) return;
+          const path = `${changeDir}/.ralph-state.flow-history.jsonl`;
+          const line = `${JSON.stringify({ ts: new Date().toISOString(), ...transition })}\n`;
+          void appendFile(path, line).catch(() => {});
+        },
+      },
+      providedMachine,
+    );
   }
 
   get activeCount(): number {
@@ -552,7 +586,15 @@ export class AgentCoordinator {
         awaiting: awaitingCount,
       };
       const found = buckets.todo + buckets.inProgress + buckets.mentions + buckets.awaiting;
-      return { found, added: 0, buckets, prStatus: emptyPrStatus(), phase: {}, flow: {} };
+      return {
+        found,
+        added: 0,
+        buckets,
+        prStatus: emptyPrStatus(),
+        phase: {},
+        flow: {},
+        board: [],
+      };
     }
 
     const maxT = this.opts.maxTickets ?? 0;
@@ -653,7 +695,7 @@ export class AgentCoordinator {
     // Run the gh-driven merge-state scan BEFORE the queue sort + spawn
     // so its conflict-fix / ci-fix entries get sorted with the rest and
     // auto-merge boost can promote them ahead of urgent todos.
-    const prStatus = await this.scanPrMergeStates();
+    const { counts: prStatus, prByIssue } = await this.scanPrMergeStates();
 
     if (this.queue.length > 0) {
       this.queue = orderQueueEntries(this.queue, this.opts.getAutoMerge);
@@ -697,7 +739,143 @@ export class AgentCoordinator {
         flow[w.changeName] = "working";
       }
     }
-    return { found, added, buckets, prStatus, phase: {}, flow };
+    const board = await this.buildBoard({
+      todo,
+      inProgress,
+      mentions,
+      prByIssue,
+      excludeIds: awaitingClaimed,
+    });
+    return { found, added, buckets, prStatus, phase: {}, flow, board };
+  }
+
+  /**
+   * Build the lifecycle-pipeline board — one {@link TicketRow} per live
+   * ticket. Sources are walked in precedence order (active worker → queued →
+   * in-progress → todo → mention); the first occurrence of an issue id wins,
+   * which also fixes the render order. State comes from the persisted flow
+   * actor (rehydrated via `getActor`, so a parked/restarted ticket reports its
+   * true state) for actor-backed rows; `todo` / `review` are assigned directly
+   * for the backlog and mention sources (no actor materialized for them).
+   *
+   * Two overlays apply to actor-backed rows only:
+   *  - a pr-tracker **bail** wins outright → `quarantined`;
+   *  - otherwise a live (uncleared, non-bailed) pr-tracker entry folds onto the
+   *    display state when the actor merely rests in a waiting state
+   *    (`awaiting-ci` / `in-progress` / `working`). This surfaces an unresolved
+   *    failure even when `fixCi` / `fixConflicts` is off and the scan never sent
+   *    a `*_DETECTED` event — the case that motivated this board. The pr-tracker
+   *    entry is a reliable "still broken" signal because the scan clears it the
+   *    moment the PR becomes mergeable.
+   *
+   * `done` / disposed tickets are excluded — `done` is a transient glyph, not a
+   * resting row.
+   */
+  private async buildBoard(args: {
+    todo: TrackedIssue[];
+    inProgress: TrackedIssue[];
+    mentions: { issue: TrackedIssue; trigger: MentionTrigger }[];
+    prByIssue: Map<string, { url: string; status: PrStatusBucket }>;
+    /** Issue ids claimed by the awaiting-confirmation feature. They are
+     *  surfaced by the dedicated gated card, so they are excluded here to avoid
+     *  double-rendering them as pipeline rows. */
+    excludeIds: ReadonlySet<string>;
+  }): Promise<TicketRow[]> {
+    const { todo, inProgress, mentions, prByIssue, excludeIds } = args;
+    type Source = { issue: TrackedIssue; kind: TicketSourceKind; changeName: string };
+    const order: Source[] = [
+      ...this.workers.map((w) => ({
+        issue: w.issue,
+        kind: "worker" as const,
+        changeName: w.changeName,
+      })),
+      ...this.queue.map((q) => ({
+        issue: q.issue,
+        kind: "queued" as const,
+        changeName: changeNameForIssue(q.issue),
+      })),
+      ...inProgress.map((issue) => ({
+        issue,
+        kind: "in-progress" as const,
+        changeName: changeNameForIssue(issue),
+      })),
+      ...todo.map((issue) => ({
+        issue,
+        kind: "todo" as const,
+        changeName: changeNameForIssue(issue),
+      })),
+      ...mentions.map((m) => ({
+        issue: m.issue,
+        kind: "mention" as const,
+        changeName: changeNameForIssue(m.issue),
+      })),
+    ];
+
+    const seen = new Set<string>();
+    const rows: TicketRow[] = [];
+    for (const src of order) {
+      if (excludeIds.has(src.issue.id)) continue;
+      if (seen.has(src.issue.id)) continue;
+      seen.add(src.issue.id);
+      const row = await this.resolveBoardRow(src.issue, src.kind, src.changeName, prByIssue);
+      if (row) rows.push(row);
+    }
+    return rows;
+  }
+
+  /** Resolve one board row, or `null` when the ticket is done / disposed and
+   *  should not occupy a resting row. See {@link buildBoard} for the overlay
+   *  rules. */
+  private async resolveBoardRow(
+    issue: TrackedIssue,
+    kind: TicketSourceKind,
+    changeName: string,
+    prByIssue: Map<string, { url: string; status: PrStatusBucket }>,
+  ): Promise<TicketRow | null> {
+    const tracker = this.opts.prTracker;
+    const entry = tracker?.getEntry(issue.identifier);
+    let state: TicketState;
+    if (kind === "todo") {
+      state = "todo";
+    } else if (kind === "mention") {
+      state = "review";
+    } else {
+      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const actor = await this.flowStore.getActor(issue.id, changeDir);
+      state = machineStateToTicketState(actor.getSnapshot().value as string);
+      if (state === "done") return null;
+      if (kind === "queued" && state === "in-progress") state = "queued";
+      if (tracker?.isBailed(issue.identifier)) {
+        state = "quarantined";
+      } else if (
+        entry &&
+        !entry.bailed &&
+        (state === "awaiting-ci" || state === "in-progress" || state === "working")
+      ) {
+        state = entry.lastReason === "conflicting" ? "conflict-fix" : "ci-fix";
+      }
+    }
+
+    const recovery: TicketRecovery | undefined = entry
+      ? {
+          attempts: entry.attempts,
+          bailed: entry.bailed ?? false,
+          firstFailedAt: entry.firstFailedAt,
+          ...(entry.lastReason ? { lastReason: entry.lastReason } : {}),
+        }
+      : undefined;
+    const prUrl = prByIssue.get(issue.id)?.url;
+    return {
+      changeName,
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      url: issue.url,
+      priority: issue.priority,
+      state,
+      ...(recovery ? { recovery } : {}),
+      ...(prUrl ? { prUrl } : {}),
+    };
   }
 
   /**
@@ -1011,20 +1189,28 @@ export class AgentCoordinator {
    * in-memory `conflictNotified` / `ciFailedNotified` sets dedup across
    * polls — Linear labels are no longer involved in the routing.
    */
-  private async scanPrMergeStates(): Promise<PrStatusCounts> {
+  private async scanPrMergeStates(): Promise<{
+    counts: PrStatusCounts;
+    /** Per-issue PR url + status discovered this scan, keyed by issue.id.
+     *  Reuses the `checkPrStatus` calls already made — no new `gh` calls — so
+     *  the board can surface a `↗#NNN` link on parked rows. Only the scanned
+     *  candidates are present (active / queued / pending issues are skipped). */
+    prByIssue: Map<string, { url: string; status: PrStatusBucket }>;
+  }> {
     const counts = emptyPrStatus();
+    const prByIssue = new Map<string, { url: string; status: PrStatusBucket }>();
     // RLF-97: `prRecovery.enabled: false` turns recovery off everywhere. Without
     // this gate the scan re-queued conflict-fix / ci-fix workers regardless of
     // the setting (only the bail counter was gated) — so "off" never meant off.
-    if (!this.opts.prRecovery?.enabled) return counts;
+    if (!this.opts.prRecovery?.enabled) return { counts, prByIssue };
     let candidates: TrackedIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
     } catch (err) {
       this.deps.onLog(`! PR merge-state scan fetch failed: ${(err as Error).message}`, "yellow");
-      return counts;
+      return { counts, prByIssue };
     }
-    if (candidates.length === 0) return counts;
+    if (candidates.length === 0) return { counts, prByIssue };
 
     // Snapshot pre-existing fix workers so the tail loop only counts items
     // that were already queued/active before this scan — newly pushed items
@@ -1067,6 +1253,10 @@ export class AgentCoordinator {
         continue;
       }
       if (!pr) continue;
+      // Capture the PR url + status before the recovery gates below so the
+      // board surfaces a link even when `fixCi` / `fixConflicts` is off and the
+      // scan otherwise `continue`s past this PR without queueing recovery.
+      prByIssue.set(issue.id, pr);
       if (pr.status === "mergeable") counts.mergeable += 1;
       // conflicted/ci_failed counts are accumulated via the queue/worker loops below
 
@@ -1243,7 +1433,7 @@ export class AgentCoordinator {
       else if (w.trigger === "ci-fix") counts.ciFailed += 1;
     }
 
-    return counts;
+    return { counts, prByIssue };
   }
 
   /**

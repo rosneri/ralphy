@@ -49,6 +49,17 @@ export class PrTracker {
   }
 
   /**
+   * Read-only view of the recovery entry, or `undefined` when the issue has
+   * no tracked failures. Reads in-memory state (mirrors {@link isBailed} /
+   * {@link getAttempts}); the caller must have `load`ed first. Used by the
+   * board build to surface attempt count, last reason, bail status, and the
+   * first-failure timestamp (the AGE clock for failing / quarantined rows).
+   */
+  getEntry(identifier: string): Readonly<PrTrackerEntry> | undefined {
+    return this.state[identifier];
+  }
+
+  /**
    * Record a failure detection. Returns whether to demote (and increment)
    * or bail (apply setError once and stop). Subsequent failures after bail
    * return `firstBail: false` so the caller skips re-applying the label
