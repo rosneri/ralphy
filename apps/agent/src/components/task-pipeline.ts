@@ -63,6 +63,14 @@ export interface TicketRow {
   priority: number;
   state: TicketState;
   recovery?: TicketRecovery;
+  /** Ids of issues that block this ticket and are still open. Drives the
+   *  dependency tree: a row nests under the in-board blockers named here.
+   *  Absent/empty for unblocked rows. */
+  blockedByIds?: string[];
+  /** Human identifiers (e.g. "ENG-123") of the open blockers in
+   *  {@link blockedByIds}, same order. Used to name blockers in the row's
+   *  "waiting on …" annotation, including blockers not present on the board. */
+  blockedByIdentifiers?: string[];
 }
 
 /** The five lifecycle nodes rendered left-to-right on every row. */
@@ -209,6 +217,91 @@ export function statusLabel(row: TicketRow): string {
  * `in-progress`. Unknown values default to `working` rather than throwing,
  * so a future machine state degrades gracefully on the board.
  */
+/** One row of the dependency-ordered board: the ticket, its indent depth, and
+ *  the identifiers of the in-board blockers the indentation expresses. */
+export interface BoardTreeRow {
+  row: TicketRow;
+  /** 0 for a root (no in-board blocker); otherwise `max(blocker depth) + 1`. */
+  depth: number;
+  /** Identifiers of this row's blockers that are also present on the board —
+   *  i.e. the ones the nesting represents. Excludes blockers not on the board
+   *  (those are still named via `row.blockedByIdentifiers`). */
+  blockerIdentifiers: string[];
+}
+
+/**
+ * Order the flat board into a dependency tree: every ticket is placed after the
+ * blockers that are *also on the board* and indented one level below the
+ * deepest of them, so a blocked ticket reads as nested under what it waits on.
+ *
+ * Roots (no in-board blocker) keep their incoming order; among a blocker's
+ * dependents, incoming order is preserved too — so the result is the original
+ * board with each blocked row pulled beneath its blocker subtree. Blockers not
+ * present on the board are ignored for nesting (the row roots at depth 0) but
+ * are still surfaced by the caller via `row.blockedByIdentifiers`.
+ *
+ * Pure and total: a dependency cycle (no eligible root) can't deadlock — any
+ * rows left unplaced are appended in incoming order at depth 0. Row count and
+ * identity are preserved exactly.
+ */
+export function buildBoardTree(rows: TicketRow[]): BoardTreeRow[] {
+  const byId = new Map(rows.map((r) => [r.id, r] as const));
+  const orderIndex = new Map(rows.map((r, i) => [r.id, i] as const));
+  // In-board blockers for a row, in the row's declared blocker order, minus
+  // self-edges and dangling ids.
+  const blockersOf = (r: TicketRow): string[] =>
+    (r.blockedByIds ?? []).filter((id) => id !== r.id && byId.has(id));
+
+  // blockerId → dependents, sorted by incoming board order for stable nesting.
+  const childrenOf = new Map<string, TicketRow[]>();
+  for (const r of rows) {
+    for (const blockerId of blockersOf(r)) {
+      const list = childrenOf.get(blockerId);
+      if (list) list.push(r);
+      else childrenOf.set(blockerId, [r]);
+    }
+  }
+  for (const list of childrenOf.values()) {
+    list.sort((a, b) => orderIndex.get(a.id)! - orderIndex.get(b.id)!);
+  }
+
+  const emitted = new Set<string>();
+  const depthById = new Map<string, number>();
+  const result: BoardTreeRow[] = [];
+
+  const blockerIdentifiersOf = (r: TicketRow): string[] =>
+    blockersOf(r).map((id) => byId.get(id)!.identifier);
+
+  // Emit a row once all its in-board blockers are placed, then recurse into its
+  // dependents. A row reached before a second blocker is placed simply defers.
+  const tryEmit = (r: TicketRow): void => {
+    if (emitted.has(r.id)) return;
+    const blockers = blockersOf(r);
+    if (!blockers.every((id) => emitted.has(id))) return;
+    const depth =
+      blockers.length === 0 ? 0 : Math.max(...blockers.map((id) => depthById.get(id)!)) + 1;
+    depthById.set(r.id, depth);
+    emitted.add(r.id);
+    result.push({ row: r, depth, blockerIdentifiers: blockerIdentifiersOf(r) });
+    for (const child of childrenOf.get(r.id) ?? []) tryEmit(child);
+  };
+
+  // Roots first, in incoming order; each pulls its subtree along.
+  for (const r of rows) {
+    if (blockersOf(r).length === 0) tryEmit(r);
+  }
+  // Cycle / unreachable fallback: place anything left at depth 0, in incoming
+  // order, retrying its dependents so a freed subtree still nests.
+  for (const r of rows) {
+    if (emitted.has(r.id)) continue;
+    depthById.set(r.id, 0);
+    emitted.add(r.id);
+    result.push({ row: r, depth: 0, blockerIdentifiers: blockerIdentifiersOf(r) });
+    for (const child of childrenOf.get(r.id) ?? []) tryEmit(child);
+  }
+  return result;
+}
+
 export function machineStateToTicketState(value: string): TicketState {
   switch (value) {
     case "idle":

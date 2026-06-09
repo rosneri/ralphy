@@ -539,10 +539,12 @@ interface RawIssue {
   team: { key: string } | null;
   labels: { nodes: { name: string }[] };
   attachments: { nodes: { title: string | null; subtitle: string | null }[] };
-  relations: {
+  // Blockers live in `inverseRelations` (stored type `blocks`, `issue` = the
+  // blocker) — Linear has no `blocked_by` relation type. See linear-client.
+  inverseRelations: {
     nodes: {
       type: string;
-      relatedIssue: { id: string; identifier: string; state: { type: string } };
+      issue: { id: string; identifier: string; state: { type: string } };
     }[];
   };
 }
@@ -584,8 +586,8 @@ async function fetchIssueByIdentifier(
         team { key }
         labels { nodes { name } }
         attachments(first: 25) { nodes { title subtitle } }
-        relations(first: 50) {
-          nodes { type relatedIssue { id identifier state { type } } }
+        inverseRelations(first: 50) {
+          nodes { type issue { id identifier state { type } } }
         }
       }
     }
@@ -675,14 +677,14 @@ async function runListDebug(input: DebugInput): Promise<void> {
       `  labels: ${issue.labels.nodes.map((l) => l.name).join(", ") || "(none)"}\n`,
   );
 
-  const blockedBy = issue.relations.nodes
+  const blockedBy = issue.inverseRelations.nodes
     .filter(
       (r) =>
-        r.type === "blocked_by" &&
-        r.relatedIssue.state.type !== "completed" &&
-        r.relatedIssue.state.type !== "cancelled",
+        r.type === "blocks" &&
+        r.issue.state.type !== "completed" &&
+        r.issue.state.type !== "cancelled",
     )
-    .map((r) => r.relatedIssue.identifier);
+    .map((r) => r.issue.identifier);
 
   process.stdout.write(`\nPer-bucket diagnostics:\n`);
 

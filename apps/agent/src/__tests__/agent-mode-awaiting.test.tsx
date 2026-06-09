@@ -52,45 +52,52 @@ const baseArgs: ParsedArgs = {
   review: false,
 };
 
-function makeBuilderWithAwaiting(
-  awaitingCount: number,
-  fireAwaiting?: {
-    changeName: string;
-    issueIdentifier: string;
-    issueUrl: string;
-    issueTitle: string;
-    since: string | null;
-    round: number;
-  },
-): AgentModeBuildCoordinator {
-  return (input) => {
-    const onAwaitingTicket = input.onAwaitingTicket;
+// A gated ticket is surfaced by the coordinator as an `awaiting` board row —
+// not a separate [GATE] card — so the builder seeds the board, mirroring what
+// `Coordinator.buildBoard` does for awaiting-confirmation ids.
+function makeBuilderWithAwaiting(awaitingRow?: {
+  changeName: string;
+  identifier: string;
+  title: string;
+  url: string;
+}): AgentModeBuildCoordinator {
+  return () => {
+    const board = awaitingRow
+      ? [
+          {
+            changeName: awaitingRow.changeName,
+            id: awaitingRow.changeName,
+            identifier: awaitingRow.identifier,
+            title: awaitingRow.title,
+            url: awaitingRow.url,
+            priority: 0,
+            state: "awaiting" as const,
+          },
+        ]
+      : [];
     const coord: AgentModeCoordinator = {
       activeWorkers: [],
       activeCount: 0,
       queuedCount: 0,
       init: async () => {},
-      pollOnce: async () => {
-        if (fireAwaiting && onAwaitingTicket) onAwaitingTicket(fireAwaiting);
-        return {
-          found: awaitingCount,
-          added: 0,
-          buckets: {
-            todo: 0,
-            inProgress: 0,
-            conflicted: 0,
-            ciFailed: 0,
-            review: 0,
-            mentions: 0,
-            quarantined: 0,
-            awaiting: awaitingCount,
-          },
-          prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
-          phase: {},
-          flow: {},
-          board: [],
-        };
-      },
+      pollOnce: async () => ({
+        found: board.length,
+        added: 0,
+        buckets: {
+          todo: 0,
+          inProgress: 0,
+          conflicted: 0,
+          ciFailed: 0,
+          review: 0,
+          mentions: 0,
+          quarantined: 0,
+          awaiting: board.length,
+        },
+        prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
+        phase: {},
+        flow: {},
+        board,
+      }),
       stop: () => {},
       getPause: () => null,
       restartWorker: async () => true,
@@ -120,8 +127,7 @@ describe("AgentMode awaiting-confirmation", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
-  test("renders a [GATE] card for each ticket reported via onAwaitingTicket", async () => {
-    const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  test("renders a gated ticket inline as an awaiting board row, not a [GATE] card", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
         args: baseArgs,
@@ -129,13 +135,11 @@ describe("AgentMode awaiting-confirmation", () => {
         statesDir: join(tmpRoot, "states"),
         tasksDir: join(tmpRoot, "tasks"),
         appendSteering: async () => {},
-        buildCoordinator: makeBuilderWithAwaiting(1, {
+        buildCoordinator: makeBuilderWithAwaiting({
           changeName: "rlf-78-foo",
-          issueIdentifier: "RLF-78",
-          issueUrl: "https://linear.app/x/issue/RLF-78",
-          issueTitle: "Confirmation gate test",
-          since,
-          round: 1,
+          identifier: "RLF-78",
+          title: "Confirmation gate test",
+          url: "https://linear.app/x/issue/RLF-78",
         }),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
@@ -144,13 +148,11 @@ describe("AgentMode awaiting-confirmation", () => {
     );
     await flush();
     const frame = stripVTControlCharacters(lastFrame() ?? "");
-    // Ink wraps "[GATE]" across rows on narrow widths. Look for the visible
-    // pieces (RLF-78 label + GATE prefix + round/asked indicators).
+    // The ticket appears in the TASKS board with its awaiting status label …
     expect(frame).toContain("RLF-78");
-    expect(frame).toContain("[GATE");
-    expect(frame).toContain("Awaiting");
-    expect(frame).toMatch(/round\s+1/);
-    expect(frame).toMatch(/asked\s+5m\d{2}s\s+ago/);
+    expect(frame).toContain("awaiting confirmation");
+    // … and the standalone gate card is gone.
+    expect(frame).not.toContain("[GATE");
     unmount();
   });
 });

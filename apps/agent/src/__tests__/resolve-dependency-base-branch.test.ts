@@ -51,10 +51,10 @@ function makeLinearMock(opts: {
       }
       const nodes = ids.map((id) => ({
         id,
-        relations: {
+        inverseRelations: {
           nodes: (opts.blockedBy?.[id] ?? []).map((b) => ({
-            type: "blocked_by",
-            relatedIssue: {
+            type: "blocks",
+            issue: {
               id: b.id,
               identifier: b.identifier ?? b.id.toUpperCase(),
               state: { type: "started" },

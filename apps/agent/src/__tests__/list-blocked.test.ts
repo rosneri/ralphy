@@ -16,83 +16,65 @@ describe("formatBlockedCell", () => {
 });
 
 describe("blockedByIdentifiers mapping", () => {
-  function mapRelationsToIdentifiers(
-    relations: {
+  // Mirrors the production mapping in linear-client (`openBlockersFromInverse`):
+  // Linear has no `blocked_by` relation type — a "blocked by" link surfaces in
+  // `inverseRelations` as a `blocks` relation whose `issue` is the blocker.
+  function mapInverseRelationsToIdentifiers(
+    nodes: {
       type: string;
-      relatedIssue: { id: string; identifier: string; state: { type: string } };
+      issue: { id: string; identifier: string; state: { type: string } };
     }[],
   ): string[] {
     const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
-    return relations
-      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
-      .map((r) => r.relatedIssue.identifier);
+    return nodes
+      .filter((r) => r.type === "blocks" && !DONE_STATE_TYPES.has(r.issue.state.type))
+      .map((r) => r.issue.identifier);
   }
 
   test("excludes completed blockers", () => {
-    const relations = [
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id1", identifier: "ENG-10", state: { type: "completed" } },
-      },
+    const nodes = [
+      { type: "blocks", issue: { id: "id1", identifier: "ENG-10", state: { type: "completed" } } },
     ];
-    expect(mapRelationsToIdentifiers(relations)).toEqual([]);
+    expect(mapInverseRelationsToIdentifiers(nodes)).toEqual([]);
   });
 
   test("excludes cancelled blockers", () => {
-    const relations = [
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id1", identifier: "ENG-10", state: { type: "cancelled" } },
-      },
+    const nodes = [
+      { type: "blocks", issue: { id: "id1", identifier: "ENG-10", state: { type: "cancelled" } } },
     ];
-    expect(mapRelationsToIdentifiers(relations)).toEqual([]);
+    expect(mapInverseRelationsToIdentifiers(nodes)).toEqual([]);
   });
 
   test("includes open (unstarted) blockers", () => {
-    const relations = [
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id1", identifier: "ENG-5", state: { type: "unstarted" } },
-      },
+    const nodes = [
+      { type: "blocks", issue: { id: "id1", identifier: "ENG-5", state: { type: "unstarted" } } },
     ];
-    expect(mapRelationsToIdentifiers(relations)).toEqual(["ENG-5"]);
+    expect(mapInverseRelationsToIdentifiers(nodes)).toEqual(["ENG-5"]);
   });
 
   test("includes in-progress blockers", () => {
-    const relations = [
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id1", identifier: "ENG-7", state: { type: "started" } },
-      },
+    const nodes = [
+      { type: "blocks", issue: { id: "id1", identifier: "ENG-7", state: { type: "started" } } },
     ];
-    expect(mapRelationsToIdentifiers(relations)).toEqual(["ENG-7"]);
+    expect(mapInverseRelationsToIdentifiers(nodes)).toEqual(["ENG-7"]);
   });
 
-  test("excludes non-blocked_by relation types", () => {
-    const relations = [
+  test("excludes non-blocks inverse-relation types", () => {
+    const nodes = [
       {
-        type: "blocks",
-        relatedIssue: { id: "id1", identifier: "ENG-99", state: { type: "unstarted" } },
+        type: "duplicate",
+        issue: { id: "id1", identifier: "ENG-99", state: { type: "unstarted" } },
       },
     ];
-    expect(mapRelationsToIdentifiers(relations)).toEqual([]);
+    expect(mapInverseRelationsToIdentifiers(nodes)).toEqual([]);
   });
 
   test("mixes open and done blockers — only open are returned", () => {
-    const relations = [
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id1", identifier: "ENG-1", state: { type: "completed" } },
-      },
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id2", identifier: "ENG-2", state: { type: "started" } },
-      },
-      {
-        type: "blocked_by",
-        relatedIssue: { id: "id3", identifier: "ENG-3", state: { type: "cancelled" } },
-      },
+    const nodes = [
+      { type: "blocks", issue: { id: "id1", identifier: "ENG-1", state: { type: "completed" } } },
+      { type: "blocks", issue: { id: "id2", identifier: "ENG-2", state: { type: "started" } } },
+      { type: "blocks", issue: { id: "id3", identifier: "ENG-3", state: { type: "cancelled" } } },
     ];
-    expect(mapRelationsToIdentifiers(relations)).toEqual(["ENG-2"]);
+    expect(mapInverseRelationsToIdentifiers(nodes)).toEqual(["ENG-2"]);
   });
 });

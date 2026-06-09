@@ -19,6 +19,7 @@ import { waitForActiveWorkers } from "../runtime/shutdown";
 import {
   pipelineStages,
   statusLabel,
+  buildBoardTree,
   STATUS_GLYPH,
   PIPELINE_NODES,
   type TicketRow,
@@ -152,24 +153,6 @@ export function orderSubtasksForCappedDisplay<T extends { done: boolean }>(
   const done: T[] = [];
   for (const s of subtasks) (s.done ? done : pending).push(s);
   return [...pending, ...done];
-}
-
-/**
- * Select the single most-recently-gated ticket from the gated-tickets map
- * (the entry with the largest `since` timestamp) and compute how many more
- * tickets are gated beyond the top one. `null` `since` is treated as epoch 0
- * (oldest), so a ticket without a posted plan-ready comment sorts last.
- */
-export function pickLatestGatedTicket<T extends { since: string | null }>(
-  tickets: Map<string, T>,
-): { top: [string, T] | null; moreCount: number } {
-  if (tickets.size === 0) return { top: null, moreCount: 0 };
-  const sorted = Array.from(tickets.entries()).sort(([, a], [, b]) => {
-    const aTime = a.since ? new Date(a.since).getTime() : 0;
-    const bTime = b.since ? new Date(b.since).getTime() : 0;
-    return bTime - aTime;
-  });
-  return { top: sorted[0]!, moreCount: sorted.length - 1 };
 }
 
 function fmtCmd(argv: string[]): string {
@@ -493,21 +476,6 @@ export function AgentMode({
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
-  /** Tickets parked in `awaiting-confirmation`, populated by `onAwaitingTicket`
-   *  during each pollOnce. Cleared at the start of every poll so the dashboard
-   *  only renders the gated set the latest poll actually observed. */
-  const gatedTicketsRef = useRef<
-    Map<
-      string,
-      {
-        issueIdentifier: string;
-        issueUrl: string;
-        issueTitle: string;
-        since: string | null;
-        round: number;
-      }
-    >
-  >(new Map());
   const nextPollAtRef = useRef<number>(0);
   const cfgRef = useRef<RalphyConfig | null>(null);
   const [effective, setEffective] = useState<{ concurrency: number; pollInterval: number } | null>(
@@ -657,18 +625,13 @@ export function AgentMode({
           if (m) m.prUrl = prUrl;
         },
         onAwaitingTicket: (info) => {
+          // The gated ticket renders inline as an `awaiting` board row; this
+          // callback survives only to record the gate event in the file log.
           fileEmit({
             type: "awaiting_confirmation",
             changeName: info.changeName,
             issueIdentifier: info.issueIdentifier,
             issueUrl: info.issueUrl,
-            since: info.since,
-            round: info.round,
-          });
-          gatedTicketsRef.current.set(info.changeName, {
-            issueIdentifier: info.issueIdentifier,
-            issueUrl: info.issueUrl,
-            issueTitle: info.issueTitle,
             since: info.since,
             round: info.round,
           });
@@ -700,10 +663,6 @@ export function AgentMode({
           appendLog(`! baseline gate failed: ${message}`, "yellow");
         }
         if (cancelled) return;
-        // Refreshed inside coord.pollOnce via the onAwaitingTicket callback —
-        // clear first so tickets that have transitioned out of the gate stop
-        // rendering on the next frame.
-        gatedTicketsRef.current.clear();
         const { found, added, buckets, prStatus, board } = await coord.pollOnce();
         if (cancelled) return;
         fileEmit({ type: "poll_done", found, added, buckets, prStatus });
@@ -857,12 +816,16 @@ export function AgentMode({
   // recompute the index each render and clamp a null/missing id to the first
   // row, so focus survives rows being added/removed/reordered between polls.
   const board = pollStatus.lastBoard;
+  // Dependency-ordered view of the board: blocked rows nest under their
+  // in-board blockers. This is the rendered AND navigable order, so ↑/↓ move
+  // along what the user sees.
+  const tree = buildBoardTree(board);
   const focusedIndex = (() => {
-    if (board.length === 0) return -1;
-    const i = board.findIndex((r) => r.id === focusedId);
+    if (tree.length === 0) return -1;
+    const i = tree.findIndex((t) => t.row.id === focusedId);
     return i >= 0 ? i : 0;
   })();
-  const focusedRow = focusedIndex >= 0 ? board[focusedIndex] : undefined;
+  const focusedRow = focusedIndex >= 0 ? tree[focusedIndex]!.row : undefined;
   // Box 4 renders the focused row's detail. If that row maps to a live worker
   // it gets the full active card; otherwise it is parked and gets a compact
   // read-only card. Liveness (this lookup) is the one place we cross the
@@ -889,15 +852,15 @@ export function AgentMode({
         if (activeCount > 0) setShowPendingTasks((v) => !v);
         return;
       }
-      if (board.length === 0) return;
+      if (tree.length === 0) return;
       const idx = focusedIndex < 0 ? 0 : focusedIndex;
-      if (key.tab || key.rightArrow) {
-        setFocusedId(board[(idx + 1) % board.length]!.id);
-      } else if (key.leftArrow) {
-        setFocusedId(board[(idx - 1 + board.length) % board.length]!.id);
+      if (key.tab || key.downArrow) {
+        setFocusedId(tree[(idx + 1) % tree.length]!.row.id);
+      } else if (key.upArrow) {
+        setFocusedId(tree[(idx - 1 + tree.length) % tree.length]!.row.id);
       } else {
         const n = parseInt(input, 10);
-        if (!isNaN(n) && n >= 1 && n <= Math.min(9, board.length)) setFocusedId(board[n - 1]!.id);
+        if (!isNaN(n) && n >= 1 && n <= Math.min(9, tree.length)) setFocusedId(tree[n - 1]!.row.id);
       }
     },
     { isActive: isRawModeSupported && board.length > 0 },
@@ -1026,7 +989,7 @@ export function AgentMode({
         {(() => {
           const tasksInnerWidth = Math.max(0, termWidth - 2);
           const lead = "─ ";
-          const hint = " Tab/←→·1-9 ";
+          const hint = " Tab/↑↓·1-9 ";
           const live = ` ${tasksLiveness} `;
           const trail = "─";
           // Fill the header border between the left label and the right liveness
@@ -1056,8 +1019,14 @@ export function AgentMode({
                 <Text dimColor>no active tickets</Text>
               ) : (
                 (() => {
-                  const idColWidth = Math.max(8, ...board.map((r) => r.identifier.length));
-                  const idxWidth = String(board.length).length + 3;
+                  // The identifier column holds the dependency indent too, so a
+                  // nested row's `└ ` prefix (depth*2 cols) never pushes the
+                  // pipeline glyphs out of alignment.
+                  const idColWidth = Math.max(
+                    8,
+                    ...tree.map((t) => t.depth * 2 + t.row.identifier.length),
+                  );
+                  const idxWidth = String(tree.length).length + 3;
                   const prefixWidth = 2 + idxWidth + idColWidth + 1;
                   return (
                     <>
@@ -1066,8 +1035,13 @@ export function AgentMode({
                         <Text>{" ".repeat(prefixWidth)}</Text>
                         <PipelineCells glyphs={null} />
                       </Box>
-                      {board.map((row, i) => {
+                      {tree.map(({ row, depth }, i) => {
                         const isFocused = row.id === focusedRow?.id;
+                        // `└ ` connector at depth>0, two spaces per level above.
+                        const indent = depth > 0 ? "  ".repeat(depth - 1) + "└ " : "";
+                        // Open blockers, named — includes blockers not on the
+                        // board (which the indent can't express).
+                        const blockers = row.blockedByIdentifiers ?? [];
                         const activeW = coordRef.current?.activeWorkers.find(
                           (w) => w.issueId === row.id,
                         );
@@ -1099,6 +1073,7 @@ export function AgentMode({
                               <Text dimColor={!isFocused}>[{i + 1}]</Text>
                             </Box>
                             <Box width={idColWidth + 1}>
+                              {indent && <Text dimColor>{indent}</Text>}
                               <Link
                                 url={row.url}
                                 label={row.identifier}
@@ -1110,6 +1085,12 @@ export function AgentMode({
                               {"  "}
                               {statusLabel(row)}
                             </Text>
+                            {blockers.length > 0 && (
+                              <Text color="yellow" dimColor={!isFocused}>
+                                {"  ⛓ "}
+                                {trunc(blockers.join(", "), 28)}
+                              </Text>
+                            )}
                             {waitingForWorker ? (
                               <Text color="yellow">{"  waiting for worker"}</Text>
                             ) : (
@@ -1135,106 +1116,8 @@ export function AgentMode({
           );
         })()}
 
-        {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
-        {(() => {
-          const gated = gatedTicketsRef.current;
-          if (gated.size === 0) return null;
-
-          if (gated.size >= 2) {
-            const entries = Array.from(gated.entries()).sort(([, a], [, b]) => {
-              const aTime = a.since ? new Date(a.since).getTime() : 0;
-              const bTime = b.since ? new Date(b.since).getTime() : 0;
-              return bTime - aTime;
-            });
-            const idLen = entries.reduce((sum, [, g]) => sum + g.issueIdentifier.length, 0);
-            const multiLabelWidth = idLen + (entries.length - 1) * 3 + 2;
-            const labelParts: React.ReactNode[] = [];
-            entries.forEach(([, g], i) => {
-              labelParts.push(
-                <Link
-                  key={g.issueIdentifier}
-                  url={g.issueUrl}
-                  label={g.issueIdentifier}
-                  color="yellow"
-                />,
-              );
-              if (i < entries.length - 1) {
-                labelParts.push(
-                  <Text key={`sep-${i}`} color="yellow">
-                    {" · "}
-                  </Text>,
-                );
-              }
-            });
-            const multiLabelNode = (
-              <>
-                <Text color="yellow"> </Text>
-                {labelParts}
-                <Text color="yellow"> </Text>
-              </>
-            );
-            return (
-              <LabeledBox
-                labelNode={multiLabelNode}
-                labelVisualWidth={multiLabelWidth}
-                borderColor="yellow"
-                paddingX={1}
-                gap={2}
-                width={termWidth}
-              >
-                <Text color="yellow" bold>
-                  [GATE]
-                </Text>
-                <Text color="yellow">Awaiting confirmation</Text>
-                <Text dimColor>·</Text>
-                <Text color="white" bold>
-                  {gated.size}
-                </Text>
-                <Text dimColor>tickets</Text>
-              </LabeledBox>
-            );
-          }
-
-          const { top } = pickLatestGatedTicket(gated);
-          if (!top) return null;
-          const [changeName, g] = top;
-          const askedAgo = g.since ? fmtElapsed(now - Date.parse(g.since)) : "just now";
-          const cardLabelWidth = g.issueIdentifier.length + 2;
-          const cardLabelNode = (
-            <>
-              <Text color="yellow"> </Text>
-              <Link url={g.issueUrl} label={g.issueIdentifier} color="yellow" />
-              <Text color="yellow"> </Text>
-            </>
-          );
-          return (
-            <LabeledBox
-              key={`gated-${changeName}`}
-              labelNode={cardLabelNode}
-              labelVisualWidth={cardLabelWidth}
-              borderColor="yellow"
-              paddingX={1}
-              gap={2}
-              width={termWidth}
-            >
-              <Text color="yellow" bold>
-                [GATE]
-              </Text>
-              <Text color="yellow">Awaiting confirmation</Text>
-              <Text dimColor>·</Text>
-              <Text dimColor>round</Text>
-              <Text color="white" bold>
-                {g.round}
-              </Text>
-              <Text dimColor>·</Text>
-              <Text dimColor>asked</Text>
-              <Text color="white">{askedAgo}</Text>
-              <Text dimColor>ago</Text>
-              <Text dimColor>│</Text>
-              <Text dimColor>{trunc(g.issueTitle, Math.max(20, termWidth - 70))}</Text>
-            </LabeledBox>
-          );
-        })()}
+        {/* Gated (awaiting-confirmation) tickets are no longer a separate card —
+            they render inline in the TASKS board above as `awaiting` rows. */}
 
         {/* ── Box 4: the focused ticket ─────────────────────────
             An active worker gets the full card (live CMD / OUTPUT / phase
