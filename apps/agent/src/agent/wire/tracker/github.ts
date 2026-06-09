@@ -1,7 +1,9 @@
+import { buildRalphyComment } from "@ralphy/comms";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
 import type { LinearIssue } from "../../linear";
+import { upsertStickyComment } from "./sticky-comment";
 import type { TrackerProvider } from "./types";
 
 /** Resolved `github.issues` settings (defaults already applied by the schema). */
@@ -166,10 +168,31 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
       diag("github-marker", `  → ${issue.identifier} comment`, "gray");
       return;
     }
+    if (m.type === "attachment") {
+      // GitHub has no attachments API; substitute the sticky-upsert comment
+      // pattern. The marker `value` (the Linear subtitle) becomes the comment's
+      // human action phrase, and the hidden marker lets the same comment be
+      // re-discovered and edited in place across iterations.
+      const body = buildRalphyComment({
+        type: "attachment",
+        action: m.value,
+        fields: { issue: issue.identifier },
+      });
+      await upsertStickyComment({
+        cmdRunner,
+        repo: await repo(),
+        projectRoot,
+        issueNumber: issue.id,
+        type: "attachment",
+        body,
+        diag,
+      });
+      diag("github-marker", `  → ${issue.identifier} attachment (sticky upsert)`, "gray");
+      return;
+    }
     if (m.type !== "label") {
-      // status / project / attachment have no GitHub-issue equivalent; the
-      // synthesized indicators never emit them, so this only guards a
-      // hand-rolled config.
+      // status / project have no GitHub-issue equivalent; the synthesized
+      // indicators never emit them, so this only guards a hand-rolled config.
       diag(
         "github-marker",
         `! ${issue.identifier}: '${m.type}' markers are not supported by the GitHub tracker — skipped`,
