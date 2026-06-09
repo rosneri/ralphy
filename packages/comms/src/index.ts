@@ -37,6 +37,8 @@ export type RalphyCommentType =
   | "verified"
   | "completed"
   | "conflicts-resolved"
+  | "ci-fix-pushed"
+  | "awaiting-ci"
   | "exited"
   | "completed-noop"
   | "recovery-gaveup"

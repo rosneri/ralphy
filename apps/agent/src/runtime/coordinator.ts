@@ -39,17 +39,28 @@ export function emitCapture<T extends RalphEvent["type"]>(
 
 export type { QueueTrigger, MentionTrigger } from "../queue/queue-order";
 
-/** Build the Linear completion comment for a finished worker. Split out to
- *  keep the three outcomes (no-op done / success / quarantined failure) as a
- *  flat branch rather than nested ternaries. */
-function completionCommentBody(args: {
+/** Build the Linear comment for a finished worker. Split out to keep the
+ *  outcomes (no-op done / quarantined failure / conflict-fix / ci-fix /
+ *  deferred-awaiting / genuinely-done) as a flat branch rather than nested
+ *  ternaries.
+ *
+ *  `reachedDone` is the flow actor's post-exit state — `true` only when the
+ *  machine actually transitioned to `done`. When a PR is open and recovery is
+ *  enabled the actor rests in `awaiting-ci` instead (the watcher owns the
+ *  move to done once the PR is genuinely mergeable), so the comment must NOT
+ *  claim "completed work" — it reports the real, awaiting state instead. This
+ *  is the single guard that stops a fix/review iteration from announcing
+ *  completion while the PR is still draft, red, unapproved, or unmerged. */
+export function completionCommentBody(args: {
   noChanges: boolean;
   ok: boolean;
   trigger: QueueTrigger;
   changeName: string;
   code: number;
+  /** Flow actor reached the terminal `done` state after this exit. */
+  reachedDone: boolean;
 }): string {
-  const { noChanges, ok, trigger, changeName, code } = args;
+  const { noChanges, ok, trigger, changeName, code, reachedDone } = args;
   if (noChanges) {
     return buildRalphyComment({
       type: "completed-noop",
@@ -80,6 +91,37 @@ function completionCommentBody(args: {
       type: "conflicts-resolved",
       action: "resolved merge conflicts",
       body: `Change: \`${changeName}\``,
+      fields: { change: changeName },
+    });
+  }
+  if (trigger === "ci-fix") {
+    // A ci-fix iteration pushed a fix but has NOT re-verified CI — the watcher
+    // re-checks the PR on the next poll. Announcing "completed work" here is
+    // what made a still-red PR look done; report the honest in-flight state.
+    return buildRalphyComment({
+      type: "ci-fix-pushed",
+      action: "pushed a CI fix",
+      body:
+        `Pushed a fix for the failing CI on this PR — re-checking the checks on the ` +
+        `next poll before marking this done. Change: \`${changeName}\``,
+      fields: { change: changeName },
+    });
+  }
+  if (!reachedDone) {
+    // PR is open and recovery is enabled, so the ticket rests in `awaiting-ci`
+    // — the watcher advances it to done only once the PR is genuinely mergeable
+    // (non-draft, approved, CI-green, no conflicts). This is NOT "completed
+    // work": the work is pushed but the PR is not ready yet.
+    const isReview = trigger === "review";
+    return buildRalphyComment({
+      type: "awaiting-ci",
+      action: isReview ? "addressed review feedback" : "opened a PR",
+      body:
+        (isReview
+          ? `Pushed changes for the review feedback to this PR. `
+          : `Finished the work and opened a PR. `) +
+        `Awaiting CI, review, and a clean merge state before marking this done. ` +
+        `Change: \`${changeName}\``,
       fields: { change: changeName },
     });
   }
@@ -2089,7 +2131,14 @@ export class AgentCoordinator {
       }
     }
     if (this.opts.postComments !== false) {
-      const body = completionCommentBody({ noChanges, ok, trigger, changeName, code });
+      const body = completionCommentBody({
+        noChanges,
+        ok,
+        trigger,
+        changeName,
+        code,
+        reachedDone: exitActorState === "done",
+      });
       try {
         await this.deps.postComment(issue, body);
         this.deps.onLog(`  ${issue.identifier}: posted completion comment`, "gray");
