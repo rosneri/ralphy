@@ -12,8 +12,8 @@ import {
   baseBranchFromLabels,
   fetchIssueAttachments,
   fetchIssueComments,
-  type LinearIssue,
 } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
 import {
   worktreeDirNameForIssue,
@@ -43,7 +43,7 @@ export function composeAppendPrompt(
 interface WireMaps {
   cwdByChange: Map<string, string>;
   statesDirByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
   branchByChange: Map<string, string>;
   prByChange: Map<string, string>;
 }
@@ -74,9 +74,9 @@ const defaultWorktreeProvider: WorktreeProvider = {
 };
 
 interface PrepareHelpers {
-  prepare: (issue: LinearIssue) => Promise<PrepareResult>;
+  prepare: (issue: TrackedIssue) => Promise<PrepareResult>;
   prepareTaskForTrigger: (
-    issue: LinearIssue,
+    issue: TrackedIssue,
     changeName: string,
     trigger: QueueTrigger,
     mention?: MentionTrigger,
@@ -109,7 +109,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     }
   }
 
-  async function setupWorktree(issue: LinearIssue): Promise<{
+  async function setupWorktree(issue: TrackedIssue): Promise<{
     workerCwd: string;
     scaffoldTasksDir: string;
     scaffoldStatesDir: string;
@@ -163,7 +163,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     return { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch, worktreeCreated: wt.created };
   }
 
-  async function prepare(issue: LinearIssue): Promise<PrepareResult> {
+  async function prepare(issue: TrackedIssue): Promise<PrepareResult> {
     const { workerCwd, scaffoldTasksDir, scaffoldStatesDir, branch, worktreeCreated } =
       await setupWorktree(issue);
 
@@ -276,7 +276,7 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
   }
 
   async function prepareTaskForTrigger(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     changeName: string,
     trigger: QueueTrigger,
     mention?: MentionTrigger,

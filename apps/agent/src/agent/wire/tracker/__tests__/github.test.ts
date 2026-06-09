@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CmdRunner } from "../../../pr";
-import type { LinearIssue } from "../../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import {
   createGithubTrackerProvider,
   githubIndicators,
@@ -52,7 +52,7 @@ const ghIssueJson = JSON.stringify([
 ]);
 
 describe("createGithubTrackerProvider — fetch", () => {
-  test("fetchByGet lists open issues by the filter label and maps to LinearIssue", async () => {
+  test("fetchByGet lists open issues by the filter label and maps to TrackedIssue", async () => {
     const { p, calls } = provider({ "gh issue list": ghIssueJson });
     const issues = await p.fetchByGet({ filter: [{ type: "label", value: "ralph:todo" }] }, []);
     const listCall = calls.find((c) => c[1] === "issue" && c[2] === "list")!;
@@ -112,7 +112,7 @@ describe("createGithubTrackerProvider — fetch", () => {
   });
 });
 
-const issue: LinearIssue = {
+const issue: TrackedIssue = {
   id: "42",
   identifier: "issue-42",
   title: "t",

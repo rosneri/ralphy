@@ -16,14 +16,6 @@ import type { TrackedComment, TrackedIssue } from "@ralphy/tracker";
 import { isRalphComment } from "../utils/ralph-comment";
 
 /**
- * Back-compat alias. The canonical, tracker-neutral shape now lives in
- * `@ralphy/tracker` as {@link TrackedIssue} (RLF-223 M1 — provider seam). Kept
- * so the ~50 files importing `LinearIssue` from the Linear client compile
- * untouched.
- */
-export type LinearIssue = TrackedIssue;
-
-/**
  * Linear query spec used by the agent. `include` is an all-of marker list
  * (issue must match every condition). `exclude` is a none-of marker list
  * (issue must not match any). Empty lists are treated as "no constraint".
@@ -170,7 +162,7 @@ interface LinearNode {
   inverseRelations: {
     nodes: InverseRelationNode[];
   };
-  comments?: { nodes: LinearComment[] };
+  comments?: { nodes: TrackedComment[] };
 }
 
 /** Blocker states Linear treats as resolved — pruned from `blocked_by`. */
@@ -468,9 +460,9 @@ export function clauseFromMarkers(markers: Marker[]): Record<string, unknown> | 
   return Object.keys(parts).length > 0 ? parts : null;
 }
 
-/** Map a node's `project` to the `LinearIssue.project` shape, preserving the
+/** Map a node's `project` to the `TrackedIssue.project` shape, preserving the
  *  optional `priority` and leaving it off when absent. */
-function mapNodeProject(node: LinearNode): LinearIssue["project"] {
+function mapNodeProject(node: LinearNode): TrackedIssue["project"] {
   if (!node.project) return null;
   return {
     id: node.project.id,
@@ -481,9 +473,9 @@ function mapNodeProject(node: LinearNode): LinearIssue["project"] {
   };
 }
 
-/** Map a node's `projectMilestone` to the `LinearIssue.milestone` shape,
+/** Map a node's `projectMilestone` to the `TrackedIssue.milestone` shape,
  *  returning undefined when the issue has no milestone. */
-function mapNodeMilestone(node: LinearNode): LinearIssue["milestone"] {
+function mapNodeMilestone(node: LinearNode): TrackedIssue["milestone"] {
   const m = node.projectMilestone;
   if (!m) return undefined;
   return {
@@ -498,7 +490,7 @@ function mapNodeMilestone(node: LinearNode): LinearIssue["milestone"] {
  *  `milestone` field never receives `undefined` (exactOptionalPropertyTypes). */
 function milestoneSpread(
   node: LinearNode,
-): { milestone: NonNullable<LinearIssue["milestone"]> } | Record<string, never> {
+): { milestone: NonNullable<TrackedIssue["milestone"]> } | Record<string, never> {
   const m = mapNodeMilestone(node);
   return m ? { milestone: m } : {};
 }
@@ -522,7 +514,7 @@ export async function fetchMentionScanIssues(
       setDone?: SetIndicator | undefined;
     };
   },
-): Promise<LinearIssue[]> {
+): Promise<TrackedIssue[]> {
   const branches: Record<string, unknown>[] = [];
   const { getTodo, getInProgress, setDone } = spec.indicators;
   for (const ind of [getTodo, getInProgress]) {
@@ -603,7 +595,7 @@ export async function fetchOpenIssues(
   apiKey: string,
   spec: LinearFilterSpec,
   options?: { includeComments?: boolean },
-): Promise<LinearIssue[]> {
+): Promise<TrackedIssue[]> {
   const where = buildIssueFilter(spec);
   const includeComments = options?.includeComments === true;
 
@@ -958,13 +950,10 @@ interface WorkflowState {
   type: string;
 }
 
-/** Back-compat alias for {@link TrackedComment} (see {@link LinearIssue}). */
-export type LinearComment = TrackedComment;
-
 export async function fetchIssueComments(
   apiKey: string,
   issueId: string,
-): Promise<LinearComment[]> {
+): Promise<TrackedComment[]> {
   const query = `query Comments($id: String!) {
     issue(id: $id) {
       comments(first: 50) {
@@ -973,7 +962,7 @@ export async function fetchIssueComments(
     }
   }`;
   const data = await linearRequest<{
-    issue: { comments: { nodes: LinearComment[] } } | null;
+    issue: { comments: { nodes: TrackedComment[] } } | null;
   }>(apiKey, query, { id: issueId });
   return data.issue?.comments.nodes ?? [];
 }
@@ -1303,7 +1292,7 @@ export function baseBranchFromLabels(labels: string[]): string | undefined {
 }
 
 export function issueMatchesGetIndicator(
-  issue: Pick<LinearIssue, "labels" | "state" | "project"> & {
+  issue: Pick<TrackedIssue, "labels" | "state" | "project"> & {
     comments?: { body: string; user?: { name: string } | null }[];
   },
   indicator: GetIndicator | undefined,

@@ -7,7 +7,7 @@ import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
 import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
 import { isRalphComment } from "../../shared/utils/ralph-comment";
-import type { LinearIssue } from "../../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { RalphyConfig } from "../../agent/config";
 import { markersOf } from "@ralphy/types";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
@@ -34,13 +34,13 @@ interface AwaitingDeps {
   cwdOf: (changeName: string) => string | undefined;
   awaitingChangeSet: Set<string>;
   reapForAwaiting: (changeName: string) => void;
-  applyIndicator: (issue: LinearIssue, ind: SetIndicator) => Promise<void>;
-  applyMarker: (issue: LinearIssue, m: Marker) => Promise<void>;
+  applyIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
+  applyMarker: (issue: TrackedIssue, m: Marker) => Promise<void>;
   /** Opens the early draft PR for the design once the gate parks the ticket
    *  (prDraft mode). Returns the PR URL, or null when there is nothing to PR
    *  yet (e.g. the design isn't committed). Omitted ⇒ no early PR is opened
    *  and the PR is created at the end of the run as usual. */
-  openDraftPr?: (issue: LinearIssue, changeName: string, cwd: string) => Promise<string | null>;
+  openDraftPr?: (issue: TrackedIssue, changeName: string, cwd: string) => Promise<string | null>;
   onAwaitingTicket?: (info: {
     changeName: string;
     issueIdentifier: string;
@@ -85,7 +85,7 @@ async function readTextOrNull(path: string): Promise<string | null> {
 /** Post the one-shot "📋 Ralphy plan ready" Linear comment on the first
  *  poll that observes the ticket in the `awaiting-confirmation` phase. */
 async function postPlanReadyCommentOnce(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   statePath: string,
   changeName: string,
   deps: { apiKey: string; cfg: RalphyConfig; onLog: AwaitingDeps["onLog"] },
@@ -131,7 +131,7 @@ async function postPlanReadyCommentOnce(
 
 /** Apply `setAwaitingConfirmation` once per gate-entry; stamp the state. */
 async function applyAwaitingMarkerOnce(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   statePath: string,
   state: { stateObj: Record<string, unknown>; confirmation: ConfirmationState },
   deps: {
@@ -175,7 +175,7 @@ async function applyAwaitingMarkerOnce(
  *  result (nothing to PR yet) or a failure leaves the stamp set so we don't
  *  retry every poll; the end-of-run PR phase still opens/readies the PR. */
 async function openDraftPrOnce(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   statePath: string,
   changeName: string,
   cwd: string,
@@ -224,7 +224,7 @@ async function openDraftPrOnce(
  *  process. Label/comment/project awaiting markers are intentionally excluded:
  *  only a status park strands the ticket, and only `setInProgress` (a status)
  *  can undo it. */
-function issueInAwaitingStatus(issue: LinearIssue, indicators: Indicators): boolean {
+function issueInAwaitingStatus(issue: TrackedIssue, indicators: Indicators): boolean {
   const set = indicators.setAwaitingConfirmation;
   if (!set) return false;
   const current = issue.state?.name;
@@ -249,7 +249,7 @@ function issueInAwaitingStatus(issue: LinearIssue, indicators: Indicators): bool
  *  when there was nothing to release (already cleared) — callers use this to log
  *  the release exactly once instead of on every poll. */
 async function releaseAwaitingMarker(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   statePath: string,
   deps: {
     indicators: Indicators;
@@ -315,7 +315,7 @@ function confirmationUsesCommentIndicator(cfg: RalphyConfig): boolean {
  * directory on disk and the workflow's confirmation-mode config.
  */
 export async function processAwaitingForIssue(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   deps: AwaitingDeps,
 ): Promise<boolean> {
   try {

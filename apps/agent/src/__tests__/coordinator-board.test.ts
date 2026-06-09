@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentCoordinator, type CoordinatorDeps, type MentionTrigger } from "../agent/coordinator";
 import type { PrStatusBucket } from "../agent/coordinator";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { createNoopBus } from "@ralphy/events";
 import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
 import { statusLabel, type TicketRow } from "../components/task-pipeline";
 
-function issue(id: string, identifier: string, blockedByIds: string[] = []): LinearIssue {
+function issue(id: string, identifier: string, blockedByIds: string[] = []): TrackedIssue {
   return {
     id,
     identifier,
@@ -31,20 +31,20 @@ interface BoardDeps {
   deps: CoordinatorDeps;
   changeDirByIssue: Map<string, string>;
   prByIssue: Map<string, { url: string; status: PrStatusBucket } | null>;
-  setTodo: (xs: LinearIssue[]) => void;
-  setInProgress: (xs: LinearIssue[]) => void;
-  setMentions: (xs: { issue: LinearIssue; trigger: MentionTrigger }[]) => void;
-  setDoneCandidates: (xs: LinearIssue[]) => void;
+  setTodo: (xs: TrackedIssue[]) => void;
+  setInProgress: (xs: TrackedIssue[]) => void;
+  setMentions: (xs: { issue: TrackedIssue; trigger: MentionTrigger }[]) => void;
+  setDoneCandidates: (xs: TrackedIssue[]) => void;
 }
 
 function makeBoardDeps(): BoardDeps {
   const root = mkdtempSync(join(tmpdir(), "ralphy-board-"));
   const changeDirByIssue = new Map<string, string>();
   const prByIssue = new Map<string, { url: string; status: PrStatusBucket } | null>();
-  let todo: LinearIssue[] = [];
-  let inProgress: LinearIssue[] = [];
-  let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
-  let doneCandidates: LinearIssue[] = [];
+  let todo: TrackedIssue[] = [];
+  let inProgress: TrackedIssue[] = [];
+  let mentions: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
+  let doneCandidates: TrackedIssue[] = [];
 
   const deps: CoordinatorDeps = {
     fetchTodo: async () => todo,

@@ -6,7 +6,7 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import type { LinearIssue } from "./linear";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { projectLayout } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -29,7 +29,6 @@ import {
 import { createGithubTrackerProvider, githubIndicators } from "./wire/tracker/github";
 import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
 import type { TrackerProvider } from "./wire/tracker/types";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
@@ -166,7 +165,7 @@ export function buildAgentCoordinator(
   const cwdByChange = new Map<string, string>();
   const statesDirByChange = new Map<string, string>();
   const branchByChange = new Map<string, string>();
-  const issueByChange = new Map<string, LinearIssue>();
+  const issueByChange = new Map<string, TrackedIssue>();
   const prByChange = new Map<string, string>();
   const stalePingedAt = new Map<string, number>();
   const lastHandledReviewActivity = new Map<string, string>();
@@ -439,7 +438,7 @@ export function buildAgentCoordinator(
     run: async () => {},
   };
 
-  function buildFeatureCtx(issue: LinearIssue): FeatureCtx {
+  function buildFeatureCtx(issue: TrackedIssue): FeatureCtx {
     return {
       issue,
       worktree: cwdByChange.get(changeNameForIssue(issue)) ?? projectRoot,

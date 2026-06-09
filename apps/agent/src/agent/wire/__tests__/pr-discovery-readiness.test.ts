@@ -3,7 +3,7 @@ import { createPrDiscovery } from "../pr-discovery";
 import { PollContext } from "../../../shared/capabilities/poll-context";
 import { changeNameForIssue } from "../../scaffold";
 import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 /**
  * BAN-799 regression guard for the done-gate. A PR can be git-mergeable
@@ -14,7 +14,7 @@ import type { LinearIssue } from "../../linear";
  * no-review-required), CI-green, conflict-free PR is "mergeable".
  */
 
-const ISSUE: LinearIssue = {
+const ISSUE: TrackedIssue = {
   id: "u1",
   identifier: "ENG-1",
   title: "Test",

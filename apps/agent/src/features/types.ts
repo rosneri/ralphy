@@ -11,7 +11,7 @@
  */
 
 import type { Bus } from "@ralphy/events";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { PollContext } from "../shared/capabilities/poll-context";
 
 /** Stable id used as the registry key and the bus subsystem prefix. */
@@ -79,8 +79,8 @@ export interface StateStore {
  * assignment-compatible with this shape.
  */
 interface ConfirmationCapsShape {
-  detect(issue: LinearIssue): Promise<boolean>;
-  run(issue: LinearIssue): Promise<void>;
+  detect(issue: TrackedIssue): Promise<boolean>;
+  run(issue: TrackedIssue): Promise<void>;
 }
 
 /**
@@ -162,7 +162,7 @@ export interface Capabilities {
 /** Shared context passed to every `Feature.detect` and `Feature.run`. */
 export interface FeatureCtx {
   /** Linear issue this poll is acting on. */
-  issue: LinearIssue;
+  issue: TrackedIssue;
   /** Absolute path to the issue's worktree (or projectRoot when worktrees off). */
   worktree: string;
   /** Single-writer slot accessor for `.ralph-state.json` (Stage 3). */

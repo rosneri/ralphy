@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import { runPostTask, type RetroDispositionInfo } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 // The optional `runRetrospective` dep (wired only under --agent-debug) must run
 // exactly once, after the terminal disposition emit and before worktree
 // cleanup, and must never alter the effective exit code. When absent the flow
 // is identical.
 
-const FAKE_ISSUE: LinearIssue = {
+const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
   identifier: "COD-1",
   title: "Test issue",
