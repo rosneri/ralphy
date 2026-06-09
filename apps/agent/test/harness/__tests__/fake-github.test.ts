@@ -46,6 +46,23 @@ describe("FakeGithub bucket filtering", () => {
   });
 });
 
+describe("FakeGithub mentions", () => {
+  test("fetchMentions surfaces a pushed github-source mention with its body", async () => {
+    const fake = createFakeGithub();
+    const issue = fake.seed(seed({ id: "1", identifier: "#1", labels: [GITHUB_LABELS.selection] }));
+    fake.pushMention(
+      issue.id,
+      "github",
+      "@ralphy please take another look",
+      new Date("2026-02-01T00:00:00Z"),
+    );
+    const mentions = await fake.client.fetchMentions();
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0]?.trigger.source).toBe("github");
+    expect(mentions[0]?.trigger.body).toBe("@ralphy please take another look");
+  });
+});
+
 describe("FakeGithub applyIndicator", () => {
   test("done indicator closes the issue and logs setDone", async () => {
     const fake = createFakeGithub();
