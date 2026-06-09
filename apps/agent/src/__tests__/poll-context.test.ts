@@ -14,6 +14,50 @@ function counterRunner(stdout: string): CmdRunner & { calls: { cmd: string[]; cw
 }
 
 describe("PollContext.fetchPrOnce", () => {
+  test("forceRefresh re-runs gh and returns the fresh value (UNKNOWN → MERGEABLE)", async () => {
+    // GitHub computes mergeability asynchronously: first read UNKNOWN, later MERGEABLE.
+    const outputs = [
+      JSON.stringify({ state: "OPEN", mergeable: "UNKNOWN" }),
+      JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }),
+    ];
+    let i = 0;
+    const calls: string[][] = [];
+    const runner: CmdRunner = {
+      run: async (cmd) => {
+        calls.push(cmd);
+        return { stdout: outputs[Math.min(i++, outputs.length - 1)]!, stderr: "" };
+      },
+    };
+    const ctx = new PollContext();
+    const url = "https://github.com/o/r/pull/9";
+    const fields = ["state", "mergeable"];
+
+    // Attempt 0 caches UNKNOWN; without forceRefresh a retry re-reads it.
+    expect(await ctx.fetchPrOnce(url, fields, runner, ".")).toEqual({
+      state: "OPEN",
+      mergeable: "UNKNOWN",
+    });
+    expect(await ctx.fetchPrOnce(url, fields, runner, ".")).toEqual({
+      state: "OPEN",
+      mergeable: "UNKNOWN",
+    });
+    expect(calls).toHaveLength(1); // memo hit
+
+    // forceRefresh bypasses the cache → fresh gh call → MERGEABLE.
+    expect(await ctx.fetchPrOnce(url, fields, runner, ".", { forceRefresh: true })).toEqual({
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+    });
+    expect(calls).toHaveLength(2);
+
+    // The refreshed value replaces the memo entry for later same-key callers.
+    expect(await ctx.fetchPrOnce(url, fields, runner, ".")).toEqual({
+      state: "OPEN",
+      mergeable: "MERGEABLE",
+    });
+    expect(calls).toHaveLength(2);
+  });
+
   test("two calls with the same url + fields share one invocation", async () => {
     const runner = counterRunner(JSON.stringify({ state: "OPEN", mergeable: "MERGEABLE" }));
     const ctx = new PollContext();

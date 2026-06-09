@@ -139,12 +139,16 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     }
 
     const outcome = await waitForMergeability({
-      probe: async () =>
+      // Attempt 0 shares the per-poll memo with other scan paths; every retry
+      // forces a fresh `gh pr view` so the backoff actually waits out GitHub's
+      // async mergeability computation instead of re-reading a cached UNKNOWN.
+      probe: async (attempt) =>
         (await getPollContext().fetchPrOnce(
           prUrl,
           ["state", "mergeable", "mergeStateStatus"],
           cmdRunner,
           projectRoot,
+          { forceRefresh: attempt > 0 },
         )) as { state?: string; mergeable?: string; mergeStateStatus?: string },
       onError: (err, attempt, total) =>
         diag(
