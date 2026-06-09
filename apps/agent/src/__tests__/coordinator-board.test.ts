@@ -222,6 +222,22 @@ describe("AgentCoordinator — lifecycle board", () => {
     expect(row!.url).toBe("https://example/BAN-100");
   });
 
+  test("a picked-up-but-unspawned ticket renders as queued, not working", async () => {
+    const ctx = makeBoardDeps();
+    roots.push(ctx.root);
+    // Fresh todo, no blockers: pollOnce picks it up (actor → working) and
+    // enqueues it, but concurrency 0 spawns nothing — it waits for a slot.
+    ctx.setTodo([issue("u7", "BAN-400")]);
+
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    const result = await coord.pollOnce();
+
+    const row = rowFor(result.board, "BAN-400");
+    expect(row).toBeDefined();
+    // The actor is `working`, but with no worker spawned it must read `queued`.
+    expect(row!.state).toBe("queued");
+  });
+
   test("a blocked in-progress ticket renders as a parked todo, not working", async () => {
     const ctx = makeBoardDeps();
     roots.push(ctx.root);

@@ -904,7 +904,11 @@ export class AgentCoordinator {
       const snapshot = actor.getSnapshot();
       state = machineStateToTicketState(snapshot.value as string);
       if (state === "done") return null;
-      if (kind === "queued" && state === "in-progress") state = "queued";
+      // A queued ticket is picked but not yet spawned (waiting for a worker
+      // slot). Pickup drives the actor to `working`/`in-progress`, so without
+      // this it reads as actively `working` while no worker exists — the
+      // "working … waiting for worker" contradiction. Show it as `queued`.
+      if (kind === "queued" && (state === "working" || state === "in-progress")) state = "queued";
       // Recovery detail comes from the machine context (the single source of
       // truth now that the pr-tracker file is gone).
       const flowRecovery = snapshot.context.data.recovery;
