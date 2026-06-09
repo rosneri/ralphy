@@ -224,6 +224,7 @@ export function buildPostTaskInput(input: {
       finalizeNoOpAsDone: cfg.finalizeNoOpAsDone,
       manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
       prDraft: cfg.prDraft,
+      prLabels: cfg.prLabels,
       validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
         (c): c is string => Boolean(c),
       ),

@@ -102,11 +102,14 @@ describe("buildWorkflowMarkdown", () => {
       "prRecovery.ignoreChecks": ["flaky-e2e"],
       "boundaries.never_touch": ["dist/**", "vendor/**"],
       "linear.specAttachmentFormats": ["md", "pdf"],
+      createPrOnSuccess: true,
+      prLabels: ["ralph", "automated"],
     });
     expect(config.rules).toEqual(["never break the build", "small commits"]);
     expect(config.prRecovery.ignoreChecks).toEqual(["flaky-e2e"]);
     expect(config.boundaries.never_touch).toEqual(["dist/**", "vendor/**"]);
     expect(config.linear.specAttachmentFormats).toEqual(["md", "pdf"]);
+    expect(config.prLabels).toEqual(["ralph", "automated"]);
   });
 
   test("nested object fields (confirmation mode, gates) round-trip", () => {

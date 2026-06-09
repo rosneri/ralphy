@@ -158,6 +158,28 @@ describe("parseWorkflow", () => {
     expect(config.model).toBe("sonnet");
   });
 
+  test("prLabels defaults to an empty list", () => {
+    const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
+    expect(config.prLabels).toEqual([]);
+  });
+
+  test("prLabels accepts an explicit list", () => {
+    const { config } = parseWorkflow(`---\nprLabels:\n  - ralph\n  - automated\n---\n`);
+    expect(config.prLabels).toEqual(["ralph", "automated"]);
+  });
+
+  test("github.pr_labels alias maps onto the flat prLabels", () => {
+    const { config } = parseWorkflow(`---\ngithub:\n  pr_labels:\n    - ralph\n---\n`);
+    expect(config.prLabels).toEqual(["ralph"]);
+  });
+
+  test("flat prLabels wins over github.pr_labels when both are set", () => {
+    const { config } = parseWorkflow(
+      `---\nprLabels:\n  - top\ngithub:\n  pr_labels:\n    - nested\n---\n`,
+    );
+    expect(config.prLabels).toEqual(["top"]);
+  });
+
   test("linear.syncTasksToComment defaults to true", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
     expect(config.linear.syncTasksToComment).toBe(true);

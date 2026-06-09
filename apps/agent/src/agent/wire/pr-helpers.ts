@@ -244,6 +244,8 @@ interface OpenDraftPrDeps {
   cmdRunner: CmdRunner;
   /** Default base branch (overridden per-issue by a `ralph:branch:<name>` label). */
   prBaseBranch: string;
+  /** Labels attached to every PR Ralph opens (best-effort). */
+  prLabels?: string[];
   /** Drop the per-issue PR-URL discovery cache so it re-resolves to the new PR. */
   invalidatePrUrlForIssue: (issueId: string) => void;
   /** Injectable for tests; defaults to the real {@link createPullRequest}. */
@@ -270,7 +272,10 @@ export function createOpenDraftPr(
     const branch = deps.branchByChange.get(changeName);
     if (!branch) return null;
     const base = baseBranchFromLabels(issue.labels) ?? deps.prBaseBranch;
-    const result = await create({ cwd, branch, issue, base, draft: true }, deps.cmdRunner);
+    const result = await create(
+      { cwd, branch, issue, base, draft: true, labels: deps.prLabels ?? [] },
+      deps.cmdRunner,
+    );
     const url = result?.url ?? null;
     if (url) {
       deps.prByChange.set(changeName, url);

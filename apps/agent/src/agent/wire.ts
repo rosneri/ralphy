@@ -398,6 +398,7 @@ export function buildAgentCoordinator(
     prByChange,
     cmdRunner,
     prBaseBranch: cfg.prBaseBranch,
+    prLabels: cfg.prLabels,
     invalidatePrUrlForIssue: (issueId) => prDiscovery.invalidatePrUrlForIssue(issueId),
   });
 
