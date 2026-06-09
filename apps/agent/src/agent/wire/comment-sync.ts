@@ -17,6 +17,8 @@ import {
   findIssueAttachmentByTitle,
   type LinearIssue,
 } from "../linear";
+import type { CmdRunner } from "../pr";
+import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
 
 interface CommentSyncInput {
   apiKey: string;
@@ -163,4 +165,56 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
         }
       : {}),
   };
+}
+
+interface TrackerCommentSyncInput {
+  /** GitHub mode routes onto `gh`; Linear mode uses the Linear comment API. */
+  isGithubTracker: boolean;
+  apiKey: string;
+  cfg: RalphyConfig;
+  projectRoot: string;
+  onLog: (text: string, color?: string) => void;
+  diag: (area: string, message: string, color?: string) => void;
+  cwdByChange: Map<string, string>;
+  issueByChange: Map<string, LinearIssue>;
+  cmdRunner: CmdRunner;
+  /** Resolves the GitHub `owner/name` slug (githubProvider.repo). */
+  githubRepo?: () => Promise<string>;
+}
+
+/**
+ * Select the comment-sync hooks for the active tracker. GitHub gets the
+ * marker-idempotent sticky-upsert adapter over `gh` (no spec attachments, auth
+ * via the CLI); Linear keeps its comment API + spec-attachment uploads.
+ */
+export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): CommentSyncHooks {
+  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
+  if (input.isGithubTracker) {
+    return createCommentSyncHooks({
+      apiKey: "",
+      cfg,
+      projectRoot,
+      onLog,
+      diag,
+      cwdByChange,
+      issueByChange,
+      commentMutations: createGithubCommentMutations({
+        cmdRunner: input.cmdRunner,
+        projectRoot,
+        repo: input.githubRepo!,
+        diag,
+      }),
+      attachmentsSupported: false,
+      credentialsReady: true,
+    });
+  }
+  return createCommentSyncHooks({
+    apiKey,
+    cfg,
+    projectRoot,
+    onLog,
+    diag,
+    cwdByChange,
+    issueByChange,
+  });
 }

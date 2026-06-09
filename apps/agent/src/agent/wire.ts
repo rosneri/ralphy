@@ -40,8 +40,7 @@ import {
 } from "./wire/mention-scan";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
-import { createCommentSyncHooks } from "./wire/comment-sync";
-import { createGithubCommentMutations } from "./wire/tracker/github-comment-mutations";
+import { createTrackerCommentSyncHooks } from "./wire/comment-sync";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -469,33 +468,18 @@ export function buildAgentCoordinator(
   // Task sync (plan-once + sticky tasks + steering refresh) to issue comments.
   // Linear uses its comment API; GitHub gets the marker-idempotent sticky-upsert
   // adapter. Spec attachments stay Linear-only (`attachmentsSupported: false`).
-  const commentSync = isGithubTracker
-    ? createCommentSyncHooks({
-        apiKey: "",
-        cfg,
-        projectRoot,
-        onLog,
-        diag,
-        cwdByChange,
-        issueByChange,
-        commentMutations: createGithubCommentMutations({
-          cmdRunner,
-          projectRoot,
-          repo: githubProvider!.repo,
-          diag,
-        }),
-        attachmentsSupported: false,
-        credentialsReady: true,
-      })
-    : createCommentSyncHooks({
-        apiKey,
-        cfg,
-        projectRoot,
-        onLog,
-        diag,
-        cwdByChange,
-        issueByChange,
-      });
+  const commentSync = createTrackerCommentSyncHooks({
+    isGithubTracker,
+    apiKey,
+    cfg,
+    projectRoot,
+    onLog,
+    diag,
+    cwdByChange,
+    issueByChange,
+    cmdRunner,
+    ...(githubProvider ? { githubRepo: githubProvider.repo } : {}),
+  });
 
   const coord = new AgentCoordinator(
     {
