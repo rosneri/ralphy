@@ -31,6 +31,8 @@ import { join } from "node:path";
 export const MISSION_TASKS_FILENAME = "tasks.md";
 /** Filename used for internal flow tasks (CI fix, push reject, …). */
 export const AGENT_TASKS_FILENAME = "agent-tasks.md";
+/** Filename used for the per-iteration handoff document (loop scratch). */
+export const HANDOFF_FILENAME = "handoff.md";
 
 /**
  * Canonical heading prefixes used by `prependFixTask` callers to label

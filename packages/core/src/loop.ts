@@ -4,7 +4,12 @@ import type { State, IterationUsage } from "@ralphy/types";
 import type { ChangeStatus } from "@ralphy/change-store";
 import { updateState } from "./state";
 import { getStorage } from "@ralphy/context";
-import { firstUnchecked, AGENT_TASKS_FILENAME, MISSION_TASKS_FILENAME } from "./tasks-md";
+import {
+  firstUnchecked,
+  AGENT_TASKS_FILENAME,
+  MISSION_TASKS_FILENAME,
+  HANDOFF_FILENAME,
+} from "./tasks-md";
 import {
   countOpenFindings as countOpenFindingsInContent,
   deriveOpenSpecPhase,
@@ -61,6 +66,7 @@ export {
   FLOW_TASK_HEADING_PREFIXES,
   AGENT_TASKS_FILENAME,
   MISSION_TASKS_FILENAME,
+  HANDOFF_FILENAME,
 } from "./tasks-md";
 
 /**
@@ -159,6 +165,18 @@ export function buildTaskPrompt(
       prompt += steeringLines.join("\n") + "\n\n";
       prompt += "---\n\n";
     }
+  }
+
+  // 1b. Previous-iteration handoff (loop scratch written by the prior
+  //     iteration's agent). Injected after steering so the agent reads
+  //     user guidance first, then last-iteration context, then the task.
+  //     Empty/whitespace-only content is treated as absent.
+  const handoffContent = storage.read(join(taskDir, HANDOFF_FILENAME));
+  if (handoffContent !== null && handoffContent.trim()) {
+    prompt += "---\n";
+    prompt += "# Previous Iteration Handoff (context from the last iteration)\n\n";
+    prompt += handoffContent.trim() + "\n\n";
+    prompt += "---\n\n";
   }
 
   // 2. Pick the active tasks file. Prefer agent-tasks.md when it has
@@ -277,6 +295,17 @@ export function buildTaskPrompt(
     prompt += `  gh pr create${draftFlag} --title "${state.name}" --body "Summary of changes for ${state.name}"\n`;
     prompt += `Use the change name as the PR title and write a concise summary of the implementation in the body.\n`;
   }
+
+  // 6. Write-handoff instruction (always present, even on the first
+  //    iteration). The agent records short-term memory for the next
+  //    iteration to read back via the block injected above.
+  const handoffPath = join(taskDir, HANDOFF_FILENAME);
+  prompt += `\n---\n\n## Write Handoff (do this LAST, before you finish)\n`;
+  prompt += `Before ending this iteration, record a handoff for the next iteration:\n`;
+  prompt += `- If a \`handoff\` skill is available, invoke it; otherwise write the document yourself.\n`;
+  prompt += `- Save it to \`${handoffPath}\` (OVERWRITE the existing file — do NOT append, do NOT save to a temp dir).\n`;
+  prompt += `- Keep it compact: what you did this iteration, what remains, key decisions, and any blockers/gotchas. Reference artifacts by path instead of duplicating them.\n`;
+  prompt += `- This file is loop scratch — do NOT commit it.\n`;
 
   return prompt;
 }

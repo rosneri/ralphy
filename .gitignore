@@ -10,6 +10,9 @@ dist-sidecar/
 *.tsbuildinfo
 .ralph
 openspec/changes/
+# Loop scratch: per-iteration handoff doc, never committed (belt-and-suspenders;
+# the per-change copy under openspec/changes/ is already covered above).
+handoff.md
 target/
 .claude/worktrees/
 .claude/commands/opsx/
