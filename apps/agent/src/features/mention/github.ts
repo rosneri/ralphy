@@ -4,7 +4,7 @@ import { githubReactionSlug } from "../../agent/wire/task-bodies";
 
 /** A GitHub issue/PR conversation comment as the mention scan consumes it. The
  *  numeric `id` is the REST comment id required by the reactions endpoint. */
-export interface GithubIssueComment {
+interface GithubIssueComment {
   id: number;
   body: string;
   createdAt: string;
