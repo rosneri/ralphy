@@ -23,6 +23,10 @@ mock.module("../../../linear", () => ({
 }));
 
 mock.module("../../linear-resolvers", () => ({
+  // `createLinearResolvers` is unused here, but the export must exist so the
+  // shared module shape stays complete for other in-process test files that do
+  // import it (bun's `mock.module` registry is global — see wire/tracker/linear.test.ts).
+  createLinearResolvers: () => ({}),
   fetchDoneCandidatesWith: async (...args: unknown[]) => {
     fetchDoneCandidatesCalls.push(args);
     return [];

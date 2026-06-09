@@ -21,12 +21,8 @@ import {
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
-import {
-  createLinearResolvers,
-  fetchDoneCandidatesWith,
-  type LinearResolvers,
-} from "./wire/linear-resolvers";
 import { createGithubTrackerProvider, githubIndicators } from "./wire/tracker/github";
+import { createLinearProvider } from "./wire/tracker/linear";
 import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
 import type { TrackerProvider } from "./wire/tracker/types";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
@@ -210,30 +206,14 @@ export function buildAgentCoordinator(
       return code;
     });
 
-  // Linear's GraphQL resolver bag (RLF-223). Only built in Linear mode; it is
-  // both the source of the unified `provider` below and the input to the
-  // `createLinearTrackerProvider` seam. GitHub mode drives the loop off the
-  // gh-CLI provider instead, so it stays null.
-  const resolvers: LinearResolvers | null = isGithubTracker
-    ? null
-    : createLinearResolvers({
-        apiKey,
-        team,
-        assignee,
-        anyAssignee,
-        scope,
-        diag,
-        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-      });
-
   // The provider-agnostic indicator-dispatch + fetch surface used directly by
-  // spawn / confirmation / baseline (and as the base for the GitHub tracker
-  // seam below). Both branches conform to TrackerProvider. The Linear path
-  // binds `fetchDoneCandidates` from the standalone helper (it needs the
-  // indicator map); the GitHub provider implements it directly.
-  // Built only in GitHub mode; retained as a typed handle so the mention
-  // scanner can reach the GitHub-specific `listOpenIssues` / `repo` seams that
-  // the tracker-neutral `TrackerProvider` does not expose.
+  // spawn / confirmation / baseline (and as the base for the tracker seam
+  // below). Both branches conform to TrackerProvider, each built by its own
+  // factory: GitHub via `createGithubTrackerProvider`, Linear via
+  // `createLinearProvider` (RLF-228). The GitHub handle is retained typed so the
+  // mention scanner can reach its `listOpenIssues` / `repo` seams; the Linear
+  // handle exposes `resolvers` for the `createLinearTrackerProvider` seam below.
+  // Each is built only in its own mode, so the other's config may be unset.
   const githubProvider = isGithubTracker
     ? createGithubTrackerProvider({
         issues: cfg.github?.issues,
@@ -242,21 +222,19 @@ export function buildAgentCoordinator(
         diag,
       })
     : null;
-  const provider: TrackerProvider = githubProvider
-    ? githubProvider
-    : {
-        ...resolvers!,
-        fetchDoneCandidates: () =>
-          fetchDoneCandidatesWith(
-            apiKey,
-            team,
-            assignee,
-            anyAssignee,
-            scope,
-            indicators,
-            ticketNumbers.length > 0 ? ticketNumbers : undefined,
-          ),
-      };
+  const linearProvider = isGithubTracker
+    ? null
+    : createLinearProvider({
+        apiKey,
+        team,
+        assignee,
+        anyAssignee,
+        scope,
+        indicators,
+        diag,
+        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+      });
+  const provider: TrackerProvider = githubProvider ?? linearProvider!;
 
   // RLF-208: when a ticket is targeted but it matches none of the configured
   // get-indicator buckets, the loop will pick up nothing — surface that so the
@@ -363,7 +341,7 @@ export function buildAgentCoordinator(
         anyAssignee,
         scope,
         indicators,
-        resolvers: resolvers!,
+        resolvers: linearProvider!.resolvers,
         fetchMentions,
         ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
       });
