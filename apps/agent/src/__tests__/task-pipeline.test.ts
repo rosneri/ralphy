@@ -91,8 +91,8 @@ describe("task-pipeline · pipelineStages", () => {
     });
   });
 
-  test("queued / working / in-progress — confirmation passed, work is current", () => {
-    for (const state of ["queued", "working", "in-progress"] as const) {
+  test("working / in-progress — confirmation passed, work is current", () => {
+    for (const state of ["working", "in-progress"] as const) {
       expect(shape(state)).toEqual({
         todo: "done",
         confirmation: "done",
@@ -102,6 +102,17 @@ describe("task-pipeline · pipelineStages", () => {
         done: "pending",
       });
     }
+  });
+
+  test("queued — past confirmation, waiting for a slot: no node is current", () => {
+    expect(shape("queued")).toEqual({
+      todo: "done",
+      confirmation: "done",
+      work: "pending",
+      PR: "pending",
+      CI: "pending",
+      done: "pending",
+    });
   });
 
   test("awaiting-ci — PR opened, CI is the current node", () => {

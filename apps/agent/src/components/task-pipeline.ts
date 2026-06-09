@@ -150,6 +150,10 @@ export function pipelineStages(row: TicketRow): PipelineStage[] {
       // Parked at the human confirmation gate, before work begins.
       return stages("done", "current", "pending", "pending", "pending", "pending");
     case "queued":
+      // Picked but not yet spawned (waiting for a worker slot): past
+      // confirmation, work not started. No node is `current` — it's waiting,
+      // not working — so the work node stays `pending` rather than lighting up.
+      return stages("done", "done", "pending", "pending", "pending", "pending");
     case "working":
     case "in-progress":
       return stages("done", "done", "current", "pending", "pending", "pending");
