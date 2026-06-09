@@ -33,6 +33,13 @@ interface MakeCmdOpts {
   prView?: PrViewSpec | PrViewSpec[];
   /** URL returned by `gh pr list --head ...`. */
   prListUrl?: string | "";
+  /**
+   * Number of local commits ahead of `origin/<branch>` reported by
+   * `git rev-list --count origin/<branch>..HEAD`. Defaults to 0 (the worker
+   * pushed its resolution). >0 simulates a worker that committed but never
+   * pushed.
+   */
+  unpushedCount?: number;
 }
 
 function makeCmd(opts: MakeCmdOpts): { cmd: CmdRunner; calls: string[][] } {
@@ -57,6 +64,9 @@ function makeCmd(opts: MakeCmdOpts): { cmd: CmdRunner; calls: string[][] } {
           throw err;
         }
         return { stdout: JSON.stringify(spec ?? {}), stderr: "" };
+      }
+      if (args[0] === "git" && args[1] === "rev-list") {
+        return { stdout: String(opts.unpushedCount ?? 0), stderr: "" };
       }
       // Any other git/gh call — pretend success with empty output. The
       // conflict-fix short-circuit must not hit `git push`, so if such a
@@ -252,5 +262,54 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
     // The legacy path runs `git status --porcelain` as its first step;
     // the short-circuit path never does. Confirm we took the legacy path.
     expect(calls.some((c) => c[0] === "git" && c[1] === "status")).toBe(true);
+  });
+
+  // Regression: a conflict-fix worker that resolves + commits but never pushes
+  // leaves the local branch ahead of origin/<branch> while the PR head stays
+  // frozen. The verify-only path only inspects GitHub mergeability, so it used
+  // to report success (return 0), the coordinator posted "resolved merge
+  // conflicts", and the next poll re-detected the same CONFLICTING PR —
+  // burning recovery attempts until `ralph:error`. The push-landed guard must
+  // fail the iteration instead.
+  test("unpushed conflict resolution → iteration fails (PR_FAILED_EXIT), not false success", async () => {
+    const { cmd } = makeCmd({
+      prListUrl: "https://github.com/owner/repo/pull/42\n",
+      prView: { state: "OPEN", mergeable: "CONFLICTING" },
+      unpushedCount: 2,
+    });
+
+    const code = await runPostTask(baseInput(), {
+      cmd,
+      git,
+      log: () => {},
+      runScript: async () => {},
+    });
+
+    // Regression guard: the unpushed resolution must fail the iteration
+    // (PR_FAILED_EXIT === 71), never report a false success (0).
+    expect(code).toBe(71);
+  });
+
+  test("unpushed conflict resolution → logs red unpushed warning and skips mergeability verify", async () => {
+    const { cmd, calls } = makeCmd({
+      prListUrl: "https://github.com/owner/repo/pull/42\n",
+      prView: { state: "OPEN", mergeable: "CONFLICTING" },
+      unpushedCount: 2,
+    });
+
+    const logs: { text: string; color?: string }[] = [];
+
+    const code = await runPostTask(baseInput(), {
+      cmd,
+      git,
+      log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
+      runScript: async () => {},
+    });
+
+    expect(code).toBe(71);
+    expect(logs.some((l) => l.color === "red" && /unpushed commit/.test(l.text))).toBe(true);
+    // Guard fails fast before the GitHub mergeability probe runs.
+    expect(calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "view")).toBe(false);
+    expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
   });
 });
