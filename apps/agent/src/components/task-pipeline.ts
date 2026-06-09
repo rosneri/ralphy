@@ -1,8 +1,9 @@
 /**
  * Pure lifecycle-pipeline vocabulary for the agent TUI task board.
  *
- * The board renders one line per ticket as a five-node pipeline —
- * `todo → work → PR → CI → done` — where each node carries a status glyph.
+ * The board renders one line per ticket as a six-node pipeline —
+ * `todo → confirmation → work → PR → CI → done` — where each node carries a
+ * status glyph.
  * This module owns the *vocabulary*: the per-ticket {@link TicketState}
  * union, the projection of a ticket onto pipeline nodes
  * ({@link pipelineStages}), the human-readable {@link statusLabel}, and the
@@ -73,8 +74,10 @@ export interface TicketRow {
   blockedByIdentifiers?: string[];
 }
 
-/** The five lifecycle nodes rendered left-to-right on every row. */
-export type PipelineNode = "todo" | "work" | "PR" | "CI" | "done";
+/** The six lifecycle nodes rendered left-to-right on every row. `confirmation`
+ *  sits between `todo` and `work` — the human plan-approval gate, where an
+ *  `awaiting` ticket parks. */
+export type PipelineNode = "todo" | "confirmation" | "work" | "PR" | "CI" | "done";
 
 /**
  * Per-node status:
@@ -101,10 +104,18 @@ export const STATUS_GLYPH: Record<PipelineNodeStatus, string> = {
 };
 
 /** Node order, fixed. */
-export const PIPELINE_NODES: readonly PipelineNode[] = ["todo", "work", "PR", "CI", "done"];
+export const PIPELINE_NODES: readonly PipelineNode[] = [
+  "todo",
+  "confirmation",
+  "work",
+  "PR",
+  "CI",
+  "done",
+];
 
 function stages(
   todo: PipelineNodeStatus,
+  confirmation: PipelineNodeStatus,
   work: PipelineNodeStatus,
   pr: PipelineNodeStatus,
   ci: PipelineNodeStatus,
@@ -112,6 +123,7 @@ function stages(
 ): PipelineStage[] {
   return [
     { node: "todo", status: todo },
+    { node: "confirmation", status: confirmation },
     { node: "work", status: work },
     { node: "PR", status: pr },
     { node: "CI", status: ci },
@@ -120,7 +132,7 @@ function stages(
 }
 
 /**
- * Project a ticket onto its five pipeline nodes. Total over
+ * Project a ticket onto its six pipeline nodes. Total over
  * {@link TicketState}; the `never` assertion makes any new state a compile
  * error until it is mapped here.
  *
@@ -133,29 +145,30 @@ export function pipelineStages(row: TicketRow): PipelineStage[] {
   const state = row.state;
   switch (state) {
     case "todo":
-      return stages("current", "pending", "pending", "pending", "pending");
+      return stages("current", "pending", "pending", "pending", "pending", "pending");
+    case "awaiting":
+      // Parked at the human confirmation gate, before work begins.
+      return stages("done", "current", "pending", "pending", "pending", "pending");
     case "queued":
-      return stages("done", "current", "pending", "pending", "pending");
     case "working":
     case "in-progress":
-    case "awaiting":
-      return stages("done", "current", "pending", "pending", "pending");
+      return stages("done", "done", "current", "pending", "pending", "pending");
     case "awaiting-ci":
-      return stages("done", "done", "done", "current", "pending");
+      return stages("done", "done", "done", "done", "current", "pending");
     case "conflict-fix":
-      return stages("done", "done", "failed", "pending", "pending");
+      return stages("done", "done", "done", "failed", "pending", "pending");
     case "ci-fix":
-      return stages("done", "done", "done", "failed", "pending");
+      return stages("done", "done", "done", "done", "failed", "pending");
     case "review":
-      return stages("done", "current", "done", "done", "pending");
+      return stages("done", "done", "current", "done", "done", "pending");
     case "quarantined":
       return row.recovery?.lastReason === "conflicting"
-        ? stages("done", "done", "bailed", "pending", "pending")
-        : stages("done", "done", "done", "bailed", "pending");
+        ? stages("done", "done", "done", "bailed", "pending", "pending")
+        : stages("done", "done", "done", "done", "bailed", "pending");
     case "done":
-      return stages("done", "done", "done", "done", "done");
+      return stages("done", "done", "done", "done", "done", "done");
     case "error":
-      return stages("done", "failed", "pending", "pending", "pending");
+      return stages("done", "done", "failed", "pending", "pending", "pending");
     default: {
       const exhaustive: never = state;
       return exhaustive;

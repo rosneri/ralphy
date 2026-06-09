@@ -362,6 +362,7 @@ function focusedCardTailLines(termHeight: number, fixedOverhead: number): number
 /** Human-readable lifecycle node labels, in pipeline order. */
 const NODE_LABELS: Record<PipelineNode, string> = {
   todo: "todo",
+  confirmation: "conf",
   work: "work",
   PR: "PR",
   CI: "CI",
@@ -388,7 +389,7 @@ function glyphColor(status: PipelineNodeStatus): string {
 }
 
 /**
- * Render the five pipeline cells — either the node labels (header row) or the
+ * Render the six pipeline cells — either the node labels (header row) or the
  * per-status glyphs (a ticket row). Both modes use identical cell widths and
  * connectors, so the header labels align over the glyphs in every row.
  */

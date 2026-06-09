@@ -53,7 +53,7 @@ function shape(
 }
 
 describe("task-pipeline · pipelineStages", () => {
-  test("returns the five lifecycle nodes in order for every state", () => {
+  test("returns the six lifecycle nodes in order for every state", () => {
     for (const state of ALL_STATES) {
       const nodes = pipelineStages(row(state)).map((s) => s.node);
       expect(nodes).toEqual([...PIPELINE_NODES]);
@@ -71,6 +71,7 @@ describe("task-pipeline · pipelineStages", () => {
   test("todo — only the todo node is current", () => {
     expect(shape("todo")).toEqual({
       todo: "current",
+      confirmation: "pending",
       work: "pending",
       PR: "pending",
       CI: "pending",
@@ -78,10 +79,22 @@ describe("task-pipeline · pipelineStages", () => {
     });
   });
 
-  test("queued / working / in-progress / awaiting — work is the current node", () => {
-    for (const state of ["queued", "working", "in-progress", "awaiting"] as const) {
+  test("awaiting — parked at the confirmation gate before work", () => {
+    expect(shape("awaiting")).toEqual({
+      todo: "done",
+      confirmation: "current",
+      work: "pending",
+      PR: "pending",
+      CI: "pending",
+      done: "pending",
+    });
+  });
+
+  test("queued / working / in-progress — confirmation passed, work is current", () => {
+    for (const state of ["queued", "working", "in-progress"] as const) {
       expect(shape(state)).toEqual({
         todo: "done",
+        confirmation: "done",
         work: "current",
         PR: "pending",
         CI: "pending",
@@ -93,6 +106,7 @@ describe("task-pipeline · pipelineStages", () => {
   test("awaiting-ci — PR opened, CI is the current node", () => {
     expect(shape("awaiting-ci")).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "done",
       PR: "done",
       CI: "current",
@@ -103,6 +117,7 @@ describe("task-pipeline · pipelineStages", () => {
   test("conflict-fix — PR node failed (mergeability)", () => {
     expect(shape("conflict-fix")).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "done",
       PR: "failed",
       CI: "pending",
@@ -113,6 +128,7 @@ describe("task-pipeline · pipelineStages", () => {
   test("ci-fix — CI node failed", () => {
     expect(shape("ci-fix")).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "done",
       PR: "done",
       CI: "failed",
@@ -123,6 +139,7 @@ describe("task-pipeline · pipelineStages", () => {
   test("review — re-working a PR'd ticket; work current, PR/CI already passed", () => {
     expect(shape("review")).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "current",
       PR: "done",
       CI: "done",
@@ -140,6 +157,7 @@ describe("task-pipeline · pipelineStages", () => {
       }),
     ).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "done",
       PR: "done",
       CI: "bailed",
@@ -154,6 +172,7 @@ describe("task-pipeline · pipelineStages", () => {
       }),
     ).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "done",
       PR: "bailed",
       CI: "pending",
@@ -170,6 +189,7 @@ describe("task-pipeline · pipelineStages", () => {
   test("done — all nodes passed", () => {
     expect(shape("done")).toEqual({
       todo: "done",
+      confirmation: "done",
       work: "done",
       PR: "done",
       CI: "done",
