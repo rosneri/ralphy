@@ -188,7 +188,7 @@ describe("flowMachine — review transitions", () => {
       worker: fakeWorker,
       assignment: { flowId: "implement", reason: "r", boost: "p2" },
     } as never);
-    expect(a.getSnapshot().context.worker).toBe(fakeWorker);
+    expect(a.getSnapshot().context.runtime.worker).toBe(fakeWorker);
   });
 });
 
@@ -202,7 +202,7 @@ describe("flowMachine — PREEMPT and WORKER_SPAWNED in conflict-fix and ci-fix"
       worker: fakeWorker,
       assignment: { flowId: "conflict-fix", reason: "r", boost: "p1" },
     } as never);
-    expect(a.getSnapshot().context.worker).toBe(fakeWorker);
+    expect(a.getSnapshot().context.runtime.worker).toBe(fakeWorker);
   });
 
   test("conflict-fix: PREEMPT stores pendingAssignment and transitions to preempting", () => {
@@ -210,7 +210,7 @@ describe("flowMachine — PREEMPT and WORKER_SPAWNED in conflict-fix and ci-fix"
     a.send({ type: "CONFLICT_DETECTED" });
     const newAssignment = { flowId: "ci-fix" as const, reason: "ci failed", boost: "p1" as const };
     a.send({ type: "PREEMPT", newAssignment });
-    expect(a.getSnapshot().context.pendingAssignment).toEqual(newAssignment);
+    expect(a.getSnapshot().context.data.pendingAssignment).toEqual(newAssignment);
   });
 
   test("ci-fix: WORKER_SPAWNED stores worker in context", () => {
@@ -222,7 +222,7 @@ describe("flowMachine — PREEMPT and WORKER_SPAWNED in conflict-fix and ci-fix"
       worker: fakeWorker,
       assignment: { flowId: "ci-fix", reason: "r", boost: "p1" },
     } as never);
-    expect(a.getSnapshot().context.worker).toBe(fakeWorker);
+    expect(a.getSnapshot().context.runtime.worker).toBe(fakeWorker);
   });
 
   test("ci-fix: PREEMPT stores pendingAssignment and transitions to preempting", () => {
@@ -234,7 +234,7 @@ describe("flowMachine — PREEMPT and WORKER_SPAWNED in conflict-fix and ci-fix"
       boost: "p0" as const,
     };
     a.send({ type: "PREEMPT", newAssignment });
-    expect(a.getSnapshot().context.pendingAssignment).toEqual(newAssignment);
+    expect(a.getSnapshot().context.data.pendingAssignment).toEqual(newAssignment);
   });
 });
 

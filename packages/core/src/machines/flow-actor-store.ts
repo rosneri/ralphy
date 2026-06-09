@@ -1,7 +1,7 @@
 import { createActor, type Actor, type SnapshotFrom, type InspectionEvent } from "xstate";
-import { flowMachine, type FlowAssignment, type FlowInput } from "./flow.machine";
+import { flowMachine, type FlowAssignment, type FlowInput, type FlowRuntime } from "./flow.machine";
 import { writeField, readSlotSidecar } from "../state/store";
-import type { Bus } from "@ralphy/events";
+import { createNoopBus, type Bus } from "@ralphy/events";
 
 const STATE_FILE = ".ralph-state.json";
 
@@ -63,8 +63,13 @@ export class FlowActorStore {
       const snapshot = await this.loadSnapshot(changeDir);
       if (snapshot !== null && this.isValidSnapshot(snapshot)) {
         try {
+          // XState v5 restores context verbatim from the snapshot and does not
+          // re-run the context factory, so the non-serializable `runtime`
+          // handles (lost to JSON) must be spliced back in here — re-passing
+          // `input` does not repopulate them.
+          const restored = this.withRestoredRuntime(snapshot);
           const a = createActor(this.machine, {
-            snapshot: snapshot as SnapshotFrom<typeof flowMachine>,
+            snapshot: restored as SnapshotFrom<typeof flowMachine>,
             input,
             ...(inspector ? { inspect: inspector.inspect } : {}),
           });
@@ -94,6 +99,45 @@ export class FlowActorStore {
     a.start();
     this.actors.set(key, a);
     return a;
+  }
+
+  /**
+   * A fresh, process-bound {@link FlowRuntime} sourced from the store's deps.
+   * `worker` / `teardown` are always `undefined` on rehydrate — a live worker
+   * cannot outlive the process that spawned it.
+   */
+  private buildRuntime(): FlowRuntime {
+    return {
+      bus: this.deps?.bus ?? createNoopBus(),
+      persist: this.deps?.persist ?? (() => {}),
+      worker: undefined,
+      teardown: undefined,
+    };
+  }
+
+  /**
+   * Rebuild a persisted snapshot's `context` for restore: keep the serializable
+   * `context.data`, replace `context.runtime` with a freshly-injected one (the
+   * serialized handles are dead). Also migrates pre-split snapshots, whose
+   * serializable fields lived at the top level of `context`
+   * (`issueId` / `graceMs` / `currentAssignment` / `pendingAssignment`), into
+   * `context.data` so in-flight runs survive the upgrade rather than resetting
+   * to `idle`.
+   */
+  private withRestoredRuntime(snapshot: unknown): unknown {
+    if (!snapshot || typeof snapshot !== "object") return snapshot;
+    const snap = snapshot as { context?: Record<string, unknown> };
+    const context = snap.context ?? {};
+    const data =
+      context.data && typeof context.data === "object"
+        ? (context.data as Record<string, unknown>)
+        : {
+            issueId: context.issueId,
+            graceMs: context.graceMs ?? 5000,
+            currentAssignment: context.currentAssignment,
+            pendingAssignment: context.pendingAssignment,
+          };
+    return { ...snap, context: { data, runtime: this.buildRuntime() } };
   }
 
   /**
