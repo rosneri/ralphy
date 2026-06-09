@@ -27,7 +27,21 @@
  * unset and the per-query default applies.
  */
 
-import type { LinearFilter, ResolvedLinearFilter } from "@ralphy/types";
+import type { LinearFilter, LinearFilterScope, ResolvedLinearFilter } from "@ralphy/types";
+
+/**
+ * Project the non-assignee half of a {@link ResolvedLinearFilter} into a
+ * {@link LinearFilterScope} — the bundle threaded down to every query spec.
+ * Optional fields are copied only when present so a spread into a spec never
+ * sets a key to `undefined`.
+ */
+export function linearFilterScope(resolved: ResolvedLinearFilter): LinearFilterScope {
+  const scope: LinearFilterScope = { requireAllLabels: resolved.requireAllLabels };
+  if (resolved.excludeLabels) scope.excludeLabels = resolved.excludeLabels;
+  if (resolved.requireProject) scope.requireProject = resolved.requireProject;
+  if (resolved.excludeProjects) scope.excludeProjects = resolved.excludeProjects;
+  return scope;
+}
 
 /**
  * Resolve the global `linear.filter` marker list into the assignee constraint
@@ -42,28 +56,60 @@ export function resolveLinearFilter(filter: LinearFilter): ResolvedLinearFilter 
     );
   }
 
-  const requireAllLabels: string[] = [];
-  const seenLabels = new Set<string>();
-  for (const marker of filter) {
-    if (marker.type !== "label") continue;
-    if (seenLabels.has(marker.value)) continue;
-    seenLabels.add(marker.value);
-    requireAllLabels.push(marker.value);
+  // Partition label / project clauses by negation. Positive labels/projects are
+  // must-have / must-be-in; negated ones are must-not. Deduped, order-preserving.
+  const requireAllLabels = collectDeduped(filter, "label", false);
+  const excludeLabels = collectDeduped(filter, "label", true);
+  const requireProjects = collectDeduped(filter, "project", false);
+  const excludeProjects = collectDeduped(filter, "project", true);
+
+  if (requireProjects.length > 1) {
+    throw new Error(
+      `Invalid linear.filter: at most one positive "project" clause is allowed, found ${requireProjects.length}.`,
+    );
   }
 
+  // Build the optional fields additively so an empty filter still resolves to
+  // exactly `{ requireAllLabels: [] }` (no spurious empty arrays).
+  const optional: Partial<ResolvedLinearFilter> = {};
+  if (excludeLabels.length > 0) optional.excludeLabels = excludeLabels;
+  if (requireProjects[0] !== undefined) optional.requireProject = requireProjects[0];
+  if (excludeProjects.length > 0) optional.excludeProjects = excludeProjects;
+
+  const base: ResolvedLinearFilter = { requireAllLabels, ...optional };
+
   const assigneeClause = assigneeClauses[0];
-  if (!assigneeClause) return { requireAllLabels };
+  if (!assigneeClause) return base;
 
   const value = assigneeClause.value.trim();
   const lower = value.toLowerCase();
-  if (lower === "any") return { anyAssignee: true, requireAllLabels };
+  if (lower === "any") return { anyAssignee: true, ...base };
   // Blank value preserves the legacy "blank means unassigned" meaning.
   if (lower === "" || lower === "unassigned") {
-    return { assignee: "unassigned", requireAllLabels };
+    return { assignee: "unassigned", ...base };
   }
-  if (lower === "me") return { assignee: "me", requireAllLabels };
+  if (lower === "me") return { assignee: "me", ...base };
   // Emails / ids are case-sensitive in Linear lookups — keep original case.
-  return { assignee: value, requireAllLabels };
+  return { assignee: value, ...base };
+}
+
+/** Collect deduped, order-preserving `value`s of one marker type at the given
+ *  negation polarity (a missing `negate` reads as positive). */
+function collectDeduped(
+  filter: LinearFilter,
+  type: "label" | "project",
+  negated: boolean,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const marker of filter) {
+    if (marker.type !== type) continue;
+    if (Boolean(marker.negate) !== negated) continue;
+    if (seen.has(marker.value)) continue;
+    seen.add(marker.value);
+    out.push(marker.value);
+  }
+  return out;
 }
 
 /**

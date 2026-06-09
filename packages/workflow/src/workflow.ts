@@ -17,8 +17,13 @@ export {
   matchesIndicator,
   type ConfirmationTicketView,
 } from "./confirmation";
-export { resolveLinearFilter, applyAssigneeOverride } from "./linear-filter";
-export type { LinearFilter, LinearFilterMarker, ResolvedLinearFilter } from "@ralphy/types";
+export { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "./linear-filter";
+export type {
+  LinearFilter,
+  LinearFilterMarker,
+  LinearFilterScope,
+  ResolvedLinearFilter,
+} from "@ralphy/types";
 export {
   normalizeWorkflowMarkdown,
   DEFAULT_APPROVAL_INDICATORS,

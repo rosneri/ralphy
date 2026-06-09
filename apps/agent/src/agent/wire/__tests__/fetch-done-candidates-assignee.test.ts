@@ -11,23 +11,51 @@ const include: Marker[] = [{ type: "status", value: "In Review" }];
 
 describe("doneCandidateSpec", () => {
   test("scopes the scan to the configured assignee (does not force anyAssignee)", () => {
-    const spec = doneCandidateSpec("BAN", "me", false, undefined, include, undefined);
+    const spec = doneCandidateSpec(
+      "BAN",
+      "me",
+      false,
+      { requireAllLabels: [] },
+      include,
+      undefined,
+    );
     expect(spec.assignee).toBe("me");
     expect(spec.anyAssignee).toBeFalsy();
   });
 
   test("honors anyAssignee when the filter is `assignee = any`", () => {
-    const spec = doneCandidateSpec("BAN", undefined, true, undefined, include, undefined);
+    const spec = doneCandidateSpec(
+      "BAN",
+      undefined,
+      true,
+      { requireAllLabels: [] },
+      include,
+      undefined,
+    );
     expect(spec.anyAssignee).toBe(true);
   });
 
   test("propagates the global filter's required labels", () => {
-    const spec = doneCandidateSpec("BAN", "me", false, ["ralph"], include, undefined);
+    const spec = doneCandidateSpec(
+      "BAN",
+      "me",
+      false,
+      { requireAllLabels: ["ralph"] },
+      include,
+      undefined,
+    );
     expect(spec.requireAllLabels).toEqual(["ralph"]);
   });
 
   test("includes the indicator markers and the per-ticket number constraint", () => {
-    const spec = doneCandidateSpec("BAN", "me", false, ["ralph"], include, [812]);
+    const spec = doneCandidateSpec(
+      "BAN",
+      "me",
+      false,
+      { requireAllLabels: ["ralph"] },
+      include,
+      [812],
+    );
     expect(spec.include).toEqual(include);
     expect(spec.numbers).toEqual([812]);
   });

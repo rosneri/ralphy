@@ -27,7 +27,7 @@ import {
   findLastRalphPickupISO,
   findLastMentionAckISO,
 } from "./task-bodies";
-import type { Indicators } from "@ralphy/types";
+import type { Indicators, LinearFilterScope } from "@ralphy/types";
 
 /** Newest of a set of ISO timestamps (nulls ignored), or null when all null. */
 function latestIso(...values: (string | null)[]): string | null {
@@ -60,8 +60,8 @@ interface MentionScanInput {
   assignee: string | undefined;
   /** When true, scan regardless of assignee (`assignee = any`). */
   anyAssignee?: boolean | undefined;
-  /** Global `linear.filter` must-have labels, ANDed onto the mention scan. */
-  requireAllLabels?: string[] | undefined;
+  /** Global `linear.filter` label/project constraints, ANDed onto the mention scan. */
+  scope: LinearFilterScope;
   /** RLF-208: when non-empty, constrain the mention scan to these ticket numbers. */
   ticketNumbers?: number[] | undefined;
   indicators: Indicators;
@@ -89,7 +89,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
     team,
     assignee,
     anyAssignee,
-    requireAllLabels,
+    scope,
     indicators,
     projectRoot,
     useWorktree,
@@ -116,7 +116,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
         team,
         assignee,
         anyAssignee,
-        ...(requireAllLabels && requireAllLabels.length > 0 ? { requireAllLabels } : {}),
+        ...scope,
         ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
         indicators: {
           ...(indicators.getTodo !== undefined ? { getTodo: indicators.getTodo } : {}),

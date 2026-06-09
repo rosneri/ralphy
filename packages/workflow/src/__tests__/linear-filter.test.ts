@@ -71,6 +71,42 @@ describe("resolveLinearFilter", () => {
       ]),
     ).toThrow(/at most one "assignee"/);
   });
+
+  // --- RLF: global project scope + marker negation ---
+
+  it("resolves a project clause into requireProject (scopes every fetch)", () => {
+    expect(
+      resolveLinearFilter([
+        { type: "assignee", value: "any" },
+        { type: "project", value: "iOS App" },
+      ]),
+    ).toEqual({ anyAssignee: true, requireAllLabels: [], requireProject: "iOS App" });
+  });
+
+  it("throws when more than one positive project clause is present", () => {
+    expect(() =>
+      resolveLinearFilter([
+        { type: "project", value: "iOS App" },
+        { type: "project", value: "Web" },
+      ]),
+    ).toThrow(/at most one positive "project"/);
+  });
+
+  it("routes a negated label clause into excludeLabels (must NOT carry)", () => {
+    expect(
+      resolveLinearFilter([
+        { type: "label", value: "keep" },
+        { type: "label", value: "blocked", negate: true },
+      ]),
+    ).toEqual({ requireAllLabels: ["keep"], excludeLabels: ["blocked"] });
+  });
+
+  it("routes a negated project clause into excludeProjects", () => {
+    expect(resolveLinearFilter([{ type: "project", value: "Archive", negate: true }])).toEqual({
+      requireAllLabels: [],
+      excludeProjects: ["Archive"],
+    });
+  });
 });
 
 describe("applyAssigneeOverride", () => {

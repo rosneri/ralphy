@@ -1,4 +1,10 @@
-import type { GetIndicator, Indicators, Marker, SetIndicator } from "@ralphy/types";
+import type {
+  GetIndicator,
+  Indicators,
+  LinearFilterScope,
+  Marker,
+  SetIndicator,
+} from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { TrackerProvider } from "./tracker/types";
 import {
@@ -25,8 +31,9 @@ interface LinearResolversInput {
   assignee: string | undefined;
   /** When true, fetch regardless of assignee (`assignee = any`). */
   anyAssignee?: boolean | undefined;
-  /** Global `linear.filter` must-have labels, ANDed onto every fetch. */
-  requireAllLabels?: string[] | undefined;
+  /** Global `linear.filter` label/project constraints ANDed onto every fetch
+   *  (must-have/must-not labels, project scope). */
+  scope: LinearFilterScope;
   diag: (area: string, message: string, color?: string) => void;
   /** RLF-208: when non-empty, every `fetchByGet` query is constrained to these
    *  Linear ticket numbers (from `--ticket`). */
@@ -46,7 +53,7 @@ export interface LinearResolvers extends Omit<TrackerProvider, "fetchDoneCandida
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
-  const { apiKey, team, assignee, anyAssignee, requireAllLabels, diag } = input;
+  const { apiKey, team, assignee, anyAssignee, scope, diag } = input;
   const ticketNumbers = input.ticketNumbers ?? [];
 
   const stateCache = new Map<string, Map<string, string>>();
@@ -234,7 +241,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
       team,
       assignee,
       anyAssignee,
-      requireAllLabels,
+      ...scope,
       include,
       exclude: excl,
       ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
@@ -291,7 +298,7 @@ export function doneCandidateSpec(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
-  requireAllLabels: string[] | undefined,
+  scope: LinearFilterScope,
   include: Marker[],
   ticketNumbers?: number[] | undefined,
 ): LinearFilterSpec {
@@ -299,7 +306,7 @@ export function doneCandidateSpec(
     team,
     assignee,
     anyAssignee,
-    requireAllLabels,
+    ...scope,
     include,
     exclude: [],
     ...(ticketNumbers && ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
@@ -311,7 +318,7 @@ export async function fetchDoneCandidatesWith(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
-  requireAllLabels: string[] | undefined,
+  scope: LinearFilterScope,
   indicators: Indicators,
   ticketNumbers?: number[] | undefined,
 ): Promise<LinearIssue[]> {
@@ -339,7 +346,7 @@ export async function fetchDoneCandidatesWith(
       if (include.length === 0) return;
       const issues = await fetchOpenIssues(
         apiKey,
-        doneCandidateSpec(team, assignee, anyAssignee, requireAllLabels, include, ticketNumbers),
+        doneCandidateSpec(team, assignee, anyAssignee, scope, include, ticketNumbers),
       );
       for (const issue of issues) {
         if (!seen.has(issue.id)) {

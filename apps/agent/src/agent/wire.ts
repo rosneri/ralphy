@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Indicators } from "@ralphy/types";
-import { resolveLinearFilter, applyAssigneeOverride } from "@ralphy/workflow";
+import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@ralphy/workflow";
 import { createBus, subscribeAgentDiag } from "@ralphy/events";
 import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
@@ -137,9 +137,11 @@ export function buildAgentCoordinator(
   // The global `linear.filter` (marker list of label + assignee clauses) scopes
   // every Linear query and, transitively, the GitHub PR searches rooted at those
   // issues. `--linear-assignee` overrides just the assignee clause for this run.
-  const { assignee, anyAssignee, requireAllLabels } = resolveLinearFilter(
+  const resolvedFilter = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, args.linearAssignee),
   );
+  const { assignee, anyAssignee, requireAllLabels } = resolvedFilter;
+  const scope = linearFilterScope(resolvedFilter);
 
   // RLF-208: resolve --ticket tokens to a deduped set of Linear ticket numbers,
   // validated against the configured team. Throws a clean CLI error on a bare
@@ -217,7 +219,7 @@ export function buildAgentCoordinator(
         team,
         assignee,
         anyAssignee,
-        requireAllLabels,
+        scope,
         diag,
         ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
       });
@@ -242,7 +244,7 @@ export function buildAgentCoordinator(
             team,
             assignee,
             anyAssignee,
-            requireAllLabels,
+            scope,
             indicators,
             ticketNumbers.length > 0 ? ticketNumbers : undefined,
           ),
@@ -302,7 +304,7 @@ export function buildAgentCoordinator(
         team,
         assignee,
         anyAssignee,
-        requireAllLabels,
+        scope,
         indicators,
         projectRoot,
         useWorktree,
@@ -342,7 +344,7 @@ export function buildAgentCoordinator(
         team,
         assignee,
         anyAssignee,
-        requireAllLabels,
+        scope,
         indicators,
         resolvers: resolvers!,
         fetchMentions,

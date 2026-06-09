@@ -116,15 +116,18 @@ describe("setIssueProject", () => {
 });
 
 describe("buildIssueFilter (via fetchOpenIssues) with project markers", () => {
-  test("emits project.name.in for include project marker", async () => {
+  test("emits project.name.in for include project marker (open-state-defaulted)", async () => {
     const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
     await fetchOpenIssues("key", {
       include: [{ type: "project", value: "Ralph Queue" }],
     });
     const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    // A project-only include carries no positive status, so the open-state
+    // default applies (same guard that stops the auto-merge Done-leak).
     expect(filter).toEqual({
       project: { name: { in: ["Ralph Queue"] } },
       assignee: { null: true },
+      state: { type: { in: ["unstarted", "started", "backlog"] } },
     });
   });
 
@@ -150,5 +153,111 @@ describe("buildIssueFilter (via fetchOpenIssues) with project markers", () => {
       { project: { name: { in: ["Ralph Queue"] } } },
       { project: { name: { nin: ["Archive"] } } },
     ]);
+  });
+});
+
+describe("buildIssueFilter — global project scope (requireProject)", () => {
+  test("ANDs project.name.in onto a status-only bucket (getTodo)", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchOpenIssues("key", {
+      anyAssignee: true,
+      include: [{ type: "status", value: "Todo" }],
+      requireProject: "iOS App",
+    });
+    const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ name: { in: ["Todo"] } });
+    expect(filter.project).toEqual({ name: { in: ["iOS App"] } });
+  });
+
+  test("requireProject scopes a label-only bucket (auto-merge) too", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchOpenIssues("key", {
+      anyAssignee: true,
+      include: [{ type: "label", value: "auto-merge", negate: false }],
+      requireProject: "iOS App",
+    });
+    const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ name: { in: ["iOS App"] } });
+    expect(filter.labels).toEqual({ some: { name: { in: ["auto-merge"] } } });
+  });
+
+  test("excludeProjects / excludeLabels are ANDed onto every fetch", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchOpenIssues("key", {
+      anyAssignee: true,
+      include: [{ type: "status", value: "Todo" }],
+      excludeProjects: ["Web"],
+      excludeLabels: ["wip"],
+    });
+    const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ name: { nin: ["Web"] } });
+    expect(filter.labels).toEqual({ every: { name: { nin: ["wip"] } } });
+  });
+});
+
+describe("buildIssueFilter — open-state default (auto-merge Done-leak bug)", () => {
+  test("a label-only include is constrained to open states (drops Done/Canceled)", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchOpenIssues("key", {
+      anyAssignee: true,
+      include: [{ type: "label", value: "auto-merge" }],
+    });
+    const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ type: { in: ["unstarted", "started", "backlog"] } });
+    expect(filter.labels).toEqual({ some: { name: { in: ["auto-merge"] } } });
+  });
+
+  test("an explicit status include is NOT overridden by the open-state default", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchOpenIssues("key", {
+      anyAssignee: true,
+      include: [{ type: "status", value: "Done" }],
+    });
+    const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ name: { in: ["Done"] } });
+  });
+});
+
+describe("buildIssueFilter — marker negation in include", () => {
+  test("a negated label in include becomes a must-not-have clause", async () => {
+    const { calls } = stubFetch(() => ({ issues: { nodes: [] } }));
+    await fetchOpenIssues("key", {
+      anyAssignee: true,
+      include: [
+        { type: "status", value: "Todo" },
+        { type: "label", value: "blocked", negate: true },
+      ],
+    });
+    const filter = calls[0]?.variables.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ name: { in: ["Todo"] } });
+    expect(filter.labels).toEqual({ every: { name: { nin: ["blocked"] } } });
+  });
+});
+
+describe("issueMatchesGetIndicator — negation", () => {
+  test("negated label matches when the issue does NOT carry it", () => {
+    const kept = { labels: ["keep"], state: { name: "Todo", type: "unstarted" }, project: null };
+    expect(
+      issueMatchesGetIndicator(kept, {
+        filter: [{ type: "label", value: "blocked", negate: true }],
+      }),
+    ).toBe(true);
+    const blocked = {
+      labels: ["blocked"],
+      state: { name: "Todo", type: "unstarted" },
+      project: null,
+    };
+    expect(
+      issueMatchesGetIndicator(blocked, {
+        filter: [{ type: "label", value: "blocked", negate: true }],
+      }),
+    ).toBe(false);
+  });
+
+  test("negated status matches when the issue is NOT in that state", () => {
+    const todo = { labels: [], state: { name: "Todo", type: "unstarted" }, project: null };
+    expect(
+      issueMatchesGetIndicator(todo, { filter: [{ type: "status", value: "Done", negate: true }] }),
+    ).toBe(true);
   });
 });

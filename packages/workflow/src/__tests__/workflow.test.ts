@@ -50,6 +50,51 @@ describe("parseWorkflow", () => {
     ]);
   });
 
+  test("global linear.filter accepts a project clause", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  filter:\n    - type: assignee\n      value: any\n    - type: project\n      value: "iOS App"\n---\n`,
+    );
+    expect(config.linear.filter).toEqual([
+      { type: "assignee", value: "any" },
+      { type: "project", value: "iOS App" },
+    ]);
+  });
+
+  test("two positive project clauses in linear.filter are rejected", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  filter:\n    - type: project\n      value: "A"\n    - type: project\n      value: "B"\n---\n`,
+      ),
+    ).toThrow(/at most one positive "project"/);
+  });
+
+  test("negated marker shorthand (!value) normalizes to negate: true", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: status\n          value: Todo\n        - type: label\n          value: "!blocked"\n---\n`,
+    );
+    expect(config.linear.indicators.getTodo?.filter).toEqual([
+      { type: "status", value: "Todo" },
+      { type: "label", value: "blocked", negate: true },
+    ]);
+  });
+
+  test("explicit negate on an indicator marker round-trips", () => {
+    const { config } = parseWorkflow(
+      `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: label\n          value: blocked\n          negate: true\n---\n`,
+    );
+    expect(config.linear.indicators.getTodo?.filter).toEqual([
+      { type: "label", value: "blocked", negate: true },
+    ]);
+  });
+
+  test("a negated marker in a setX slot is rejected naming the slot", () => {
+    expect(() =>
+      parseWorkflow(
+        `---\nlinear:\n  indicators:\n    setDone:\n      type: label\n      value: "!done"\n---\n`,
+      ),
+    ).toThrow(/setDone.*negated/);
+  });
+
   test("comment marker in getTodo.filter round-trips", () => {
     const { config } = parseWorkflow(
       `---\nlinear:\n  indicators:\n    getTodo:\n      filter:\n        - type: comment\n          value: "ralph go"\n---\n`,
