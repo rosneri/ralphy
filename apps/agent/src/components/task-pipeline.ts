@@ -225,6 +225,8 @@ export function machineStateToTicketState(value: string): TicketState {
       return "awaiting-ci";
     case "review":
       return "review";
+    case "quarantined":
+      return "quarantined";
     case "preempting":
     case "routing-after-preempt":
       return "working";

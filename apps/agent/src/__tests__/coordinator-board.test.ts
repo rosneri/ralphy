@@ -6,11 +6,8 @@ import { AgentCoordinator, type CoordinatorDeps, type MentionTrigger } from "../
 import type { PrStatusBucket } from "../agent/coordinator";
 import type { LinearIssue } from "../agent/linear";
 import { createNoopBus } from "@ralphy/events";
-import { PrTracker } from "../features/pr-tracker/tracker";
 import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
 import { statusLabel, type TicketRow } from "../components/task-pipeline";
-
-const NOW = () => new Date("2026-06-01T12:00:00.000Z");
 
 function issue(id: string, identifier: string, blockedByIds: string[] = []): LinearIssue {
   return {
@@ -101,12 +98,16 @@ async function seedFlow(
   ctx: BoardDeps,
   issueId: string,
   events: { type: string }[],
+  maxRecoveryAttempts = 0,
 ): Promise<void> {
   const changeDir = join(root, "changes", issueId);
   mkdirSync(changeDir, { recursive: true });
   ctx.changeDirByIssue.set(issueId, changeDir);
   const machine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
-  const store = new FlowActorStore({ bus: createNoopBus(), persist: () => {} }, machine);
+  const store = new FlowActorStore(
+    { bus: createNoopBus(), persist: () => {}, maxRecoveryAttempts },
+    machine,
+  );
   const actor = await store.getActor(issueId, changeDir);
   for (const e of events) actor.send(e as Parameters<typeof actor.send>[0]);
   await store.persistActor(issueId, changeDir);
@@ -114,6 +115,25 @@ async function seedFlow(
 
 const TO_AWAITING_CI = [{ type: "FRESH_PICKED_UP" }, { type: "PR_OPENED" }];
 const TO_DONE = [{ type: "FRESH_PICKED_UP" }, { type: "WORKER_SUCCEEDED" }];
+// awaiting-ci carrying two recorded CI failures (below any quarantine threshold).
+const RECOVERING_CI = [
+  { type: "FRESH_PICKED_UP" },
+  { type: "PR_OPENED" },
+  { type: "CI_FAILED_DETECTED" },
+  { type: "WORKER_SUCCEEDED" },
+  { type: "CI_FAILED_DETECTED" },
+  { type: "WORKER_SUCCEEDED" },
+];
+// Drives straight to `quarantined` at maxRecoveryAttempts=3 (conflict→conflict→ci).
+const TO_QUARANTINED = [
+  { type: "FRESH_PICKED_UP" },
+  { type: "PR_OPENED" },
+  { type: "CONFLICT_DETECTED" },
+  { type: "WORKER_SUCCEEDED" },
+  { type: "CONFLICT_DETECTED" },
+  { type: "WORKER_SUCCEEDED" },
+  { type: "CI_FAILED_DETECTED" },
+];
 
 const roots: string[] = [];
 afterEach(() => {
@@ -125,24 +145,19 @@ function rowFor(board: TicketRow[], identifier: string): TicketRow | undefined {
 }
 
 describe("AgentCoordinator — lifecycle board", () => {
-  test("parked awaiting-ci + uncleared non-bailed entry renders as ci-fix even with fixCi off", async () => {
+  test("parked awaiting-ci + recorded non-quarantined failures renders as ci-fix even with fixCi off", async () => {
     const ctx = makeBoardDeps();
     roots.push(ctx.root);
     const ban467 = issue("u2", "BAN-467");
     ctx.setInProgress([ban467]);
     ctx.setDoneCandidates([ban467]);
     ctx.prByIssue.set("u2", { url: "https://github.com/x/y/pull/18225", status: "ci_failed" });
-    await seedFlow(ctx.root, ctx, "u2", TO_AWAITING_CI);
-
-    // Two CI failures recorded earlier, below the bail threshold.
-    const tracker = new PrTracker({ projectRoot: ctx.root, maxRecoveryAttempts: 5, now: NOW });
-    await tracker.recordFailure("BAN-467", "ci_failed");
-    await tracker.recordFailure("BAN-467", "ci_failed");
+    // Two CI failures recorded in the machine context, below the bail threshold.
+    await seedFlow(ctx.root, ctx, "u2", RECOVERING_CI, 5);
 
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prTracker: tracker,
-      prRecovery: { enabled: true, fixCi: false, fixConflicts: true },
+      prRecovery: { enabled: true, fixCi: false, fixConflicts: true, maxRecoverySessions: 5 },
     });
     const result = await coord.pollOnce();
 
@@ -157,23 +172,17 @@ describe("AgentCoordinator — lifecycle board", () => {
     expect(coord.queuedCount).toBe(0);
   });
 
-  test("bailed pr-tracker entry overlays as quarantined regardless of actor state", async () => {
+  test("a quarantined flow actor renders as a quarantined board row", async () => {
     const ctx = makeBoardDeps();
     roots.push(ctx.root);
     const ban799 = issue("u1", "BAN-799");
     ctx.setInProgress([ban799]);
-    await seedFlow(ctx.root, ctx, "u1", TO_AWAITING_CI);
-
-    const tracker = new PrTracker({ projectRoot: ctx.root, maxRecoveryAttempts: 3, now: NOW });
-    await tracker.recordFailure("BAN-799", "conflicting");
-    await tracker.recordFailure("BAN-799", "conflicting");
-    await tracker.recordFailure("BAN-799", "ci_failed"); // tips into bail at attempts=3
+    await seedFlow(ctx.root, ctx, "u1", TO_QUARANTINED, 3);
 
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prTracker: tracker,
-      // No doneCandidates → the scan never touches this ticket, so the bail is preserved.
-      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+      // No doneCandidates → the scan never touches this ticket, so quarantine is preserved.
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true, maxRecoverySessions: 3 },
     });
     const result = await coord.pollOnce();
 

@@ -38,7 +38,6 @@ import type { MentionTrigger } from "./coordinator";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
-import { PrTracker } from "../features/pr-tracker";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -443,18 +442,12 @@ export function buildAgentCoordinator(
     };
   }
 
-  // PR recovery (RLF-173 / RLF-97): persistent recovery counter for In-Review
-  // PRs. Disabled when the user passes `--no-pr-recovery` or sets
-  // `prRecovery.enabled: false` in WORKFLOW.md. Lazily-loaded state file
-  // means the first `recordFailure` call materializes `.ralph/pr-tracker-state.json`.
+  // PR recovery (RLF-173 / RLF-97). Disabled when the user passes
+  // `--no-pr-recovery` or sets `prRecovery.enabled: false` in WORKFLOW.md. The
+  // recovery counter / quarantine state now lives in the flow machine context
+  // (persisted in the actor snapshot) — there is no separate tracker file.
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
-  const prTracker = prRecoveryEnabled
-    ? new PrTracker({
-        projectRoot,
-        maxRecoveryAttempts: cfg.prRecovery.maxRecoverySessions,
-      })
-    : null;
 
   // Task/spec sync to a sticky comment + spec attachments are Linear-only.
   // GitHub mode disables them (see design "Out of scope").
@@ -532,11 +525,11 @@ export function buildAgentCoordinator(
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
       createsPrs: args.createPr || cfg.createPrOnSuccess,
-      ...(prTracker ? { prTracker } : {}),
       prRecovery: {
         enabled: prRecoveryEnabled,
         fixCi: cfg.prRecovery.fixCi,
         fixConflicts: cfg.prRecovery.fixConflicts,
+        maxRecoverySessions: cfg.prRecovery.maxRecoverySessions,
       },
     },
   );

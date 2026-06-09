@@ -9,10 +9,6 @@ import type { LinearIssue } from "../agent/linear";
 import type { SetIndicator } from "@ralphy/types";
 import type { FeatureCtx } from "../features/types";
 import { createNoopBus } from "@ralphy/events";
-import { PrTracker } from "../features/pr-tracker/tracker";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 /** Build a `buildFeatureCtx` factory that makes the confirmation feature
  *  claim issues whose ids appear in `gatedIds`. Used to exercise the
@@ -853,64 +849,67 @@ describe("AgentCoordinator — gh-driven merge-state scan", () => {
     expect(r.buckets.ciFailed).toBe(1);
   });
 
-  test("bailed conflicting PR is surfaced as quarantined, not conflicted, and not re-queued", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "prtracker-q-"));
-    const tracker = new PrTracker({ projectRoot: dir, maxRecoveryAttempts: 1 });
+  test("conflicting PR that exhausts recovery is surfaced as quarantined, not conflicted, and not re-queued", async () => {
     const setError: SetIndicator = { type: "label", value: "error" };
     const ctx = makeDeps();
     const tk = issue("a", "ENG-1");
-    tk.labels = ["error"]; // quarantine label still on the ticket
+    tk.labels = ["error"]; // quarantine label present (applied on bail)
     ctx.setDoneCandidates([tk]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prTracker: tracker,
       setError,
-      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+      // maxRecoverySessions: 1 → the first failure reaches the threshold, so the
+      // flow machine quarantines immediately (concurrency 0 means no worker can
+      // cycle the actor back through awaiting-ci to accrue more attempts).
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true, maxRecoverySessions: 1 },
     });
     await coord.init();
 
-    // Poll 1: first failure tips it over maxRecoveryAttempts=1 → bail → quarantined.
+    // Poll 1: first failure reaches maxRecoverySessions=1 → quarantined.
     const r1 = await coord.pollOnce();
     expect(r1.prStatus.quarantined).toBe(1);
     expect(r1.prStatus.conflicted).toBe(0);
     expect(coord.queuedCount).toBe(0);
 
-    // Poll 2: still bailed + label present → stays quarantined, never re-queued.
+    // Poll 2: actor already quarantined + label present → stays quarantined, never re-queued.
     const r2 = await coord.pollOnce();
     expect(r2.prStatus.quarantined).toBe(1);
     expect(r2.prStatus.conflicted).toBe(0);
     expect(coord.queuedCount).toBe(0);
   });
 
-  test("clearing the setError label releases a bail and re-queues conflict-fix", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "prtracker-r-"));
-    const tracker = new PrTracker({ projectRoot: dir, maxRecoveryAttempts: 3 });
-    // Pre-seed a bail (3 failures → bailed).
-    await tracker.recordFailure("ENG-1", "conflicting");
-    await tracker.recordFailure("ENG-1", "conflicting");
-    await tracker.recordFailure("ENG-1", "conflicting");
-    expect(tracker.isBailed("ENG-1")).toBe(true);
-
+  test("clearing the setError label releases the quarantine and re-engages recovery", async () => {
     const setError: SetIndicator = { type: "label", value: "error" };
     const ctx = makeDeps();
     const tk = issue("a", "ENG-1");
-    tk.labels = []; // human cleared the quarantine label → retry intent
+    tk.labels = ["error"];
     ctx.setDoneCandidates([tk]);
     ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "conflicted" as const });
     const coord = new AgentCoordinator(ctx.deps, {
       concurrency: 0,
-      prTracker: tracker,
       setError,
-      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true, maxRecoverySessions: 1 },
     });
     await coord.init();
+    const setErrorApplies = (): number =>
+      ctx.applies.filter((a) => a.id === "a" && a.ind === setError).length;
 
-    const r = await coord.pollOnce();
-    expect(tracker.isBailed("ENG-1")).toBe(false); // bail released
-    expect(r.prStatus.conflicted).toBe(1); // re-detected as a standing conflict
-    expect(r.prStatus.quarantined).toBe(0);
-    expect(coord.queuedCount).toBe(1); // conflict-fix re-queued
+    // Poll 1: first failure reaches the threshold → quarantined, setError applied.
+    const r1 = await coord.pollOnce();
+    expect(r1.prStatus.quarantined).toBe(1);
+    expect(setErrorApplies()).toBe(1);
+
+    // Human clears the quarantine label to request a retry.
+    tk.labels = [];
+
+    // Poll 2: the cleared label releases the quarantine (QUARANTINE_CLEARED) and
+    // recovery re-engages — the conflict is reprocessed rather than skipped as
+    // already-quarantined. (At threshold 1 it immediately re-quarantines, which
+    // re-applies setError — proving the release-and-reprocess path ran.)
+    const r2 = await coord.pollOnce();
+    expect(r2.prStatus.quarantined).toBe(1);
+    expect(setErrorApplies()).toBe(2);
   });
 
   test("conflicted count is a standing level — survives across polls without re-detection", async () => {

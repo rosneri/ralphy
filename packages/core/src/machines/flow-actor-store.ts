@@ -9,6 +9,9 @@ export interface FlowActorDeps {
   bus: Bus;
   persist: (issueId: string, assignment: FlowAssignment) => Promise<void> | void;
   graceMs?: number;
+  /** Quarantine threshold seeded into every actor's context
+   *  (`prRecovery.maxRecoverySessions`). `0` / absent disables quarantine. */
+  maxRecoveryAttempts?: number;
   /**
    * Observational hook fired on every *value* transition of a flow actor.
    * Read-only — XState `inspect` cannot alter the machine, so this can never
@@ -53,6 +56,9 @@ export class FlowActorStore {
             bus: this.deps.bus,
             persist: this.deps.persist,
             ...(this.deps.graceMs !== undefined ? { graceMs: this.deps.graceMs } : {}),
+            ...(this.deps.maxRecoveryAttempts !== undefined
+              ? { maxRecoveryAttempts: this.deps.maxRecoveryAttempts }
+              : {}),
           }
         : {}),
     };
@@ -134,8 +140,10 @@ export class FlowActorStore {
         : {
             issueId: context.issueId,
             graceMs: context.graceMs ?? 5000,
+            maxRecoveryAttempts: this.deps?.maxRecoveryAttempts ?? 0,
             currentAssignment: context.currentAssignment,
             pendingAssignment: context.pendingAssignment,
+            recovery: undefined,
           };
     return { ...snap, context: { data, runtime: this.buildRuntime() } };
   }
