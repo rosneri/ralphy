@@ -3,7 +3,7 @@ import type { TrackedIssue } from "@ralphy/tracker";
 
 /**
  * The tracker operations the agent loop drives. Both `createLinearResolvers`
- * and `createGithubTrackerProvider` conform to this so `wire.ts` can select a
+ * and `createGithubProvider` conform to this so `wire.ts` can select a
  * provider by `tracker.kind` and thread it wherever the resolvers are used
  * today. The concrete issue type is the provider-neutral `TrackedIssue` from
  * `@ralphy/tracker`; a non-Linear provider (e.g. GitHub Issues) only has to
