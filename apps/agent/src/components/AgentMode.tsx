@@ -174,6 +174,19 @@ const WORKER_WAIT_STATES = new Set<TicketRow["state"]>([
   "review",
 ]);
 
+/** Board states that are advancing on their own — a live/imminent worker or an
+ *  automated PR/CI step. A board with none of these and no startable todo is
+ *  stalled: everything left is blocked, gated (awaiting), or bailed. */
+const ADVANCING_STATES = new Set<TicketRow["state"]>([
+  "queued",
+  "working",
+  "in-progress",
+  "conflict-fix",
+  "ci-fix",
+  "review",
+  "awaiting-ci",
+]);
+
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -1029,6 +1042,26 @@ export function AgentMode({
                   );
                   const idxWidth = String(tree.length).length + 3;
                   const prefixWidth = 2 + idxWidth + idColWidth + 1;
+                  // Stall detection: tickets exist but none can advance — no live
+                  // worker, no automated step, and every remaining row is blocked,
+                  // awaiting confirmation, or bailed. Surface why, so an idle board
+                  // doesn't read as "done".
+                  const advancing =
+                    activeCount > 0 || tree.some((t) => ADVANCING_STATES.has(t.row.state));
+                  const hasStartableTodo = tree.some(
+                    (t) => t.row.state === "todo" && !(t.row.blockedByIds?.length ?? 0),
+                  );
+                  const stalled = !advancing && !hasStartableTodo;
+                  const blockedCount = tree.filter(
+                    (t) => t.row.state === "todo" && (t.row.blockedByIds?.length ?? 0) > 0,
+                  ).length;
+                  const awaitingCount = tree.filter((t) => t.row.state === "awaiting").length;
+                  const quarantinedCount = tree.filter((t) => t.row.state === "quarantined").length;
+                  const stallParts = [
+                    blockedCount > 0 ? `${blockedCount} blocked` : null,
+                    awaitingCount > 0 ? `${awaitingCount} awaiting confirmation` : null,
+                    quarantinedCount > 0 ? `${quarantinedCount} quarantined` : null,
+                  ].filter((p): p is string => p !== null);
                   return (
                     <>
                       {/* Node labels, aligned over the row glyphs via a fixed prefix */}
@@ -1109,6 +1142,16 @@ export function AgentMode({
                           </Box>
                         );
                       })}
+                      {stalled && (
+                        <Box marginTop={1}>
+                          <Text color="yellow" bold>
+                            {"⏸ nothing can start"}
+                          </Text>
+                          {stallParts.length > 0 && (
+                            <Text color="yellow">{`  —  ${stallParts.join("  ·  ")}`}</Text>
+                          )}
+                        </Box>
+                      )}
                     </>
                   );
                 })()
