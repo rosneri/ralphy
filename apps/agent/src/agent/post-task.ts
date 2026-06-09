@@ -72,6 +72,8 @@ export interface PostTaskInput {
   cfg: {
     teardownScript: string | null;
     prBaseBranch: string;
+    /** Labels attached to every PR Ralph opens (best-effort). */
+    prLabels?: string[];
     autoMergeStrategy: "squash" | "merge" | "rebase";
     cleanupWorktreeOnSuccess: boolean;
     stackPrsOnDependencies: boolean;
@@ -441,6 +443,7 @@ async function createPrWithRetry(
           base,
           metaOnlyFiles: ctx.cfg.metaOnlyFiles ?? [],
           draft: ctx.cfg.prDraft ?? false,
+          labels: ctx.cfg.prLabels ?? [],
           ...(ctx.stackedOn
             ? {
                 stackedOn: {

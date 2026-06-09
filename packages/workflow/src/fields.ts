@@ -449,6 +449,14 @@ const CUSTOMIZED_FIELDS: Field[] = [
     when: isOn("createPrOnSuccess"),
   },
   {
+    id: "prLabels",
+    label: "PR labels",
+    description:
+      "GitHub labels attached to every pull request Ralph opens. The labels must already exist in the repo; a missing one is skipped, never fatal. One label per entry.",
+    spec: { kind: "list", placeholder: "ralph" },
+    when: isOn("createPrOnSuccess"),
+  },
+  {
     id: "stackPrsOnDependencies",
     label: "Stack dependent issues' PRs onto their blocker's PR?",
     description:

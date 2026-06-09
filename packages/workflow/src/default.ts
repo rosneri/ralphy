@@ -64,6 +64,11 @@ prDraft: true
 prBaseBranch: main
 stackPrsOnDependencies: false
 autoMergeStrategy: squash
+# Labels attached to every PR Ralph opens (best-effort — a missing label is
+# logged, never fatal). The labels must already exist in the repo.
+# prLabels:
+#   - ralph
+#   - automated
 
 prRecovery:
   enabled: true

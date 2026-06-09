@@ -111,6 +111,9 @@ function applyAliases(cfg: WorkflowConfig): void {
     if (cfg.github.auto_merge_strategy !== undefined && cfg.autoMergeStrategy === "squash") {
       cfg.autoMergeStrategy = cfg.github.auto_merge_strategy;
     }
+    if (cfg.github.pr_labels !== undefined && cfg.prLabels.length === 0) {
+      cfg.prLabels = cfg.github.pr_labels;
+    }
   }
   if (cfg.agent) {
     if (cfg.agent.engine !== undefined) cfg.engine = cfg.agent.engine;

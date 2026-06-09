@@ -263,6 +263,86 @@ describe("createPullRequest", () => {
     expect(createCall).not.toContain("--draft");
   });
 
+  test("attaches configured labels via gh pr edit after creating the PR", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/123\n" },
+      "gh pr edit": { stdout: "" },
+    });
+    const result = await createPullRequest(
+      { cwd: "/wt", branch: "ralph/eng-7", issue, labels: ["ralph", "automated"] },
+      runner,
+    );
+    expect(result).toEqual({ url: "https://github.com/foo/bar/pull/123", created: true });
+    const editCall = calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "edit")!;
+    expect(editCall).toBeDefined();
+    expect(editCall[3]).toBe("https://github.com/foo/bar/pull/123");
+    expect(editCall[editCall.indexOf("--add-label") + 1]).toBe("ralph,automated");
+  });
+
+  test("still returns a created PR when label application fails", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/55\n" },
+      "gh pr edit": { throw: true },
+    });
+    const result = await createPullRequest(
+      { cwd: "/wt", branch: "ralph/eng-7", issue, labels: ["does-not-exist"] },
+      runner,
+    );
+    // The PR is the artifact; a failed label edit must not lose it.
+    expect(result).toEqual({ url: "https://github.com/foo/bar/pull/55", created: true });
+    expect(calls.some((c) => c[0] === "gh" && c[2] === "edit")).toBe(true);
+  });
+
+  test("applies labels to an existing PR idempotently", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc x\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "https://github.com/foo/bar/pull/9\n" },
+      "gh pr edit": { stdout: "" },
+    });
+    const result = await createPullRequest(
+      { cwd: "/wt", branch: "ralph/eng-7", issue, labels: ["ralph"] },
+      runner,
+    );
+    expect(result).toEqual({ url: "https://github.com/foo/bar/pull/9", created: false });
+    const editCall = calls.find((c) => c[0] === "gh" && c[2] === "edit")!;
+    expect(editCall[3]).toBe("https://github.com/foo/bar/pull/9");
+    expect(editCall[editCall.indexOf("--add-label") + 1]).toBe("ralph");
+    // Must not open a second PR.
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "create")).toBeUndefined();
+  });
+
+  test("ignores blank label entries and skips gh pr edit when none remain", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/3\n" },
+    });
+    await createPullRequest(
+      { cwd: "/wt", branch: "ralph/eng-7", issue, labels: ["", "  "] },
+      runner,
+    );
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "edit")).toBeUndefined();
+  });
+
+  test("does not call gh pr edit when no labels are configured", async () => {
+    const { runner, calls } = makeRunner({
+      "git log --oneline main..HEAD": { stdout: "abc Some commit\n" },
+      "git push -u origin": { stdout: "" },
+      "gh pr list": { stdout: "" },
+      "gh pr create": { stdout: "https://github.com/foo/bar/pull/1\n" },
+    });
+    await createPullRequest({ cwd: "/wt", branch: "ralph/eng-7", issue }, runner);
+    expect(calls.find((c) => c[0] === "gh" && c[2] === "edit")).toBeUndefined();
+  });
+
   test("propagates push failure", async () => {
     const { runner } = makeRunner({
       "git log --oneline main..HEAD": { stdout: "abc x\n" },

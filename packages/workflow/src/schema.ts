@@ -217,6 +217,12 @@ export const WorkflowConfigSchema = z.object({
   createPrOnSuccess: z.boolean().default(false),
   prDraft: z.boolean().default(false),
   prBaseBranch: z.string().default("main"),
+  /** GitHub labels attached to every pull request Ralph opens. Applied
+   *  best-effort after the PR exists (`gh pr edit --add-label`) so a missing
+   *  or mistyped label never blocks PR creation. Empty (the default) attaches
+   *  no labels. Mirrors onto `github.pr_labels`; config-file-only (not offered
+   *  by the init wizard). */
+  prLabels: z.array(z.string()).default([]),
   stackPrsOnDependencies: z.boolean().default(false),
   autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),
   manualMergeWhenAutoMergeDisabled: z.boolean().default(true),
@@ -307,6 +313,9 @@ export const WorkflowConfigSchema = z.object({
     .object({
       base_branch: z.string().optional(),
       auto_merge_strategy: z.enum(["squash", "merge", "rebase"]).optional(),
+      /** Labels attached to every PR Ralph opens; aliased onto the flat
+       *  `prLabels`. Applies regardless of `tracker.kind`. */
+      pr_labels: z.array(z.string()).optional(),
       /** GitHub Issues provider settings, consulted only when
        *  `tracker.kind === "github"`. Optional so a github block carrying only
        *  `base_branch`/`auto_merge_strategy` still validates. */

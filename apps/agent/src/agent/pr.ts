@@ -26,6 +26,10 @@ interface CreatePrInput {
   metaOnlyFiles?: string[];
   /** When true, creates the PR as a draft (`--draft`). */
   draft?: boolean;
+  /** GitHub labels to attach to the PR. Applied best-effort after the PR
+   *  exists (`gh pr edit --add-label`), so a missing/mistyped label logs but
+   *  never fails PR creation. Empty entries are ignored. */
+  labels?: string[];
   /** When this PR is stacked on a blocker's PR (base is the blocker's branch,
    *  not the default base), the blocker PR identity — added to the PR body so
    *  the dependency is clear to reviewers. */
@@ -242,6 +246,29 @@ async function branchAlreadyMerged(
 }
 
 /**
+ * Attach labels to an existing PR, best-effort. Labels are PR decoration, not
+ * part of the valuable artifact (the PR itself), so a failure here — a missing
+ * label, a permissions issue, an offline `gh` — must never propagate and fail
+ * PR creation or burn a retry iteration. Empty/blank entries are filtered so a
+ * stray `[""]` never produces `--add-label ""`. No-op when nothing is left to
+ * apply.
+ */
+async function applyPrLabels(
+  runner: CmdRunner,
+  cwd: string,
+  prRef: string,
+  labels: readonly string[],
+): Promise<void> {
+  const clean = labels.map((l) => l.trim()).filter(Boolean);
+  if (clean.length === 0 || !prRef) return;
+  try {
+    await runner.run(["gh", "pr", "edit", prRef, "--add-label", clean.join(",")], cwd);
+  } catch {
+    // Best-effort: the PR is the artifact, labels are metadata.
+  }
+}
+
+/**
  * Push the worktree's branch to origin and open (or surface) a GitHub PR
  * via the `gh` CLI. Returns the PR URL.
  *
@@ -323,7 +350,10 @@ export async function createPullRequest(
     input.cwd,
   );
   const existingUrl = existing.stdout.trim();
-  if (existingUrl) return { url: existingUrl, created: false };
+  if (existingUrl) {
+    await applyPrLabels(runner, input.cwd, existingUrl, input.labels ?? []);
+    return { url: existingUrl, created: false };
+  }
 
   const title = defaultTitle(input.issue);
   const body = defaultBody(input.issue, input.branch, input.stackedOn);
@@ -331,5 +361,6 @@ export async function createPullRequest(
   if (input.draft) createArgs.push("--draft");
   const created = await runner.run(createArgs, input.cwd);
   const url = created.stdout.trim().split("\n").pop() ?? "";
+  await applyPrLabels(runner, input.cwd, url, input.labels ?? []);
   return { url, created: true };
 }
