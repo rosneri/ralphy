@@ -12,7 +12,7 @@
  * signature; this adapter ignores it (auth flows through `gh`).
  */
 
-import type { RalphyCommentType } from "@ralphy/comms";
+import type { RalphyCommentType, StickyCommentLike } from "@ralphy/comms";
 import { findStickyComment, parseRalphyMarker } from "@ralphy/comms";
 import type { CmdRunner } from "../../pr";
 import type { CommentMutations } from "../../linear-sync/comment-sync";
@@ -27,13 +27,6 @@ interface GithubCommentMutationsDeps {
   diag: (area: string, message: string, color?: string) => void;
 }
 
-/** Shape of one entry in `gh issue view --json comments`. `id` is the GraphQL
- *  node id gh exposes for each comment, used by the edit/delete mutations. */
-interface GhComment {
-  id?: string;
-  body: string;
-}
-
 /** GraphQL mutation that deletes an issue comment by its node id. */
 const DELETE_COMMENT_MUTATION =
   "mutation($id:ID!){deleteIssueComment(input:{id:$id}){clientMutationId}}";
@@ -41,12 +34,12 @@ const DELETE_COMMENT_MUTATION =
 export function createGithubCommentMutations(deps: GithubCommentMutationsDeps): CommentMutations {
   const { cmdRunner, projectRoot, repo, diag } = deps;
 
-  async function listComments(issueNumber: string, r: string): Promise<GhComment[]> {
+  async function listComments(issueNumber: string, r: string): Promise<StickyCommentLike[]> {
     const { stdout } = await cmdRunner.run(
       ["gh", "issue", "view", issueNumber, "--repo", r, "--json", "comments"],
       projectRoot,
     );
-    const parsed = JSON.parse(stdout.trim() || "{}") as { comments?: GhComment[] };
+    const parsed = JSON.parse(stdout.trim() || "{}") as { comments?: StickyCommentLike[] };
     return parsed.comments ?? [];
   }
 
