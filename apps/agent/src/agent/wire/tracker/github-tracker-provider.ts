@@ -1,7 +1,7 @@
 /**
  * `GithubTrackerProvider` — a real issue-tracker provider that maps GitHub
- * primitives onto the shared `LinearClientLike` surface (see
- * `apps/agent/test/harness/types.ts`). It proves the backend-neutral provider
+ * primitives onto the shared `IssueTrackerProvider` surface (from
+ * `@ralphy/tracker`). It proves the backend-neutral provider
  * contract kit is genuinely tracker-agnostic by standing alongside the Linear
  * client behind the exact same structural interface.
  *
@@ -24,7 +24,7 @@ import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
 import type { LinearIssue } from "../../../shared/capabilities/linear-client";
 import type { MentionTrigger } from "../../../queue/queue-order";
-import type { LinearClientLike } from "../../../../test/harness/types";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
 
 /** `--json` fields requested from `gh issue list` / `gh issue view`. */
 const ISSUE_FIELDS = "number,title,body,url,state,labels,assignees,createdAt";
@@ -134,9 +134,9 @@ export function githubIndicatorAction(
 
 /**
  * Build a `GithubTrackerProvider` over the injected `gh` runner. Returns the
- * structural `LinearClientLike` surface; no coordinator/machine imports.
+ * structural `IssueTrackerProvider` surface; no coordinator/machine imports.
  */
-export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClientLike {
+export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrackerProvider {
   const { runner, cwd, repo, vocab } = deps;
 
   const run = (args: string[]) => runner.run(["gh", ...args, "--repo", repo], cwd);

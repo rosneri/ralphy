@@ -23,7 +23,8 @@ import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
 import type { MentionTrigger } from "../../src/queue/queue-order";
 import { githubIndicatorAction } from "../../src/agent/wire/tracker/github-tracker-provider";
-import type { AppliedLog, FakeLinearComment, LinearClientLike, SeedIssue } from "./types";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
+import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
 import type { ContractBucket, MentionSource, ProviderContractBackend } from "./provider-contract";
 
 /** GitHub-flavoured marker vocabulary shared by the fake and its adapter. */
@@ -46,7 +47,7 @@ const LIFECYCLE_LABELS: string[] = [
 ];
 
 export interface FakeGithub {
-  client: LinearClientLike;
+  client: IssueTrackerProvider;
   seed: (issue: SeedIssue) => LinearIssue;
   setLabels: (id: string, labels: string[]) => void;
   /** Flip an issue between open (true) and closed (false). */
@@ -121,7 +122,7 @@ export function createFakeGithub(): FakeGithub {
     rec.issue = { ...rec.issue, labels: rec.issue.labels.filter((l) => !labels.includes(l)) };
   }
 
-  const client: LinearClientLike = {
+  const client: IssueTrackerProvider = {
     fetchTodo: async () =>
       [...records.values()]
         .filter(

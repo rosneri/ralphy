@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { SetIndicator } from "@ralphy/types";
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
 import { createFakeLinear, type FakeLinearIndicators } from "./fake-linear";
-import type { AppliedLog, FakeLinearComment, LinearClientLike, SeedIssue } from "./types";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
+import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
 
 /** Which fetch bucket an issue is seeded into by {@link ProviderContractBackend.seedInBucket}. */
 export type ContractBucket = "todo" | "inProgress" | "review" | "doneCandidate";
@@ -21,7 +22,7 @@ export type MentionSource = "linear" | "github" | "github-review";
  */
 export interface ProviderContractBackend {
   /** Provider surface under test. */
-  readonly client: LinearClientLike;
+  readonly client: IssueTrackerProvider;
   /** Side-effect log the provider writes through. */
   readonly applied: AppliedLog;
 

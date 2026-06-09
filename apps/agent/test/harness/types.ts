@@ -43,17 +43,10 @@ export interface AppliedLog {
   clearReview: string[];
 }
 
-/**
- * Back-compat alias for the promoted {@link IssueTrackerProvider} interface
- * (RLF-223 M1). `FakeLinear` implements this; the canonical method bag now
- * lives in `@ralphy/tracker`.
- */
-export type LinearClientLike = IssueTrackerProvider;
-
 export interface HarnessCtx {
   coordDeps: CoordinatorDeps;
   linear: {
-    client: LinearClientLike;
+    client: IssueTrackerProvider;
     applied: AppliedLog;
     seed: (issue: SeedIssue) => LinearIssue;
     setLabels: (id: string, labels: string[]) => void;
