@@ -14,30 +14,30 @@
 
 ### Pure helper
 
-- [ ] Add the pure, exported `staleStatusLabels(currentLabels, addLabels, prefix)` helper to `apps/agent/src/agent/wire/tracker/github-tracker-provider.ts` returning the `prefix`-namespaced labels present in `currentLabels` but not in `addLabels`.
-- [ ] Add unit tests for `staleStatusLabels`: no stale label, one stale label, ignores non-`status:` labels, excludes the label being re-applied, multiple status markers.
+- [x] Add the pure, exported `staleStatusLabels(currentLabels, addLabels, prefix)` helper to `apps/agent/src/agent/wire/tracker/github-tracker-provider.ts` returning the `prefix`-namespaced labels present in `currentLabels` but not in `addLabels`.
+- [x] Add unit tests for `staleStatusLabels`: no stale label, one stale label, ignores non-`status:` labels, excludes the label being re-applied, multiple status markers.
 
 ### Vocab & provider
 
-- [ ] Extend `GithubMarkerVocab` with `statusPrefix: string`; default it to `"status:"` inside `createGithubTrackerProvider` when omitted. Standardize the review convention label to `status:in-review`.
-- [ ] Rework `applyIndicator`'s add-label fork to compute `staleStatusLabels(issue.labels, action.labels, vocab.statusPrefix)` and emit a single `gh issue edit <id> --add-label <new>` plus `--remove-label <stale…>` (only when stale is non-empty). Leave the close fork and the empty-labels no-op untouched.
-- [ ] Confirm `setError` resolves to the `status:error` convention label so it flows through the single-active-status add fork (no special-casing).
-- [ ] Reconcile `fetchInProgress` / `fetchReview` membership through `issueMatchesGetIndicator` (imported from `linear-client.ts`) against convention-label `GetIndicator`s, retaining the server-side `--label` narrowing.
+- [x] Extend `GithubMarkerVocab` with `statusPrefix: string`; default it to `"status:"` inside `createGithubTrackerProvider` when omitted. Standardize the review convention label to `status:in-review`.
+- [x] Rework `applyIndicator`'s add-label fork to compute `staleStatusLabels(issue.labels, action.labels, vocab.statusPrefix)` and emit a single `gh issue edit <id> --add-label <new>` plus `--remove-label <stale…>` (only when stale is non-empty). Leave the close fork and the empty-labels no-op untouched.
+- [x] Confirm `setError` resolves to the `status:error` convention label so it flows through the single-active-status add fork (no special-casing).
+- [x] Reconcile `fetchInProgress` / `fetchReview` membership through `issueMatchesGetIndicator` (imported from `linear-client.ts`) against convention-label `GetIndicator`s, retaining the server-side `--label` narrowing.
 
 ### Provider tests
 
-- [ ] Add provider tests asserting the combined `--add-label`/`--remove-label` argv on an in-progress → review transition, and that a fresh transition emits no `--remove-label`.
-- [ ] Assert non-status labels (`ralphy:todo`) are never stripped during a status transition.
-- [ ] Assert the existing close/comment/`removeIndicator` argv paths are unchanged.
+- [x] Add provider tests asserting the combined `--add-label`/`--remove-label` argv on an in-progress → review transition, and that a fresh transition emits no `--remove-label`.
+- [x] Assert non-status labels (`ralphy:todo`) are never stripped during a status transition.
+- [x] Assert the existing close/comment/`removeIndicator` argv paths are unchanged.
 
 ### Harness & contract kit
 
-- [ ] Update `apps/agent/test/harness/fake-github.ts` so its `applyIndicator` add path strips stale status labels via the shared `staleStatusLabels` helper; thread `statusPrefix: "status:"` and `status:in-review` through the GitHub contract adapter.
-- [ ] Add a `fake-github` test (and/or contract-kit assertion) walking `todo → in-progress → review → done` and asserting at most one `status:*` label at every open step, and that `done` closes the issue into `fetchDoneCandidates`.
-- [ ] Verify the Linear backend still passes the unchanged contract-kit lifecycle cases.
+- [x] Update `apps/agent/test/harness/fake-github.ts` so its `applyIndicator` add path strips stale status labels via the shared `staleStatusLabels` helper; thread `statusPrefix: "status:"` and `status:in-review` through the GitHub contract adapter.
+- [x] Add a `fake-github` test (and/or contract-kit assertion) walking `todo → in-progress → review → done` and asserting at most one `status:*` label at every open step, and that `done` closes the issue into `fetchDoneCandidates`.
+- [x] Verify the Linear backend still passes the unchanged contract-kit lifecycle cases.
 
 ### Gates
 
-- [ ] Run `bun run lint` and fix any findings.
-- [ ] Run `bun run test` (or the targeted `apps/agent` suites) green; do not reduce the coverage threshold.
-- [ ] Run `bunx openspec validate rlf-235-github-status-as-labels-semantics-per-pr` and ensure it passes.
+- [x] Run `bun run lint` and fix any findings.
+- [x] Run `bun run test` (or the targeted `apps/agent` suites) green; do not reduce the coverage threshold.
+- [x] Run `bunx openspec validate rlf-235-github-status-as-labels-semantics-per-pr` and ensure it passes.
