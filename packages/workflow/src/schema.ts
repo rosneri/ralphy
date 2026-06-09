@@ -6,7 +6,7 @@ import { z } from "zod";
  * added and register the change in the init app's MIGRATIONS list (a test keeps
  * the two in sync).
  */
-export const CURRENT_WORKFLOW_VERSION = 7;
+export const CURRENT_WORKFLOW_VERSION = 8;
 
 // Discriminated marker union: `group` is only valid on the `label` variant
 // (resolves nested labels as `${group}:${value}` — see Marker type docs).
@@ -220,8 +220,9 @@ export const WorkflowConfigSchema = z.object({
   /** GitHub labels attached to every pull request Ralph opens. Applied
    *  best-effort after the PR exists (`gh pr edit --add-label`) so a missing
    *  or mistyped label never blocks PR creation. Empty (the default) attaches
-   *  no labels. Mirrors onto `github.pr_labels`; config-file-only (not offered
-   *  by the init wizard). */
+   *  no labels. Mirrors onto `github.pr_labels`. Offered by the init wizard's
+   *  customized walkthrough when PR-creation is enabled (not in quick /
+   *  permissive mode). */
   prLabels: z.array(z.string()).default([]),
   stackPrsOnDependencies: z.boolean().default(false),
   autoMergeStrategy: z.enum(["squash", "merge", "rebase"]).default("squash"),

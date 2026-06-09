@@ -12,7 +12,7 @@ import { findField } from "@ralphy/workflow/fields";
 describe("migrations registry", () => {
   test("CURRENT_WORKFLOW_VERSION equals the latest migration version", () => {
     expect(LATEST_MIGRATION_VERSION).toBe(CURRENT_WORKFLOW_VERSION);
-    expect(CURRENT_WORKFLOW_VERSION).toBe(7);
+    expect(CURRENT_WORKFLOW_VERSION).toBe(8);
   });
 
   test("version 2 introduces repo.link", () => {
@@ -61,11 +61,23 @@ describe("migrations registry", () => {
     ]);
   });
 
-  test("fieldsAddedSince(6) includes the v7 tracker + github.issues ids", () => {
+  test("version 8 offers prLabels (PR labels on PR creation)", () => {
+    const v8 = MIGRATIONS.find((m) => m.version === 8);
+    expect(v8?.description).toContain("prLabels");
+    expect(v8?.fields).toEqual(["prLabels"]);
+  });
+
+  test("fieldsAddedSince(6) includes the v7 tracker + github.issues ids and v8 prLabels", () => {
     const added = fieldsAddedSince(6);
     expect(added).toContain("tracker.kind");
     expect(added).toContain("github.issues.repo");
     expect(added).toContain("github.issues.statusLabels.error");
+    expect(added).toContain("prLabels");
+  });
+
+  test("a file at version 7 still has prLabels pending (the v8 upgrade)", () => {
+    expect(needsMigration(7)).toBe(true);
+    expect(fieldsAddedSince(7)).toEqual(["prLabels"]);
   });
 
   test("the retired prTracker / fixCiOnFailure field ids are gone from every migration", () => {

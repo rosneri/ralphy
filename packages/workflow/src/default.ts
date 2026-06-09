@@ -12,7 +12,7 @@ export const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 export const DEFAULT_WORKFLOW_MD = `---
 # WORKFLOW.md schema version — managed by \`ralphy init\`. When a newer version
 # ships, re-running init migrates this file and fills in the new settings.
-version: 7
+version: 8
 
 project:
   name: ralphy

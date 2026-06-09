@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createElement } from "react";
 import { render } from "ink-testing-library";
-import { parseWorkflow } from "@ralphy/workflow";
+import { parseWorkflow, CURRENT_WORKFLOW_VERSION } from "@ralphy/workflow";
 import {
   applyAnswersToWorkflow,
   buildWorkflowMarkdown,
@@ -268,7 +268,7 @@ describe("SetupWizard render", () => {
     expect(result).not.toBeNull();
     const md = result!;
     // The file is stamped to the current schema version...
-    expect(parseWorkflow(md).config.version).toBe(7);
+    expect(parseWorkflow(md).config.version).toBe(CURRENT_WORKFLOW_VERSION);
     // ...and the user's existing settings are preserved (no data loss).
     expect(md).toContain("name: my-app");
     expect(md).toContain("team: ENG");
