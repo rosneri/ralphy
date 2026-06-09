@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import zlib from "node:zlib";
+import PDFDocument from "pdfkit";
 import { PDFParse } from "pdf-parse";
 import { renderMarkdownToPdf } from "../agent/linear-sync/render-pdf";
 
@@ -65,6 +66,112 @@ function maxBacktrack(runs: Array<{ y: number; page: number }>): number {
 async function extractText(pdf: Uint8Array): Promise<string> {
   const parser = new PDFParse({ data: new Uint8Array(pdf) });
   return (await parser.getText()).text;
+}
+
+// Like textRuns but also recovers each fragment's start x and its decoded
+// glyph text, mapping the /Fn resource back to its BaseFont so the fragment's
+// rendered width can be measured with pdfkit's own metrics. Lets a test assert
+// that no two fragments sharing a baseline overlap horizontally — the visual
+// "text over text" failure mode that text-only extraction cannot see (the
+// glyphs are all present, just stacked).
+interface XRun {
+  x: number;
+  y: number;
+  size: number;
+  base: string;
+  text: string;
+  page: number;
+}
+
+function textRunsX(pdf: Uint8Array): XRun[] {
+  const buf = Buffer.from(pdf);
+  const s = buf.toString("latin1");
+  // /Fn -> object number -> BaseFont name.
+  const fontMap = new Map<string, string>();
+  for (const ref of s.matchAll(/\/(F\d+)\s+(\d+)\s+0\s+R/g)) {
+    const obj = new RegExp(`\\b${ref[2]}\\s+0\\s+obj([\\s\\S]*?)endobj`).exec(s);
+    const base = obj && /\/BaseFont\s*\/([A-Za-z-]+)/.exec(obj[1]!);
+    if (base) fontMap.set(ref[1]!, base[1]!);
+  }
+  const runs: XRun[] = [];
+  const streamRe = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  let page = 0;
+  while ((m = streamRe.exec(s))) {
+    const start = m.index + m[0].length;
+    const end = s.indexOf("endstream", start);
+    let content: string;
+    try {
+      content = zlib.inflateSync(buf.subarray(start, end)).toString("latin1");
+    } catch {
+      continue;
+    }
+    let x = 0;
+    let y = 0;
+    let base = "Helvetica";
+    let size = 0;
+    let produced = false;
+    const tok =
+      /1 0 0 1 ([\d.-]+) ([\d.-]+) Tm|\/(F\d+) ([\d.-]+) Tf|\[<([0-9a-fA-F]*)>[^\]]*\]\s*TJ/g;
+    let t: RegExpExecArray | null;
+    while ((t = tok.exec(content))) {
+      if (t[1] !== undefined) {
+        x = parseFloat(t[1]);
+        y = parseFloat(t[2]!);
+      } else if (t[3] !== undefined) {
+        base = fontMap.get(t[3]) ?? "Helvetica";
+        size = parseFloat(t[4]!);
+      } else {
+        const hex = t[5]!;
+        let text = "";
+        for (let i = 0; i < hex.length; i += 2) {
+          text += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
+        }
+        if (text.trim().length > 0) runs.push({ x, y, size, base, text, page });
+        produced = true;
+      }
+    }
+    if (produced) page++;
+  }
+  return runs;
+}
+
+/** Largest horizontal overlap (pt) between two text fragments that share a
+ *  baseline (within 2pt, to absorb the Courier↔Helvetica ascender jitter
+ *  between mixed-font fragments on one visual line). A large value means one
+ *  fragment was drawn on top of the next — the RLF-243 inline-code overlap. */
+/** Minimal slice of the pdfkit document used purely to measure glyph widths.
+ *  pdfkit ships no type declarations, so the untyped default export is pinned
+ *  to this precise shape rather than left as `any`. */
+interface PdfMeter {
+  font(f: string): unknown;
+  fontSize(n: number): unknown;
+  widthOfString(s: string): number;
+}
+
+function maxHorizontalOverlap(runs: XRun[]): number {
+  const meter: PdfMeter = new PDFDocument();
+  const widthOf = (r: XRun): number => {
+    meter.font(r.base);
+    meter.fontSize(r.size);
+    return meter.widthOfString(r.text);
+  };
+  const sorted = [...runs].sort((a, b) => b.y - a.y || a.x - b.x);
+  let worst = 0;
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i + 1;
+    const { y, page } = sorted[i]!;
+    while (j < sorted.length && sorted[j]!.page === page && Math.abs(sorted[j]!.y - y) <= 2) j++;
+    const line = sorted.slice(i, j).sort((a, b) => a.x - b.x);
+    for (let k = 1; k < line.length; k++) {
+      const prev = line[k - 1]!;
+      const cur = line[k]!;
+      worst = Math.max(worst, prev.x + widthOf(prev) - cur.x);
+    }
+    i = j;
+  }
+  return worst;
 }
 
 const SAMPLE = `# Title
@@ -297,6 +404,71 @@ A line continued after a hard break.
       const out = await renderMarkdownToPdf("- \n- after\n", "EmptyItem");
       expect(out.byteLength).toBeGreaterThan(200);
       expect(new TextDecoder().decode(out.slice(0, 4))).toBe("%PDF");
+    });
+  });
+
+  // --- Bug RLF-243: a list item whose inline content mixes several inline
+  // `code` spans with prose, in the narrowed list column, wraps across lines.
+  // pdfkit's `continued`-text wrapping drops/overlays the tail of a non-final
+  // fragment that has to wrap internally, so a whole run of words got drawn on
+  // top of earlier words ("text overlay other text"). The same prose as a
+  // full-width paragraph wraps cleanly, so inline layout must not rely on
+  // pdfkit's continued wrapping.
+  describe("inline code in list items does not overlay other text", () => {
+    const md = `- \`packages/core/src/openspec/phase.ts\` — add a pure helper
+  \`phasePipeline(phase: OpenSpecPhase): PhaseSegment[]\` that returns the
+  ordered segment list with per-segment status (\`done\` | \`current\` |
+  \`pending\`). Keeping the helper in core (not in the UI) makes it
+  unit-testable without React/Ink.
+`;
+
+    test("bug_case: no two fragments on a shared baseline overlap horizontally", async () => {
+      const runs = textRunsX(await renderMarkdownToPdf(md, "Overlay"));
+      // Sanity: the document really produced the mixed-font runs we reason about.
+      expect(runs.length).toBeGreaterThan(8);
+      // Pre-fix the wrapped prose run was overdrawn ~189pt back onto the inline
+      // code fragments. A small tolerance absorbs sub-pixel width jitter.
+      expect(maxHorizontalOverlap(runs)).toBeLessThan(2);
+    });
+
+    test("fix_case: the wrapped prose survives intact and in reading order", async () => {
+      const out = await renderMarkdownToPdf(md, "Overlay");
+      const text = (await extractText(out)).replace(/\s+/g, " ");
+      // The exact span that pdfkit's continued wrapping clipped/overlaid.
+      expect(text).toContain("returns the ordered segment list with per-segment status");
+      expect(text).toContain("Keeping the helper in core");
+      // And the geometry stays clean on the same document.
+      expect(maxHorizontalOverlap(textRunsX(out))).toBeLessThan(2);
+    });
+
+    // A code-block line wider than the box wraps (pdfkit wraps even with
+    // lineBreak:false once a width is set), but renderCodeBlock advanced the
+    // cursor by a single line height — so the next source line drew on top of
+    // the wrapped tail. Each line must reserve its real wrapped height.
+    test("bug_case: a wrapped long code line does not overlay the next line", async () => {
+      const md =
+        "```ts\n" +
+        "      actions: assign({ worker: undefined, teardown: undefined, " +
+        "currentAssignment: ({ context }) => context.pendingAssignment }),\n" +
+        '      target: "routing-after-preempt",\n' +
+        "```\n";
+      const runs = textRunsX(await renderMarkdownToPdf(md, "Code"));
+      expect(maxHorizontalOverlap(runs)).toBeLessThan(2);
+      const text = (await extractText(await renderMarkdownToPdf(md, "Code"))).replace(/\s+/g, " ");
+      expect(text).toContain("routing-after-preempt");
+      expect(text).toContain("pendingAssignment");
+    });
+
+    test("the equivalent full-width paragraph also stays overlap-free", async () => {
+      const para =
+        "`packages/core/src/openspec/phase.ts` — add a pure helper " +
+        "`phasePipeline(phase: OpenSpecPhase): PhaseSegment[]` that returns the " +
+        "ordered segment list with per-segment status (`done` | `current` | " +
+        "`pending`). Keeping the helper in core (not in the UI) makes it " +
+        "unit-testable without React/Ink.\n";
+      expect(maxHorizontalOverlap(textRunsX(await renderMarkdownToPdf(para, "Para")))).toBeLessThan(
+        2,
+      );
     });
   });
 });
