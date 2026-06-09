@@ -1243,6 +1243,55 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
   // to the outcome (clearConflicted on MERGEABLE; leave label in place otherwise).
   if (input.mode === "conflict-fix" && effectiveCode === 0) {
     const identifier = issue?.identifier ?? changeName;
+
+    // Push-landed guard. In conflict-fix mode the worker owns the push (see
+    // `wire/prepare.ts::prepareTaskForTrigger`); the harness never pushes here.
+    // If the worker resolved + committed but never pushed (or the push silently
+    // failed), the local branch is ahead of `origin/<branch>` while the PR head
+    // stays frozen. The mergeability probe below only inspects GitHub's view of
+    // the *remote* head, so it would report this iteration a success, the
+    // coordinator would post "resolved merge conflicts", and the next poll would
+    // re-detect the same CONFLICTING PR — burning recovery attempts until the
+    // PR-tracker bails to `ralph:error`, then looping forever. Detect the
+    // unpushed divergence and fail the iteration so the "resolved" signal is
+    // honest. (The remote-tracking ref is updated by a successful push, so this
+    // needs no fetch.)
+    if (branch) {
+      let aheadCount = 0;
+      let checked = true;
+      try {
+        const r = await cmd.run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], cwd);
+        aheadCount = Number.parseInt(r.stdout.trim(), 10) || 0;
+      } catch (err) {
+        // Ref missing / detached HEAD / not a worktree — can't determine, so
+        // don't block: fall through to the existing mergeability verification.
+        checked = false;
+        log(
+          `! ${identifier}: could not check for unpushed conflict-fix commits: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+      if (checked && aheadCount > 0) {
+        log(
+          `! ${identifier}: conflict-fix worker left ${aheadCount} unpushed commit(s) ahead of ` +
+            `origin/${branch} — the resolution never reached the PR. Failing the iteration so it ` +
+            `is retried instead of reported as resolved.`,
+          "red",
+        );
+        emit("gave-up", "unpushed conflict resolution");
+        await recordGaveUp(stateFilePath, log, changeName);
+        await runWorktreeCleanupPhase(
+          { changeName, cwd, projectRoot, useWorktree, effectiveCode: PR_FAILED_EXIT, cfg },
+          { git, log, emit },
+        );
+        await runTeardownPhase(
+          { cwd, teardownScript: cfg.teardownScript },
+          { runScript, log, emit },
+        );
+        return PR_FAILED_EXIT;
+      }
+    }
+
     let prUrl: string | null = input.prUrl ?? null;
     if (!prUrl && branch) {
       prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
