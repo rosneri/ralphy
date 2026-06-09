@@ -3,9 +3,9 @@ import { createPrDiscovery } from "../pr-discovery";
 import { PollContext } from "../../../shared/capabilities/poll-context";
 import { changeNameForIssue } from "../../scaffold";
 import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-const ISSUE: LinearIssue = {
+const ISSUE: TrackedIssue = {
   id: "u1",
   identifier: "ENG-1",
   title: "Test",

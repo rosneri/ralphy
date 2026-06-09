@@ -5,13 +5,13 @@ import { tmpdir } from "node:os";
 import { runPostTask } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { Bus, EmitInput } from "@ralphy/events";
 import type { FeatureCtx } from "../features/types";
 import { registry } from "../features/registry";
 import { recordingBus } from "../__test-utils__/recording-bus";
 
-const FAKE_ISSUE: LinearIssue = {
+const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
   identifier: "COD-1",
   title: "Test issue",
@@ -32,7 +32,7 @@ function makeCmd(): CmdRunner {
   };
 }
 
-function makeCtx(bus: Bus, issue: LinearIssue): FeatureCtx {
+function makeCtx(bus: Bus, issue: TrackedIssue): FeatureCtx {
   return {
     issue,
     worktree: "/tmp",

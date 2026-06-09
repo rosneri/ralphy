@@ -4,13 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runPrPhase, NO_CHANGES_EXIT } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 // runPrPhase must distinguish a no-op branch (history only ever touched meta
 // files) from a lost implementation. The no-op path finalizes via
 // NO_CHANGES_EXIT without pushing or respawning a doomed reapply loop.
 
-const FAKE_ISSUE: LinearIssue = {
+const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
   identifier: "LIT-300",
   title: "Eliminate disables",

@@ -1,9 +1,9 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps, type QueueTrigger } from "../agent/coordinator";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 
-function issue(id: string, identifier: string): LinearIssue {
+function issue(id: string, identifier: string): TrackedIssue {
   return {
     id,
     identifier,
@@ -42,7 +42,7 @@ function makeCtx() {
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
     fetchReview: mock(async () => []),
-    prepare: mock(async (i: LinearIssue) => {
+    prepare: mock(async (i: TrackedIssue) => {
       return { changeName: `change-${i.identifier.toLowerCase()}` };
     }),
     spawnWorker: mock((changeName: string) => {

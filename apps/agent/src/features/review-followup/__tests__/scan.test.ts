@@ -12,12 +12,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { scanCodeReview } from "../scan";
-import type { LinearIssue } from "../../../shared/capabilities/linear-client";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { CmdRunner } from "../../../agent/pr";
 
 const PR_URL = "https://github.com/owner/repo/pull/42";
 
-function makeIssue(): LinearIssue {
+function makeIssue(): TrackedIssue {
   return {
     id: "uuid-1",
     identifier: "RLF-209",

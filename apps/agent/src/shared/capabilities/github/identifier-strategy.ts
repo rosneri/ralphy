@@ -11,7 +11,7 @@
  * the local annotation enforces its conformance to `IdentifierStrategy`.
  */
 
-import type { LinearIssue } from "../linear-client";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { branchForChange } from "../../../agent/worktree";
 import { githubIdentifierStrategyImpl, type GitHubIssueRef } from "./github-client";
 
@@ -26,7 +26,7 @@ interface IdentifierStrategy<I> {
 
 /** Linear change-name slug — must stay byte-identical to the legacy
  *  `scaffold.ts:changeNameForIssue`. */
-function linearChangeName(issue: LinearIssue): string {
+function linearChangeName(issue: TrackedIssue): string {
   const slug = issue.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -35,7 +35,7 @@ function linearChangeName(issue: LinearIssue): string {
   return slug ? `${issue.identifier.toLowerCase()}-${slug}` : issue.identifier.toLowerCase();
 }
 
-export const linearIdentifierStrategy: IdentifierStrategy<LinearIssue> = {
+export const linearIdentifierStrategy: IdentifierStrategy<TrackedIssue> = {
   scopeKey: (issue) => issue.identifier.split("-")[0]!,
   changeName: linearChangeName,
   branchName: (issue) => branchForChange(linearChangeName(issue)),

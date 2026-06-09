@@ -3,9 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scaffoldChangeForIssue, type TicketAttachment } from "../agent/scaffold";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-const BASE_ISSUE: LinearIssue = {
+const BASE_ISSUE: TrackedIssue = {
   id: "test-id",
   identifier: "TST-1",
   title: "Test Issue",

@@ -22,10 +22,9 @@
 import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../../shared/capabilities/linear-client";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../../../shared/capabilities/linear-client";
 import type { MentionTrigger } from "../../../queue/queue-order";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
 
 /** `--json` fields requested from `gh issue list` / `gh issue view`. */
 const ISSUE_FIELDS = "number,title,body,url,state,labels,assignees,createdAt";
@@ -77,7 +76,7 @@ interface RawGithubIssue {
 }
 
 /**
- * Pure mapper from a raw `gh` issue JSON object to the shared `LinearIssue`
+ * Pure mapper from a raw `gh` issue JSON object to the shared `TrackedIssue`
  * shape. Kept free of any `gh` invocation so it is unit-testable in isolation.
  *
  * - `number` → `identifier` (`#<n>`) and `id` (`<n>`).
@@ -86,7 +85,7 @@ interface RawGithubIssue {
  * - `labels[].name` → `string[]`.
  * - first `assignees[]` entry → the single `assignee` field.
  */
-export function mapGithubIssue(raw: RawGithubIssue): LinearIssue {
+export function mapGithubIssue(raw: RawGithubIssue): TrackedIssue {
   const closed = (raw.state ?? "OPEN").toUpperCase() === "CLOSED";
   const first = raw.assignees?.[0];
   return {
@@ -181,7 +180,7 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrack
   const run = (args: string[]) => runner.run(["gh", ...args, "--repo", repo], cwd);
 
   /** Run `gh issue list` with the given state/label flags and map the output. */
-  async function listIssues(flags: string[]): Promise<LinearIssue[]> {
+  async function listIssues(flags: string[]): Promise<TrackedIssue[]> {
     const { stdout } = await run(["issue", "list", ...flags, "--json", ISSUE_FIELDS]);
     const raw = JSON.parse(stdout || "[]") as RawGithubIssue[];
     return raw.map(mapGithubIssue);
@@ -270,6 +269,6 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrack
     // M4 owns the full GitHub mention scan (cross-issue `@ralphy` search +
     // review-thread digest). For the MVP this provider returns no mentions; the
     // contract kit exercises mentions only against the fully-featured fake.
-    fetchMentions: async (): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> => [],
+    fetchMentions: async (): Promise<{ issue: TrackedIssue; trigger: MentionTrigger }[]> => [],
   };
 }

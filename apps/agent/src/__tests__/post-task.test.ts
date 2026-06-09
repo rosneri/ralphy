@@ -12,9 +12,9 @@ import {
 } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-const FAKE_ISSUE: LinearIssue = {
+const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
   identifier: "COD-1",
   title: "Test issue",
@@ -318,7 +318,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
       "gh pr create": { stdout: prUrl },
     });
 
-    const issue: LinearIssue = { ...FAKE_ISSUE, labels: ["ralph:branch:release/2026"] };
+    const issue: TrackedIssue = { ...FAKE_ISSUE, labels: ["ralph:branch:release/2026"] };
 
     const code = await runPrPhase(
       {
@@ -486,7 +486,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
     });
 
     let resolverCalled = false;
-    const issue: LinearIssue = { ...FAKE_ISSUE, labels: ["ralph:branch:release/x"] };
+    const issue: TrackedIssue = { ...FAKE_ISSUE, labels: ["ralph:branch:release/x"] };
 
     await runPrPhase(
       {

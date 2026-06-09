@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { runPostTask } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
-const FAKE_ISSUE: LinearIssue = {
+const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
   identifier: "RLF-82",
   title: "Conflict-fix verify",

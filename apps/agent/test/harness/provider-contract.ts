@@ -2,9 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { parseRalphyMarker } from "@ralphy/comms";
 import type { SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { createFakeLinear, type FakeLinearIndicators } from "./fake-linear";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
 import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
 
 /** Which fetch bucket an issue is seeded into by {@link ProviderContractBackend.seedInBucket}. */
@@ -30,7 +29,7 @@ export interface ProviderContractBackend {
 
   /** Seed an issue already placed in `bucket` so the matching `fetch*` returns
    *  it. The adapter chooses the bucket markers (see the Linear adapter). */
-  seedInBucket(bucket: ContractBucket, seed: SeedIssue): LinearIssue;
+  seedInBucket(bucket: ContractBucket, seed: SeedIssue): TrackedIssue;
 
   /** Indicators the kit feeds to `client.applyIndicator` /
    *  `client.removeIndicator`. The adapter guarantees these transitions are
@@ -53,10 +52,10 @@ export interface ProviderContractBackend {
   pushComment(issueId: string, body: string, author?: string): void;
   pushMention(issueId: string, source: MentionSource, body: string, at: Date): void;
   comments(issueId: string): readonly FakeLinearComment[];
-  issues(): readonly LinearIssue[];
+  issues(): readonly TrackedIssue[];
 }
 
-const ids = (issues: readonly LinearIssue[]): string[] => issues.map((i) => i.identifier);
+const ids = (issues: readonly TrackedIssue[]): string[] => issues.map((i) => i.identifier);
 
 /**
  * Backend-parametrized provider contract. Call it at the top level of a

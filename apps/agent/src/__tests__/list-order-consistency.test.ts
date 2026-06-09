@@ -2,11 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { backlogRankByIssueId } from "../list";
 import { sortRows, type SortableRow } from "../list-sort";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 interface IssueOverrides {
-  project?: LinearIssue["project"];
-  milestone?: LinearIssue["milestone"];
+  project?: TrackedIssue["project"];
+  milestone?: TrackedIssue["milestone"];
   blockedByIds?: string[];
 }
 
@@ -16,7 +16,7 @@ function issue(
   priority: number,
   createdAt: string,
   overrides: IssueOverrides = {},
-): LinearIssue {
+): TrackedIssue {
   return {
     id,
     identifier,
@@ -36,7 +36,7 @@ function issue(
 
 /** Render order of `agent list` for issues with no PR status — i.e. the pure
  *  hierarchical backlog order, exactly as `fetchAndPrintLinear` derives it. */
-function listOrder(issues: LinearIssue[]): string[] {
+function listOrder(issues: TrackedIssue[]): string[] {
   const rankById = backlogRankByIssueId(issues);
   const rows: (SortableRow & { identifier: string })[] = issues.map((i) => ({
     identifier: i.identifier,
@@ -49,7 +49,7 @@ function listOrder(issues: LinearIssue[]): string[] {
 
 /** Queue order for the same issues, all as plain `fresh` entries (so no
  *  trigger or auto-merge override differentiates them). */
-function queueOrder(issues: LinearIssue[]): string[] {
+function queueOrder(issues: TrackedIssue[]): string[] {
   const entries: QueueEntry[] = issues.map((i) => ({
     issue: i,
     trigger: "fresh",

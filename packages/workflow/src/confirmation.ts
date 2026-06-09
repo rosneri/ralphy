@@ -2,7 +2,7 @@ import type { WorkflowConfig } from "./schema";
 
 /**
  * Minimal Linear-issue shape needed to evaluate the confirmation gate
- * client-side. Kept here (instead of importing `LinearIssue`) so this module
+ * client-side. Kept here (instead of importing `TrackedIssue`) so this module
  * stays in `@ralphy/workflow` and free of an apps/agent dependency.
  */
 export interface ConfirmationTicketView {

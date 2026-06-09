@@ -15,8 +15,8 @@ import {
   createAttachmentForUrl,
   deleteAttachment,
   findIssueAttachmentByTitle,
-  type LinearIssue,
 } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 interface CommentSyncInput {
   apiKey: string;
@@ -25,7 +25,7 @@ interface CommentSyncInput {
   onLog: (text: string, color?: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
 }
 
 interface CommentSyncHooks {

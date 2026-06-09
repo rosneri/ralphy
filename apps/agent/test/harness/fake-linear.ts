@@ -1,9 +1,8 @@
 import type { GetIndicator, SetIndicator, Marker } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../../src/shared/capabilities/linear-client";
 import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
 import type { MentionTrigger } from "../../src/queue/queue-order";
 
 export interface FakeLinearIndicators {
@@ -16,7 +15,7 @@ export interface FakeLinearIndicators {
 export interface FakeLinear {
   client: IssueTrackerProvider;
   indicators: FakeLinearIndicators;
-  seed: (issue: SeedIssue) => LinearIssue;
+  seed: (issue: SeedIssue) => TrackedIssue;
   setLabels: (id: string, labels: string[]) => void;
   setStatus: (id: string, name: string, type: string) => void;
   pushComment: (issueId: string, body: string, author?: string) => void;
@@ -27,11 +26,11 @@ export interface FakeLinear {
     at: Date,
   ) => void;
   comments: (issueId: string) => readonly FakeLinearComment[];
-  issues: () => readonly LinearIssue[];
+  issues: () => readonly TrackedIssue[];
   applied: AppliedLog;
 }
 
-function defaultIssue(seed: SeedIssue): LinearIssue {
+function defaultIssue(seed: SeedIssue): TrackedIssue {
   return {
     id: seed.id,
     identifier: seed.identifier,
@@ -48,7 +47,7 @@ function defaultIssue(seed: SeedIssue): LinearIssue {
   };
 }
 
-function applyMarkers(issue: LinearIssue, markers: Marker[]): LinearIssue {
+function applyMarkers(issue: TrackedIssue, markers: Marker[]): TrackedIssue {
   let next = issue;
   for (const m of markers) {
     if (m.type === "label") {
@@ -65,7 +64,7 @@ function applyMarkers(issue: LinearIssue, markers: Marker[]): LinearIssue {
   return next;
 }
 
-function removeMarkers(issue: LinearIssue, markers: Marker[]): LinearIssue {
+function removeMarkers(issue: TrackedIssue, markers: Marker[]): TrackedIssue {
   let next = issue;
   for (const m of markers) {
     if (m.type === "label") {
@@ -76,7 +75,7 @@ function removeMarkers(issue: LinearIssue, markers: Marker[]): LinearIssue {
 }
 
 export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLinear {
-  const issues = new Map<string, LinearIssue>();
+  const issues = new Map<string, TrackedIssue>();
   const comments = new Map<string, FakeLinearComment[]>();
   const mentions = new Map<string, FakeLinearComment[]>();
   const applied: AppliedLog = {
@@ -103,7 +102,7 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     return null;
   }
 
-  const filterBy = (ind: GetIndicator | undefined): LinearIssue[] => {
+  const filterBy = (ind: GetIndicator | undefined): TrackedIssue[] => {
     if (!ind) return [];
     return [...issues.values()].filter((i) => {
       const issueComments = (comments.get(i.id) ?? []).map((c) => ({
@@ -120,7 +119,7 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     fetchReview: async () => filterBy(indicators.getReview),
     fetchDoneCandidates: async () => filterBy(indicators.getDoneCandidates),
     fetchMentions: async () => {
-      const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+      const out: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
       for (const [issueId, list] of mentions) {
         const issue = issues.get(issueId);
         if (!issue) continue;

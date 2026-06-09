@@ -27,8 +27,8 @@ import {
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
-  type LinearIssue,
 } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 let tempDir: string;
 
@@ -40,7 +40,7 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function makeIssue(overrides: Partial<LinearIssue> = {}): LinearIssue {
+function makeIssue(overrides: Partial<TrackedIssue> = {}): TrackedIssue {
   return {
     id: "issue-uuid-1",
     identifier: "ENG-42",

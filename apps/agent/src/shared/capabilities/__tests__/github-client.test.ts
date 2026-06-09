@@ -22,7 +22,7 @@ import {
   viewIssue,
 } from "../github/github-client";
 import { githubIdentifierStrategy, linearIdentifierStrategy } from "../github/identifier-strategy";
-import type { LinearIssue } from "../linear-client";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { branchForChange } from "../../../agent/worktree";
 
 function fakeRunner(stdoutByCall: string[] = []) {
@@ -113,7 +113,7 @@ describe("githubIdentifierStrategy", () => {
 });
 
 describe("linearIdentifierStrategy", () => {
-  const issue = { identifier: "RLF-232", title: "Add dark mode" } as LinearIssue;
+  const issue = { identifier: "RLF-232", title: "Add dark mode" } as TrackedIssue;
   test("scopeKey is the team key (identifier prefix)", () => {
     expect(linearIdentifierStrategy.scopeKey(issue)).toBe("RLF");
   });

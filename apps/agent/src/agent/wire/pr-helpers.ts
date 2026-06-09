@@ -2,8 +2,8 @@ import {
   fetchAttachmentsForIssues,
   fetchBlockedByForIssues,
   baseBranchFromLabels,
-  type LinearIssue,
 } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { createPullRequest, type CmdRunner } from "../pr";
 
 const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
@@ -119,7 +119,7 @@ function pickDependencyTip(
  * lookup failure) so the caller falls back to the default base branch.
  */
 export async function resolveDependencyBaseBranchImpl(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   runner: CmdRunner,
   runnerCwd: string,
   deps: { apiKey: string; onLog: (msg: string, color?: string) => void },
@@ -266,7 +266,7 @@ interface OpenDraftPrDeps {
  */
 export function createOpenDraftPr(
   deps: OpenDraftPrDeps,
-): (issue: LinearIssue, changeName: string, cwd: string) => Promise<string | null> {
+): (issue: TrackedIssue, changeName: string, cwd: string) => Promise<string | null> {
   const create = deps.createPr ?? createPullRequest;
   return async (issue, changeName, cwd) => {
     const branch = deps.branchByChange.get(changeName);

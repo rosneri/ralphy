@@ -11,7 +11,7 @@ import {
 import { parseAgentArgs } from "../../../cli";
 import type { AgentParsedArgs } from "../../../cli";
 import type { RalphyConfig } from "../../config";
-import type { LinearIssue } from "../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 const baseArgs = (): Promise<AgentParsedArgs> => parseAgentArgs([]);
 const baseCfg = (o: Record<string, unknown> = {}): RalphyConfig => WorkflowConfigSchema.parse(o);
@@ -212,7 +212,7 @@ describe("computeWantValidateOnly", () => {
 
 describe("releaseWorkerMaps", () => {
   test("clears the change key from all four per-change maps", () => {
-    const issue = { id: "i1", identifier: "RLF-1" } as LinearIssue;
+    const issue = { id: "i1", identifier: "RLF-1" } as TrackedIssue;
     const maps: WorkerChangeMaps = {
       cwdByChange: new Map([["c", "/cwd"]]),
       statesDirByChange: new Map([["c", "/states"]]),

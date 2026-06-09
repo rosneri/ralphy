@@ -12,7 +12,7 @@ mock.module("node:os", () => ({
 }));
 import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
-import type { LinearIssue } from "../../../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import * as linear from "../../../agent/linear";
 import type { RalphyConfig } from "../../../agent/config";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
@@ -41,7 +41,7 @@ afterAll(() => {
   mock.restore();
 });
 
-function makeIssue(): LinearIssue {
+function makeIssue(): TrackedIssue {
   return {
     id: "uuid-rlf-200",
     identifier: "RLF-200",

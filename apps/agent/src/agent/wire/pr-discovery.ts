@@ -1,7 +1,8 @@
 import { PollContext } from "../../shared/capabilities/poll-context";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "../pr-url";
 import { getPrChecksStatus } from "../ci";
-import { fetchIssueAttachments, type LinearIssue } from "../linear";
+import { fetchIssueAttachments } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { changeNameForIssue } from "../scaffold";
 import type { CmdRunner } from "../pr";
 import type { PrStatusBucket as PrStatus } from "../coordinator";
@@ -26,8 +27,8 @@ interface PrDiscoveryInput {
 }
 
 interface PrDiscovery {
-  checkPrStatus: (issue: LinearIssue) => Promise<{ url: string; status: PrStatus } | null>;
-  resolvePrUrlForIssue: (issue: LinearIssue) => Promise<string | null>;
+  checkPrStatus: (issue: TrackedIssue) => Promise<{ url: string; status: PrStatus } | null>;
+  resolvePrUrlForIssue: (issue: TrackedIssue) => Promise<string | null>;
   isPrUnavailable: (changeName: string) => boolean;
   markPrUnavailable: (changeName: string) => void;
   invalidatePrUrlForIssue: (issueId: string) => void;
@@ -62,7 +63,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
   }
 
   async function discoverPrUrlFromLinear(
-    issue: LinearIssue,
+    issue: TrackedIssue,
   ): Promise<{ url: string | null; sawNonOpenPr: boolean }> {
     let attachments;
     try {
@@ -84,7 +85,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     );
   }
 
-  async function discoverPrUrl(issue: LinearIssue, changeName: string): Promise<string | null> {
+  async function discoverPrUrl(issue: TrackedIssue, changeName: string): Promise<string | null> {
     const fromGitHub = await discoverPrUrlFromGitHub(
       issue.identifier,
       cmdRunner,
@@ -118,7 +119,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
   }
 
   async function checkPrStatus(
-    issue: LinearIssue,
+    issue: TrackedIssue,
   ): Promise<{ url: string; status: PrStatus } | null> {
     const changeName = changeNameForIssue(issue);
     if (isPrUnavailable(changeName)) return null;
@@ -226,7 +227,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     return { url: prUrl, status: "mergeable" };
   }
 
-  async function resolvePrUrlForIssue(issue: LinearIssue): Promise<string | null> {
+  async function resolvePrUrlForIssue(issue: TrackedIssue): Promise<string | null> {
     const changeName = changeNameForIssue(issue);
     if (isPrUnavailable(changeName)) return null;
     const inflight = prByChange.get(changeName);
