@@ -6,7 +6,7 @@ import type { CmdRunner } from "../../pr";
  * Dependencies for {@link upsertStickyComment}. All IO flows through the
  * injected {@link CmdRunner}, so the helper is fully scriptable in tests.
  */
-export interface StickyUpsertDeps {
+interface StickyUpsertDeps {
   cmdRunner: CmdRunner;
   /** `owner/name` to operate on. */
   repo: string;
