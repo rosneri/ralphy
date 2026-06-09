@@ -104,3 +104,43 @@ describe("normalizeWorkflowMarkdown — gate invariant", () => {
     expect(config.linear.indicators.clearApproved).toBeUndefined();
   });
 });
+
+describe("normalizeWorkflowMarkdown — getAutoApprove → getApproved fold", () => {
+  test("merges getAutoApprove markers into getApproved and drops the indicator", () => {
+    const md = wrap(
+      "linear:\n  indicators:\n    getApproved:\n      filter:\n        - type: label\n          value: approved\n    getAutoApprove:\n      filter:\n        - type: label\n          value: auto-merge\n",
+    );
+    const result = normalizeWorkflowMarkdown(md);
+    expect(result.changed).toBe(true);
+    expect(result.markdown).not.toContain("getAutoApprove");
+    const { config } = parseWorkflow(result.markdown);
+    expect(config.linear.indicators.getApproved).toEqual({
+      filter: [
+        { type: "label", value: "approved" },
+        { type: "label", value: "auto-merge" },
+      ],
+    });
+  });
+
+  test("creates getApproved from getAutoApprove when getApproved is absent", () => {
+    const md = wrap(
+      "linear:\n  indicators:\n    getAutoApprove:\n      filter:\n        - type: label\n          value: auto-merge\n",
+    );
+    const result = normalizeWorkflowMarkdown(md);
+    expect(result.markdown).not.toContain("getAutoApprove");
+    const { config } = parseWorkflow(result.markdown);
+    expect(config.linear.indicators.getApproved).toEqual({
+      filter: [{ type: "label", value: "auto-merge" }],
+    });
+  });
+
+  test("dedupes a marker present in both getApproved and getAutoApprove", () => {
+    const md = wrap(
+      "linear:\n  indicators:\n    getApproved:\n      filter:\n        - type: label\n          value: auto-merge\n    getAutoApprove:\n      filter:\n        - type: label\n          value: auto-merge\n",
+    );
+    const { config } = parseWorkflow(normalizeWorkflowMarkdown(md).markdown);
+    expect(config.linear.indicators.getApproved).toEqual({
+      filter: [{ type: "label", value: "auto-merge" }],
+    });
+  });
+});

@@ -82,6 +82,26 @@ function stampDescription(document: YAML.Document, path: string[]): void {
   pair.key.commentBefore = toCommentLines(match.description);
 }
 
+/** Read a `filter:` node (a YAML sequence) as a plain marker array. */
+function toMarkerArray(node: unknown): unknown[] {
+  if (node == null) return [];
+  const js = YAML.isNode(node) ? node.toJSON() : node;
+  return Array.isArray(js) ? js : [];
+}
+
+/** Dedupe markers by structural equality, preserving first-seen order. */
+function dedupeMarkers(markers: unknown[]): unknown[] {
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+  for (const marker of markers) {
+    const key = JSON.stringify(marker);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(marker);
+  }
+  return out;
+}
+
 export interface NormalizeResult {
   markdown: string;
   changed: boolean;
@@ -108,6 +128,21 @@ export function normalizeWorkflowMarkdown(markdown: string): NormalizeResult {
     document.setIn(path, value);
     stampDescription(document, path);
     added.push(path.join("."));
+  }
+
+  // 1.5) Fold getAutoApprove → getApproved. getAutoApprove duplicated
+  //      getApproved's role (clear the gate for matching tickets); collapse its
+  //      filter markers into getApproved (any-of) and drop the indicator.
+  const autoApprovePath = ["linear", "indicators", "getAutoApprove"];
+  if (document.getIn(autoApprovePath) !== undefined) {
+    const merged = dedupeMarkers([
+      ...toMarkerArray(document.getIn(["linear", "indicators", "getApproved", "filter"])),
+      ...toMarkerArray(document.getIn([...autoApprovePath, "filter"])),
+    ]);
+    document.setIn(["linear", "indicators", "getApproved"], { filter: merged });
+    stampDescription(document, ["linear", "indicators", "getApproved"]);
+    document.deleteIn(autoApprovePath);
+    added.push("linear.indicators.getApproved");
   }
 
   // 2) Gate invariant.

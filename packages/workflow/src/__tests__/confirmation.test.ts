@@ -41,15 +41,12 @@ describe("schema defaults — confirmationMode", () => {
     expect(c.linear.indicators.clearApproved).toEqual([{ type: "label", value: "ralph:approved" }]);
   });
 
-  test("optional getConfirmGate / getAutoApprove indicators parse", () => {
+  test("optional getConfirmGate indicator parses", () => {
     const c = cfg(
-      `linear:\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n    getAutoApprove:\n      filter:\n        - type: label\n          value: ralph:auto-approve\n`,
+      `linear:\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n`,
     );
     expect(c.linear.indicators.getConfirmGate).toEqual({
       filter: [{ type: "label", value: "ralph:needs-review" }],
-    });
-    expect(c.linear.indicators.getAutoApprove).toEqual({
-      filter: [{ type: "label", value: "ralph:auto-approve" }],
     });
   });
 
@@ -164,31 +161,21 @@ describe("computeConfirmationFlags", () => {
     });
   });
 
-  test("gated when enabled and no getAutoApprove match", () => {
+  test("gated when enabled (no opt-in indicator)", () => {
     const c = cfg(`linear:\n  confirmationMode:\n    enabled: true\n`);
     expect(computeConfirmationFlags(c, ticket()).confirmationGated).toBe(true);
   });
 
-  test("getAutoApprove indicator bypasses the gate when it matches", () => {
+  test("a getApproved match reads as approved (folded auto-approve label)", () => {
+    // getAutoApprove was folded into getApproved: a matching ticket is gated
+    // (gate on) but reads `approved`, so the confirmation feature releases it.
     const c = cfg(
-      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getAutoApprove:\n      filter:\n        - type: label\n          value: ralph:auto-approve\n`,
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getApproved:\n      filter:\n        - type: label\n          value: ralph:approved\n        - type: label\n          value: auto-merge\n`,
     );
-    expect(
-      computeConfirmationFlags(c, ticket({ labels: ["ralph:auto-approve"] })).confirmationGated,
-    ).toBe(false);
-    expect(computeConfirmationFlags(c, ticket()).confirmationGated).toBe(true);
-  });
-
-  test("getAutoApprove does not bypass gate when indicator does not match", () => {
-    const c = cfg(
-      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getAutoApprove:\n      filter:\n        - type: label\n          value: skip-gate\n`,
-    );
-    expect(
-      computeConfirmationFlags(c, ticket({ labels: ["ralph:auto-approve"] })).confirmationGated,
-    ).toBe(true);
-    expect(computeConfirmationFlags(c, ticket({ labels: ["skip-gate"] })).confirmationGated).toBe(
-      false,
-    );
+    const autoMerge = computeConfirmationFlags(c, ticket({ labels: ["auto-merge"] }));
+    expect(autoMerge).toEqual({ confirmationGated: true, approved: true });
+    const plain = computeConfirmationFlags(c, ticket());
+    expect(plain).toEqual({ confirmationGated: true, approved: false });
   });
 
   test("getConfirmGate set but ticket lacks it → ungated (opt-in mode)", () => {
@@ -207,14 +194,15 @@ describe("computeConfirmationFlags", () => {
     ).toBe(true);
   });
 
-  test("getConfirmGate + getAutoApprove: opt-in present but auto-approve bypasses", () => {
+  test("getConfirmGate opt-in: matched ticket is gated, approved via getApproved", () => {
     const c = cfg(
-      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n    getAutoApprove:\n      filter:\n        - type: label\n          value: ralph:auto-approve\n`,
+      `linear:\n  confirmationMode:\n    enabled: true\n  indicators:\n    getConfirmGate:\n      filter:\n        - type: label\n          value: ralph:needs-review\n    getApproved:\n      filter:\n        - type: label\n          value: auto-merge\n`,
     );
+    // Opted in + auto-merge: gated but approved → released.
     expect(
-      computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review", "ralph:auto-approve"] }))
-        .confirmationGated,
-    ).toBe(false);
+      computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review", "auto-merge"] })),
+    ).toEqual({ confirmationGated: true, approved: true });
+    // Opted in, not approved: gated, awaits approval.
     expect(
       computeConfirmationFlags(c, ticket({ labels: ["ralph:needs-review"] })).confirmationGated,
     ).toBe(true);

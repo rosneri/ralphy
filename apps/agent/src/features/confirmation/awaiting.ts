@@ -299,15 +299,13 @@ async function releaseAwaitingMarker(
   return true;
 }
 
-/** True when any confirmation indicator (`getApproved` / `getAutoApprove` /
- *  `getConfirmGate`) is a `comment`-type marker. Only then must we fetch the
- *  issue's comments to evaluate the gate — label/status/project indicators read
- *  straight off the issue, so the comments round-trip is skipped otherwise. */
+/** True when any confirmation indicator (`getApproved` / `getConfirmGate`) is a
+ *  `comment`-type marker. Only then must we fetch the issue's comments to
+ *  evaluate the gate — label/status/project indicators read straight off the
+ *  issue, so the comments round-trip is skipped otherwise. */
 function confirmationUsesCommentIndicator(cfg: RalphyConfig): boolean {
-  const { getApproved, getAutoApprove, getConfirmGate } = cfg.linear.indicators;
-  return [getApproved, getAutoApprove, getConfirmGate].some((g) =>
-    g?.filter.some((m) => m.type === "comment"),
-  );
+  const { getApproved, getConfirmGate } = cfg.linear.indicators;
+  return [getApproved, getConfirmGate].some((g) => g?.filter.some((m) => m.type === "comment"));
 }
 
 /**
@@ -352,7 +350,7 @@ export async function processAwaitingForIssue(
       }
       return commentsCache;
     };
-    // A `comment`-type getApproved/getAutoApprove/getConfirmGate matches against
+    // A `comment`-type getApproved/getConfirmGate matches against
     // human (non-Ralph) comment bodies — populate them so the gate can clear on
     // an approval comment. Skipped entirely when no comment indicator is set.
     const commentBodies = confirmationUsesCommentIndicator(cfg)
@@ -380,7 +378,7 @@ export async function processAwaitingForIssue(
         );
       }
     }
-    // Gate is inactive when: indicators bypass it (getAutoApprove/getConfirmGate), or
+    // Gate is inactive when: the opt-in (getConfirmGate) excludes it, or
     // confirmedAt was persisted (approval watermark), or confirmationMode was disabled.
     const active =
       confirmationGated &&

@@ -134,7 +134,6 @@ const IndicatorsSchema = z.preprocess(
       getAutoMerge: GetIndicatorSchema.optional(),
       getApproved: GetIndicatorSchema.optional(),
       getConfirmGate: GetIndicatorSchema.optional(),
-      getAutoApprove: GetIndicatorSchema.optional(),
       setInProgress: SetIndicatorSchema.optional(),
       setDone: SetIndicatorSchema.optional(),
       setPrReady: SetIndicatorSchema.optional(),

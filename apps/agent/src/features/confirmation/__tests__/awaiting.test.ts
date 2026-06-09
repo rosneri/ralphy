@@ -261,8 +261,8 @@ describe("processAwaitingForIssue", () => {
 
       // Poll 1 — gate active, marker applied.
       await processAwaitingForIssue(issue, deps);
-      // Bypass gate via getAutoApprove indicator → gate clears next poll.
-      deps.cfg.linear.indicators.getAutoApprove = {
+      // Approve via getApproved indicator → gate clears next poll.
+      deps.cfg.linear.indicators.getApproved = {
         filter: [{ type: "label", value: "ralph:auto-approve" }],
       };
       issue.labels = ["ralph:auto-approve"];
@@ -295,8 +295,8 @@ describe("processAwaitingForIssue", () => {
 
       // Poll 1 — gate active, marker applied.
       await processAwaitingForIssue(issue, deps);
-      // Gate bypassed from here on → inactive on every subsequent poll.
-      deps.cfg.linear.indicators.getAutoApprove = {
+      // Approved from here on → released on every subsequent poll.
+      deps.cfg.linear.indicators.getApproved = {
         filter: [{ type: "label", value: "ralph:auto-approve" }],
       };
       issue.labels = ["ralph:auto-approve"];
