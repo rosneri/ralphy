@@ -1,7 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { changeNameForIssue } from "../agent/scaffold";
@@ -255,26 +255,29 @@ const emptyPollResult = (): PollResult => ({
   board: [],
 });
 
-export interface CoordinatorDeps {
-  /** Issues to pick up. Empty array if `getTodo` isn't configured. */
-  fetchTodo: () => Promise<TrackedIssue[]>;
-  /** Issues to resume after restart. Empty array if `getInProgress` isn't configured. */
-  fetchInProgress: () => Promise<TrackedIssue[]>;
-  /** Done issues with new `@ralphy` mentions on Linear or their tracked
-   *  GitHub PR. Empty array if mention scanning is disabled. */
-  fetchMentions: () => Promise<{ issue: TrackedIssue; trigger: MentionTrigger }[]>;
-  /** Issues with `setDone` applied that ralph should scan for PR conflicts.
-   *  Empty array if conflict-scan isn't configured (no PR remote / no `setDone`). */
-  fetchDoneCandidates: () => Promise<TrackedIssue[]>;
-  /**
-   * Forward-compat (RLF-223 M2): issues in the configured `getReview` bucket.
-   * Completes the `IssueTrackerProvider` surface so `CoordinatorDeps` is a
-   * faithful superset of the provider. **Not polled today** — `pollOnce` never
-   * calls this and `buckets.review` stays `0`; review work still flows through
-   * `fetchMentions` (the scanner enqueues `trigger: "review"`). A future
-   * milestone wires a real review poll here.
-   */
-  fetchReview: () => Promise<TrackedIssue[]>;
+/**
+ * The orchestration-side dependency bag. It `extends IssueTrackerProvider`, so
+ * the nine provider methods (`fetchTodo`, `fetchInProgress`, `fetchReview`,
+ * `fetchMentions`, `fetchDoneCandidates`, `fetchComments`, `applyIndicator`,
+ * `removeIndicator`, `postComment`) are inherited from the shared
+ * `@ralphy/tracker` contract — a single source of truth that the compiler keeps
+ * aligned (a signature change there flags here). The orchestration-only members
+ * (`prepare`, `spawnWorker`, lifecycle hooks, …) are declared below.
+ *
+ * Operationally-meaningful semantics that previously lived on the now-inherited
+ * members (the canonical method docs live on `IssueTrackerProvider`):
+ *  - The `fetch*` reads return an **empty array** when their backing
+ *    get-indicator is unconfigured: `fetchTodo` (no `getTodo`),
+ *    `fetchInProgress` (no `getInProgress`), `fetchMentions` (mention scanning
+ *    disabled), `fetchDoneCandidates` (no PR remote / no `setDone`).
+ *  - `fetchReview` (RLF-223 M2 forward-compat) is **not polled today** —
+ *    `pollOnce` never calls it and `buckets.review` stays `0`; review work still
+ *    flows through `fetchMentions` (the scanner enqueues `trigger: "review"`).
+ *    A future milestone wires a real review poll.
+ *  - `removeIndicator` removes a SetIndicator's labels; status removal is a
+ *    no-op. `fetchComments` backs "started" idempotency.
+ */
+export interface CoordinatorDeps extends IssueTrackerProvider {
   /**
    * Side-effect: create or reuse a worktree, scaffold the change directory
    * when its `tasks.md` is missing, and run the project's setup script.
@@ -300,14 +303,6 @@ export interface CoordinatorDeps {
    *  so the post-task harness can branch on it (e.g. RLF-82 conflict-fix
    *  verify-only path). */
   spawnWorker: (changeName: string, issue: TrackedIssue, trigger: QueueTrigger) => WorkerHandle;
-  /** Apply a SetIndicator (label add and/or status set) to the issue. */
-  applyIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
-  /** Remove a SetIndicator's labels from the issue. Status removal is a no-op. */
-  removeIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
-  /** Post a comment to the Linear issue. */
-  postComment: (issue: TrackedIssue, body: string) => Promise<void>;
-  /** Fetch existing Linear comments — used for "started" idempotency. */
-  fetchComments: (issueId: string) => Promise<{ body: string }[]>;
   /** Check the status of a known PR — mergeable, conflicted, or red on CI.
    *  Returns null if no PR is known for this issue (branch deleted, never
    *  created). `unknown` is used when GitHub hasn't computed mergeability

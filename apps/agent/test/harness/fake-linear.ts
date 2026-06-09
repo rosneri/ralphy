@@ -2,7 +2,8 @@ import type { GetIndicator, SetIndicator, Marker } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
 import { issueMatchesGetIndicator } from "../../src/shared/capabilities/linear-client";
-import type { AppliedLog, FakeLinearComment, LinearClientLike, SeedIssue } from "./types";
+import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
 import type { MentionTrigger } from "../../src/queue/queue-order";
 
 export interface FakeLinearIndicators {
@@ -13,7 +14,7 @@ export interface FakeLinearIndicators {
 }
 
 export interface FakeLinear {
-  client: LinearClientLike;
+  client: IssueTrackerProvider;
   indicators: FakeLinearIndicators;
   seed: (issue: SeedIssue) => LinearIssue;
   setLabels: (id: string, labels: string[]) => void;
@@ -113,7 +114,7 @@ export function createFakeLinear(indicators: FakeLinearIndicators = {}): FakeLin
     });
   };
 
-  const client: LinearClientLike = {
+  const client: IssueTrackerProvider = {
     fetchTodo: async () => filterBy(indicators.getTodo),
     fetchInProgress: async () => filterBy(indicators.getInProgress),
     fetchReview: async () => filterBy(indicators.getReview),

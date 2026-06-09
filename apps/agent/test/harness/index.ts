@@ -10,7 +10,7 @@ import { createVirtualClock, type VirtualClock } from "./clock";
 import { getScenario } from "./scenarios";
 import type { HarnessCtx } from "./types";
 
-export type { HarnessCtx, ScenarioStep, SeedIssue, LinearClientLike } from "./types";
+export type { HarnessCtx, ScenarioStep, SeedIssue } from "./types";
 export {
   runProviderContract,
   makeLinearContractBackend,
