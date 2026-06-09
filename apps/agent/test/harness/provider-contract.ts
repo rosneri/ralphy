@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { parseRalphyMarker } from "@ralphy/comms";
 import type { SetIndicator } from "@ralphy/types";
+import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
 import { createFakeLinear, type FakeLinearIndicators } from "./fake-linear";
 import type { AppliedLog, FakeLinearComment, LinearClientLike, SeedIssue } from "./types";
@@ -40,6 +42,12 @@ export interface ProviderContractBackend {
     /** Removed (not applied) to exercise `clearReview`. */
     review: SetIndicator;
   };
+
+  /** Optional: a backend that substitutes the `attachment` marker with a sticky
+   *  upserted comment opts in by exposing it. The kit then asserts repeated
+   *  applies leave exactly one marker comment carrying the latest body. Backends
+   *  that honour attachments natively (Linear) leave it unset and the cases skip. */
+  readonly attachmentMarker?: SetIndicator;
 
   pushComment(issueId: string, body: string, author?: string): void;
   pushMention(issueId: string, source: MentionSource, body: string, at: Date): void;
@@ -157,6 +165,26 @@ export function runProviderContract(makeBackend: () => ProviderContractBackend):
         await b.client.removeIndicator(issue, b.set.review);
         expect(ids(await b.client.fetchReview())).not.toContain("C-1");
         expect(b.applied.clearReview).toContain("C-1");
+      });
+    });
+
+    // Gated on the optional `attachmentMarker` hook: a backend that substitutes
+    // the attachment marker with a sticky comment (GitHub) opts in; one that
+    // honours attachments natively (Linear) leaves it unset and these skip.
+    const probe = makeBackend();
+    const itAttach = probe.attachmentMarker ? test : test.skip;
+    describe("sticky attachment upsert", () => {
+      itAttach("repeated applies leave exactly one attachment comment, latest body", async () => {
+        const b = makeBackend();
+        const marker = b.attachmentMarker!;
+        const subtitle = markersOf(marker).find((m) => m.type === "attachment")!.value;
+        const issue = b.seedInBucket("inProgress", { id: "1", identifier: "C-1", title: "x" });
+        for (let i = 0; i < 3; i++) await b.client.applyIndicator(issue, marker);
+
+        const bodies = (await b.client.fetchComments(issue.id)).map((c) => c.body);
+        const stuck = bodies.filter((body) => parseRalphyMarker(body)?.type === "attachment");
+        expect(stuck).toHaveLength(1);
+        expect(stuck[0]).toContain(subtitle);
       });
     });
   });

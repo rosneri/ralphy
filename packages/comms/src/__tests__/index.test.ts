@@ -4,6 +4,7 @@ import {
   RALPHY_TITLE_PREFIX,
   buildRalphyComment,
   buildRalphyMarker,
+  findStickyComment,
   isMentionAckComment,
   isPickupComment,
   isRalphyComment,
@@ -122,5 +123,46 @@ describe("isPickupComment / isStartedComment", () => {
     expect(
       isMentionAckComment("🤖 Ralphy · started working\n<!-- ralphy:v=1 type=started -->"),
     ).toBe(false);
+  });
+});
+
+describe("findStickyComment", () => {
+  it("returns the comment whose marker type matches", () => {
+    const target = buildRalphyComment({ type: "attachment", action: "design ready" });
+    const comments = [
+      { id: "a", body: buildRalphyComment({ type: "started", action: "started working" }) },
+      { id: "b", body: target },
+      { id: "c", body: "👋 a plain human comment" },
+    ];
+    expect(findStickyComment(comments, "attachment")).toEqual({ id: "b", body: target });
+  });
+
+  it("returns null when no comment carries a matching marker", () => {
+    const comments = [
+      { id: "a", body: buildRalphyComment({ type: "started", action: "started working" }) },
+      { id: "b", body: "👋 a plain human comment mentioning ralphy: but no marker" },
+    ];
+    expect(findStickyComment(comments, "attachment")).toBeNull();
+  });
+
+  it("returns the first comment in list order when duplicated", () => {
+    const first = buildRalphyComment({ type: "attachment", action: "first" });
+    const second = buildRalphyComment({ type: "attachment", action: "second" });
+    const comments = [
+      { id: "1", body: first },
+      { id: "2", body: second },
+    ];
+    expect(findStickyComment(comments, "attachment")).toEqual({ id: "1", body: first });
+  });
+
+  it("round-trips an attachment marker through build/parse", () => {
+    const body = buildRalphyComment({
+      type: "attachment",
+      action: "design ready",
+      fields: { change: "rlf-237" },
+    });
+    const parsed = parseRalphyMarker(body);
+    expect(parsed?.type).toBe("attachment");
+    expect(parsed?.fields.change).toBe("rlf-237");
   });
 });

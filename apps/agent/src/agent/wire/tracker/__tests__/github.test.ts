@@ -174,6 +174,80 @@ describe("createGithubTrackerProvider — lifecycle mapping", () => {
   });
 });
 
+describe("createGithubTrackerProvider — attachment sticky upsert", () => {
+  /** Provider backed by a stateful comment store so repeated attachment
+   *  applies exercise the real list → find → edit/create flow. */
+  function stickyProvider() {
+    const store: { id: string; body: string }[] = [];
+    const calls: string[][] = [];
+    const warnings: string[] = [];
+    let nextId = 1;
+    const runner: CmdRunner = {
+      run: async (cmd) => {
+        calls.push(cmd);
+        const sig = cmd.slice(0, 3).join(" ");
+        if (sig === "gh issue view") {
+          return { stdout: JSON.stringify({ comments: store }), stderr: "" };
+        }
+        if (sig === "gh issue comment") {
+          store.push({ id: `IC_${nextId++}`, body: cmd[cmd.indexOf("--body") + 1]! });
+          return { stdout: "", stderr: "" };
+        }
+        if (sig === "gh api graphql") {
+          const id = cmd.find((a) => a.startsWith("id="))!.slice(3);
+          store.find((c) => c.id === id)!.body = cmd.find((a) => a.startsWith("body="))!.slice(5);
+          return { stdout: "", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    };
+    const trackWarn = (_area: string, message: string, color?: string) => {
+      if (color === "yellow") warnings.push(message);
+    };
+    const p = createGithubTrackerProvider({
+      issues: ISSUES,
+      cmdRunner: runner,
+      projectRoot: "/repo",
+      diag: trackWarn,
+    });
+    return { p, calls, store, warnings };
+  }
+
+  const attachmentMarkers = (store: { body: string }[]) =>
+    store.filter((c) => /type=attachment\b/.test(c.body));
+
+  test("first apply creates one attachment comment and logs no skip warning", async () => {
+    const { p, calls, store, warnings } = stickyProvider();
+    await p.applyMarker(issue, { type: "attachment", value: "design ready" });
+
+    expect(attachmentMarkers(store)).toHaveLength(1);
+    expect(store[0]!.body).toContain("design ready");
+    expect(store[0]!.body).toContain("type=attachment");
+    expect(calls.some((c) => c.slice(0, 3).join(" ") === "gh issue comment")).toBe(true);
+    expect(warnings.some((w) => w.includes("not supported"))).toBe(false);
+  });
+
+  test("a second apply edits the same comment in place", async () => {
+    const { p, calls, store } = stickyProvider();
+    await p.applyMarker(issue, { type: "attachment", value: "design ready" });
+    await p.applyMarker(issue, { type: "attachment", value: "implementation ready" });
+
+    expect(attachmentMarkers(store)).toHaveLength(1);
+    expect(store[0]!.body).toContain("implementation ready");
+    expect(calls.some((c) => c.slice(0, 3).join(" ") === "gh api graphql")).toBe(true);
+  });
+
+  test("N applies converge on exactly one comment carrying the latest value", async () => {
+    const { p, store } = stickyProvider();
+    for (const value of ["one", "two", "three", "four"]) {
+      await p.applyMarker(issue, { type: "attachment", value });
+    }
+    const stuck = attachmentMarkers(store);
+    expect(stuck).toHaveLength(1);
+    expect(stuck[0]!.body).toContain("four");
+  });
+});
+
 describe("createGithubTrackerProvider — repo resolution", () => {
   test("detects the repo from origin when none is configured", async () => {
     const { p, calls } = provider(
