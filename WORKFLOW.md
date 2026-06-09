@@ -246,6 +246,14 @@ linear:
         - type: label
           value: auto-merge
           group: Ralphy
+    # Issues matching this get GitHub auto-merge enabled on their PR at worker
+    # completion (`gh pr merge --auto`), so the PR merges itself once checks
+    # pass. Without this indicator nothing is ever treated as auto-merge.
+    getAutoMerge:
+      filter:
+        - type: label
+          value: auto-merge
+          group: Ralphy
     setInProgress:
       type: status
       value: In Progress
