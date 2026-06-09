@@ -70,6 +70,38 @@ describe("hasMentionTrigger", () => {
       }),
     ).toBe(false);
   });
+
+  test("marker-bearing Ralphy comment with isRalph false is skipped → false", () => {
+    expect(
+      hasMentionTrigger({
+        comments: [
+          {
+            body: "Acknowledged — ralph go\n\n<!-- ralphy:v=1 type=mention-ack -->",
+            isRalph: false,
+          },
+        ],
+        triggerPhrase: "ralph go",
+      }),
+    ).toBe(false);
+  });
+
+  test("titled Ralphy comment with isRalph false is skipped → false", () => {
+    expect(
+      hasMentionTrigger({
+        comments: [{ body: "🤖 Ralphy · picked up your mention — ralph go", isRalph: false }],
+        triggerPhrase: "ralph go",
+      }),
+    ).toBe(false);
+  });
+
+  test("genuine human comment with phrase and no marker → true", () => {
+    expect(
+      hasMentionTrigger({
+        comments: [{ body: "hey please ralph go now", isRalph: false }],
+        triggerPhrase: "ralph go",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("buildMentionAckComment", () => {
@@ -79,42 +111,34 @@ describe("buildMentionAckComment", () => {
     expect(result).toContain("<!-- ralphy:v=1 type=mention-ack -->");
   });
 
-  test("without author uses Acknowledged greeting", () => {
+  test("without author uses Acknowledged greeting and no quote", () => {
     const result = buildMentionAckComment("@ralphy please retry");
     expect(result).toContain("Acknowledged — picked up your mention");
-    expect(result).toContain("> @ralphy please retry");
+    expect(result).not.toContain("@ralphy please retry");
   });
 
-  test("with author uses Got it greeting", () => {
+  test("with author uses Got it greeting and no quote", () => {
     const result = buildMentionAckComment("@ralphy please retry", "alice");
     expect(result).toContain("Got it, alice — picked up your mention");
-    expect(result).toContain("> @ralphy please retry");
+    expect(result).not.toContain("@ralphy please retry");
   });
 
-  test("single-line body within 200 chars has no ellipsis", () => {
-    const result = buildMentionAckComment("short message");
-    expect(result).not.toContain("…");
-    expect(result).toContain("> short message");
+  test("does not contain any blockquote line", () => {
+    const result = buildMentionAckComment("@ralphy please retry", "alice");
+    expect(result.split("\n").some((line) => line.startsWith(">"))).toBe(false);
   });
 
-  test("multiline body only quotes first line", () => {
+  test("multiline body is not echoed at all", () => {
     const result = buildMentionAckComment("first line\nsecond line\nthird line");
-    expect(result).toContain("> first line");
+    expect(result).not.toContain("first line");
     expect(result).not.toContain("second line");
     expect(result).not.toContain("third line");
   });
 
-  test("long body truncated to 200 chars with ellipsis", () => {
+  test("long body is neither echoed nor truncated with ellipsis", () => {
     const longLine = "a".repeat(250);
     const result = buildMentionAckComment(longLine);
-    expect(result).toContain("…");
-    const excerpt = result.split("> ")[1]!.split("\n")[0]!;
-    expect(excerpt.replace("…", "")).toHaveLength(200);
-  });
-
-  test("body exactly 200 chars has no ellipsis", () => {
-    const exactLine = "b".repeat(200);
-    const result = buildMentionAckComment(exactLine);
+    expect(result).not.toContain("a".repeat(20));
     expect(result).not.toContain("…");
   });
 });
