@@ -237,6 +237,11 @@ export type State = z.infer<typeof StateSchema>;
 // (`project`). `getX` indicators carry an any-of filter built from
 // markers; `setX` indicators apply one or more markers.
 
+// On a `getX` filter, `negate: true` inverts the marker: the issue matches when
+// it does NOT satisfy the clause (e.g. a `label` the issue must NOT carry, a
+// `status` it must NOT be in). Negated markers are rejected in `setX` slots at
+// config-load time — "set NOT label" has no meaning. Only valid on `label`,
+// `status`, and `project` variants.
 export type Marker =
   | {
       type: "label";
@@ -246,15 +251,18 @@ export type Marker =
        *  `Ralphy:error`) can be referenced by their bare child name. Only
        *  valid on the `label` variant. */
       group?: string;
+      /** When true, the issue must NOT carry this label (getX only). */
+      negate?: boolean | undefined;
     }
-  | { type: "status"; value: string }
+  | { type: "status"; value: string; negate?: boolean | undefined }
   /** Upserts a single "Ralphy" attachment on the issue; `value` becomes the
    *  attachment subtitle so each lifecycle transition updates the same entry. */
   | { type: "attachment"; value: string }
   /** Linear project name. On `getX` the issue's project name is matched
    *  case-insensitively; on `setX` the issue is reassigned to the
-   *  project whose name matches `value`. */
-  | { type: "project"; value: string }
+   *  project whose name matches `value`. `negate: true` (getX only) matches
+   *  issues NOT in the named project. */
+  | { type: "project"; value: string; negate?: boolean | undefined }
   /** Case-insensitive substring match against the body of any non-Ralph
    *  comment on the issue. Read-only: rejected in `setX` slots at
    *  config-load time. */
@@ -275,25 +283,50 @@ export interface GetIndicator {
 // must never carry an `assignee` (that would imply reassignment in a setX
 // slot).
 
-/** One clause of the global `linear.filter`. */
+/** One clause of the global `linear.filter`. A `label` or `project` clause may
+ *  set `negate: true` to mean "the ticket must NOT carry this label / must NOT
+ *  be in this project". A `project` clause (positive) scopes every fetch to a
+ *  single Linear project — the supported way to confine a Ralphy agent to one
+ *  project on a team shared with other work. */
 export type LinearFilterMarker =
-  | { type: "label"; value: string }
+  | { type: "label"; value: string; negate?: boolean | undefined }
+  | { type: "project"; value: string; negate?: boolean | undefined }
   /** `value` ∈ { me, any, unassigned, <email>, <user-id> }. */
   | { type: "assignee"; value: string };
 
-/** The global Linear filter: a list of label/assignee clauses, all ANDed. */
+/** The global Linear filter: a list of label/project/assignee clauses, all ANDed. */
 export type LinearFilter = LinearFilterMarker[];
 
 /**
  * The global filter resolved into the fields the query layer consumes:
- * `assignee`/`anyAssignee` feed the existing assignee constraint, and every
- * entry of `requireAllLabels` becomes a mandatory (must-have) label clause.
+ * `assignee`/`anyAssignee` feed the existing assignee constraint;
+ * `requireAllLabels` are must-have labels and `excludeLabels` are must-not-have
+ * labels (both ANDed onto every query); `requireProject` confines every fetch
+ * to one Linear project, and `excludeProjects` are projects to keep out. The
+ * optional fields are present only when the filter declares them.
  */
 export interface ResolvedLinearFilter {
   assignee?: string | undefined;
   anyAssignee?: boolean | undefined;
   requireAllLabels: string[];
+  excludeLabels?: string[] | undefined;
+  requireProject?: string | undefined;
+  excludeProjects?: string[] | undefined;
 }
+
+/**
+ * The non-assignee half of {@link ResolvedLinearFilter} — the global label /
+ * project constraints ANDed onto every fetch. Threaded as one object (instead of
+ * four positional params) from each `resolveLinearFilter` call down to the query
+ * spec, so adding a future global constraint doesn't re-touch every call site.
+ * `assignee`/`anyAssignee` stay separate because they map to a distinct spec
+ * field. Every field is optional except `requireAllLabels` (kept array-typed for
+ * back-compat with existing display/diagnostics call sites).
+ */
+export type LinearFilterScope = Pick<
+  ResolvedLinearFilter,
+  "requireAllLabels" | "excludeLabels" | "requireProject" | "excludeProjects"
+>;
 
 /** Single marker or array of markers to apply in one transition. */
 export type SetIndicator = Marker | Marker[];

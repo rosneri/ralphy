@@ -150,6 +150,10 @@ export function pipelineStages(row: TicketRow): PipelineStage[] {
       // Parked at the human confirmation gate, before work begins.
       return stages("done", "current", "pending", "pending", "pending", "pending");
     case "queued":
+      // Picked but not yet spawned (waiting for a worker slot): past
+      // confirmation, work not started. No node is `current` — it's waiting,
+      // not working — so the work node stays `pending` rather than lighting up.
+      return stages("done", "done", "pending", "pending", "pending", "pending");
     case "working":
     case "in-progress":
       return stages("done", "done", "current", "pending", "pending", "pending");
@@ -240,6 +244,26 @@ interface BoardTreeRow {
    *  i.e. the ones the nesting represents. Excludes blockers not on the board
    *  (those are still named via `row.blockedByIdentifiers`). */
   blockerIdentifiers: string[];
+}
+
+/**
+ * Stable-partition the board so rows backed by a *live worker* lead, keeping
+ * relative order within each group. Apply before {@link buildBoardTree} so
+ * active work heads the list while its dependents still nest beneath it.
+ *
+ * "Active by worker" is liveness the row state alone can't express: a `working`
+ * row with no spawned worker is merely waiting for a slot, so the caller passes
+ * the actually-running worker ids rather than keying off state.
+ */
+export function orderActiveWorkersFirst(
+  rows: TicketRow[],
+  activeWorkerIds: ReadonlySet<string>,
+): TicketRow[] {
+  if (activeWorkerIds.size === 0) return rows.slice();
+  const active: TicketRow[] = [];
+  const rest: TicketRow[] = [];
+  for (const r of rows) (activeWorkerIds.has(r.id) ? active : rest).push(r);
+  return [...active, ...rest];
 }
 
 /**

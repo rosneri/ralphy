@@ -238,6 +238,14 @@ linear:
         - type: label
           value: approved
           group: Ralphy
+    # Issues matching this skip the confirmation gate entirely (go straight to
+    # implementation without waiting for the `approved` label). Auto-merge
+    # tickets are trusted to flow through unattended, so they auto-approve too.
+    getAutoApprove:
+      filter:
+        - type: label
+          value: auto-merge
+          group: Ralphy
     setInProgress:
       type: status
       value: In Progress

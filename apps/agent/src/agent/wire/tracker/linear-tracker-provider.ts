@@ -9,7 +9,7 @@
  * A future `GithubTrackerProvider` (M2) implements the same interface over the
  * `gh` CLI; the coordinator never sees the difference.
  */
-import type { Indicators } from "@ralphy/types";
+import type { Indicators, LinearFilterScope } from "@ralphy/types";
 import type { IssueTrackerProvider, MentionTrigger, TrackedIssue } from "@ralphy/tracker";
 import { addIssueComment, fetchIssueComments } from "../../linear";
 import { unionMarkers } from "../indicators";
@@ -20,10 +20,10 @@ interface LinearTrackerProviderInput {
   team: string | undefined;
   assignee: string | undefined;
   /** Filter clauses scoping done-candidate fetches, mirroring the inline wiring:
-   *  `anyAssignee` widens the assignee match, `requireAllLabels` narrows to
-   *  issues carrying every listed label. */
+   *  `anyAssignee` widens the assignee match, `scope` carries the global
+   *  label/project constraints ANDed onto every fetch. */
   anyAssignee: boolean | undefined;
-  requireAllLabels: string[] | undefined;
+  scope: LinearFilterScope;
   indicators: Indicators;
   /** The indicator-dispatch resolvers built from the same Linear config.
    *  Shared with the rest of `wire.ts` (spawn, confirmation, baseline gate). */
@@ -44,7 +44,7 @@ export function createLinearTrackerProvider(
     team,
     assignee,
     anyAssignee,
-    requireAllLabels,
+    scope,
     indicators,
     resolvers,
     fetchMentions,
@@ -67,7 +67,7 @@ export function createLinearTrackerProvider(
         team,
         assignee,
         anyAssignee,
-        requireAllLabels,
+        scope,
         indicators,
         ticketNumbers && ticketNumbers.length > 0 ? ticketNumbers : undefined,
       ),

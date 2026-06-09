@@ -51,7 +51,8 @@ export type RalphyCommentType =
   | "steering"
   | "tasks"
   | "review-round"
-  | "pr-body";
+  | "pr-body"
+  | "attachment";
 
 /** Parsed contents of a `<!-- ralphy:… -->` marker. */
 export interface RalphyMarker {
@@ -103,6 +104,34 @@ export function parseRalphyMarker(body: string): RalphyMarker | null {
   }
   if (!type) return null;
   return { version, type, fields };
+}
+
+/** Minimal shape of a tracked comment the sticky finder scans over. */
+export interface StickyCommentLike {
+  /** Backend comment id (e.g. a GitHub GraphQL node id), if known. */
+  id?: string;
+  /** Raw comment body, scanned for the hidden Ralphy marker. */
+  body: string;
+}
+
+/**
+ * Find the first comment carrying a Ralphy marker of the given `type`, or
+ * `null` when none matches. The backbone of the GitHub "sticky upsert" pattern:
+ * a single marker-tagged comment is re-discovered by scanning the issue's
+ * comments, so the upsert is stateless — correct even after a wiped worktree.
+ *
+ * First-wins on duplicates keeps a single canonical sticky comment even if a
+ * second one ever slips in. A comment with no typed marker never matches, so
+ * human comments that merely mention `ralphy:` are not hijacked.
+ */
+export function findStickyComment<T extends StickyCommentLike>(
+  comments: readonly T[],
+  type: RalphyCommentType,
+): T | null {
+  for (const comment of comments) {
+    if (parseRalphyMarker(comment.body)?.type === type) return comment;
+  }
+  return null;
 }
 
 export interface RalphyCommentInput {

@@ -1,7 +1,7 @@
 /**
  * `GithubTrackerProvider` — a real issue-tracker provider that maps GitHub
- * primitives onto the shared `LinearClientLike` surface (see
- * `apps/agent/test/harness/types.ts`). It proves the backend-neutral provider
+ * primitives onto the shared `IssueTrackerProvider` surface (from
+ * `@ralphy/tracker`). It proves the backend-neutral provider
  * contract kit is genuinely tracker-agnostic by standing alongside the Linear
  * client behind the exact same structural interface.
  *
@@ -19,13 +19,13 @@
  * coordinator or the XState machines.
  */
 
-import type { GetIndicator, SetIndicator } from "@ralphy/types";
+import type { GetIndicator, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
 import type { LinearIssue } from "../../../shared/capabilities/linear-client";
 import { issueMatchesGetIndicator } from "../../../shared/capabilities/linear-client";
 import type { MentionTrigger } from "../../../queue/queue-order";
-import type { LinearClientLike } from "../../../../test/harness/types";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
 
 /** `--json` fields requested from `gh issue list` / `gh issue view`. */
 const ISSUE_FIELDS = "number,title,body,url,state,labels,assignees,createdAt";
@@ -107,14 +107,28 @@ export function mapGithubIssue(raw: RawGithubIssue): LinearIssue {
   };
 }
 
+/**
+ * Flatten a marker to the literal GitHub label name it applies. GitHub has no
+ * label groups (Linear does), so a grouped `label` marker
+ * (`{ type: "label", value: "error", group: "Ralphy" }`) collapses to the
+ * single flat label `Ralphy:error` — matching the nested name Linear resolves.
+ * An ungrouped `label` marker keeps its bare `value`; non-`label` markers are
+ * returned unchanged (their `value`).
+ */
+export function flattenLabel(marker: Marker): string {
+  if (marker.type === "label" && marker.group) return `${marker.group}:${marker.value}`;
+  return marker.value;
+}
+
 /** True when an indicator's markers denote "done" (status `done` or any
- *  label whose final `:`-segment is `done`, e.g. `status:done`). */
+ *  label whose final `:`-segment is `done`, e.g. `status:done` or a grouped
+ *  `{ value: "done", group: "status" }` that flattens to `status:done`). */
 function isDoneIndicator(set: SetIndicator): boolean {
   const markers = markersOf(set);
   return markers.some(
     (m) =>
       (m.type === "status" && m.value.toLowerCase() === "done") ||
-      (m.type === "label" && /(^|:)done$/i.test(m.value)),
+      (m.type === "label" && /(^|:)done$/i.test(flattenLabel(m))),
   );
 }
 
@@ -135,7 +149,7 @@ export function githubIndicatorAction(
   if (op === "add" && isDoneIndicator(set)) return { kind: "close" };
   const labels = markersOf(set)
     .filter((m) => m.type === "label")
-    .map((m) => m.value);
+    .map(flattenLabel);
   return { kind: op === "remove" ? "remove-label" : "add-label", labels };
 }
 
@@ -158,9 +172,9 @@ export function staleStatusLabels(
 
 /**
  * Build a `GithubTrackerProvider` over the injected `gh` runner. Returns the
- * structural `LinearClientLike` surface; no coordinator/machine imports.
+ * structural `IssueTrackerProvider` surface; no coordinator/machine imports.
  */
-export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClientLike {
+export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrackerProvider {
   const { runner, cwd, repo, vocab } = deps;
   const statusPrefix = vocab.statusPrefix ?? "status:";
 
@@ -180,6 +194,34 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
     filter: [{ type: "label", value: vocab.inProgressLabel }],
   };
   const reviewGet: GetIndicator = { filter: [{ type: "label", value: vocab.reviewLabel }] };
+
+  /**
+   * Lazily-seeded, case-insensitive set of label names known to exist in the
+   * repo. `null` until the first `ensureLabelsExist` call lists them. GitHub
+   * label names are unique case-insensitively, so comparison is lowercased.
+   */
+  let knownLabels: Set<string> | null = null;
+
+  /**
+   * Create any of `labels` that do not yet exist in the repo, so a subsequent
+   * `gh issue edit --add-label` cannot fail on a missing label (GitHub, unlike
+   * Linear, does not auto-create labels on use). Idempotent: the known-label
+   * set is listed once and reused, so repeat applies issue no extra `label
+   * list` and an already-present label is never re-created.
+   */
+  async function ensureLabelsExist(labels: string[]): Promise<void> {
+    if (labels.length === 0) return;
+    if (knownLabels === null) {
+      const { stdout } = await run(["label", "list", "--json", "name"]);
+      const existing = JSON.parse(stdout || "[]") as { name: string }[];
+      knownLabels = new Set(existing.map((l) => l.name.toLowerCase()));
+    }
+    for (const label of labels) {
+      if (knownLabels.has(label.toLowerCase())) continue;
+      await run(["label", "create", label]);
+      knownLabels.add(label.toLowerCase());
+    }
+  }
 
   return {
     fetchTodo: async () => {
@@ -209,6 +251,7 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
         return;
       }
       if (action.labels.length === 0) return;
+      await ensureLabelsExist(action.labels);
       // Single-active-status: strip any prior `status:*` label in the same edit
       // so the open issue carries at most one status label.
       const stale = staleStatusLabels(issue.labels, action.labels, statusPrefix);

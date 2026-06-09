@@ -18,6 +18,7 @@
  *     one place.
  */
 
+import { buildRalphyComment, findStickyComment } from "@ralphy/comms";
 import type { SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
@@ -26,10 +27,11 @@ import {
   githubIndicatorAction,
   staleStatusLabels,
 } from "../../src/agent/wire/tracker/github-tracker-provider";
+import type { IssueTrackerProvider } from "@ralphy/tracker";
+import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
 
 /** Namespace identifying single-valued status labels (mirrors the real provider). */
 const STATUS_PREFIX = "status:";
-import type { AppliedLog, FakeLinearComment, LinearClientLike, SeedIssue } from "./types";
 import type { ContractBucket, MentionSource, ProviderContractBackend } from "./provider-contract";
 
 /** GitHub-flavoured marker vocabulary shared by the fake and its adapter. */
@@ -52,7 +54,7 @@ const LIFECYCLE_LABELS: string[] = [
 ];
 
 export interface FakeGithub {
-  client: LinearClientLike;
+  client: IssueTrackerProvider;
   seed: (issue: SeedIssue) => LinearIssue;
   setLabels: (id: string, labels: string[]) => void;
   /** Flip an issue between open (true) and closed (false). */
@@ -127,7 +129,7 @@ export function createFakeGithub(): FakeGithub {
     rec.issue = { ...rec.issue, labels: rec.issue.labels.filter((l) => !labels.includes(l)) };
   }
 
-  const client: LinearClientLike = {
+  const client: IssueTrackerProvider = {
     fetchTodo: async () =>
       [...records.values()]
         .filter(
@@ -169,6 +171,19 @@ export function createFakeGithub(): FakeGithub {
       return out;
     },
     applyIndicator: async (issue, ind) => {
+      // Attachment markers have no GitHub equivalent; the provider substitutes a
+      // sticky-upserted comment, re-discovered by its hidden marker. Mirror that
+      // here so the behaviour is observable through fetchComments.
+      const attachment = markersOf(ind).find((m) => m.type === "attachment");
+      if (attachment) {
+        const body = buildRalphyComment({ type: "attachment", action: attachment.value });
+        const list = comments.get(issue.id) ?? [];
+        const existing = findStickyComment(list, "attachment");
+        if (existing) existing.body = body;
+        else list.push({ body, author: "ralphy", at: new Date() });
+        comments.set(issue.id, list);
+        return;
+      }
       const key = classifyApplied(ind);
       if (key) applied[key].push(issue.identifier);
       const action = githubIndicatorAction(ind, "add");
@@ -283,6 +298,9 @@ export function makeGithubContractBackend(): ProviderContractBackend {
       error: { type: "label", value: GITHUB_LABELS.error },
       review: { type: "label", value: GITHUB_LABELS.review },
     },
+    // GitHub substitutes the unsupported attachment marker with a sticky
+    // upserted comment, so it opts into the contract kit's attachment cases.
+    attachmentMarker: { type: "attachment", value: "design ready" },
     pushComment: fake.pushComment,
     pushMention: fake.pushMention,
     comments: fake.comments,

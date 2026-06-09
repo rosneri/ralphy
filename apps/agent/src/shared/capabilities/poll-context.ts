@@ -34,10 +34,22 @@ export class PollContext {
     fields: readonly string[],
     runner: CmdRunner,
     cwd: string,
+    opts?: {
+      /**
+       * Skip the cache and re-run `gh pr view`, replacing the memo entry with
+       * the fresh result. Required by retry loops (e.g. {@link waitForMergeability})
+       * that poll the *same* (url, fields) key to wait out GitHub's async
+       * mergeability computation — without it every retry returns the first
+       * cached value and the backoff is a no-op.
+       */
+      forceRefresh?: boolean;
+    },
   ): Promise<unknown> {
     const key = `${url}|${[...fields].sort().join(",")}`;
-    const existing = this.memo.get(key);
-    if (existing) return existing;
+    if (!opts?.forceRefresh) {
+      const existing = this.memo.get(key);
+      if (existing) return existing;
+    }
     const pending = this.runGhView(url, fields, runner, cwd);
     this.memo.set(key, pending);
     pending.catch(() => {

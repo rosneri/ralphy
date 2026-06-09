@@ -3,6 +3,7 @@ import {
   pipelineStages,
   statusLabel,
   buildBoardTree,
+  orderActiveWorkersFirst,
   machineStateToTicketState,
   STATUS_GLYPH,
   PIPELINE_NODES,
@@ -90,8 +91,8 @@ describe("task-pipeline · pipelineStages", () => {
     });
   });
 
-  test("queued / working / in-progress — confirmation passed, work is current", () => {
-    for (const state of ["queued", "working", "in-progress"] as const) {
+  test("working / in-progress — confirmation passed, work is current", () => {
+    for (const state of ["working", "in-progress"] as const) {
       expect(shape(state)).toEqual({
         todo: "done",
         confirmation: "done",
@@ -101,6 +102,17 @@ describe("task-pipeline · pipelineStages", () => {
         done: "pending",
       });
     }
+  });
+
+  test("queued — past confirmation, waiting for a slot: no node is current", () => {
+    expect(shape("queued")).toEqual({
+      todo: "done",
+      confirmation: "done",
+      work: "pending",
+      PR: "pending",
+      CI: "pending",
+      done: "pending",
+    });
   });
 
   test("awaiting-ci — PR opened, CI is the current node", () => {
@@ -385,5 +397,46 @@ describe("task-pipeline · buildBoardTree", () => {
     const out = buildBoardTree([trow("a", [{ id: "a", identifier: "A" }])]);
     expect(out[0]!.depth).toBe(0);
     expect(out[0]!.blockerIdentifiers).toEqual([]);
+  });
+});
+
+describe("task-pipeline · orderActiveWorkersFirst", () => {
+  function r(id: string, state: TicketState = "working"): TicketRow {
+    return {
+      changeName: id,
+      id,
+      identifier: id.toUpperCase(),
+      title: id,
+      url: `https://example.test/${id}`,
+      priority: 0,
+      state,
+    };
+  }
+
+  test("returns a copy in original order when no workers are active", () => {
+    const rows = [r("a"), r("b"), r("c")];
+    const out = orderActiveWorkersFirst(rows, new Set());
+    expect(out.map((x) => x.id)).toEqual(["a", "b", "c"]);
+    expect(out).not.toBe(rows); // copy, not the same array
+  });
+
+  test("pins active-worker rows to the front, preserving order within groups", () => {
+    const rows = [r("a"), r("b"), r("c"), r("d")];
+    const out = orderActiveWorkersFirst(rows, new Set(["c", "a"]));
+    // active (a, c) keep their relative board order; rest (b, d) follow.
+    expect(out.map((x) => x.id)).toEqual(["a", "c", "b", "d"]);
+  });
+
+  test("preserves every row exactly", () => {
+    const rows = [r("a"), r("b"), r("c")];
+    const out = orderActiveWorkersFirst(rows, new Set(["b"]));
+    expect(new Set(out.map((x) => x.id))).toEqual(new Set(["a", "b", "c"]));
+    expect(out).toHaveLength(3);
+  });
+
+  test("a live worker leads even when it would otherwise sort lower", () => {
+    const rows = [r("todo-1", "todo"), r("working-1", "working")];
+    const out = orderActiveWorkersFirst(rows, new Set(["working-1"]));
+    expect(out[0]!.id).toBe("working-1");
   });
 });

@@ -62,6 +62,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
     const resolvers = createLinearResolvers({
       apiKey: "k",
       team: "RLF",
+      scope: { requireAllLabels: [] },
       assignee: undefined,
       diag: () => {},
     });
@@ -75,6 +76,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
     const resolvers = createLinearResolvers({
       apiKey: "k",
       team: "RLF",
+      scope: { requireAllLabels: [] },
       assignee: undefined,
       diag: () => {},
     });
@@ -109,6 +111,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
     const resolvers = createLinearResolvers({
       apiKey: "k",
       team: "RLF",
+      scope: { requireAllLabels: [] },
       assignee: undefined,
       diag: () => {},
     });
@@ -134,6 +137,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
     const resolvers = createLinearResolvers({
       apiKey: "k",
       team: "RLF",
+      scope: { requireAllLabels: [] },
       assignee: undefined,
       diag: () => {},
     });
@@ -169,6 +173,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
     const resolvers = createLinearResolvers({
       apiKey: "k",
       team: "RLF",
+      scope: { requireAllLabels: [] },
       assignee: undefined,
       diag: () => {},
     });

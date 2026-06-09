@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { getStorage, getLayout, getArgs } from "@ralphy/context";
-import { resolveLinearFilter, applyAssigneeOverride } from "@ralphy/workflow";
-import type { GetIndicator, Indicators, Marker } from "@ralphy/types";
+import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@ralphy/workflow";
+import type { GetIndicator, Indicators, LinearFilterScope, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
 import {
@@ -155,7 +155,7 @@ async function fetchBucketIssues(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
-  requireAllLabels: string[] | undefined,
+  scope: LinearFilterScope,
   ticketNumbers: number[],
 ): Promise<LinearIssue[]> {
   if (!bucket.indicator || bucket.indicator.filter.length === 0) return [];
@@ -163,7 +163,7 @@ async function fetchBucketIssues(
     team,
     assignee,
     anyAssignee,
-    requireAllLabels,
+    ...scope,
     include: bucket.indicator.filter,
     exclude: bucket.exclude,
     ...(ticketNumbers.length > 0 ? { numbers: ticketNumbers } : {}),
@@ -256,7 +256,7 @@ async function fetchAndPrintLinear(
   team: string | undefined,
   assignee: string | undefined,
   anyAssignee: boolean | undefined,
-  requireAllLabels: string[] | undefined,
+  scope: LinearFilterScope,
   cwd: string,
   runner: CmdRunner,
   ignoreCiChecks: string[] = [],
@@ -277,7 +277,7 @@ async function fetchAndPrintLinear(
           team,
           assignee,
           anyAssignee,
-          requireAllLabels,
+          scope,
           ticketNumbers,
         );
         return { bucket, issues, error: null };
@@ -464,9 +464,11 @@ export async function runList(input: RunListInput): Promise<void> {
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
-  const { assignee, anyAssignee, requireAllLabels } = resolveLinearFilter(
+  const resolved = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
+  const { assignee, anyAssignee } = resolved;
+  const scope = linearFilterScope(resolved);
   const buckets = buildBuckets(indicators);
   const anyConfigured = buckets.some((b) => b.indicator && b.indicator.filter.length > 0);
 
@@ -508,7 +510,7 @@ export async function runList(input: RunListInput): Promise<void> {
     team,
     assignee,
     anyAssignee,
-    requireAllLabels,
+    scope,
     projectRoot,
     localCmdRunner,
     cfg.prRecovery.ignoreChecks,
@@ -646,7 +648,7 @@ async function runListDebug(input: DebugInput): Promise<void> {
   const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
   const indicators = cfg.linear.indicators as Indicators;
   const team = input.linearTeamOverride || cfg.linear.team;
-  const { assignee, anyAssignee, requireAllLabels } = resolveLinearFilter(
+  const { assignee, anyAssignee, requireAllLabels, excludeLabels } = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
   const assigneeLabel = anyAssignee ? "any" : (assignee ?? "*");
@@ -709,6 +711,13 @@ async function runListDebug(input: DebugInput): Promise<void> {
       const missing = requireAllLabels.filter((label) => !issueLabels.has(label));
       if (missing.length > 0) {
         reasons.push(`missing required linear.filter label(s): ${missing.join(", ")}`);
+      }
+    }
+    if (excludeLabels && excludeLabels.length > 0) {
+      const issueLabels = new Set(issue.labels.nodes.map((l) => l.name));
+      const present = excludeLabels.filter((label) => issueLabels.has(label));
+      if (present.length > 0) {
+        reasons.push(`carries excluded linear.filter label(s): ${present.join(", ")}`);
       }
     }
 
