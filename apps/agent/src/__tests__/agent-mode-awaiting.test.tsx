@@ -14,6 +14,7 @@ import {
 } from "../components/AgentMode";
 import type { AgentParsedArgs as ParsedArgs } from "../cli";
 import type { RalphyConfig } from "../agent/config";
+import type { TicketRow } from "../components/task-pipeline";
 
 async function flush(ms = 150) {
   await new Promise((r) => setTimeout(r, ms));
@@ -52,45 +53,52 @@ const baseArgs: ParsedArgs = {
   review: false,
 };
 
-function makeBuilderWithAwaiting(
-  awaitingCount: number,
-  fireAwaiting?: {
-    changeName: string;
-    issueIdentifier: string;
-    issueUrl: string;
-    issueTitle: string;
-    since: string | null;
-    round: number;
-  },
-): AgentModeBuildCoordinator {
-  return (input) => {
-    const onAwaitingTicket = input.onAwaitingTicket;
+// A gated ticket is surfaced by the coordinator as an `awaiting` board row —
+// not a separate [GATE] card — so the builder seeds the board, mirroring what
+// `Coordinator.buildBoard` does for awaiting-confirmation ids.
+function makeBuilderWithAwaiting(awaitingRow?: {
+  changeName: string;
+  identifier: string;
+  title: string;
+  url: string;
+}): AgentModeBuildCoordinator {
+  return () => {
+    const board = awaitingRow
+      ? [
+          {
+            changeName: awaitingRow.changeName,
+            id: awaitingRow.changeName,
+            identifier: awaitingRow.identifier,
+            title: awaitingRow.title,
+            url: awaitingRow.url,
+            priority: 0,
+            state: "awaiting" as const,
+          },
+        ]
+      : [];
     const coord: AgentModeCoordinator = {
       activeWorkers: [],
       activeCount: 0,
       queuedCount: 0,
       init: async () => {},
-      pollOnce: async () => {
-        if (fireAwaiting && onAwaitingTicket) onAwaitingTicket(fireAwaiting);
-        return {
-          found: awaitingCount,
-          added: 0,
-          buckets: {
-            todo: 0,
-            inProgress: 0,
-            conflicted: 0,
-            ciFailed: 0,
-            review: 0,
-            mentions: 0,
-            quarantined: 0,
-            awaiting: awaitingCount,
-          },
-          prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
-          phase: {},
-          flow: {},
-          board: [],
-        };
-      },
+      pollOnce: async () => ({
+        found: board.length,
+        added: 0,
+        buckets: {
+          todo: 0,
+          inProgress: 0,
+          conflicted: 0,
+          ciFailed: 0,
+          review: 0,
+          mentions: 0,
+          quarantined: 0,
+          awaiting: board.length,
+        },
+        prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
+        phase: {},
+        flow: {},
+        board,
+      }),
       stop: () => {},
       getPause: () => null,
       restartWorker: async () => true,
@@ -104,6 +112,81 @@ function makeBuilderWithAwaiting(
       runBaselineGate: async () => {},
     };
   };
+}
+
+/** Seed an arbitrary board (and active-worker count) so the stall indicator —
+ *  which keys off the board states plus live workers — can be exercised. */
+function makeBuilderWithBoard(board: TicketRow[], activeWorkers = 0): AgentModeBuildCoordinator {
+  return () => {
+    const coord: AgentModeCoordinator = {
+      activeWorkers: [],
+      activeCount: activeWorkers,
+      queuedCount: 0,
+      init: async () => {},
+      pollOnce: async () => ({
+        found: board.length,
+        added: 0,
+        buckets: {
+          todo: 0,
+          inProgress: 0,
+          conflicted: 0,
+          ciFailed: 0,
+          review: 0,
+          mentions: 0,
+          quarantined: 0,
+          awaiting: 0,
+        },
+        prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
+        phase: {},
+        flow: {},
+        board,
+      }),
+      stop: () => {},
+      getPause: () => null,
+      restartWorker: async () => true,
+    };
+    return {
+      coord,
+      filterDesc: "fake",
+      concurrency: 1,
+      pollInterval: 60,
+      getWorkerCwd: () => undefined,
+      runBaselineGate: async () => {},
+    };
+  };
+}
+
+function boardRow(
+  identifier: string,
+  state: TicketRow["state"],
+  blockedBy: string[] = [],
+): TicketRow {
+  return {
+    changeName: identifier.toLowerCase(),
+    id: identifier.toLowerCase(),
+    identifier,
+    title: `title ${identifier}`,
+    url: `https://linear.app/x/${identifier}`,
+    priority: 0,
+    state,
+    ...(blockedBy.length ? { blockedByIds: blockedBy, blockedByIdentifiers: blockedBy } : {}),
+  };
+}
+
+function renderBoard(tmpRoot: string, build: AgentModeBuildCoordinator) {
+  return render(
+    React.createElement(AgentMode, {
+      args: baseArgs,
+      projectRoot: tmpRoot,
+      statesDir: join(tmpRoot, "states"),
+      tasksDir: join(tmpRoot, "tasks"),
+      appendSteering: async () => {},
+      buildCoordinator: build,
+      ensureConfig: ensureConfigStub,
+      loadConfig: loadConfigStub,
+      runPreflight: async () => ({ ok: true as const }),
+    }),
+  );
 }
 
 describe("AgentMode awaiting-confirmation", () => {
@@ -120,8 +203,7 @@ describe("AgentMode awaiting-confirmation", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
-  test("renders a [GATE] card for each ticket reported via onAwaitingTicket", async () => {
-    const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  test("renders a gated ticket inline as an awaiting board row, not a [GATE] card", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
         args: baseArgs,
@@ -129,13 +211,11 @@ describe("AgentMode awaiting-confirmation", () => {
         statesDir: join(tmpRoot, "states"),
         tasksDir: join(tmpRoot, "tasks"),
         appendSteering: async () => {},
-        buildCoordinator: makeBuilderWithAwaiting(1, {
+        buildCoordinator: makeBuilderWithAwaiting({
           changeName: "rlf-78-foo",
-          issueIdentifier: "RLF-78",
-          issueUrl: "https://linear.app/x/issue/RLF-78",
-          issueTitle: "Confirmation gate test",
-          since,
-          round: 1,
+          identifier: "RLF-78",
+          title: "Confirmation gate test",
+          url: "https://linear.app/x/issue/RLF-78",
         }),
         ensureConfig: ensureConfigStub,
         loadConfig: loadConfigStub,
@@ -144,13 +224,38 @@ describe("AgentMode awaiting-confirmation", () => {
     );
     await flush();
     const frame = stripVTControlCharacters(lastFrame() ?? "");
-    // Ink wraps "[GATE]" across rows on narrow widths. Look for the visible
-    // pieces (RLF-78 label + GATE prefix + round/asked indicators).
+    // The ticket appears in the TASKS board with its awaiting status label …
     expect(frame).toContain("RLF-78");
-    expect(frame).toContain("[GATE");
-    expect(frame).toContain("Awaiting");
-    expect(frame).toMatch(/round\s+1/);
-    expect(frame).toMatch(/asked\s+5m\d{2}s\s+ago/);
+    expect(frame).toContain("awaiting confirmation");
+    // … and the standalone gate card is gone.
+    expect(frame).not.toContain("[GATE");
+    unmount();
+  });
+
+  test("shows a 'nothing can start' banner when every ticket is blocked or awaiting", async () => {
+    const board = [
+      boardRow("LIT-428", "todo", ["LIT-420"]), // blocked
+      boardRow("LIT-431", "todo", ["LIT-428"]), // blocked
+      boardRow("LIT-429", "awaiting"), // gated
+    ];
+    const { lastFrame, unmount } = renderBoard(tmpRoot, makeBuilderWithBoard(board));
+    await flush();
+    const frame = stripVTControlCharacters(lastFrame() ?? "");
+    expect(frame).toContain("nothing can start");
+    expect(frame).toContain("2 blocked");
+    expect(frame).toContain("1 awaiting confirmation");
+    unmount();
+  });
+
+  test("no stall banner while a ticket is actively working", async () => {
+    const board = [
+      boardRow("LIT-500", "working"),
+      boardRow("LIT-431", "todo", ["LIT-500"]), // blocked, but work is advancing
+    ];
+    const { lastFrame, unmount } = renderBoard(tmpRoot, makeBuilderWithBoard(board, 1));
+    await flush();
+    const frame = stripVTControlCharacters(lastFrame() ?? "");
+    expect(frame).not.toContain("nothing can start");
     unmount();
   });
 });

@@ -158,13 +158,40 @@ interface LinearNode {
   labels: { nodes: { name: string }[] };
   priority: number;
   createdAt: string;
-  relations: {
-    nodes: {
-      type: string;
-      relatedIssue: { id: string; identifier: string; state: { type: string } };
-    }[];
+  inverseRelations: {
+    nodes: InverseRelationNode[];
   };
   comments?: { nodes: LinearComment[] };
+}
+
+/** Blocker states Linear treats as resolved — pruned from `blocked_by`. */
+const DONE_BLOCKER_STATE_TYPES = new Set(["completed", "cancelled"]);
+
+/**
+ * One inverse-relation node: a stored relation that points *at* this issue. For
+ * a `blocks` relation `A → B`, querying B's `inverseRelations` yields this node
+ * with `issue` = A — i.e. A is B's blocker.
+ */
+interface InverseRelationNode {
+  type: string;
+  issue: { id: string; identifier: string; state: { type: string } };
+}
+
+/**
+ * Open blockers (`blocked_by`) of an issue, derived from Linear's
+ * `inverseRelations`.
+ *
+ * Linear has **no `blocked_by` relation type**: "B is blocked by A" is stored as
+ * a single `blocks` relation `A → B`. From B's side that link surfaces *only* in
+ * `inverseRelations` (`type === "blocks"`, `issue` = the blocker A) — it never
+ * appears in `B.relations`. Querying `relations` for a `"blocked_by"` type (as
+ * this module used to) therefore matched nothing and every blocked ticket ran.
+ * Completed/cancelled blockers are pruned as resolved.
+ */
+function openBlockersFromInverse(nodes: InverseRelationNode[] | undefined): BlockerRef[] {
+  return (nodes ?? [])
+    .filter((r) => r.type === "blocks" && !DONE_BLOCKER_STATE_TYPES.has(r.issue.state.type))
+    .map((r) => ({ id: r.issue.id, identifier: r.issue.identifier }));
 }
 
 interface Partitioned {
@@ -435,8 +462,8 @@ export async function fetchMentionScanIssues(
         project { id name priority }
         projectMilestone { id name sortOrder targetDate }
         labels { nodes { name } }
-        relations(first: 50) {
-          nodes { type relatedIssue { id identifier state { type } } }
+        inverseRelations(first: 50) {
+          nodes { type issue { id identifier state { type } } }
         }
         comments(first: 50) {
           nodes { id body createdAt user { name email } }
@@ -449,28 +476,26 @@ export async function fetchMentionScanIssues(
     filter: where,
   });
 
-  const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
-  return data.issues.nodes.map((n) => ({
-    id: n.id,
-    identifier: n.identifier,
-    title: n.title,
-    description: n.description,
-    url: n.url,
-    state: n.state,
-    assignee: n.assignee,
-    project: mapNodeProject(n),
-    ...milestoneSpread(n),
-    labels: n.labels.nodes.map((l) => l.name),
-    priority: n.priority,
-    createdAt: n.createdAt ?? "",
-    blockedByIds: (n.relations?.nodes ?? [])
-      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
-      .map((r) => r.relatedIssue.id),
-    blockedByIdentifiers: (n.relations?.nodes ?? [])
-      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
-      .map((r) => r.relatedIssue.identifier),
-    comments: n.comments?.nodes ?? [],
-  }));
+  return data.issues.nodes.map((n) => {
+    const blockers = openBlockersFromInverse(n.inverseRelations?.nodes);
+    return {
+      id: n.id,
+      identifier: n.identifier,
+      title: n.title,
+      description: n.description,
+      url: n.url,
+      state: n.state,
+      assignee: n.assignee,
+      project: mapNodeProject(n),
+      ...milestoneSpread(n),
+      labels: n.labels.nodes.map((l) => l.name),
+      priority: n.priority,
+      createdAt: n.createdAt ?? "",
+      blockedByIds: blockers.map((b) => b.id),
+      blockedByIdentifiers: blockers.map((b) => b.identifier),
+      comments: n.comments?.nodes ?? [],
+    };
+  });
 }
 
 export async function fetchOpenIssues(
@@ -496,10 +521,10 @@ export async function fetchOpenIssues(
         project { id name priority }
         projectMilestone { id name sortOrder targetDate }
         labels { nodes { name } }
-        relations(first: 50) {
+        inverseRelations(first: 50) {
           nodes {
             type
-            relatedIssue { id identifier state { type } }
+            issue { id identifier state { type } }
           }
         }
         ${commentsSlice}
@@ -511,28 +536,26 @@ export async function fetchOpenIssues(
     filter: where,
   });
 
-  const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
-  return data.issues.nodes.map((n) => ({
-    id: n.id,
-    identifier: n.identifier,
-    title: n.title,
-    description: n.description,
-    url: n.url,
-    state: n.state,
-    assignee: n.assignee,
-    project: mapNodeProject(n),
-    ...milestoneSpread(n),
-    labels: n.labels.nodes.map((l) => l.name),
-    priority: n.priority,
-    createdAt: n.createdAt ?? "",
-    blockedByIds: (n.relations?.nodes ?? [])
-      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
-      .map((r) => r.relatedIssue.id),
-    blockedByIdentifiers: (n.relations?.nodes ?? [])
-      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
-      .map((r) => r.relatedIssue.identifier),
-    ...(includeComments ? { comments: n.comments?.nodes ?? [] } : {}),
-  }));
+  return data.issues.nodes.map((n) => {
+    const blockers = openBlockersFromInverse(n.inverseRelations?.nodes);
+    return {
+      id: n.id,
+      identifier: n.identifier,
+      title: n.title,
+      description: n.description,
+      url: n.url,
+      state: n.state,
+      assignee: n.assignee,
+      project: mapNodeProject(n),
+      ...milestoneSpread(n),
+      labels: n.labels.nodes.map((l) => l.name),
+      priority: n.priority,
+      createdAt: n.createdAt ?? "",
+      blockedByIds: blockers.map((b) => b.id),
+      blockedByIdentifiers: blockers.map((b) => b.identifier),
+      ...(includeComments ? { comments: n.comments?.nodes ?? [] } : {}),
+    };
+  });
 }
 
 interface GraphQLResult<T> {
@@ -1003,8 +1026,8 @@ export async function fetchBlockedByForIssues(
     issues(filter: { id: { in: $ids } }, first: 250) {
       nodes {
         id
-        relations(first: 50) {
-          nodes { type relatedIssue { id identifier state { type } } }
+        inverseRelations(first: 50) {
+          nodes { type issue { id identifier state { type } } }
         }
       }
     }
@@ -1013,22 +1036,13 @@ export async function fetchBlockedByForIssues(
     issues: {
       nodes: {
         id: string;
-        relations?: {
-          nodes?: {
-            type: string;
-            relatedIssue: { id: string; identifier: string; state: { type: string } };
-          }[];
-        };
+        inverseRelations?: { nodes?: InverseRelationNode[] };
       }[];
     };
   }>(apiKey, query, { ids: issueIds });
 
-  const DONE_STATE_TYPES = new Set(["completed", "cancelled"]);
   for (const node of data.issues.nodes) {
-    const blockers = (node.relations?.nodes ?? [])
-      .filter((r) => r.type === "blocked_by" && !DONE_STATE_TYPES.has(r.relatedIssue.state.type))
-      .map((r) => ({ id: r.relatedIssue.id, identifier: r.relatedIssue.identifier }));
-    out.set(node.id, blockers);
+    out.set(node.id, openBlockersFromInverse(node.inverseRelations?.nodes));
   }
   return out;
 }

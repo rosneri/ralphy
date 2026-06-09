@@ -451,7 +451,7 @@ export interface ActiveWorker {
 
 /** Which input source a board row was resolved from, in precedence order.
  *  Decides the base state before pr-tracker overlays apply. */
-type TicketSourceKind = "worker" | "queued" | "in-progress" | "todo" | "mention";
+type TicketSourceKind = "worker" | "queued" | "in-progress" | "todo" | "mention" | "awaiting";
 
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
@@ -790,7 +790,7 @@ export class AgentCoordinator {
       inProgress,
       mentions,
       prByIssue,
-      excludeIds: awaitingClaimed,
+      awaitingIds: awaitingClaimed,
     });
     return { found, added, buckets, prStatus, phase: {}, flow, board };
   }
@@ -822,12 +822,12 @@ export class AgentCoordinator {
     inProgress: TrackedIssue[];
     mentions: { issue: TrackedIssue; trigger: MentionTrigger }[];
     prByIssue: Map<string, { url: string; status: PrStatusBucket }>;
-    /** Issue ids claimed by the awaiting-confirmation feature. They are
-     *  surfaced by the dedicated gated card, so they are excluded here to avoid
-     *  double-rendering them as pipeline rows. */
-    excludeIds: ReadonlySet<string>;
+    /** Issue ids claimed by the awaiting-confirmation feature. Rendered as
+     *  `awaiting` rows in the board (no separate gate card) so a gated ticket
+     *  lives in the same list as everything else. */
+    awaitingIds: ReadonlySet<string>;
   }): Promise<TicketRow[]> {
-    const { todo, inProgress, mentions, prByIssue, excludeIds } = args;
+    const { todo, inProgress, mentions, prByIssue, awaitingIds } = args;
     type Source = { issue: TrackedIssue; kind: TicketSourceKind; changeName: string };
     const order: Source[] = [
       ...this.workers.map((w) => ({
@@ -842,7 +842,9 @@ export class AgentCoordinator {
       })),
       ...inProgress.map((issue) => ({
         issue,
-        kind: "in-progress" as const,
+        // A gated ticket rests in awaiting-confirmation; force the `awaiting`
+        // row so it reads as a human-gated step rather than active work.
+        kind: (awaitingIds.has(issue.id) ? "awaiting" : "in-progress") as TicketSourceKind,
         changeName: changeNameForIssue(issue),
       })),
       ...todo.map((issue) => ({
@@ -860,7 +862,6 @@ export class AgentCoordinator {
     const seen = new Set<string>();
     const rows: TicketRow[] = [];
     for (const src of order) {
-      if (excludeIds.has(src.issue.id)) continue;
       if (seen.has(src.issue.id)) continue;
       seen.add(src.issue.id);
       const row = await this.resolveBoardRow(src.issue, src.kind, src.changeName, prByIssue);
@@ -884,6 +885,19 @@ export class AgentCoordinator {
       state = "todo";
     } else if (kind === "mention") {
       state = "review";
+    } else if (kind === "awaiting") {
+      // Gated tickets park outside the flow machine (the confirmation feature
+      // owns their state), so the actor snapshot wouldn't read `awaiting` —
+      // assign it directly, the same way `todo` / `mention` are.
+      state = "awaiting";
+    } else if (kind !== "worker" && issue.blockedByIds.length > 0) {
+      // A blocked ticket the dependency gate skips isn't progressing — yet it
+      // may already sit in Linear's "In Progress" with a flow actor resting in
+      // `working` (it was flipped before the blocker was added, or before the
+      // gate existed). Reading that actor would paint it as active work; render
+      // it as a parked `todo` instead so the board matches reality. A ticket
+      // with a *live* worker (kind `worker`) keeps its real state.
+      state = "todo";
     } else {
       const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
       const actor = await this.flowStore.getActor(issue.id, changeDir);
@@ -919,6 +933,8 @@ export class AgentCoordinator {
       url: issue.url,
       priority: issue.priority,
       state,
+      blockedByIds: issue.blockedByIds,
+      blockedByIdentifiers: issue.blockedByIdentifiers ?? [],
       ...(recovery ? { recovery } : {}),
       ...(prUrl ? { prUrl } : {}),
     };

@@ -396,27 +396,27 @@ describe("fetchMentionScanIssues (RLF-55)", () => {
             state: { name: "In Progress", type: "started" },
             assignee: { id: "a", email: "a@a", name: "A" },
             labels: { nodes: [{ name: "x" }, { name: "y" }] },
-            relations: {
+            inverseRelations: {
               nodes: [
                 {
-                  type: "blocked_by",
-                  relatedIssue: {
+                  type: "blocks",
+                  issue: {
                     id: "blocker-open",
                     identifier: "RLF-BLOCK",
                     state: { type: "started" },
                   },
                 },
                 {
-                  type: "blocked_by",
-                  relatedIssue: {
+                  type: "blocks",
+                  issue: {
                     id: "blocker-done",
                     identifier: "RLF-DONE",
                     state: { type: "completed" },
                   },
                 },
                 {
-                  type: "duplicate_of",
-                  relatedIssue: {
+                  type: "duplicate",
+                  issue: {
                     id: "ignored",
                     identifier: "RLF-IGN",
                     state: { type: "started" },

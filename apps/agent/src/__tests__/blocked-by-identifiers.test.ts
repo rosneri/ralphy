@@ -14,16 +14,25 @@ function stubFetch(data: unknown): void {
   };
 }
 
+// Tests author blockers in the intuitive `blocked_by` / `relatedIssue` shape;
+// real Linear exposes the blocked-by direction only via `inverseRelations`
+// (stored type `blocks`, `issue` = the blocker). Translate here so the fixtures
+// read naturally while exercising the exact shape the client parses.
 function makeRelations(
   nodes: {
     type: string;
     relatedIssue: { id: string; identifier: string; state: { type: string } };
   }[],
 ) {
-  return { nodes };
+  return {
+    nodes: nodes.map((n) => ({
+      type: n.type === "blocked_by" ? "blocks" : n.type,
+      issue: n.relatedIssue,
+    })),
+  };
 }
 
-function makeIssueNode(relations = makeRelations([])) {
+function makeIssueNode(inverseRelations = makeRelations([])) {
   return {
     id: "i1",
     identifier: "ENG-1",
@@ -36,7 +45,7 @@ function makeIssueNode(relations = makeRelations([])) {
     labels: { nodes: [] },
     priority: 3,
     createdAt: "2026-01-01T00:00:00.000Z",
-    relations,
+    inverseRelations,
   };
 }
 

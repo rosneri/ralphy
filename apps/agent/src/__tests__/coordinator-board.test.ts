@@ -222,6 +222,25 @@ describe("AgentCoordinator — lifecycle board", () => {
     expect(row!.url).toBe("https://example/BAN-100");
   });
 
+  test("a blocked in-progress ticket renders as a parked todo, not working", async () => {
+    const ctx = makeBoardDeps();
+    roots.push(ctx.root);
+    // In Linear's "In Progress" with a flow actor already in `working`, but
+    // blocked by an open dependency — the gate skips it, so it's parked.
+    const blocked = issue("u6", "BAN-300", ["open-blocker"]);
+    ctx.setInProgress([blocked]);
+    await seedFlow(ctx.root, ctx, "u6", [{ type: "FRESH_PICKED_UP" }]);
+
+    const coord = new AgentCoordinator(ctx.deps, { concurrency: 0 });
+    const result = await coord.pollOnce();
+
+    const row = rowFor(result.board, "BAN-300");
+    expect(row).toBeDefined();
+    // Without the override this would read `working` from the actor.
+    expect(row!.state).toBe("todo");
+    expect(row!.blockedByIds).toEqual(["open-blocker"]);
+  });
+
   test("a ticket present in multiple sources is deduplicated to a single row", async () => {
     const ctx = makeBoardDeps();
     roots.push(ctx.root);

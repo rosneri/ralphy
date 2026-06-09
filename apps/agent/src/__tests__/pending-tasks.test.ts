@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { orderSubtasksForCappedDisplay, pickLatestGatedTicket } from "../components/AgentMode";
+import { orderSubtasksForCappedDisplay } from "../components/AgentMode";
 import { parseSubtasks } from "../agent/state/worker-state-poll";
 
 describe("parseSubtasks", () => {
@@ -200,75 +200,5 @@ describe("orderSubtasksForCappedDisplay", () => {
     // never displaced by completed items even though done items dominate
     // the file by count.
     expect(ordered.slice(2).every((s) => s.done)).toBe(true);
-  });
-});
-
-describe("pickLatestGatedTicket", () => {
-  type Ticket = { since: string | null };
-
-  it("returns null top and moreCount 0 for an empty map", () => {
-    const result = pickLatestGatedTicket(new Map<string, Ticket>());
-    expect(result).toEqual({ top: null, moreCount: 0 });
-  });
-
-  it("returns the single entry with moreCount 0", () => {
-    const map = new Map<string, Ticket>([["change-a", { since: "2026-05-01T00:00:00.000Z" }]]);
-    const { top, moreCount } = pickLatestGatedTicket(map);
-    expect(moreCount).toBe(0);
-    expect(top).not.toBeNull();
-    expect(top![0]).toBe("change-a");
-  });
-
-  it("returns the entry with the newest since when multiple entries exist", () => {
-    const map = new Map<string, Ticket>([
-      ["change-a", { since: "2026-01-01T00:00:00.000Z" }],
-      ["change-b", { since: "2026-03-01T00:00:00.000Z" }],
-      ["change-c", { since: "2026-02-01T00:00:00.000Z" }],
-    ]);
-    const { top, moreCount } = pickLatestGatedTicket(map);
-    expect(top![0]).toBe("change-b");
-    expect(moreCount).toBe(2);
-  });
-
-  it("treats null since as epoch 0 (oldest)", () => {
-    const map = new Map<string, Ticket>([
-      ["change-a", { since: null }],
-      ["change-b", { since: "2026-01-01T00:00:00.000Z" }],
-    ]);
-    const { top, moreCount } = pickLatestGatedTicket(map);
-    expect(top![0]).toBe("change-b");
-    expect(moreCount).toBe(1);
-  });
-
-  it("treats two null since entries as tied (map insertion order preserved)", () => {
-    const map = new Map<string, Ticket>([
-      ["change-a", { since: null }],
-      ["change-b", { since: null }],
-    ]);
-    const { top, moreCount } = pickLatestGatedTicket(map);
-    expect(moreCount).toBe(1);
-    expect(top).not.toBeNull();
-  });
-});
-
-describe("multi-ticket label visual-width calculation", () => {
-  it("computes width as sum-of-identifier-lengths + (count-1)*3 + 2", () => {
-    // Formula: each separator " · " contributes 3 chars, plus 2 for the outer
-    // leading and trailing spaces in the label node (" ID1 · ID2 ").
-    const identifiers = ["RLF-1", "RLF-22", "RLF-333"];
-    const count = identifiers.length;
-    const sumLen = identifiers.reduce((s, id) => s + id.length, 0); // 5 + 6 + 7 = 18
-    const expected = sumLen + (count - 1) * 3 + 2; // 18 + 6 + 2 = 26
-    expect(expected).toBe(26);
-
-    // Two-ticket case
-    const two = ["RLF-100", "RLF-200"];
-    const twoSum = two.reduce((s, id) => s + id.length, 0); // 7 + 7 = 14
-    expect(twoSum + (two.length - 1) * 3 + 2).toBe(19);
-
-    // Single-ticket case collapses to identifier.length + 2 (the existing formula)
-    const one = ["RLF-1"];
-    const oneSum = one.reduce((s, id) => s + id.length, 0); // 5
-    expect(oneSum + (one.length - 1) * 3 + 2).toBe(7); // same as "RLF-1".length + 2
   });
 });
