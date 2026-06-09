@@ -847,6 +847,11 @@ export function AgentMode({
   const secsToNextPoll = nextPollAtRef.current
     ? Math.max(0, Math.ceil((nextPollAtRef.current - now) / 1000))
     : null;
+  // Liveness for the TASKS box header — poll state + next-poll countdown, no
+  // spinner (the header is a static border line).
+  const pollState =
+    pollStatus.state === "polling" ? "polling…" : pollStatus.lastAt !== null ? "idle" : "starting…";
+  const tasksLiveness = `${pollState}${secsToNextPoll !== null ? ` · ${secsToNextPoll}s ↻` : ""}`;
   const activeCount = coord?.activeCount ?? 0;
   const termWidth = columns - 2;
   const termHeight = rows;
@@ -1019,104 +1024,112 @@ export function AgentMode({
         </LabeledBox>
 
         {/* ── TASKS board — one lifecycle row per live ticket ─── */}
-        <LabeledBox
-          label="TASKS  Tab/←→·1-9"
-          borderColor="gray"
-          width={termWidth}
-          paddingX={1}
-          flexDirection="column"
-        >
-          {/* Liveness only — spinner + poll state + next-poll countdown. Counts
-              are implicit in the rows below, so there is no count strip. */}
-          <Box gap={1}>
-            <Text color="gray">{spinnerFrame}</Text>
-            <Text dimColor>
-              {pollStatus.state === "polling"
-                ? "polling…"
-                : pollStatus.lastAt !== null
-                  ? "idle"
-                  : "starting…"}
-            </Text>
-            {secsToNextPoll !== null && (
-              <>
-                <Text dimColor>·</Text>
-                <Text color="gray">{secsToNextPoll}s</Text>
-                <Text dimColor>↻</Text>
-              </>
-            )}
-          </Box>
-          {board.length === 0 ? (
-            <Text dimColor>no active tickets</Text>
-          ) : (
-            (() => {
-              const idColWidth = Math.max(8, ...board.map((r) => r.identifier.length));
-              const idxWidth = String(board.length).length + 3;
-              const prefixWidth = 2 + idxWidth + idColWidth + 1;
-              return (
-                <>
-                  {/* Node labels, aligned over the row glyphs via a fixed prefix */}
-                  <Box>
-                    <Text>{" ".repeat(prefixWidth)}</Text>
-                    <PipelineCells glyphs={null} />
-                  </Box>
-                  {board.map((row, i) => {
-                    const isFocused = row.id === focusedRow?.id;
-                    const activeW = coordRef.current?.activeWorkers.find(
-                      (w) => w.issueId === row.id,
-                    );
-                    const meta = activeW
-                      ? workerMetaRef.current.get(activeW.changeName)
-                      : undefined;
-                    // AGE: live worker uptime when active; else time since the
-                    // first recovery failure; else unknown.
-                    let age = "–";
-                    if (meta?.startedAt) {
-                      age = fmtElapsed(now - meta.startedAt);
-                    } else if (row.recovery?.firstFailedAt) {
-                      const failedAt = Date.parse(row.recovery.firstFailedAt);
-                      if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
-                    }
-                    const prUrl = meta?.prUrl ?? row.prUrl ?? null;
-                    return (
-                      <Box key={row.id}>
-                        <Box width={2}>
-                          <Text color="white" bold>
-                            {isFocused ? "▶" : " "}
-                          </Text>
-                        </Box>
-                        <Box width={idxWidth}>
-                          <Text dimColor={!isFocused}>[{i + 1}]</Text>
-                        </Box>
-                        <Box width={idColWidth + 1}>
-                          <Link
-                            url={row.url}
-                            label={row.identifier}
-                            color={isFocused ? "cyan" : "gray"}
-                          />
-                        </Box>
-                        <PipelineCells glyphs={pipelineStages(row).map((s) => s.status)} />
-                        <Text color={isFocused ? "white" : "gray"} dimColor={!isFocused}>
-                          {"  "}
-                          {statusLabel(row)}
-                        </Text>
-                        <Text dimColor>
-                          {"  "}
-                          {age}
-                        </Text>
-                        {prUrl && (
-                          <>
-                            <Text dimColor>{"  ↗"}</Text>
-                            <Link url={prUrl} label={prLabel(prUrl)} color="green" />
-                          </>
-                        )}
+        {/* The liveness (poll state + next-poll countdown) lives on the box
+            header border, left label + right liveness; counts are implicit in
+            the rows below, so there is no count strip and no inner header. */}
+        {(() => {
+          const tasksInnerWidth = Math.max(0, termWidth - 2);
+          const lead = "─ ";
+          const hint = " Tab/←→·1-9 ";
+          const live = ` ${tasksLiveness} `;
+          const trail = "─";
+          // Fill the header border between the left label and the right liveness
+          // so the node spans exactly the inner width (labelVisualWidth = inner
+          // width ⇒ LabeledBox adds no outer dashes).
+          const fixed = lead.length + "TASKS".length + hint.length + live.length + trail.length;
+          const fill = Math.max(1, tasksInnerWidth - fixed);
+          return (
+            <LabeledBox
+              labelVisualWidth={tasksInnerWidth}
+              labelNode={
+                <Box flexDirection="row">
+                  <Text color="gray">{lead}</Text>
+                  <Text bold>TASKS</Text>
+                  <Text dimColor>{hint}</Text>
+                  <Text color="gray">{"─".repeat(fill)}</Text>
+                  <Text dimColor>{live}</Text>
+                  <Text color="gray">{trail}</Text>
+                </Box>
+              }
+              borderColor="gray"
+              width={termWidth}
+              paddingX={1}
+              flexDirection="column"
+            >
+              {board.length === 0 ? (
+                <Text dimColor>no active tickets</Text>
+              ) : (
+                (() => {
+                  const idColWidth = Math.max(8, ...board.map((r) => r.identifier.length));
+                  const idxWidth = String(board.length).length + 3;
+                  const prefixWidth = 2 + idxWidth + idColWidth + 1;
+                  return (
+                    <>
+                      {/* Node labels, aligned over the row glyphs via a fixed prefix */}
+                      <Box>
+                        <Text>{" ".repeat(prefixWidth)}</Text>
+                        <PipelineCells glyphs={null} />
                       </Box>
-                    );
-                  })}
-                </>
-              );
-            })()
-          )}
-        </LabeledBox>
+                      {board.map((row, i) => {
+                        const isFocused = row.id === focusedRow?.id;
+                        const activeW = coordRef.current?.activeWorkers.find(
+                          (w) => w.issueId === row.id,
+                        );
+                        const meta = activeW
+                          ? workerMetaRef.current.get(activeW.changeName)
+                          : undefined;
+                        // AGE: live worker uptime when active; else time since the
+                        // first recovery failure; else unknown.
+                        let age = "–";
+                        if (meta?.startedAt) {
+                          age = fmtElapsed(now - meta.startedAt);
+                        } else if (row.recovery?.firstFailedAt) {
+                          const failedAt = Date.parse(row.recovery.firstFailedAt);
+                          if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
+                        }
+                        const prUrl = meta?.prUrl ?? row.prUrl ?? null;
+                        return (
+                          <Box key={row.id}>
+                            <Box width={2}>
+                              <Text color="white" bold>
+                                {isFocused ? "▶" : " "}
+                              </Text>
+                            </Box>
+                            <Box width={idxWidth}>
+                              <Text dimColor={!isFocused}>[{i + 1}]</Text>
+                            </Box>
+                            <Box width={idColWidth + 1}>
+                              <Link
+                                url={row.url}
+                                label={row.identifier}
+                                color={isFocused ? "cyan" : "gray"}
+                              />
+                            </Box>
+                            <PipelineCells glyphs={pipelineStages(row).map((s) => s.status)} />
+                            <Text color={isFocused ? "white" : "gray"} dimColor={!isFocused}>
+                              {"  "}
+                              {statusLabel(row)}
+                            </Text>
+                            <Text dimColor>
+                              {"  "}
+                              {age}
+                            </Text>
+                            {prUrl && (
+                              <>
+                                <Text dimColor>{"  ↗"}</Text>
+                                <Link url={prUrl} label={prLabel(prUrl)} color="green" />
+                              </>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </>
+                  );
+                })()
+              )}
+            </LabeledBox>
+          );
+        })()}
 
         {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
         {(() => {
