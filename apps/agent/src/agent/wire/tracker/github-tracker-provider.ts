@@ -19,10 +19,11 @@
  * coordinator or the XState machines.
  */
 
-import type { SetIndicator } from "@ralphy/types";
+import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
 import type { LinearIssue } from "../../../shared/capabilities/linear-client";
+import { issueMatchesGetIndicator } from "../../../shared/capabilities/linear-client";
 import type { MentionTrigger } from "../../../queue/queue-order";
 import type { LinearClientLike } from "../../../../test/harness/types";
 
@@ -43,6 +44,12 @@ export interface GithubMarkerVocab {
    * done is represented by the issue being closed, not by a label.
    */
   lifecycleLabels: string[];
+  /**
+   * Namespace identifying single-valued status labels. Applying a status label
+   * strips any other label under this prefix so an open issue carries at most
+   * one `status:*` label. Defaults to `"status:"` when omitted.
+   */
+  statusPrefix?: string;
 }
 
 interface GithubTrackerDeps {
@@ -133,11 +140,29 @@ export function githubIndicatorAction(
 }
 
 /**
+ * Existing `prefix`-namespaced labels on an issue that must be stripped when
+ * `addLabels` are applied, to preserve the single-active-status invariant: an
+ * open issue carries at most one label under `prefix`. Returns the labels in
+ * `currentLabels` that start with `prefix` but are not among `addLabels` (so a
+ * status being re-applied is never reported as stale). Non-`prefix` labels are
+ * never returned — only the status namespace is single-valued.
+ */
+export function staleStatusLabels(
+  currentLabels: string[],
+  addLabels: string[],
+  prefix: string,
+): string[] {
+  const adding = new Set(addLabels);
+  return currentLabels.filter((l) => l.startsWith(prefix) && !adding.has(l));
+}
+
+/**
  * Build a `GithubTrackerProvider` over the injected `gh` runner. Returns the
  * structural `LinearClientLike` surface; no coordinator/machine imports.
  */
 export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClientLike {
   const { runner, cwd, repo, vocab } = deps;
+  const statusPrefix = vocab.statusPrefix ?? "status:";
 
   const run = (args: string[]) => runner.run(["gh", ...args, "--repo", repo], cwd);
 
@@ -148,6 +173,14 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
     return raw.map(mapGithubIssue);
   }
 
+  // Convention `GetIndicator`s shared with the pure matcher so GitHub and Linear
+  // agree on what "matches this bucket". The server-side `--label` narrowing is
+  // retained (cheap, fewer rows); the matcher is the membership decision.
+  const inProgressGet: GetIndicator = {
+    filter: [{ type: "label", value: vocab.inProgressLabel }],
+  };
+  const reviewGet: GetIndicator = { filter: [{ type: "label", value: vocab.reviewLabel }] };
+
   return {
     fetchTodo: async () => {
       const issues = await listIssues(["--state", "open", "--label", vocab.selectionLabel]);
@@ -155,8 +188,14 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
       // from the todo bucket even though they keep the selection label.
       return issues.filter((i) => !i.labels.some((l) => vocab.lifecycleLabels.includes(l)));
     },
-    fetchInProgress: () => listIssues(["--state", "open", "--label", vocab.inProgressLabel]),
-    fetchReview: () => listIssues(["--state", "open", "--label", vocab.reviewLabel]),
+    fetchInProgress: async () => {
+      const issues = await listIssues(["--state", "open", "--label", vocab.inProgressLabel]);
+      return issues.filter((i) => issueMatchesGetIndicator(i, inProgressGet));
+    },
+    fetchReview: async () => {
+      const issues = await listIssues(["--state", "open", "--label", vocab.reviewLabel]);
+      return issues.filter((i) => issueMatchesGetIndicator(i, reviewGet));
+    },
     fetchDoneCandidates: () => listIssues(["--state", "closed"]),
     fetchComments: async (issueId: string) => {
       const { stdout } = await run(["issue", "view", issueId, "--json", "comments"]);
@@ -170,7 +209,12 @@ export function createGithubTrackerProvider(deps: GithubTrackerDeps): LinearClie
         return;
       }
       if (action.labels.length === 0) return;
-      await run(["issue", "edit", issue.id, "--add-label", action.labels.join(",")]);
+      // Single-active-status: strip any prior `status:*` label in the same edit
+      // so the open issue carries at most one status label.
+      const stale = staleStatusLabels(issue.labels, action.labels, statusPrefix);
+      const args = ["issue", "edit", issue.id, "--add-label", action.labels.join(",")];
+      if (stale.length > 0) args.push("--remove-label", stale.join(","));
+      await run(args);
     },
     removeIndicator: async (issue, ind) => {
       const action = githubIndicatorAction(ind, "remove");
