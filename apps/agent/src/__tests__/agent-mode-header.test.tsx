@@ -41,6 +41,7 @@ function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
       prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
       phase: {},
       flow: {},
+      board: [],
     }),
     stop: () => {},
     getPause: () => null,
@@ -56,7 +57,6 @@ function makeBuilder(concurrency: number, pollInterval: number): AgentModeBuildC
     pollInterval,
     getWorkerCwd: () => undefined,
     runBaselineGate: async () => {},
-    getGaveUpTotal: async () => 0,
   });
 }
 

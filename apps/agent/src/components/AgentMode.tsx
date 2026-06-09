@@ -16,6 +16,15 @@ import {
 } from "@ralphy/engine/preflight";
 import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
 import { waitForActiveWorkers } from "../runtime/shutdown";
+import {
+  pipelineStages,
+  statusLabel,
+  STATUS_GLYPH,
+  PIPELINE_NODES,
+  type TicketRow,
+  type PipelineNode,
+  type PipelineNodeStatus,
+} from "./task-pipeline";
 
 /** Structural subset of {@link AgentCoordinator} that AgentMode actually uses.
  *  Exported so tests can supply lightweight mocks without bypassing types. */
@@ -43,7 +52,6 @@ export type AgentModeBuildCoordinator = (
   pollInterval: number;
   getWorkerCwd: (changeName: string) => string | undefined;
   runBaselineGate: () => Promise<void>;
-  getGaveUpTotal: () => Promise<number>;
 };
 import {
   phasePipeline,
@@ -171,6 +179,18 @@ function fmtCmd(argv: string[]): string {
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+/** Board states that imply a worker should be running. A row in one of these
+ *  with no active worker is waiting for a worker slot — surfaced as a "waiting
+ *  for worker" mark in place of the (meaningless, not-yet-ticking) age timer. */
+const WORKER_WAIT_STATES = new Set<TicketRow["state"]>([
+  "queued",
+  "working",
+  "in-progress",
+  "conflict-fix",
+  "ci-fix",
+  "review",
+]);
+
 function fmtElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -270,21 +290,6 @@ function Link({ url, label, color }: { url: string; label: string; color: string
   );
 }
 
-function priorityBadge(p: number): { text: string; color: string; label: string } {
-  switch (p) {
-    case 1:
-      return { text: "▲", color: "red", label: "URGENT" };
-    case 2:
-      return { text: "↑", color: "yellow", label: "HIGH" };
-    case 3:
-      return { text: "·", color: "blue", label: "MED" };
-    case 4:
-      return { text: "↓", color: "gray", label: "LOW" };
-    default:
-      return { text: " ", color: "gray", label: "" };
-  }
-}
-
 function modeBadge(mode: string): { text: string; color: string } {
   switch (mode) {
     case "fresh":
@@ -365,11 +370,72 @@ function workerBorderColor(phase: string): string {
   }
 }
 
-function displayTailLines(activeCount: number): number {
-  if (activeCount <= 1) return 20;
-  if (activeCount <= 2) return 12;
-  if (activeCount <= 3) return 8;
-  return 5;
+/** Tail-line budget for the single focused active card, scaled to how many
+ *  rows the board occupies above it so the OUTPUT feed fills the rest. */
+function focusedCardTailLines(termHeight: number, fixedOverhead: number): number {
+  return Math.max(3, termHeight - fixedOverhead);
+}
+
+/** Human-readable lifecycle node labels, in pipeline order. */
+const NODE_LABELS: Record<PipelineNode, string> = {
+  todo: "todo",
+  work: "work",
+  PR: "PR",
+  CI: "CI",
+  done: "done",
+};
+/** Each node's glyph/label is centered in this many columns so the header
+ *  labels line up over the row glyphs even when a glyph is double-width. */
+const NODE_CELL_WIDTH = 4;
+const PIPELINE_CONNECTOR = "──";
+
+function glyphColor(status: PipelineNodeStatus): string {
+  switch (status) {
+    case "done":
+      return "green";
+    case "current":
+      return "cyan";
+    case "pending":
+      return "gray";
+    case "failed":
+      return "red";
+    case "bailed":
+      return "magenta";
+  }
+}
+
+/**
+ * Render the five pipeline cells — either the node labels (header row) or the
+ * per-status glyphs (a ticket row). Both modes use identical cell widths and
+ * connectors, so the header labels align over the glyphs in every row.
+ */
+function PipelineCells({
+  glyphs,
+}: {
+  /** Per-node statuses to render as glyphs, or `null` to render the labels. */
+  glyphs: PipelineNodeStatus[] | null;
+}) {
+  return (
+    <Box>
+      {PIPELINE_NODES.map((node, i) => {
+        const isHeader = glyphs === null;
+        const status = isHeader ? null : glyphs[i]!;
+        const content = isHeader ? NODE_LABELS[node] : STATUS_GLYPH[status!];
+        return (
+          <Box key={node}>
+            {i > 0 && <Text dimColor>{PIPELINE_CONNECTOR}</Text>}
+            <Box width={NODE_CELL_WIDTH} justifyContent="center">
+              {isHeader ? (
+                <Text dimColor>{content}</Text>
+              ) : (
+                <Text color={glyphColor(status!)}>{content}</Text>
+              )}
+            </Box>
+          </Box>
+        );
+      })}
+    </Box>
+  );
 }
 
 const SESSION_START = new Date().toISOString();
@@ -416,16 +482,15 @@ export function AgentMode({
   }, [awaitingClose]);
   const [, setTick] = useState(0);
   const [clock, setClock] = useState(0);
-  /** Index into activeWorkers of the focused worker card (0-based). */
-  const [focusedIdx, setFocusedIdx] = useState(0);
+  /** Id of the focused board ticket. Null until the first navigation; the
+   *  render clamps a null/missing id to the first board row. Focus is by id,
+   *  not index, so it survives rows being added/removed/reordered between
+   *  polls. */
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   /** Toggled by Ctrl+T — show the focused worker's pending tasks at the bottom of its card. */
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   /** Toggled by Ctrl+L — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
-  // Durable count of give-ups (non-zero / non-NO_CHANGES worker exits),
-  // re-derived each poll from persisted `.ralph-state.json:gaveUpCount` so it
-  // survives agent restarts rather than resetting per session.
-  const [gaveUpCount, setGaveUpCount] = useState(0);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   /** Tickets parked in `awaiting-confirmation`, populated by `onAwaitingTicket`
@@ -450,33 +515,17 @@ export function AgentMode({
   );
   const [pollStatus, setPollStatus] = useState<{
     state: "idle" | "polling";
-    lastFound: number | null;
-    lastAdded: number | null;
     lastAt: number | null;
     filterDesc: string;
-    lastBuckets: {
-      todo: number;
-      inProgress: number;
-      conflicted: number;
-      review: number;
-      mentions: number;
-      quarantined: number;
-      awaiting: number;
-    } | null;
-    lastPrStatus: {
-      mergeable: number;
-      conflicted: number;
-      ciFailed: number;
-      quarantined: number;
-    } | null;
+    /** One lifecycle row per live ticket — the unified TASKS board. Refreshes
+     *  at poll cadence (states change slowly); per-row liveness for the focused
+     *  active card is sourced separately from `workerMetaRef`. */
+    lastBoard: TicketRow[];
   }>({
     state: "idle",
-    lastFound: null,
-    lastAdded: null,
     lastAt: null,
     filterDesc: "",
-    lastBuckets: null,
-    lastPrStatus: null,
+    lastBoard: [],
   });
 
   function appendLog(text: string, color?: string, workerLogFile?: string) {
@@ -519,114 +568,112 @@ export function AgentMode({
         return;
       }
 
-      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate, getGaveUpTotal } =
-        buildCoordinator({
-          args,
-          cfg,
-          projectRoot,
-          statesDir,
-          tasksDir,
-          apiKey,
-          onLog: (text, color) => {
-            const ev: Record<string, unknown> = { type: "log", text };
-            if (color !== undefined) ev["color"] = color;
-            fileEmit(ev);
-            appendLog(text, color);
-          },
-          onFileLog: (text) => logCoord(text),
-          onWorkersChanged: () => setTick((t) => t + 1),
-          onWorkerStarted: (changeName, dir, logFile, changeDir) => {
-            fileEmit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
-            logSession(`worker-started ${changeName} log=${logFile}`, logFile);
-            workerMetaRef.current.set(changeName, {
-              startedAt: Date.now(),
-              statesDir: dir,
-              logFile,
-              changeDir,
-              iter: 0,
-              phase: "working",
-              phaseDetail: "",
-              phaseStartedAt: Date.now(),
-              currentTask: null,
-              subtasks: [],
-              taskProgress: null,
-              openspecPhase: null,
-              reviewRounds: 0,
-              prUrl: null,
-              currentCmd: null,
-              tail: [],
-            });
-          },
-          onWorkerExited: (changeName) => {
-            fileEmit({ type: "worker_exited", changeName });
-            const m = workerMetaRef.current.get(changeName);
-            logSession(`worker-exited ${changeName}`, m?.logFile);
-            workerMetaRef.current.delete(changeName);
-          },
-          onWorkerPhase: (changeName, phase, detail) => {
-            const ev: Record<string, unknown> = { type: "worker_phase", changeName, phase };
-            if (detail !== undefined) ev["detail"] = detail;
-            fileEmit(ev);
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (m.phase !== phase) m.phaseStartedAt = Date.now();
-            m.phase = phase;
-            m.phaseDetail = detail ?? "";
-            logPhase(changeName, m.logFile, phase, detail);
-          },
-          onWorkerOutput: (changeName, line) => {
-            const clean = cleanOutputLine(line);
-            if (clean) fileEmit({ type: "worker_output", changeName, line: clean });
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (!clean) return;
-            m.tail.push(clean);
-            if (m.tail.length > TAIL_BUFFER_SIZE)
-              m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
-          },
-          onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
-            if (state === "start") {
-              fileEmit({ type: "worker_cmd_start", changeName, cmd });
-            } else {
-              fileEmit({
-                type: "worker_cmd_end",
-                changeName,
-                cmd,
-                durationMs: durationMs ?? 0,
-                ok: ok ?? true,
-              });
-            }
-            const m = workerMetaRef.current.get(changeName);
-            if (!m) return;
-            if (state === "start") {
-              m.currentCmd = { argv: cmd, startedAt: Date.now() };
-            } else {
-              m.currentCmd = null;
-            }
-          },
-          onWorkerPr: (changeName, prUrl) => {
-            fileEmit({ type: "worker_pr", changeName, prUrl });
-            const m = workerMetaRef.current.get(changeName);
-            if (m) m.prUrl = prUrl;
-          },
-          onAwaitingTicket: (info) => {
+      const { coord, filterDesc, concurrency, pollInterval, runBaselineGate } = buildCoordinator({
+        args,
+        cfg,
+        projectRoot,
+        statesDir,
+        tasksDir,
+        apiKey,
+        onLog: (text, color) => {
+          const ev: Record<string, unknown> = { type: "log", text };
+          if (color !== undefined) ev["color"] = color;
+          fileEmit(ev);
+          appendLog(text, color);
+        },
+        onFileLog: (text) => logCoord(text),
+        onWorkersChanged: () => setTick((t) => t + 1),
+        onWorkerStarted: (changeName, dir, logFile, changeDir) => {
+          fileEmit({ type: "worker_started", changeName, statesDir: dir, logFile, changeDir });
+          logSession(`worker-started ${changeName} log=${logFile}`, logFile);
+          workerMetaRef.current.set(changeName, {
+            startedAt: Date.now(),
+            statesDir: dir,
+            logFile,
+            changeDir,
+            iter: 0,
+            phase: "working",
+            phaseDetail: "",
+            phaseStartedAt: Date.now(),
+            currentTask: null,
+            subtasks: [],
+            taskProgress: null,
+            openspecPhase: null,
+            reviewRounds: 0,
+            prUrl: null,
+            currentCmd: null,
+            tail: [],
+          });
+        },
+        onWorkerExited: (changeName) => {
+          fileEmit({ type: "worker_exited", changeName });
+          const m = workerMetaRef.current.get(changeName);
+          logSession(`worker-exited ${changeName}`, m?.logFile);
+          workerMetaRef.current.delete(changeName);
+        },
+        onWorkerPhase: (changeName, phase, detail) => {
+          const ev: Record<string, unknown> = { type: "worker_phase", changeName, phase };
+          if (detail !== undefined) ev["detail"] = detail;
+          fileEmit(ev);
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (m.phase !== phase) m.phaseStartedAt = Date.now();
+          m.phase = phase;
+          m.phaseDetail = detail ?? "";
+          logPhase(changeName, m.logFile, phase, detail);
+        },
+        onWorkerOutput: (changeName, line) => {
+          const clean = cleanOutputLine(line);
+          if (clean) fileEmit({ type: "worker_output", changeName, line: clean });
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (!clean) return;
+          m.tail.push(clean);
+          if (m.tail.length > TAIL_BUFFER_SIZE) m.tail.splice(0, m.tail.length - TAIL_BUFFER_SIZE);
+        },
+        onWorkerCmd: (changeName, cmd, state, durationMs, ok) => {
+          if (state === "start") {
+            fileEmit({ type: "worker_cmd_start", changeName, cmd });
+          } else {
             fileEmit({
-              type: "awaiting_confirmation",
-              changeName: info.changeName,
-              issueIdentifier: info.issueIdentifier,
-              issueUrl: info.issueUrl,
-              since: info.since,
-              round: info.round,
+              type: "worker_cmd_end",
+              changeName,
+              cmd,
+              durationMs: durationMs ?? 0,
+              ok: ok ?? true,
             });
-            gatedTicketsRef.current.set(info.changeName, {
-              issueIdentifier: info.issueIdentifier,
-              issueUrl: info.issueUrl,
-              issueTitle: info.issueTitle,
-              since: info.since,
-              round: info.round,
-            });
-          },
-        });
+          }
+          const m = workerMetaRef.current.get(changeName);
+          if (!m) return;
+          if (state === "start") {
+            m.currentCmd = { argv: cmd, startedAt: Date.now() };
+          } else {
+            m.currentCmd = null;
+          }
+        },
+        onWorkerPr: (changeName, prUrl) => {
+          fileEmit({ type: "worker_pr", changeName, prUrl });
+          const m = workerMetaRef.current.get(changeName);
+          if (m) m.prUrl = prUrl;
+        },
+        onAwaitingTicket: (info) => {
+          fileEmit({
+            type: "awaiting_confirmation",
+            changeName: info.changeName,
+            issueIdentifier: info.issueIdentifier,
+            issueUrl: info.issueUrl,
+            since: info.since,
+            round: info.round,
+          });
+          gatedTicketsRef.current.set(info.changeName, {
+            issueIdentifier: info.issueIdentifier,
+            issueUrl: info.issueUrl,
+            issueTitle: info.issueTitle,
+            since: info.since,
+            round: info.round,
+          });
+        },
+      });
       setEffective({ concurrency, pollInterval });
 
       fileEmit({
@@ -657,28 +704,17 @@ export function AgentMode({
         // clear first so tickets that have transitioned out of the gate stop
         // rendering on the next frame.
         gatedTicketsRef.current.clear();
-        const { found, added, buckets, prStatus } = await coord.pollOnce();
+        const { found, added, buckets, prStatus, board } = await coord.pollOnce();
         if (cancelled) return;
         fileEmit({ type: "poll_done", found, added, buckets, prStatus });
-        // Durable gave-up total: re-derived from each change's persisted
-        // `.ralph-state.json` so it survives agent restarts (the live count
-        // is written to disk by the worker's post-task `recordGaveUp`).
-        getGaveUpTotal()
-          .then((total) => {
-            if (!cancelled) setGaveUpCount(total);
-          })
-          .catch(() => undefined);
         if (added > 0) {
           appendLog(`  ${added} new issue${added === 1 ? "" : "s"} queued (found ${found} open)`);
         }
         setPollStatus({
           state: "idle",
-          lastFound: found,
-          lastAdded: added,
           lastAt: Date.now(),
           filterDesc,
-          lastBuckets: buckets,
-          lastPrStatus: prStatus,
+          lastBoard: board,
         });
         nextPollAtRef.current = Date.now() + pollInterval * 1000;
         pollTimer = setTimeout(tick, pollInterval * 1000);
@@ -808,14 +844,33 @@ export function AgentMode({
   const secsToNextPoll = nextPollAtRef.current
     ? Math.max(0, Math.ceil((nextPollAtRef.current - now) / 1000))
     : null;
+  // Liveness for the TASKS box header — poll state + next-poll countdown, no
+  // spinner (the header is a static border line).
+  const pollState =
+    pollStatus.state === "polling" ? "polling…" : pollStatus.lastAt !== null ? "idle" : "starting…";
+  const tasksLiveness = `${pollState}${secsToNextPoll !== null ? ` · ${secsToNextPoll}s ↻` : ""}`;
   const activeCount = coord?.activeCount ?? 0;
   const termWidth = columns - 2;
   const termHeight = rows;
 
-  // Keyboard navigation — cycle through workers with Tab / arrow keys.
-  // When the steering field is focused, all worker-navigation shortcuts are
-  // suppressed so digits/Tab/arrows/Ctrl+T flow into the text buffer instead.
-  const safeFocusedIdx = activeCount > 0 ? Math.min(focusedIdx, activeCount - 1) : 0;
+  // The board (one row per live ticket) is the navigable list. Focus is by id;
+  // recompute the index each render and clamp a null/missing id to the first
+  // row, so focus survives rows being added/removed/reordered between polls.
+  const board = pollStatus.lastBoard;
+  const focusedIndex = (() => {
+    if (board.length === 0) return -1;
+    const i = board.findIndex((r) => r.id === focusedId);
+    return i >= 0 ? i : 0;
+  })();
+  const focusedRow = focusedIndex >= 0 ? board[focusedIndex] : undefined;
+  // Box 4 renders the focused row's detail. If that row maps to a live worker
+  // it gets the full active card; otherwise it is parked and gets a compact
+  // read-only card. Liveness (this lookup) is the one place we cross the
+  // poll-cadence board with the live worker set.
+  const focusedWorker = focusedRow
+    ? coordRef.current?.activeWorkers.find((w) => w.issueId === focusedRow.id)
+    : undefined;
+
   const steeringFocusedRef = useRef(false);
   // Resize-survival mirrors: SteeringField may be re-mounted by the
   // resizeKey-keyed Box below, so we persist its state in refs here and
@@ -834,34 +889,29 @@ export function AgentMode({
         if (activeCount > 0) setShowPendingTasks((v) => !v);
         return;
       }
-      if (activeCount === 0) return;
+      if (board.length === 0) return;
+      const idx = focusedIndex < 0 ? 0 : focusedIndex;
       if (key.tab || key.rightArrow) {
-        setFocusedIdx((i) => (Math.min(i, activeCount - 1) + 1) % activeCount);
+        setFocusedId(board[(idx + 1) % board.length]!.id);
       } else if (key.leftArrow) {
-        setFocusedIdx((i) => (Math.min(i, activeCount - 1) - 1 + activeCount) % activeCount);
+        setFocusedId(board[(idx - 1 + board.length) % board.length]!.id);
       } else {
         const n = parseInt(input, 10);
-        if (!isNaN(n) && n >= 1 && n <= activeCount) setFocusedIdx(n - 1);
+        if (!isNaN(n) && n >= 1 && n <= Math.min(9, board.length)) setFocusedId(board[n - 1]!.id);
       }
     },
-    { isActive: isRawModeSupported && activeCount > 0 },
+    { isActive: isRawModeSupported && board.length > 0 },
   );
 
-  const focusedWorker = coordRef.current?.activeWorkers[safeFocusedIdx];
-  const steeringActive = isRawModeSupported && activeCount > 0 && focusedWorker !== undefined;
+  const steeringActive = isRawModeSupported && focusedWorker !== undefined;
 
-  // Compute tail lines for the focused worker to fill available height.
-  // Logs flow into terminal scrollback via <Static> so they don't occupy live
-  // UI region. header-box(5) + poll-row(7) + tasks-box(5 when active)
-  //   + card-non-tail(8) + compact-cards(4 each)
-  const nonFocusedCount = Math.max(0, activeCount - 1);
-  const tasksBoxLines = activeCount > 1 ? 5 : 0;
-  // +3 rows for the steering field (top border + body row + bottom border)
-  // when it is rendered inside the focused card.
+  // Height budget for the focused active card's OUTPUT tail. Logs flow into
+  // terminal scrollback via <Static>, so the live region is:
+  //   header-box(5) + tasks-box(4 + one line per board row) + card-non-tail(8)
+  //   + steering(3 when shown).
   const steeringBoxLines = steeringActive ? 3 : 0;
-  const FIXED_OVERHEAD = 5 + 7 + tasksBoxLines + 8 + steeringBoxLines + nonFocusedCount * 4;
-  const focusedTailLines = Math.max(3, termHeight - FIXED_OVERHEAD);
-  const compactTailLines = displayTailLines(activeCount);
+  const FIXED_OVERHEAD = 5 + (4 + board.length) + 8 + steeringBoxLines;
+  const focusedTailLines = focusedCardTailLines(termHeight, FIXED_OVERHEAD);
 
   if (preflightError) {
     return (
@@ -943,7 +993,6 @@ export function AgentMode({
                   <Text color="green"> ● recover{cfg.prRecovery.fixCi ? "+CI" : ""}</Text>
                 )}
                 {cfg.useWorktree && <Text color="green"> ● worktree</Text>}
-                {gaveUpCount > 0 && <Text color="red"> │ gave-up ×{gaveUpCount}</Text>}
               </Text>
             )}
           </Text>
@@ -970,154 +1019,121 @@ export function AgentMode({
             })()}
         </LabeledBox>
 
-        {/* ── Poll status + queue ─────────────────────────────── */}
-        <Box flexDirection="row" gap={1} marginTop={0} width={termWidth}>
-          {/* Poll status — two lines: issue buckets, then PR statuses */}
-          <LabeledBox
-            label="POLL STATUS"
-            borderColor="gray"
-            width={termWidth - 17}
-            paddingX={1}
-            flexDirection="column"
-          >
-            <Box gap={2}>
-              <Text color="gray">{spinnerFrame}</Text>
-              <Text>
-                {pollStatus.state === "polling"
-                  ? "Polling Linear…"
-                  : pollStatus.lastAt !== null
-                    ? "Idle"
-                    : "Starting…"}
-              </Text>
-              {pollStatus.lastAt !== null && (
-                <>
-                  {pollStatus.lastBuckets && (
+        {/* ── TASKS board — one lifecycle row per live ticket ─── */}
+        {/* The liveness (poll state + next-poll countdown) lives on the box
+            header border, left label + right liveness; counts are implicit in
+            the rows below, so there is no count strip and no inner header. */}
+        {(() => {
+          const tasksInnerWidth = Math.max(0, termWidth - 2);
+          const lead = "─ ";
+          const hint = " Tab/←→·1-9 ";
+          const live = ` ${tasksLiveness} `;
+          const trail = "─";
+          // Fill the header border between the left label and the right liveness
+          // so the node spans exactly the inner width (labelVisualWidth = inner
+          // width ⇒ LabeledBox adds no outer dashes).
+          const fixed = lead.length + "TASKS".length + hint.length + live.length + trail.length;
+          const fill = Math.max(1, tasksInnerWidth - fixed);
+          return (
+            <LabeledBox
+              labelVisualWidth={tasksInnerWidth}
+              labelNode={
+                <Box flexDirection="row">
+                  <Text color="gray">{lead}</Text>
+                  <Text bold>TASKS</Text>
+                  <Text dimColor>{hint}</Text>
+                  <Text color="gray">{"─".repeat(fill)}</Text>
+                  <Text dimColor>{live}</Text>
+                  <Text color="gray">{trail}</Text>
+                </Box>
+              }
+              borderColor="gray"
+              width={termWidth}
+              paddingX={1}
+              flexDirection="column"
+            >
+              {board.length === 0 ? (
+                <Text dimColor>no active tickets</Text>
+              ) : (
+                (() => {
+                  const idColWidth = Math.max(8, ...board.map((r) => r.identifier.length));
+                  const idxWidth = String(board.length).length + 3;
+                  const prefixWidth = 2 + idxWidth + idColWidth + 1;
+                  return (
                     <>
-                      <Text dimColor>│</Text>
-                      <Text dimColor>todo</Text>
-                      <Text color="white">{pollStatus.lastBuckets.todo}</Text>
-                      <Text dimColor>·</Text>
-                      <Text dimColor>resume</Text>
-                      <Text color={pollStatus.lastBuckets.inProgress > 0 ? "cyan" : "white"}>
-                        {pollStatus.lastBuckets.inProgress}
-                      </Text>
-                      <Text dimColor>·</Text>
-                      <Text dimColor>review</Text>
-                      <Text color={pollStatus.lastBuckets.review > 0 ? "yellow" : "white"}>
-                        {pollStatus.lastBuckets.review}
-                      </Text>
-                      <Text dimColor>·</Text>
-                      <Text dimColor>mentions</Text>
-                      <Text color={pollStatus.lastBuckets.mentions > 0 ? "magenta" : "white"}>
-                        {pollStatus.lastBuckets.mentions}
-                      </Text>
-                      <Text dimColor>·</Text>
-                      <Text dimColor>awaiting</Text>
-                      <Text color={pollStatus.lastBuckets.awaiting > 0 ? "yellow" : "white"}>
-                        {pollStatus.lastBuckets.awaiting}
-                      </Text>
+                      {/* Node labels, aligned over the row glyphs via a fixed prefix */}
+                      <Box>
+                        <Text>{" ".repeat(prefixWidth)}</Text>
+                        <PipelineCells glyphs={null} />
+                      </Box>
+                      {board.map((row, i) => {
+                        const isFocused = row.id === focusedRow?.id;
+                        const activeW = coordRef.current?.activeWorkers.find(
+                          (w) => w.issueId === row.id,
+                        );
+                        const meta = activeW
+                          ? workerMetaRef.current.get(activeW.changeName)
+                          : undefined;
+                        // A work-state row with no live worker is waiting for a
+                        // worker slot — show a "waiting for worker" mark instead
+                        // of a timer that is not yet counting anything.
+                        const waitingForWorker = !activeW && WORKER_WAIT_STATES.has(row.state);
+                        // AGE: live worker uptime when active; else time since the
+                        // first recovery failure; else unknown.
+                        let age = "–";
+                        if (meta?.startedAt) {
+                          age = fmtElapsed(now - meta.startedAt);
+                        } else if (!waitingForWorker && row.recovery?.firstFailedAt) {
+                          const failedAt = Date.parse(row.recovery.firstFailedAt);
+                          if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
+                        }
+                        const prUrl = meta?.prUrl ?? row.prUrl ?? null;
+                        return (
+                          <Box key={row.id}>
+                            <Box width={2}>
+                              <Text color="white" bold>
+                                {isFocused ? "▶" : " "}
+                              </Text>
+                            </Box>
+                            <Box width={idxWidth}>
+                              <Text dimColor={!isFocused}>[{i + 1}]</Text>
+                            </Box>
+                            <Box width={idColWidth + 1}>
+                              <Link
+                                url={row.url}
+                                label={row.identifier}
+                                color={isFocused ? "cyan" : "gray"}
+                              />
+                            </Box>
+                            <PipelineCells glyphs={pipelineStages(row).map((s) => s.status)} />
+                            <Text color={isFocused ? "white" : "gray"} dimColor={!isFocused}>
+                              {"  "}
+                              {statusLabel(row)}
+                            </Text>
+                            {waitingForWorker ? (
+                              <Text color="yellow">{"  waiting for worker"}</Text>
+                            ) : (
+                              <Text dimColor>
+                                {"  "}
+                                {age}
+                              </Text>
+                            )}
+                            {prUrl && (
+                              <>
+                                <Text dimColor>{"  ↗"}</Text>
+                                <Link url={prUrl} label={prLabel(prUrl)} color="green" />
+                              </>
+                            )}
+                          </Box>
+                        );
+                      })}
                     </>
-                  )}
-                </>
+                  );
+                })()
               )}
-            </Box>
-            {pollStatus.lastAt !== null && pollStatus.lastPrStatus && (
-              <Box gap={2}>
-                {secsToNextPoll !== null ? (
-                  <Box gap={1} width={7}>
-                    <Text dimColor>↺</Text>
-                    <Text color="gray">{secsToNextPoll}s</Text>
-                  </Box>
-                ) : (
-                  <Text>{" ".repeat(7)}</Text>
-                )}
-                <Text dimColor>│</Text>
-                <Text dimColor>mergeable</Text>
-                <Text color={pollStatus.lastPrStatus.mergeable > 0 ? "green" : "white"}>
-                  {pollStatus.lastPrStatus.mergeable}
-                </Text>
-                <Text dimColor>·</Text>
-                <Text dimColor>conflicted</Text>
-                <Text color={pollStatus.lastPrStatus.conflicted > 0 ? "red" : "white"}>
-                  {pollStatus.lastPrStatus.conflicted}
-                </Text>
-                <Text dimColor>·</Text>
-                <Text dimColor>ci-failed</Text>
-                <Text color={pollStatus.lastPrStatus.ciFailed > 0 ? "red" : "white"}>
-                  {pollStatus.lastPrStatus.ciFailed}
-                </Text>
-                <Text dimColor>·</Text>
-                <Text dimColor>quarantined</Text>
-                <Text color={pollStatus.lastPrStatus.quarantined > 0 ? "magenta" : "white"} bold>
-                  {pollStatus.lastPrStatus.quarantined}
-                </Text>
-              </Box>
-            )}
-          </LabeledBox>
-
-          {/* Worker queue summary — active and queued on their own lines */}
-          <LabeledBox
-            label="WORKERS"
-            borderColor="gray"
-            width={16}
-            paddingX={1}
-            flexDirection="column"
-          >
-            <Box gap={1}>
-              <Text dimColor>active</Text>
-              <Text color={activeCount > 0 ? "cyan" : "gray"} bold>
-                {activeCount}
-              </Text>
-            </Box>
-            <Box gap={1}>
-              <Text dimColor>queue</Text>
-              <Text color={(coord?.queuedCount ?? 0) > 0 ? "yellow" : "gray"} bold>
-                {coord?.queuedCount ?? 0}
-              </Text>
-            </Box>
-          </LabeledBox>
-        </Box>
-
-        {/* ── Worker tabs bar ─────────────────────────────────── */}
-        {activeCount > 1 && (
-          <LabeledBox
-            label={`TASKS${activeCount > 1 ? "  Tab/← → · 1-9" : ""}`}
-            borderColor="gray"
-            width={termWidth}
-            paddingX={1}
-            flexDirection="column"
-          >
-            <Box gap={3} flexWrap="wrap">
-              {coord?.activeWorkers.map((w, idx) => {
-                const meta = workerMetaRef.current.get(w.changeName);
-                const phase = meta?.phase ?? "working";
-                const pBadge = priorityBadge(w.issue.priority);
-                const isFocused = idx === safeFocusedIdx;
-                return (
-                  <Box key={w.changeName} gap={1}>
-                    <Text color={isFocused ? "white" : "gray"} bold={isFocused}>
-                      [{idx + 1}]
-                    </Text>
-                    {pBadge.label && (
-                      <Text color={pBadge.color}>
-                        {pBadge.text} {pBadge.label}
-                      </Text>
-                    )}
-                    <Link
-                      url={w.issue.url}
-                      label={w.issueIdentifier}
-                      color={isFocused ? "cyan" : "gray"}
-                    />
-                    <Text color={phaseColor(phase)} dimColor={!isFocused}>
-                      {phase}
-                    </Text>
-                    {isFocused && <Text color="white">◀</Text>}
-                  </Box>
-                );
-              })}
-            </Box>
-          </LabeledBox>
-        )}
+            </LabeledBox>
+          );
+        })()}
 
         {/* ── Gated (awaiting-confirmation) cards ─────────────── */}
         {(() => {
@@ -1220,40 +1236,42 @@ export function AgentMode({
           );
         })()}
 
-        {/* ── Active worker cards ─────────────────────────────── */}
-        {coord?.activeWorkers.map((w, idx) => {
-          const isFocused = idx === safeFocusedIdx;
-          const meta = workerMetaRef.current.get(w.changeName);
-          const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
-          const iter = meta?.iter ?? 0;
-          const phase = meta?.phase ?? "working";
-          const phaseDetail = meta?.phaseDetail ?? "";
-          const cmd = meta?.currentCmd;
-          const cmdElapsed = cmd ? fmtElapsed(now - cmd.startedAt) : null;
-          const tail = meta?.tail ?? [];
-          const prUrl = meta?.prUrl ?? null;
-          const currentTask = meta?.currentTask ?? null;
-          const taskProgress = meta?.taskProgress ?? null;
-          const openspecPhase = meta?.openspecPhase ?? null;
-          const subtasks = meta?.subtasks ?? [];
+        {/* ── Box 4: the focused ticket ─────────────────────────
+            An active worker gets the full card (live CMD / OUTPUT / phase
+            pipeline / subtasks / steering). A parked ticket gets a compact
+            read-only card below (pipeline + state + recovery + AGE + PR). */}
+        {focusedWorker &&
+          (() => {
+            const w = focusedWorker;
+            const meta = workerMetaRef.current.get(w.changeName);
+            const elapsed = meta ? fmtElapsed(now - meta.startedAt) : "–";
+            const iter = meta?.iter ?? 0;
+            const phase = meta?.phase ?? "working";
+            const phaseDetail = meta?.phaseDetail ?? "";
+            const cmd = meta?.currentCmd;
+            const cmdElapsed = cmd ? fmtElapsed(now - cmd.startedAt) : null;
+            const tail = meta?.tail ?? [];
+            const prUrl = meta?.prUrl ?? null;
+            const currentTask = meta?.currentTask ?? null;
+            const taskProgress = meta?.taskProgress ?? null;
+            const openspecPhase = meta?.openspecPhase ?? null;
+            const subtasks = meta?.subtasks ?? [];
 
-          const pBadge = priorityBadge(w.issue.priority);
-          const mBadge = modeBadge(w.trigger);
-          const pColor = phaseColor(phase);
-          const bColor = isFocused ? workerBorderColor(phase) : "gray";
-          const visibleTailLines = isFocused ? focusedTailLines : compactTailLines;
+            const mBadge = modeBadge(w.trigger);
+            const pColor = phaseColor(phase);
+            const bColor = workerBorderColor(phase);
+            const visibleTailLines = focusedTailLines;
 
-          /* Compact row for non-focused workers */
-          if (!isFocused && activeCount > 1) {
+            /* Full card for the focused worker */
             const cardLabelWidth =
               (prUrl ? prLabel(prUrl).length + 3 : 0) + w.issueIdentifier.length + 2;
             const cardLabelNode = (
               <>
-                <Text color="gray"> </Text>
+                <Text color={bColor}> </Text>
                 {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
-                {prUrl && <Text color="gray"> · </Text>}
+                {prUrl && <Text color={bColor}> · </Text>}
                 <Link url={w.issue.url} label={w.issueIdentifier} color="cyan" />
-                <Text color="gray"> </Text>
+                <Text color={bColor}> </Text>
               </>
             );
             return (
@@ -1261,283 +1279,298 @@ export function AgentMode({
                 key={w.changeName}
                 labelNode={cardLabelNode}
                 labelVisualWidth={cardLabelWidth}
-                borderColor="gray"
+                borderColor={bColor}
+                flexDirection="column"
                 paddingX={1}
-                gap={2}
                 width={termWidth}
               >
-                <Text dimColor>[{idx + 1}]</Text>
-                {pBadge.label && <Text color={pBadge.color}>{pBadge.text}</Text>}
-                <Text color="gray" bold>
-                  {w.issueIdentifier}
-                </Text>
-                <Text dimColor>{trunc(w.issue.title, 40)}</Text>
-                <Text dimColor>│</Text>
-                <Text color={pColor} dimColor>
-                  {phase}
-                </Text>
-                <Text dimColor>│</Text>
-                <Text dimColor>{elapsed}</Text>
-                <Text dimColor>·</Text>
-                <Text dimColor>↺ {iter}</Text>
+                {/* ── Card header ─────────────────────────────── */}
+                <Box gap={2}>
+                  <Text>{spinnerFrame}</Text>
+                  <Text color="white" bold>
+                    {trunc(w.issue.title, Math.max(20, termWidth - 55))}
+                  </Text>
+                  <Text color={mBadge.color} bold>
+                    [{mBadge.text}]
+                  </Text>
+                  <Text color={pColor} bold>
+                    {phase}
+                    {phaseDetail ? ` (${phaseDetail})` : ""}
+                  </Text>
+                  <Text dimColor>│</Text>
+                  <Text color="white">{elapsed}</Text>
+                  <Text dimColor>│</Text>
+                  <Text dimColor>↺</Text>
+                  <Text color="white" bold>
+                    {iter}
+                  </Text>
+                </Box>
+
+                {/* ── Current task ────────────────────────────── */}
                 {currentTask && (
-                  <>
-                    <Text dimColor>│</Text>
+                  <Box gap={1} marginTop={0}>
+                    <Text color="yellow" bold>
+                      ▶ TASK
+                    </Text>
                     {openspecPhase && (
-                      <Text color={openspecPhaseColor(openspecPhase)}>[{openspecPhase}]</Text>
+                      <Text color={openspecPhaseColor(openspecPhase)} bold>
+                        [phase: {openspecPhase}]
+                      </Text>
                     )}
-                    <Text dimColor>▶ {trunc(currentTask, 40)}</Text>
-                  </>
+                    <Text color="white">
+                      {trunc(
+                        currentTask,
+                        termWidth - 14 - (openspecPhase ? openspecPhase.length + 11 : 0),
+                      )}
+                    </Text>
+                  </Box>
                 )}
-              </LabeledBox>
-            );
-          }
 
-          /* Full card for the focused worker */
-          const cardLabelWidth =
-            (prUrl ? prLabel(prUrl).length + 3 : 0) + w.issueIdentifier.length + 2;
-          const cardLabelNode = (
-            <>
-              <Text color={bColor}> </Text>
-              {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
-              {prUrl && <Text color={bColor}> · </Text>}
-              <Link url={w.issue.url} label={w.issueIdentifier} color="cyan" />
-              <Text color={bColor}> </Text>
-            </>
-          );
-          return (
-            <LabeledBox
-              key={w.changeName}
-              labelNode={cardLabelNode}
-              labelVisualWidth={cardLabelWidth}
-              borderColor={bColor}
-              flexDirection="column"
-              paddingX={1}
-              width={termWidth}
-            >
-              {/* ── Card header ─────────────────────────────── */}
-              <Box gap={2}>
-                <Text>{spinnerFrame}</Text>
-                <Text color="white" bold>
-                  {trunc(w.issue.title, Math.max(20, termWidth - 55))}
-                </Text>
-                <Text color={mBadge.color} bold>
-                  [{mBadge.text}]
-                </Text>
-                <Text color={pColor} bold>
-                  {phase}
-                  {phaseDetail ? ` (${phaseDetail})` : ""}
-                </Text>
-                <Text dimColor>│</Text>
-                <Text color="white">{elapsed}</Text>
-                <Text dimColor>│</Text>
-                <Text dimColor>↺</Text>
-                <Text color="white" bold>
-                  {iter}
-                </Text>
-              </Box>
+                {/* ── Command (when active) ────────────────────── */}
+                {cmd && (
+                  <Box gap={1} marginTop={0}>
+                    <Text color="yellow">⏵ CMD</Text>
+                    <Text color="yellow">{fmtCmd(cmd.argv)}</Text>
+                    <Text dimColor>{cmdElapsed}</Text>
+                  </Box>
+                )}
 
-              {/* ── Current task ────────────────────────────── */}
-              {currentTask && (
-                <Box gap={1} marginTop={0}>
-                  <Text color="yellow" bold>
-                    ▶ TASK
-                  </Text>
-                  {openspecPhase && (
-                    <Text color={openspecPhaseColor(openspecPhase)} bold>
-                      [phase: {openspecPhase}]
+                {/* ── Output tail ─────────────────────────────── */}
+                {tail.length > 0 && !(showPendingTasks && showAllSubtasks) && (
+                  <Box flexDirection="column" marginTop={0}>
+                    <Text dimColor>
+                      {"─ OUTPUT "}
+                      {"─".repeat(Math.max(4, termWidth - 14))}
                     </Text>
-                  )}
-                  <Text color="white">
-                    {trunc(
-                      currentTask,
-                      termWidth - 14 - (openspecPhase ? openspecPhase.length + 11 : 0),
-                    )}
-                  </Text>
-                </Box>
-              )}
+                    {tail.slice(-visibleTailLines).map((line, i) => (
+                      <Text key={`${w.changeName}-tail-${i}`} dimColor>
+                        {"│ "}
+                        {trunc(line, termWidth - 6)}
+                      </Text>
+                    ))}
+                  </Box>
+                )}
 
-              {/* ── Command (when active) ────────────────────── */}
-              {cmd && (
-                <Box gap={1} marginTop={0}>
-                  <Text color="yellow">⏵ CMD</Text>
-                  <Text color="yellow">{fmtCmd(cmd.argv)}</Text>
-                  <Text dimColor>{cmdElapsed}</Text>
-                </Box>
-              )}
+                {/* ── Phase pipeline (pre-implement phases) ───── */}
+                {shouldShowPhasePipeline(openspecPhase) && (
+                  <Box marginTop={0}>
+                    {phasePipeline(openspecPhase as OpenSpecPhase).map((seg, i, arr) => {
+                      const glyph =
+                        seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
+                      const node =
+                        seg.status === "done" ? (
+                          <Text color="green">
+                            {glyph} {seg.label}
+                          </Text>
+                        ) : seg.status === "current" ? (
+                          <Text color={openspecPhaseColor(seg.phase)} bold>
+                            {glyph} {seg.label}
+                          </Text>
+                        ) : (
+                          <Text dimColor>
+                            {glyph} {seg.label}
+                          </Text>
+                        );
+                      return (
+                        <Box key={seg.phase}>
+                          {node}
+                          {i < arr.length - 1 && <Text dimColor> ─ </Text>}
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                )}
 
-              {/* ── Output tail ─────────────────────────────── */}
-              {tail.length > 0 && !(showPendingTasks && showAllSubtasks) && (
-                <Box flexDirection="column" marginTop={0}>
-                  <Text dimColor>
-                    {"─ OUTPUT "}
-                    {"─".repeat(Math.max(4, termWidth - 14))}
-                  </Text>
-                  {tail.slice(-visibleTailLines).map((line, i) => (
-                    <Text key={`${w.changeName}-tail-${i}`} dimColor>
-                      {"│ "}
-                      {trunc(line, termWidth - 6)}
-                    </Text>
-                  ))}
-                </Box>
-              )}
-
-              {/* ── Phase pipeline (pre-implement phases) ───── */}
-              {shouldShowPhasePipeline(openspecPhase) && (
-                <Box marginTop={0}>
-                  {phasePipeline(openspecPhase as OpenSpecPhase).map((seg, i, arr) => {
-                    const glyph =
-                      seg.status === "done" ? "✓" : seg.status === "current" ? "●" : "○";
-                    const node =
-                      seg.status === "done" ? (
-                        <Text color="green">
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : seg.status === "current" ? (
-                        <Text color={openspecPhaseColor(seg.phase)} bold>
-                          {glyph} {seg.label}
-                        </Text>
-                      ) : (
-                        <Text dimColor>
-                          {glyph} {seg.label}
+                {/* ── Subtasks panel (Ctrl+T) ─────────────────── */}
+                {shouldShowSubtasksPanel(openspecPhase, showPendingTasks, subtasks.length > 0) && (
+                  <Box flexDirection="column" marginTop={0}>
+                    {(() => {
+                      const header = `─ SUBTASKS (${subtasks.length}) CTRL+T to close `;
+                      const pad = "─".repeat(Math.max(4, termWidth - header.length - 4));
+                      return <Text dimColor>{`${header}${pad}`}</Text>;
+                    })()}
+                    {(showAllSubtasks
+                      ? subtasks
+                      : orderSubtasksForCappedDisplay(subtasks).slice(0, MAX_PENDING_DISPLAY)
+                    ).map((s, i, arr) => {
+                      const ord = `${i + 1}.`.padStart(`${arr.length}.`.length, " ");
+                      const reserved = ord.length + 5; // "ord [x] "
+                      return (
+                        <Text key={`${w.changeName}-subtask-${i}`}>
+                          {s.done ? (
+                            <Text dimColor>{`${ord} [x] `}</Text>
+                          ) : (
+                            <Text>{`${ord} [ ] `}</Text>
+                          )}
+                          {s.done ? (
+                            <Text dimColor>{trunc(s.text, termWidth - reserved)}</Text>
+                          ) : (
+                            <Text>{trunc(s.text, termWidth - reserved)}</Text>
+                          )}
                         </Text>
                       );
+                    })}
+                    {!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY && (
+                      <Text dimColor>
+                        {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+L to expand)`}
+                      </Text>
+                    )}
+                  </Box>
+                )}
+
+                {/* ── Steering input (Ctrl+S) ─────────────────── */}
+                {steeringActive && (
+                  <Box marginTop={0}>
+                    <SteeringField
+                      active={steeringActive}
+                      width={termWidth - 2}
+                      initialBuffer={steeringBufferRef.current}
+                      initialCursor={steeringCursorRef.current}
+                      initialFocused={steeringFocusedInitRef.current}
+                      onFocusChange={(f) => {
+                        steeringFocusedRef.current = f;
+                        steeringFocusedInitRef.current = f;
+                      }}
+                      onStateChange={(s) => {
+                        steeringBufferRef.current = s.buffer;
+                        steeringCursorRef.current = s.cursor;
+                      }}
+                      onSubmit={async (message) => {
+                        try {
+                          await appendSteering(join(tasksDir, w.changeName), message);
+                          fileEmit({
+                            type: "steering_submitted",
+                            changeName: w.changeName,
+                            message,
+                          });
+                        } catch (err) {
+                          const text = (err as Error).message;
+                          fileEmit({
+                            type: "error",
+                            code: "steering_failure",
+                            changeName: w.changeName,
+                            text,
+                          });
+                          appendLog(`! steering append failed for ${w.changeName}: ${text}`, "red");
+                          throw err;
+                        }
+                        // Fire the comment-sync hook (best-effort) before the
+                        // worker restart so the steering comment lands on
+                        // Linear even if the new iteration hasn't synced yet.
+                        try {
+                          await coordRef.current?.notifySteeringAppended?.(w.changeName, message);
+                        } catch {
+                          /* hook errors are already logged inside the coordinator */
+                        }
+                        const restarted = await coordRef.current?.restartWorker(w.changeName);
+                        fileEmit({
+                          type: "worker_restart",
+                          changeName: w.changeName,
+                          restarted: !!restarted,
+                        });
+                        if (restarted) {
+                          appendLog(
+                            `  ${w.changeName}: steering applied, restarting worker`,
+                            "cyan",
+                          );
+                        } else {
+                          appendLog(
+                            `  ${w.changeName}: steering queued — will apply on next iteration`,
+                            "gray",
+                          );
+                        }
+                      }}
+                    />
+                  </Box>
+                )}
+
+                {/* ── Task progress bar (when panel collapsed) ── */}
+                {shouldShowProgressBar(openspecPhase, showPendingTasks, taskProgress !== null) &&
+                  taskProgress &&
+                  (() => {
+                    const hint = " CTRL+T to open";
+                    const bar = calcProgressBar(
+                      taskProgress.checked,
+                      taskProgress.total,
+                      termWidth - 4 - hint.length,
+                    );
+                    if (!bar) return null;
+                    const { countStr, filledLeft, leftSlot, filledRight, rightSlot } = bar;
                     return (
-                      <Box key={seg.phase}>
-                        {node}
-                        {i < arr.length - 1 && <Text dimColor> ─ </Text>}
+                      <Box marginTop={0}>
+                        <Text dimColor>[</Text>
+                        <Text color="green">{"█".repeat(filledLeft)}</Text>
+                        <Text dimColor>{"░".repeat(leftSlot - filledLeft)}</Text>
+                        <Text color="white" bold>
+                          {countStr}
+                        </Text>
+                        <Text color="green">{"█".repeat(filledRight)}</Text>
+                        <Text dimColor>{"░".repeat(rightSlot - filledRight)}</Text>
+                        <Text dimColor>]</Text>
+                        <Text dimColor>{hint}</Text>
                       </Box>
                     );
-                  })}
-                </Box>
-              )}
-
-              {/* ── Subtasks panel (Ctrl+T) ─────────────────── */}
-              {shouldShowSubtasksPanel(openspecPhase, showPendingTasks, subtasks.length > 0) && (
-                <Box flexDirection="column" marginTop={0}>
-                  {(() => {
-                    const header = `─ SUBTASKS (${subtasks.length}) CTRL+T to close `;
-                    const pad = "─".repeat(Math.max(4, termWidth - header.length - 4));
-                    return <Text dimColor>{`${header}${pad}`}</Text>;
                   })()}
-                  {(showAllSubtasks
-                    ? subtasks
-                    : orderSubtasksForCappedDisplay(subtasks).slice(0, MAX_PENDING_DISPLAY)
-                  ).map((s, i, arr) => {
-                    const ord = `${i + 1}.`.padStart(`${arr.length}.`.length, " ");
-                    const reserved = ord.length + 5; // "ord [x] "
-                    return (
-                      <Text key={`${w.changeName}-subtask-${i}`}>
-                        {s.done ? (
-                          <Text dimColor>{`${ord} [x] `}</Text>
-                        ) : (
-                          <Text>{`${ord} [ ] `}</Text>
-                        )}
-                        {s.done ? (
-                          <Text dimColor>{trunc(s.text, termWidth - reserved)}</Text>
-                        ) : (
-                          <Text>{trunc(s.text, termWidth - reserved)}</Text>
-                        )}
-                      </Text>
-                    );
-                  })}
-                  {!showAllSubtasks && subtasks.length > MAX_PENDING_DISPLAY && (
-                    <Text dimColor>
-                      {`    … +${subtasks.length - MAX_PENDING_DISPLAY} more (CTRL+L to expand)`}
-                    </Text>
+              </LabeledBox>
+            );
+          })()}
+
+        {/* Parked focused ticket — read-only card, no CMD / OUTPUT / steering. */}
+        {!focusedWorker &&
+          focusedRow &&
+          (() => {
+            const row = focusedRow;
+            let age = "–";
+            if (row.recovery?.firstFailedAt) {
+              const failedAt = Date.parse(row.recovery.firstFailedAt);
+              if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
+            }
+            const prUrl = row.prUrl ?? null;
+            const cardLabelWidth =
+              (prUrl ? prLabel(prUrl).length + 3 : 0) + row.identifier.length + 2;
+            const cardLabelNode = (
+              <>
+                <Text color="gray"> </Text>
+                {prUrl && <Link url={prUrl} label={prLabel(prUrl)} color="green" />}
+                {prUrl && <Text color="gray"> · </Text>}
+                <Link url={row.url} label={row.identifier} color="cyan" />
+                <Text color="gray"> </Text>
+              </>
+            );
+            return (
+              <LabeledBox
+                key={row.id}
+                labelNode={cardLabelNode}
+                labelVisualWidth={cardLabelWidth}
+                borderColor="gray"
+                flexDirection="column"
+                paddingX={1}
+                width={termWidth}
+              >
+                <Text color="white" bold>
+                  {trunc(row.title, Math.max(20, termWidth - 20))}
+                </Text>
+                <Box marginTop={0}>
+                  <PipelineCells glyphs={pipelineStages(row).map((s) => s.status)} />
+                  <Text color="white">
+                    {"  "}
+                    {statusLabel(row)}
+                  </Text>
+                </Box>
+                <Box gap={2} marginTop={0}>
+                  <Text dimColor>parked · no live worker</Text>
+                  <Text dimColor>│</Text>
+                  <Text dimColor>age {age}</Text>
+                  {prUrl && (
+                    <>
+                      <Text dimColor>│</Text>
+                      <Link url={prUrl} label={prLabel(prUrl)} color="green" />
+                    </>
                   )}
                 </Box>
-              )}
-
-              {/* ── Steering input (Ctrl+S) ─────────────────── */}
-              {steeringActive && idx === safeFocusedIdx && (
-                <Box marginTop={0}>
-                  <SteeringField
-                    active={steeringActive}
-                    width={termWidth - 2}
-                    initialBuffer={steeringBufferRef.current}
-                    initialCursor={steeringCursorRef.current}
-                    initialFocused={steeringFocusedInitRef.current}
-                    onFocusChange={(f) => {
-                      steeringFocusedRef.current = f;
-                      steeringFocusedInitRef.current = f;
-                    }}
-                    onStateChange={(s) => {
-                      steeringBufferRef.current = s.buffer;
-                      steeringCursorRef.current = s.cursor;
-                    }}
-                    onSubmit={async (message) => {
-                      try {
-                        await appendSteering(join(tasksDir, w.changeName), message);
-                        fileEmit({ type: "steering_submitted", changeName: w.changeName, message });
-                      } catch (err) {
-                        const text = (err as Error).message;
-                        fileEmit({
-                          type: "error",
-                          code: "steering_failure",
-                          changeName: w.changeName,
-                          text,
-                        });
-                        appendLog(`! steering append failed for ${w.changeName}: ${text}`, "red");
-                        throw err;
-                      }
-                      // Fire the comment-sync hook (best-effort) before the
-                      // worker restart so the steering comment lands on
-                      // Linear even if the new iteration hasn't synced yet.
-                      try {
-                        await coordRef.current?.notifySteeringAppended?.(w.changeName, message);
-                      } catch {
-                        /* hook errors are already logged inside the coordinator */
-                      }
-                      const restarted = await coordRef.current?.restartWorker(w.changeName);
-                      fileEmit({
-                        type: "worker_restart",
-                        changeName: w.changeName,
-                        restarted: !!restarted,
-                      });
-                      if (restarted) {
-                        appendLog(`  ${w.changeName}: steering applied, restarting worker`, "cyan");
-                      } else {
-                        appendLog(
-                          `  ${w.changeName}: steering queued — will apply on next iteration`,
-                          "gray",
-                        );
-                      }
-                    }}
-                  />
-                </Box>
-              )}
-
-              {/* ── Task progress bar (when panel collapsed) ── */}
-              {shouldShowProgressBar(openspecPhase, showPendingTasks, taskProgress !== null) &&
-                taskProgress &&
-                (() => {
-                  const hint = " CTRL+T to open";
-                  const bar = calcProgressBar(
-                    taskProgress.checked,
-                    taskProgress.total,
-                    termWidth - 4 - hint.length,
-                  );
-                  if (!bar) return null;
-                  const { countStr, filledLeft, leftSlot, filledRight, rightSlot } = bar;
-                  return (
-                    <Box marginTop={0}>
-                      <Text dimColor>[</Text>
-                      <Text color="green">{"█".repeat(filledLeft)}</Text>
-                      <Text dimColor>{"░".repeat(leftSlot - filledLeft)}</Text>
-                      <Text color="white" bold>
-                        {countStr}
-                      </Text>
-                      <Text color="green">{"█".repeat(filledRight)}</Text>
-                      <Text dimColor>{"░".repeat(rightSlot - filledRight)}</Text>
-                      <Text dimColor>]</Text>
-                      <Text dimColor>{hint}</Text>
-                    </Box>
-                  );
-                })()}
-            </LabeledBox>
-          );
-        })}
+              </LabeledBox>
+            );
+          })()}
       </Box>
       {awaitingClose && <Text color="cyan">Stopped — press Enter to close…</Text>}
     </Box>

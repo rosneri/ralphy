@@ -1,7 +1,7 @@
-import { createActor, type Actor, type SnapshotFrom } from "xstate";
-import { flowMachine, type FlowAssignment, type FlowInput } from "./flow.machine";
+import { createActor, type Actor, type SnapshotFrom, type InspectionEvent } from "xstate";
+import { flowMachine, type FlowAssignment, type FlowInput, type FlowRuntime } from "./flow.machine";
 import { writeField, readSlotSidecar } from "../state/store";
-import type { Bus } from "@ralphy/events";
+import { createNoopBus, type Bus } from "@ralphy/events";
 
 const STATE_FILE = ".ralph-state.json";
 
@@ -9,6 +9,22 @@ export interface FlowActorDeps {
   bus: Bus;
   persist: (issueId: string, assignment: FlowAssignment) => Promise<void> | void;
   graceMs?: number;
+  /** Quarantine threshold seeded into every actor's context
+   *  (`prRecovery.maxRecoverySessions`). `0` / absent disables quarantine. */
+  maxRecoveryAttempts?: number;
+  /**
+   * Observational hook fired on every *value* transition of a flow actor.
+   * Read-only — XState `inspect` cannot alter the machine, so this can never
+   * change stop/flow behavior. Used to append a debuggable per-change
+   * transition timeline. `changeDir` is whatever {@link FlowActorStore.getActor}
+   * was called with (`undefined` for in-memory-only actors). No-op events
+   * (same value in, same value out) are not reported.
+   */
+  onTransition?: (
+    issueId: string,
+    changeDir: string | undefined,
+    transition: { from: string; event: string; to: string },
+  ) => void;
 }
 
 export class FlowActorStore {
@@ -40,18 +56,30 @@ export class FlowActorStore {
             bus: this.deps.bus,
             persist: this.deps.persist,
             ...(this.deps.graceMs !== undefined ? { graceMs: this.deps.graceMs } : {}),
+            ...(this.deps.maxRecoveryAttempts !== undefined
+              ? { maxRecoveryAttempts: this.deps.maxRecoveryAttempts }
+              : {}),
           }
         : {}),
     };
+
+    const inspector = this.deps?.onTransition ? this.makeInspect(key, changeDir) : null;
 
     if (changeDir) {
       const snapshot = await this.loadSnapshot(changeDir);
       if (snapshot !== null && this.isValidSnapshot(snapshot)) {
         try {
+          // XState v5 restores context verbatim from the snapshot and does not
+          // re-run the context factory, so the non-serializable `runtime`
+          // handles (lost to JSON) must be spliced back in here — re-passing
+          // `input` does not repopulate them.
+          const restored = this.withRestoredRuntime(snapshot);
           const a = createActor(this.machine, {
-            snapshot: snapshot as SnapshotFrom<typeof flowMachine>,
+            snapshot: restored as SnapshotFrom<typeof flowMachine>,
             input,
+            ...(inspector ? { inspect: inspector.inspect } : {}),
           });
+          inspector?.setRoot(a);
           a.start();
           if (a.getSnapshot().value !== undefined) {
             this.actors.set(key, a);
@@ -69,10 +97,93 @@ export class FlowActorStore {
       }
     }
 
-    const a = createActor(this.machine, { input });
+    const a = createActor(this.machine, {
+      input,
+      ...(inspector ? { inspect: inspector.inspect } : {}),
+    });
+    inspector?.setRoot(a);
     a.start();
     this.actors.set(key, a);
     return a;
+  }
+
+  /**
+   * A fresh, process-bound {@link FlowRuntime} sourced from the store's deps.
+   * `worker` / `teardown` are always `undefined` on rehydrate — a live worker
+   * cannot outlive the process that spawned it.
+   */
+  private buildRuntime(): FlowRuntime {
+    return {
+      bus: this.deps?.bus ?? createNoopBus(),
+      persist: this.deps?.persist ?? (() => {}),
+      worker: undefined,
+      teardown: undefined,
+    };
+  }
+
+  /**
+   * Rebuild a persisted snapshot's `context` for restore: keep the serializable
+   * `context.data`, replace `context.runtime` with a freshly-injected one (the
+   * serialized handles are dead). Also migrates pre-split snapshots, whose
+   * serializable fields lived at the top level of `context`
+   * (`issueId` / `graceMs` / `currentAssignment` / `pendingAssignment`), into
+   * `context.data` so in-flight runs survive the upgrade rather than resetting
+   * to `idle`.
+   */
+  private withRestoredRuntime(snapshot: unknown): unknown {
+    if (!snapshot || typeof snapshot !== "object") return snapshot;
+    const snap = snapshot as { context?: Record<string, unknown> };
+    const context = snap.context ?? {};
+    const data =
+      context.data && typeof context.data === "object"
+        ? (context.data as Record<string, unknown>)
+        : {
+            issueId: context.issueId,
+            graceMs: context.graceMs ?? 5000,
+            maxRecoveryAttempts: this.deps?.maxRecoveryAttempts ?? 0,
+            currentAssignment: context.currentAssignment,
+            pendingAssignment: context.pendingAssignment,
+            recovery: undefined,
+          };
+    return { ...snap, context: { data, runtime: this.buildRuntime() } };
+  }
+
+  /**
+   * Build the per-actor `inspect` closure for the transition timeline. Only the
+   * root flow actor's value changes are reported — the spawned `preemption`
+   * child's inspection events also arrive here and are filtered out by the
+   * `actorRef === root` check. Errors in the callback are swallowed so logging
+   * can never break the actor.
+   */
+  private makeInspect(
+    issueId: string,
+    changeDir: string | undefined,
+  ): {
+    inspect: (event: InspectionEvent) => void;
+    setRoot: (actor: Actor<typeof flowMachine>) => void;
+  } {
+    let root: Actor<typeof flowMachine> | undefined;
+    let previous: string | undefined;
+    const inspect = (event: InspectionEvent): void => {
+      if (event.type !== "@xstate.snapshot" || event.actorRef !== root) return;
+      const value = (event.snapshot as { value?: unknown }).value;
+      const to = typeof value === "string" ? value : JSON.stringify(value);
+      const eventType = (event.event as { type?: string }).type ?? "?";
+      if (previous !== undefined && previous !== to) {
+        try {
+          this.deps?.onTransition?.(issueId, changeDir, { from: previous, event: eventType, to });
+        } catch {
+          /* observational — never let logging break the actor */
+        }
+      }
+      previous = to;
+    };
+    return {
+      inspect,
+      setRoot: (actor) => {
+        root = actor;
+      },
+    };
   }
 
   /**

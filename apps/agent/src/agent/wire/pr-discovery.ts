@@ -180,6 +180,45 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     } catch (err) {
       diag("ci", `! gh pr checks ${prUrl} failed (PR scan): ${(err as Error).message}`, "yellow");
     }
+
+    // BAN-799: GitHub's `mergeable` field (and a settled `mergeStateStatus`) only
+    // mean "no git conflict" — a PR can be git-mergeable yet still be a DRAFT or
+    // awaiting required review approval (mergeStateStatus BLOCKED). Neither is
+    // "done". Without this gate the watcher advanced such PRs to done and
+    // disposed the flow actor, marking the issue complete while the PR was still
+    // draft / unapproved / unmerged. Hold here (status "unknown" — a scan no-op,
+    // same as pending CI) until the PR is genuinely ready. The extra `gh pr view`
+    // runs only on the otherwise-mergeable path (rare) and is memoised per poll.
+    // Undetermined fields default to ready: never block done on an inability to
+    // read the PR, and repos with no required review return reviewDecision=null.
+    try {
+      const readiness = (await getPollContext().fetchPrOnce(
+        prUrl,
+        ["isDraft", "reviewDecision"],
+        cmdRunner,
+        projectRoot,
+      )) as { isDraft?: boolean; reviewDecision?: string };
+      const isDraft = readiness.isDraft === true;
+      const reviewDecision = readiness.reviewDecision?.toUpperCase();
+      const awaitingApproval =
+        reviewDecision === "REVIEW_REQUIRED" || reviewDecision === "CHANGES_REQUESTED";
+      if (isDraft || awaitingApproval) {
+        diag(
+          "pr",
+          `  ${issue.identifier}: PR ${prUrl} is green + conflict-free but ${
+            isDraft ? "still a draft" : "awaiting review approval"
+          } — holding (not done) until it is ready`,
+          "gray",
+        );
+        return { url: prUrl, status: "unknown" };
+      }
+    } catch (err) {
+      diag(
+        "pr",
+        `! gh pr view ${prUrl} readiness check failed (PR scan): ${(err as Error).message} — treating as ready`,
+        "yellow",
+      );
+    }
     return { url: prUrl, status: "mergeable" };
   }
 

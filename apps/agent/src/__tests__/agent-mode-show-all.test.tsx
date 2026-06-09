@@ -70,6 +70,15 @@ function makeFakeCoord(workers: ActiveWorker[]): AgentModeCoordinator {
       prStatus: { mergeable: 0, conflicted: 0, ciFailed: 0, quarantined: 0 },
       phase: {},
       flow: {},
+      board: workers.map((w) => ({
+        changeName: w.changeName,
+        id: w.issueId,
+        identifier: w.issueIdentifier,
+        title: w.issue.title,
+        url: w.issue.url,
+        priority: w.issue.priority,
+        state: "working" as const,
+      })),
     }),
     stop: () => {},
     getPause: () => null,
@@ -91,7 +100,6 @@ function makeBuilder(workers: ActiveWorker[], changeDir: string): AgentModeBuild
       pollInterval: 999,
       getWorkerCwd: () => undefined,
       runBaselineGate: async () => {},
-      getGaveUpTotal: async () => 0,
     };
   };
 }

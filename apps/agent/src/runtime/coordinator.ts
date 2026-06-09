@@ -1,8 +1,16 @@
+import { appendFile } from "node:fs/promises";
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
+import { changeNameForIssue } from "../agent/scaffold";
+import {
+  machineStateToTicketState,
+  type TicketRow,
+  type TicketState,
+  type TicketRecovery,
+} from "../components/task-pipeline";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
@@ -11,7 +19,6 @@ import { createNoopBus } from "@ralphy/events";
 import { registry as featureRegistry } from "../features/registry";
 import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
 import type { FeatureCtx, FeatureId } from "../features/types";
-import type { PrTracker } from "../features/pr-tracker";
 import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
 import { buildRalphyComment, isStartedComment } from "@ralphy/comms";
 import type { FlowAssignment, FlowId } from "./types";
@@ -32,17 +39,28 @@ export function emitCapture<T extends RalphEvent["type"]>(
 
 export type { QueueTrigger, MentionTrigger } from "../queue/queue-order";
 
-/** Build the Linear completion comment for a finished worker. Split out to
- *  keep the three outcomes (no-op done / success / quarantined failure) as a
- *  flat branch rather than nested ternaries. */
-function completionCommentBody(args: {
+/** Build the Linear comment for a finished worker. Split out to keep the
+ *  outcomes (no-op done / quarantined failure / conflict-fix / ci-fix /
+ *  deferred-awaiting / genuinely-done) as a flat branch rather than nested
+ *  ternaries.
+ *
+ *  `reachedDone` is the flow actor's post-exit state — `true` only when the
+ *  machine actually transitioned to `done`. When a PR is open and recovery is
+ *  enabled the actor rests in `awaiting-ci` instead (the watcher owns the
+ *  move to done once the PR is genuinely mergeable), so the comment must NOT
+ *  claim "completed work" — it reports the real, awaiting state instead. This
+ *  is the single guard that stops a fix/review iteration from announcing
+ *  completion while the PR is still draft, red, unapproved, or unmerged. */
+export function completionCommentBody(args: {
   noChanges: boolean;
   ok: boolean;
   trigger: QueueTrigger;
   changeName: string;
   code: number;
+  /** Flow actor reached the terminal `done` state after this exit. */
+  reachedDone: boolean;
 }): string {
-  const { noChanges, ok, trigger, changeName, code } = args;
+  const { noChanges, ok, trigger, changeName, code, reachedDone } = args;
   if (noChanges) {
     return buildRalphyComment({
       type: "completed-noop",
@@ -73,6 +91,37 @@ function completionCommentBody(args: {
       type: "conflicts-resolved",
       action: "resolved merge conflicts",
       body: `Change: \`${changeName}\``,
+      fields: { change: changeName },
+    });
+  }
+  if (trigger === "ci-fix") {
+    // A ci-fix iteration pushed a fix but has NOT re-verified CI — the watcher
+    // re-checks the PR on the next poll. Announcing "completed work" here is
+    // what made a still-red PR look done; report the honest in-flight state.
+    return buildRalphyComment({
+      type: "ci-fix-pushed",
+      action: "pushed a CI fix",
+      body:
+        `Pushed a fix for the failing CI on this PR — re-checking the checks on the ` +
+        `next poll before marking this done. Change: \`${changeName}\``,
+      fields: { change: changeName },
+    });
+  }
+  if (!reachedDone) {
+    // PR is open and recovery is enabled, so the ticket rests in `awaiting-ci`
+    // — the watcher advances it to done only once the PR is genuinely mergeable
+    // (non-draft, approved, CI-green, no conflicts). This is NOT "completed
+    // work": the work is pushed but the PR is not ready yet.
+    const isReview = trigger === "review";
+    return buildRalphyComment({
+      type: "awaiting-ci",
+      action: isReview ? "addressed review feedback" : "opened a PR",
+      body:
+        (isReview
+          ? `Pushed changes for the review feedback to this PR. `
+          : `Finished the work and opened a PR. `) +
+        `Awaiting CI, review, and a clean merge state before marking this done. ` +
+        `Change: \`${changeName}\``,
       fields: { change: changeName },
     });
   }
@@ -158,6 +207,12 @@ export interface PollResult {
   /** Per-change activity flow — independent of `phase`. Empty when the poll
    *  did not derive any. */
   flow: Record<string, Flow>;
+  /** One lifecycle-pipeline row per live ticket, ordered active-worker →
+   *  queued → in-progress → todo → mention (first occurrence wins on dedup).
+   *  The TUI renders this as the unified TASKS board; `buckets` / `prStatus`
+   *  remain for `--json-output` and telemetry. Empty on paused / stopped /
+   *  failed polls. */
+  board: TicketRow[];
 }
 const emptyPrStatus = (): PrStatusCounts => ({
   mergeable: 0,
@@ -197,6 +252,7 @@ const emptyPollResult = (): PollResult => ({
   prStatus: emptyPrStatus(),
   phase: {},
   flow: {},
+  board: [],
 });
 
 export interface CoordinatorDeps {
@@ -340,19 +396,21 @@ interface CoordinatorOptions {
   /** When set, conflict-fix items whose issue matches this indicator are
    *  promoted to the head of the queue, ahead of Linear priority. */
   getAutoMerge?: GetIndicator | undefined;
-  /** Optional pr-tracker (RLF-173). When provided, the merge-state scan
-   *  records every CONFLICTING / CI-failed detection and bails to
-   *  `setError` once `maxRecoverySessions` is exceeded. Healthy
-   *  (mergeable) PRs clear their counter. Absence preserves the legacy
-   *  "demote forever" behavior. */
-  prTracker?: PrTracker | undefined;
   /** Unified PR-recovery gate (RLF-97). `enabled: false` makes the merge-state
    *  scan a no-op — no recovery and no move-to-done; the worker marks the ticket
    *  done on PR open instead. When `enabled`, the scan advances mergeable PRs to
    *  done regardless of the recovery toggles; `fixConflicts`/`fixCi` only gate
    *  whether conflicting / CI-red PRs are re-queued for recovery. Absent ≡
-   *  disabled. */
-  prRecovery?: { enabled: boolean; fixCi: boolean; fixConflicts: boolean } | undefined;
+   *  disabled.
+   *
+   *  `maxRecoverySessions` is the quarantine threshold: after that many failed
+   *  recovery sessions the flow machine routes the ticket to `quarantined`
+   *  (RLF-173), applies `setError` once, and stops auto-recovering. The
+   *  threshold lives in the persisted actor context — the machine, not a side
+   *  file, owns the bail counter. */
+  prRecovery?:
+    | { enabled: boolean; fixCi: boolean; fixConflicts: boolean; maxRecoverySessions?: number }
+    | undefined;
 }
 
 export interface ActiveWorker {
@@ -390,6 +448,10 @@ export interface ActiveWorker {
    *  gate clears (approval or revise comment). */
   reapedForAwaiting: boolean;
 }
+
+/** Which input source a board row was resolved from, in precedence order.
+ *  Decides the base state before pr-tracker overlays apply. */
+type TicketSourceKind = "worker" | "queued" | "in-progress" | "todo" | "mention";
 
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
@@ -448,7 +510,25 @@ export class AgentCoordinator {
   ) {
     this.bus = deps.bus ?? createNoopBus();
     const providedMachine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
-    this.flowStore = new FlowActorStore({ bus: this.bus, persist: () => {} }, providedMachine);
+    this.flowStore = new FlowActorStore(
+      {
+        bus: this.bus,
+        persist: () => {},
+        // Seed each actor's quarantine threshold from the recovery config so
+        // the machine — not a side file — owns the bail decision. `0` disables.
+        maxRecoveryAttempts: this.opts.prRecovery?.maxRecoverySessions ?? 0,
+        // Append a debuggable per-change transition timeline next to the flow
+        // snapshot (`.ralph-state.flow.json`). Fire-and-forget — this is an
+        // observational side channel and must never block or break a poll.
+        onTransition: (_issueId, changeDir, transition) => {
+          if (!changeDir) return;
+          const path = `${changeDir}/.ralph-state.flow-history.jsonl`;
+          const line = `${JSON.stringify({ ts: new Date().toISOString(), ...transition })}\n`;
+          void appendFile(path, line).catch(() => {});
+        },
+      },
+      providedMachine,
+    );
   }
 
   get activeCount(): number {
@@ -552,7 +632,15 @@ export class AgentCoordinator {
         awaiting: awaitingCount,
       };
       const found = buckets.todo + buckets.inProgress + buckets.mentions + buckets.awaiting;
-      return { found, added: 0, buckets, prStatus: emptyPrStatus(), phase: {}, flow: {} };
+      return {
+        found,
+        added: 0,
+        buckets,
+        prStatus: emptyPrStatus(),
+        phase: {},
+        flow: {},
+        board: [],
+      };
     }
 
     const maxT = this.opts.maxTickets ?? 0;
@@ -653,7 +741,7 @@ export class AgentCoordinator {
     // Run the gh-driven merge-state scan BEFORE the queue sort + spawn
     // so its conflict-fix / ci-fix entries get sorted with the rest and
     // auto-merge boost can promote them ahead of urgent todos.
-    const prStatus = await this.scanPrMergeStates();
+    const { counts: prStatus, prByIssue } = await this.scanPrMergeStates();
 
     if (this.queue.length > 0) {
       this.queue = orderQueueEntries(this.queue, this.opts.getAutoMerge);
@@ -697,7 +785,143 @@ export class AgentCoordinator {
         flow[w.changeName] = "working";
       }
     }
-    return { found, added, buckets, prStatus, phase: {}, flow };
+    const board = await this.buildBoard({
+      todo,
+      inProgress,
+      mentions,
+      prByIssue,
+      excludeIds: awaitingClaimed,
+    });
+    return { found, added, buckets, prStatus, phase: {}, flow, board };
+  }
+
+  /**
+   * Build the lifecycle-pipeline board — one {@link TicketRow} per live
+   * ticket. Sources are walked in precedence order (active worker → queued →
+   * in-progress → todo → mention); the first occurrence of an issue id wins,
+   * which also fixes the render order. State comes from the persisted flow
+   * actor (rehydrated via `getActor`, so a parked/restarted ticket reports its
+   * true state) for actor-backed rows; `todo` / `review` are assigned directly
+   * for the backlog and mention sources (no actor materialized for them).
+   *
+   * Two overlays apply to actor-backed rows only:
+   *  - a pr-tracker **bail** wins outright → `quarantined`;
+   *  - otherwise a live (uncleared, non-bailed) pr-tracker entry folds onto the
+   *    display state when the actor merely rests in a waiting state
+   *    (`awaiting-ci` / `in-progress` / `working`). This surfaces an unresolved
+   *    failure even when `fixCi` / `fixConflicts` is off and the scan never sent
+   *    a `*_DETECTED` event — the case that motivated this board. The pr-tracker
+   *    entry is a reliable "still broken" signal because the scan clears it the
+   *    moment the PR becomes mergeable.
+   *
+   * `done` / disposed tickets are excluded — `done` is a transient glyph, not a
+   * resting row.
+   */
+  private async buildBoard(args: {
+    todo: TrackedIssue[];
+    inProgress: TrackedIssue[];
+    mentions: { issue: TrackedIssue; trigger: MentionTrigger }[];
+    prByIssue: Map<string, { url: string; status: PrStatusBucket }>;
+    /** Issue ids claimed by the awaiting-confirmation feature. They are
+     *  surfaced by the dedicated gated card, so they are excluded here to avoid
+     *  double-rendering them as pipeline rows. */
+    excludeIds: ReadonlySet<string>;
+  }): Promise<TicketRow[]> {
+    const { todo, inProgress, mentions, prByIssue, excludeIds } = args;
+    type Source = { issue: TrackedIssue; kind: TicketSourceKind; changeName: string };
+    const order: Source[] = [
+      ...this.workers.map((w) => ({
+        issue: w.issue,
+        kind: "worker" as const,
+        changeName: w.changeName,
+      })),
+      ...this.queue.map((q) => ({
+        issue: q.issue,
+        kind: "queued" as const,
+        changeName: changeNameForIssue(q.issue),
+      })),
+      ...inProgress.map((issue) => ({
+        issue,
+        kind: "in-progress" as const,
+        changeName: changeNameForIssue(issue),
+      })),
+      ...todo.map((issue) => ({
+        issue,
+        kind: "todo" as const,
+        changeName: changeNameForIssue(issue),
+      })),
+      ...mentions.map((m) => ({
+        issue: m.issue,
+        kind: "mention" as const,
+        changeName: changeNameForIssue(m.issue),
+      })),
+    ];
+
+    const seen = new Set<string>();
+    const rows: TicketRow[] = [];
+    for (const src of order) {
+      if (excludeIds.has(src.issue.id)) continue;
+      if (seen.has(src.issue.id)) continue;
+      seen.add(src.issue.id);
+      const row = await this.resolveBoardRow(src.issue, src.kind, src.changeName, prByIssue);
+      if (row) rows.push(row);
+    }
+    return rows;
+  }
+
+  /** Resolve one board row, or `null` when the ticket is done / disposed and
+   *  should not occupy a resting row. See {@link buildBoard} for the overlay
+   *  rules. */
+  private async resolveBoardRow(
+    issue: TrackedIssue,
+    kind: TicketSourceKind,
+    changeName: string,
+    prByIssue: Map<string, { url: string; status: PrStatusBucket }>,
+  ): Promise<TicketRow | null> {
+    let state: TicketState;
+    let recovery: TicketRecovery | undefined;
+    if (kind === "todo") {
+      state = "todo";
+    } else if (kind === "mention") {
+      state = "review";
+    } else {
+      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const actor = await this.flowStore.getActor(issue.id, changeDir);
+      const snapshot = actor.getSnapshot();
+      state = machineStateToTicketState(snapshot.value as string);
+      if (state === "done") return null;
+      if (kind === "queued" && state === "in-progress") state = "queued";
+      // Recovery detail comes from the machine context (the single source of
+      // truth now that the pr-tracker file is gone).
+      const flowRecovery = snapshot.context.data.recovery;
+      if (flowRecovery) {
+        recovery = {
+          attempts: flowRecovery.attempts,
+          bailed: state === "quarantined",
+          firstFailedAt: flowRecovery.firstFailedAt,
+          lastReason: flowRecovery.lastReason,
+        };
+        // Fold an unresolved failure onto a still-waiting actor so a red PR
+        // whose recovery is gated off still reads as failing rather than
+        // cleanly waiting (the motivating scenario).
+        if (state === "awaiting-ci" || state === "in-progress" || state === "working") {
+          state = flowRecovery.lastReason === "conflicting" ? "conflict-fix" : "ci-fix";
+        }
+      }
+    }
+
+    const prUrl = prByIssue.get(issue.id)?.url;
+    return {
+      changeName,
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      url: issue.url,
+      priority: issue.priority,
+      state,
+      ...(recovery ? { recovery } : {}),
+      ...(prUrl ? { prUrl } : {}),
+    };
   }
 
   /**
@@ -1011,20 +1235,28 @@ export class AgentCoordinator {
    * in-memory `conflictNotified` / `ciFailedNotified` sets dedup across
    * polls — Linear labels are no longer involved in the routing.
    */
-  private async scanPrMergeStates(): Promise<PrStatusCounts> {
+  private async scanPrMergeStates(): Promise<{
+    counts: PrStatusCounts;
+    /** Per-issue PR url + status discovered this scan, keyed by issue.id.
+     *  Reuses the `checkPrStatus` calls already made — no new `gh` calls — so
+     *  the board can surface a `↗#NNN` link on parked rows. Only the scanned
+     *  candidates are present (active / queued / pending issues are skipped). */
+    prByIssue: Map<string, { url: string; status: PrStatusBucket }>;
+  }> {
     const counts = emptyPrStatus();
+    const prByIssue = new Map<string, { url: string; status: PrStatusBucket }>();
     // RLF-97: `prRecovery.enabled: false` turns recovery off everywhere. Without
     // this gate the scan re-queued conflict-fix / ci-fix workers regardless of
     // the setting (only the bail counter was gated) — so "off" never meant off.
-    if (!this.opts.prRecovery?.enabled) return counts;
+    if (!this.opts.prRecovery?.enabled) return { counts, prByIssue };
     let candidates: TrackedIssue[] = [];
     try {
       candidates = await this.deps.fetchDoneCandidates();
     } catch (err) {
       this.deps.onLog(`! PR merge-state scan fetch failed: ${(err as Error).message}`, "yellow");
-      return counts;
+      return { counts, prByIssue };
     }
-    if (candidates.length === 0) return counts;
+    if (candidates.length === 0) return { counts, prByIssue };
 
     // Snapshot pre-existing fix workers so the tail loop only counts items
     // that were already queued/active before this scan — newly pushed items
@@ -1032,26 +1264,29 @@ export class AgentCoordinator {
     const preQueue = this.queue.map((q) => ({ id: q.issue.id, trigger: q.trigger }));
     const preWorkers = this.workers.map((w) => ({ id: w.issueId, trigger: w.trigger }));
 
-    const tracker = this.opts.prTracker;
     for (const issue of candidates) {
       if (this.workers.some((w) => w.issueId === issue.id)) continue;
       if (this.pendingIds.has(issue.id)) continue;
       if (this.queue.some((q) => q.issue.id === issue.id)) continue;
 
-      // pr-tracker retry (fix): a human cleared the `setError` quarantine label
-      // to ask for a retry. Clear the bail so the merge-state scan re-engages
-      // conflict/CI recovery instead of skipping it forever. Without this, a bail
-      // only ever cleared when the PR became mergeable — which a conflicting PR
-      // can never reach on its own — so the ticket was stuck. Non-looping: a
-      // subsequent re-bail re-applies setError, so it won't reset again until a
-      // human clears the label once more.
-      if (tracker?.isBailed(issue.identifier) && this.errorMarkerCleared(issue)) {
-        await tracker.clear(issue.identifier).catch(() => {});
+      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
+      const actor = await this.flowStore.getActor(issue.id, changeDir);
+      const stateValue = (): string => actor.getSnapshot().value as string;
+
+      // Quarantine retry: a human cleared the `setError` label to ask for a
+      // fresh attempt. Reset the machine's recovery counter and re-engage —
+      // otherwise a bail only clears when the PR becomes mergeable, which a
+      // conflicting PR can never reach on its own, so the ticket stays stuck.
+      // Non-looping: a subsequent re-bail re-applies setError, so it won't reset
+      // again until a human clears the label once more.
+      if (stateValue() === "quarantined" && this.errorMarkerCleared(issue)) {
+        actor.send({ type: "QUARANTINE_CLEARED" });
+        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
         this.conflictNotified.delete(issue.id);
         this.ciFailedNotified.delete(issue.id);
         this.conflictPromoted.delete(issue.id);
         this.deps.onLog(
-          `  ${issue.identifier}: pr-tracker bail cleared (ticket back in Todo) — retrying recovery`,
+          `  ${issue.identifier}: quarantine cleared (ralph:error removed) — retrying recovery`,
           "cyan",
         );
       }
@@ -1067,49 +1302,38 @@ export class AgentCoordinator {
         continue;
       }
       if (!pr) continue;
+      // Capture the PR url + status before the recovery gates below so the
+      // board surfaces a link even when `fixCi` / `fixConflicts` is off and the
+      // scan otherwise `continue`s past this PR without queueing recovery.
+      prByIssue.set(issue.id, pr);
       if (pr.status === "mergeable") counts.mergeable += 1;
       // conflicted/ci_failed counts are accumulated via the queue/worker loops below
 
-      // pr-tracker (RLF-173): mergeable PR clears any prior recovery
-      // counter so a future regression starts fresh.
-      if (pr.status === "mergeable" && this.opts.prTracker) {
-        try {
-          await this.opts.prTracker.clear(issue.identifier);
-        } catch (err) {
-          this.deps.onLog(
-            `! pr-tracker clear failed for ${issue.identifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
-      }
-
       // RLF-97: a mergeable PR (CI green, no conflicts) is the "PR passed"
-      // signal — advance the in-review ticket to done. We only advance tickets
-      // whose flow actor rests in `awaiting-ci` — i.e. the worker opened the PR
-      // and deferred `setDone` to here. A ticket already moved to done (immediate
-      // path, or a prior advance) has a disposed/idle/done actor and is left
-      // alone, so the watcher never re-fires `setDone` on a healthy Done ticket.
-      // The scan only runs when `prRecovery.enabled` (early return above), so
-      // advancement is implicitly gated on enabled and is independent of
-      // `fixConflicts` / `fixCi`, which gate recovery only.
+      // signal — drop any recovery record and advance the in-review (or
+      // human-resolved quarantined) ticket to done. A ticket already moved to
+      // done, or with a fix worker mid-run, is left alone. The scan only runs
+      // when `prRecovery.enabled` (early return above), so advancement is
+      // implicitly gated on enabled, independent of `fixConflicts` / `fixCi`.
       if (pr.status === "mergeable") {
-        const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-        const actor = await this.flowStore.getActor(issue.id, changeDir);
-        if ((actor.getSnapshot().value as string) === "awaiting-ci") {
+        const value = stateValue();
+        if (value === "awaiting-ci" || value === "quarantined") {
           if (this.issueInSetDoneState(issue)) {
-            // The ticket is already in the setDone state but its actor rests in
-            // awaiting-ci — e.g. an already-Done ticket whose discovered PR was
-            // conflict-fixed and is now mergeable again. Re-applying setDone here
-            // would post a spurious "moving to done" comment, so just settle the
-            // actor to done without re-applying the indicator.
+            // Already in the setDone state but the actor still rests in
+            // awaiting-ci / quarantined — settle to done without re-applying the
+            // indicator (which would post a spurious "moving to done" comment).
+            actor.send({ type: "RECOVERY_CLEARED" });
             actor.send({ type: "PR_PASSED" });
             if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-            if ((actor.getSnapshot().value as string) === "done") {
-              this.flowStore.disposeActor(issue.id);
-            }
+            if (stateValue() === "done") this.flowStore.disposeActor(issue.id);
           } else {
             await this.advancePrToDone(issue, pr.url, actor, changeDir);
           }
+        } else {
+          // Not in an advanceable state — still drop a stale recovery record so
+          // the board does not keep showing a now-green PR as failing.
+          actor.send({ type: "RECOVERY_CLEARED" });
+          if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
         }
         continue;
       }
@@ -1122,18 +1346,24 @@ export class AgentCoordinator {
         if (!this.opts.prRecovery?.fixConflicts) continue;
         // Standing level (fix): count every currently-conflicting PR each scan,
         // not just freshly-detected ones, so the counter reflects reality rather
-        // than a one-poll delta. Bailed PRs are surfaced as `quarantined`.
-        if (tracker?.isBailed(issue.identifier)) {
+        // than a one-poll delta. Already-quarantined tickets are surfaced as
+        // such — no re-route, no re-notify.
+        if (stateValue() === "quarantined") {
           counts.quarantined += 1;
           continue;
         }
         counts.conflicted += 1;
         if (this.conflictNotified.has(issue.id)) continue; // already queued; counted above
-        if (await this.prTrackerBail(issue, pr.url, "conflicting")) {
-          // This detection just tipped the ticket into bail — reclassify it
-          // from "Ralph is recovering" to "needs a human".
+        // Drive the flow machine — it owns the demote-vs-quarantine decision.
+        actor.send({ type: "RESUME_DETECTED" });
+        actor.send({ type: "CONFLICT_DETECTED", at: new Date().toISOString() });
+        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+        if (stateValue() === "quarantined") {
+          // This detection just tipped the ticket into quarantine — reclassify
+          // from "Ralph is recovering" to "needs a human" and bail once.
           counts.conflicted -= 1;
           counts.quarantined += 1;
+          await this.quarantineBail(issue, pr.url, "conflicting", actor);
           continue;
         }
         emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
@@ -1160,12 +1390,6 @@ export class AgentCoordinator {
             );
           }
         }
-        const conflictActor = await this.flowStore.getActor(
-          issue.id,
-          this.deps.getChangeDir?.(issue) ?? undefined,
-        );
-        conflictActor.send({ type: "RESUME_DETECTED" });
-        conflictActor.send({ type: "CONFLICT_DETECTED" });
         this.queue.push({
           issue,
           trigger: "conflict-fix",
@@ -1181,15 +1405,19 @@ export class AgentCoordinator {
         // bail, no count. A human owns the failing checks.
         if (!this.opts.prRecovery?.fixCi) continue;
         // Standing level + quarantine surfacing (fix) — mirrors conflicted above.
-        if (tracker?.isBailed(issue.identifier)) {
+        if (stateValue() === "quarantined") {
           counts.quarantined += 1;
           continue;
         }
         counts.ciFailed += 1;
         if (this.ciFailedNotified.has(issue.id)) continue; // already queued; counted above
-        if (await this.prTrackerBail(issue, pr.url, "ci_failed")) {
+        actor.send({ type: "RESUME_DETECTED" });
+        actor.send({ type: "CI_FAILED_DETECTED", at: new Date().toISOString() });
+        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+        if (stateValue() === "quarantined") {
           counts.ciFailed -= 1;
           counts.quarantined += 1;
+          await this.quarantineBail(issue, pr.url, "ci_failed", actor);
           continue;
         }
         emitCapture(this.bus, "agent_ci_failed_detected", { issue_identifier: issue.identifier });
@@ -1216,12 +1444,6 @@ export class AgentCoordinator {
             );
           }
         }
-        const ciActor = await this.flowStore.getActor(
-          issue.id,
-          this.deps.getChangeDir?.(issue) ?? undefined,
-        );
-        ciActor.send({ type: "RESUME_DETECTED" });
-        ciActor.send({ type: "CI_FAILED_DETECTED" });
         this.queue.push({
           issue,
           trigger: "ci-fix",
@@ -1243,7 +1465,7 @@ export class AgentCoordinator {
       else if (w.trigger === "ci-fix") counts.ciFailed += 1;
     }
 
-    return counts;
+    return { counts, prByIssue };
   }
 
   /**
@@ -1272,6 +1494,11 @@ export class AgentCoordinator {
   ): Promise<void> {
     this.deps.onLog(`  ${issue.identifier}: PR ${prUrl} mergeable — moving to done`, "green");
 
+    // The PR is healthy again — drop any recovery record now, so even if the
+    // setDone write below fails and we leave the actor in `awaiting-ci`, the
+    // board does not keep showing a now-green PR as failing.
+    actor.send({ type: "RECOVERY_CLEARED" });
+
     if (this.opts.setDone) {
       try {
         await this.deps.applyIndicator(issue, this.opts.setDone);
@@ -1286,7 +1513,9 @@ export class AgentCoordinator {
           issue_identifier: issue.identifier,
           error: (err as Error).message,
         });
-        // Leave the actor in `awaiting-ci` so the next scan retries the advance.
+        // Leave the actor in `awaiting-ci` (recovery already cleared) so the
+        // next scan retries the advance.
+        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
         return;
       }
       if (this.opts.setInProgress) {
@@ -1327,22 +1556,10 @@ export class AgentCoordinator {
     }
   }
 
-  /**
-   * pr-tracker gate (RLF-173). Returns `true` when the caller should
-   * SKIP queueing the recovery worker — either because the issue is
-   * already bailed, or because this detection just tipped it over the
-   * `maxRecoveryAttempts` threshold (in which case `setError` is applied
-   * and a Linear comment is posted exactly once). Returns `false` when
-   * the caller should proceed with its normal demote-to-queue path.
-   *
-   * Falls back to "proceed" (returns false) when no tracker is wired or
-   * when the tracker itself throws — the legacy behavior should never
-   * regress on tracker failures.
-   */
   /** True when `setError` is configured (a quarantine label) but the issue no
    *  longer carries it — i.e. a human cleared the label to request a retry.
-   *  Used to release a pr-tracker bail. Returns false when no label-type
-   *  setError is configured (then a bail only clears on a mergeable PR). */
+   *  Used to release a quarantine. Returns false when no label-type setError is
+   *  configured (then a quarantine only clears on a mergeable PR). */
   private errorMarkerCleared(issue: TrackedIssue): boolean {
     const se = this.opts.setError;
     if (!se) return false;
@@ -1354,66 +1571,59 @@ export class AgentCoordinator {
     return !wantLabels.some((v) => have.has(v));
   }
 
-  private async prTrackerBail(
+  /**
+   * The flow machine just routed `issue` to `quarantined` (auto-recovery
+   * exhausted at `maxRecoverySessions`). Apply `setError` and post the give-up
+   * comment exactly once. Once-only is guaranteed by the caller: it short-
+   * circuits when the actor was already `quarantined` before this detection, so
+   * we only reach here on the transition into quarantine. The attempt count is
+   * read from the machine's recovery context — the single source of truth.
+   */
+  private async quarantineBail(
     issue: TrackedIssue,
     prUrl: string,
     reason: "conflicting" | "ci_failed",
-  ): Promise<boolean> {
-    const tracker = this.opts.prTracker;
-    if (!tracker) return false;
-    let decision: Awaited<ReturnType<typeof tracker.recordFailure>>;
-    try {
-      decision = await tracker.recordFailure(issue.identifier, reason);
-    } catch (err) {
-      this.deps.onLog(
-        `! pr-tracker record failed for ${issue.identifier}: ${(err as Error).message}`,
-        "yellow",
-      );
-      return false;
-    }
-    if (decision.kind === "demote") return false;
-
-    if (decision.firstBail) {
-      this.deps.onLog(
-        `  ${issue.identifier}: pr-tracker bailing after ${decision.attempts} recovery attempts (${reason}) — applying setError`,
-        "red",
-      );
-      emitCapture(this.bus, "agent_pr_tracker_bailed", {
-        issue_identifier: issue.identifier,
-        reason,
-        attempts: decision.attempts,
-      });
-      if (this.opts.setError) {
-        try {
-          await this.deps.applyIndicator(issue, this.opts.setError);
-        } catch (err) {
-          this.deps.onLog(
-            `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
-      }
-      if (this.opts.postComments !== false) {
-        const human = reason === "conflicting" ? "merge conflicts" : "failing CI";
-        try {
-          await this.deps.postComment(
-            issue,
-            buildRalphyComment({
-              type: "recovery-gaveup",
-              action: "gave up auto-recovering PR",
-              body: `Gave up auto-recovering this PR (${prUrl}) after ${decision.attempts} attempts — last failure: ${human}. The \`ralph:error\` label has been applied; clear it (or merge the PR) once a human has looked at it.`,
-              fields: { pr: extractPrNumber(prUrl) ?? prUrl, attempts: decision.attempts },
-            }),
-          );
-        } catch (err) {
-          this.deps.onLog(
-            `! Linear bail comment failed for ${issue.identifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
+    actor: Awaited<ReturnType<typeof this.flowStore.getActor>>,
+  ): Promise<void> {
+    const attempts = actor.getSnapshot().context.data.recovery?.attempts ?? 0;
+    this.deps.onLog(
+      `  ${issue.identifier}: quarantined after ${attempts} recovery attempts (${reason}) — applying setError`,
+      "red",
+    );
+    emitCapture(this.bus, "agent_pr_tracker_bailed", {
+      issue_identifier: issue.identifier,
+      reason,
+      attempts,
+    });
+    if (this.opts.setError) {
+      try {
+        await this.deps.applyIndicator(issue, this.opts.setError);
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
       }
     }
-    return true;
+    if (this.opts.postComments !== false) {
+      const human = reason === "conflicting" ? "merge conflicts" : "failing CI";
+      try {
+        await this.deps.postComment(
+          issue,
+          buildRalphyComment({
+            type: "recovery-gaveup",
+            action: "gave up auto-recovering PR",
+            body: `Gave up auto-recovering this PR (${prUrl}) after ${attempts} attempts — last failure: ${human}. The \`ralph:error\` label has been applied; clear it (or merge the PR) once a human has looked at it.`,
+            fields: { pr: extractPrNumber(prUrl) ?? prUrl, attempts },
+          }),
+        );
+      } catch (err) {
+        this.deps.onLog(
+          `! Linear bail comment failed for ${issue.identifier}: ${(err as Error).message}`,
+          "yellow",
+        );
+      }
+    }
   }
 
   spawnNext(): void {
@@ -1921,7 +2131,14 @@ export class AgentCoordinator {
       }
     }
     if (this.opts.postComments !== false) {
-      const body = completionCommentBody({ noChanges, ok, trigger, changeName, code });
+      const body = completionCommentBody({
+        noChanges,
+        ok,
+        trigger,
+        changeName,
+        code,
+        reachedDone: exitActorState === "done",
+      });
       try {
         await this.deps.postComment(issue, body);
         this.deps.onLog(`  ${issue.identifier}: posted completion comment`, "gray");

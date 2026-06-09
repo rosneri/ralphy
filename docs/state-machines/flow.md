@@ -10,11 +10,15 @@ stateDiagram-v2
   idle --> working: FRESH_PICKED_UP
   idle --> working: RESUME_DETECTED
   idle --> review: REVIEW_TRIGGERED
-  idle --> conflict-fix: CONFLICT_DETECTED
-  idle --> ci-fix: CI_FAILED_DETECTED
+  idle --> quarantined: CONFLICT_DETECTED [guard]
+  idle --> conflict-fix: CONFLICT_DETECTED [guard]
+  idle --> quarantined: CI_FAILED_DETECTED [guard]
+  idle --> ci-fix: CI_FAILED_DETECTED [guard]
   working --> awaiting: AWAITING_DETECTED
-  working --> conflict-fix: CONFLICT_DETECTED
-  working --> ci-fix: CI_FAILED_DETECTED
+  working --> quarantined: CONFLICT_DETECTED [guard]
+  working --> conflict-fix: CONFLICT_DETECTED [guard]
+  working --> quarantined: CI_FAILED_DETECTED [guard]
+  working --> ci-fix: CI_FAILED_DETECTED [guard]
   working --> awaiting-ci: PR_OPENED
   working --> done: WORKER_SUCCEEDED
   working --> error: WORKER_FAILED
@@ -28,13 +32,17 @@ stateDiagram-v2
   awaiting --> working: CONFIRMATION_CLEARED
   awaiting --> preempting: PREEMPT
   awaiting_ci --> done: PR_PASSED
-  awaiting_ci --> conflict-fix: CONFLICT_DETECTED
-  awaiting_ci --> ci-fix: CI_FAILED_DETECTED
+  awaiting_ci --> quarantined: CONFLICT_DETECTED [guard]
+  awaiting_ci --> conflict-fix: CONFLICT_DETECTED [guard]
+  awaiting_ci --> quarantined: CI_FAILED_DETECTED [guard]
+  awaiting_ci --> ci-fix: CI_FAILED_DETECTED [guard]
   awaiting_ci --> review: REVIEW_TRIGGERED
   awaiting_ci --> preempting: PREEMPT
   review --> done: WORKER_SUCCEEDED
   review --> awaiting-ci: PR_OPENED
   review --> error: WORKER_FAILED
+  quarantined --> done: PR_PASSED
+  quarantined --> idle: QUARANTINE_CLEARED
   done --> [*]
   error --> [*]
 ```

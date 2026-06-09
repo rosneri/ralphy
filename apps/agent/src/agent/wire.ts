@@ -7,7 +7,7 @@ import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
 import type { LinearIssue } from "./linear";
-import { projectLayout, GAVEUP_COUNT_FILE } from "@ralphy/core/layout";
+import { projectLayout } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
 import type { FeatureCtx } from "../features/types";
@@ -38,7 +38,6 @@ import type { MentionTrigger } from "./coordinator";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
-import { PrTracker } from "../features/pr-tracker";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -89,11 +88,6 @@ interface BuildAgentCoordinatorResult {
   getWorkerCwd: (changeName: string) => string | undefined;
   syncTasksEnabled: boolean;
   runBaselineGate: () => Promise<void>;
-  /** Durable sum of `gaveUpCount` across every change this session knows
-   *  about (read from each change's `.ralph-state.json`). Survives agent
-   *  restarts: in-progress changes are re-prepared on boot, so their
-   *  persisted give-up tallies are counted again rather than reset. */
-  getGaveUpTotal: () => Promise<number>;
 }
 
 export function buildAgentCoordinator(
@@ -443,18 +437,12 @@ export function buildAgentCoordinator(
     };
   }
 
-  // PR recovery (RLF-173 / RLF-97): persistent recovery counter for In-Review
-  // PRs. Disabled when the user passes `--no-pr-recovery` or sets
-  // `prRecovery.enabled: false` in WORKFLOW.md. Lazily-loaded state file
-  // means the first `recordFailure` call materializes `.ralph/pr-tracker-state.json`.
+  // PR recovery (RLF-173 / RLF-97). Disabled when the user passes
+  // `--no-pr-recovery` or sets `prRecovery.enabled: false` in WORKFLOW.md. The
+  // recovery counter / quarantine state now lives in the flow machine context
+  // (persisted in the actor snapshot) — there is no separate tracker file.
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
-  const prTracker = prRecoveryEnabled
-    ? new PrTracker({
-        projectRoot,
-        maxRecoveryAttempts: cfg.prRecovery.maxRecoverySessions,
-      })
-    : null;
 
   // Task/spec sync to a sticky comment + spec attachments are Linear-only.
   // GitHub mode disables them (see design "Out of scope").
@@ -532,11 +520,11 @@ export function buildAgentCoordinator(
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
       createsPrs: args.createPr || cfg.createPrOnSuccess,
-      ...(prTracker ? { prTracker } : {}),
       prRecovery: {
         enabled: prRecoveryEnabled,
         fixCi: cfg.prRecovery.fixCi,
         fixConflicts: cfg.prRecovery.fixConflicts,
+        maxRecoverySessions: cfg.prRecovery.maxRecoverySessions,
       },
     },
   );
@@ -566,20 +554,5 @@ export function buildAgentCoordinator(
     getWorkerCwd: (changeName) => cwdByChange.get(changeName),
     syncTasksEnabled: commentSync.enabled,
     runBaselineGate: runBaselineGateOnce,
-    getGaveUpTotal: async () => {
-      let total = 0;
-      for (const [changeName, root] of cwdByChange) {
-        const file = Bun.file(
-          join(projectLayout(root).taskStateDir(changeName), GAVEUP_COUNT_FILE),
-        );
-        if (!(await file.exists())) continue;
-        try {
-          total += Number.parseInt(await file.text(), 10) || 0;
-        } catch {
-          /* skip unreadable sidecar */
-        }
-      }
-      return total;
-    },
   };
 }
