@@ -528,6 +528,9 @@ export class AgentCoordinator {
           const line = `${JSON.stringify({ ts: new Date().toISOString(), ...transition })}\n`;
           void appendFile(path, line).catch(() => {});
         },
+        // Surface store-level warnings (rejected snapshots, skipped persists)
+        // in the run log instead of the default console.warn.
+        warn: (message) => this.deps.onLog(`[warn] ${message}`, "gray"),
       },
       providedMachine,
     );

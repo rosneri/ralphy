@@ -26,8 +26,9 @@ const REPO_ROOT = join(import.meta.dirname, "..");
 
 /**
  * Glob patterns (relative to the repo root) selecting the tracker-neutral core.
- * The `runtime/**` glob already covers `runtime/machines/issue-flow.machine.ts`;
- * the two `packages/core` machines live outside it and are listed explicitly.
+ * The `runtime/**` glob covers everything under `runtime/` (including
+ * `runtime/machines/`); the two `packages/core` machines live outside it and
+ * are listed explicitly.
  */
 export const GUARDED_GLOBS = [
   "apps/agent/src/runtime/**/*.ts",

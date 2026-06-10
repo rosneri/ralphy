@@ -1,7 +1,7 @@
 # RLF-61: Todo list collapse by default
 
 Source: [RLF-61](https://linear.app/neriros/issue/RLF-61/todo-list-collapse-by-default)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 
 ## Why

@@ -1,7 +1,7 @@
 # RLF-11: Adopt Symphony-style YAML workflow config (WORKFLOW.md + frontmatter)
 
 Source: [RLF-11](https://linear.app/neriros/issue/RLF-11/adopt-symphony-style-yaml-workflow-config-workflowmd-frontmatter)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 
 ## Description

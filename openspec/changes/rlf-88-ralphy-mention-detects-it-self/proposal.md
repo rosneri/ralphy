@@ -1,7 +1,7 @@
 # RLF-88: Ralphy mention detects it self
 
 Source: [RLF-88](https://linear.app/neriros/issue/RLF-88/ralphy-mention-detects-it-self)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 
 ## Why
