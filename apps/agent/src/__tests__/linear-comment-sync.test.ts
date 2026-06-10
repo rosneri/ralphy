@@ -11,8 +11,33 @@ import {
   type CommentMutations,
 } from "../agent/linear-sync/comment-sync";
 import { createCommentSyncHooks } from "../agent/wire/comment-sync";
+import { createLinearSpecSink, type SpecSink } from "../agent/linear-sync/spec-sink";
+import {
+  uploadFileToLinear,
+  createAttachmentForUrl,
+  deleteAttachment,
+  findIssueAttachmentByTitle,
+} from "../agent/linear";
 import type { RalphyConfig } from "../agent/config";
 import { WorkflowConfigSchema } from "@ralphy/workflow";
+
+/** Build the Linear design-doc sink the way wire.ts does, so these hook-level
+ *  tests exercise the same Linear attachment path through the injected seam. */
+function makeLinearSink(cfg: RalphyConfig): SpecSink {
+  return createLinearSpecSink({
+    apiKey: "test-key",
+    mutations: {
+      uploadFileToLinear,
+      createAttachmentForUrl,
+      deleteAttachment,
+      findIssueAttachmentByTitle,
+    },
+    ...(cfg.linear.specAttachmentFormats ? { formats: cfg.linear.specAttachmentFormats } : {}),
+    ...(cfg.linear.specAttachmentRevisions
+      ? { sealedRevisionMode: cfg.linear.specAttachmentRevisions }
+      : {}),
+  });
+}
 
 let tempDir: string;
 let changeDir: string;
@@ -430,6 +455,7 @@ describe("createCommentSyncHooks — syncTasks: plan comment suppression with sp
       diag: () => {},
       cwdByChange: new Map(),
       issueByChange: new Map(),
+      specSink: makeLinearSink(cfg),
     });
     await hooks.syncTasks!({ changeName: "demo", issueId: "issue-1" }, 1);
   }
@@ -554,6 +580,7 @@ describe("createCommentSyncHooks — spec attachments decoupled from syncTasksTo
       diag: () => {},
       cwdByChange: new Map(),
       issueByChange: new Map(),
+      specSink: makeLinearSink(cfg),
     });
   }
 

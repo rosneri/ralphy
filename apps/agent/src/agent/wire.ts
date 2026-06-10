@@ -41,6 +41,7 @@ import {
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
+import { selectSpecSink } from "./wire/tracker/spec-sink-select";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -465,19 +466,31 @@ export function buildAgentCoordinator(
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
 
-  // Task/spec sync to a sticky comment + spec attachments are Linear-only.
-  // GitHub mode disables them (see design "Out of scope").
-  const commentSync = isGithubTracker
-    ? { enabled: false as const }
-    : createCommentSyncHooks({
-        apiKey,
-        cfg,
-        projectRoot,
-        onLog,
-        diag,
-        cwdByChange,
-        issueByChange,
-      });
+  // Design-doc publish seam (RLF-239): Linear publishes the design as a
+  // re-uploaded attachment; GitHub embeds it in one sticky issue comment.
+  // Selected by tracker.kind; gated downstream on
+  // `cfg.linear.syncSpecsAsAttachments`. The Linear tasks-comment mirror stays
+  // Linear-only (createCommentSyncHooks gates it on `apiKey`).
+  const specSink = selectSpecSink({
+    isGithubTracker,
+    githubProvider,
+    apiKey,
+    cfg,
+    cmdRunner,
+    projectRoot,
+    diag,
+  });
+
+  const commentSync = createCommentSyncHooks({
+    apiKey,
+    cfg,
+    projectRoot,
+    onLog,
+    diag,
+    cwdByChange,
+    issueByChange,
+    specSink,
+  });
 
   const coord = new AgentCoordinator(
     {
