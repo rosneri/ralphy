@@ -22,11 +22,14 @@
 
 import { describe, expect, test } from "bun:test";
 import type {
+  IssueTracker,
   IssueTrackerProvider,
   MentionTrigger,
+  PollSnapshot,
   TrackedComment,
   TrackedIssue,
 } from "@ralphy/tracker";
+import type { RalphyCommentType } from "@ralphy/comms";
 import type { SetIndicator } from "@ralphy/types";
 
 // --- Type-level assertion helpers (standard conditional-type identity trick) ---
@@ -78,6 +81,42 @@ const referenceProvider = {
   async removeIndicator(_issue: TrackedIssue, _ind: SetIndicator) {},
   async postComment(_issue: TrackedIssue, _body: string) {},
 } satisfies IssueTrackerProvider;
+
+// ---------------------------------------------------------------------------
+// 1b. IssueTracker — the complete facade (issue #403)
+// ---------------------------------------------------------------------------
+
+const EXPECTED_TRACKER_METHODS = [
+  "poll",
+  "applyIndicator",
+  "removeIndicator",
+  "postComment",
+  "fetchComments",
+  "upsertStickyComment",
+  "fetchPullRequestLinks",
+  "fetchBlockers",
+  "attachments",
+] as const;
+
+const referenceTracker = {
+  async poll(): Promise<PollSnapshot> {
+    return { todo: [], inProgress: [], mentions: [], doneCandidates: [] };
+  },
+  async applyIndicator(_issue: TrackedIssue, _ind: SetIndicator) {},
+  async removeIndicator(_issue: TrackedIssue, _ind: SetIndicator) {},
+  async postComment(_issue: TrackedIssue, _body: string) {},
+  async fetchComments(_issueId: string) {
+    return [];
+  },
+  async upsertStickyComment(_issue: TrackedIssue, _type: RalphyCommentType, _body: string) {},
+  async fetchPullRequestLinks(_issue: TrackedIssue) {
+    return [];
+  },
+  async fetchBlockers(_issueId: string) {
+    return [];
+  },
+  attachments: null,
+} satisfies IssueTracker;
 
 // ---------------------------------------------------------------------------
 // 2. TrackedIssue — fully-populated fixture pinning every field
@@ -182,6 +221,11 @@ describe("provider-seam contract", () => {
   test("IssueTrackerProvider has exactly the nine expected methods", () => {
     const keys = Object.keys(referenceProvider).sort();
     expect(keys).toEqual([...EXPECTED_PROVIDER_METHODS].sort());
+  });
+
+  test("IssueTracker facade has exactly the expected surface", () => {
+    const keys = Object.keys(referenceTracker).sort();
+    expect(keys).toEqual([...EXPECTED_TRACKER_METHODS].sort());
   });
 
   test("TrackedIssue fixture has every required field", () => {
