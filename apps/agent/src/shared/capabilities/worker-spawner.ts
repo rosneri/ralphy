@@ -43,10 +43,28 @@ interface SpawnWorkerArgs {
   prependTask?: { tasksPath: string; heading: string; failureOutput: string };
 }
 
+/**
+ * Build the worker subprocess environment. The worker's stdout is a pipe, so
+ * its Ink renderer cannot see the real terminal width and would wrap at 80
+ * columns; `RALPH_WORKER_COLUMNS` carries the agent's usable card width
+ * (terminal width minus the card border, padding, and output-line prefix) so
+ * worker output fills the card without being truncated.
+ */
+export function workerSpawnEnvironment(
+  parentColumns: number | undefined,
+  baseEnvironment: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  if (!parentColumns || parentColumns <= 0) return { ...baseEnvironment };
+  const cardChromeMargin = 10;
+  const workerColumns = Math.max(40, parentColumns - cardChromeMargin);
+  return { ...baseEnvironment, RALPH_WORKER_COLUMNS: String(workerColumns) };
+}
+
 const defaultSpawner: WorkerSpawner = (cmd, cwd) => {
   const proc = Bun.spawn({
     cmd,
     cwd,
+    env: workerSpawnEnvironment(process.stdout.columns, process.env),
     stdout: "pipe",
     stderr: "pipe",
     stdin: "ignore",
