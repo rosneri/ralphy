@@ -5,7 +5,12 @@
 import { describe, expect, test } from "bun:test";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { MentionTrigger } from "../../../queue/queue-order";
-import { planIntake } from "../issue-intake";
+import {
+  planIntake,
+  type IntakeCandidates,
+  type IntakeContext,
+  type IntakePlan,
+} from "../issue-intake";
 
 function issue(id: string, blockedByIds: string[] = []): TrackedIssue {
   return {
@@ -34,14 +39,13 @@ const NONE = new Set<string>();
 
 describe("planIntake", () => {
   test("buckets keep precedence: resume → mention → todo", () => {
-    const plan = planIntake(
-      {
-        resumable: [issue("r")],
-        mentions: [{ issue: issue("m"), trigger: mention }],
-        todo: [issue("t")],
-      },
-      { busyIds: NONE, budget: Infinity },
-    );
+    const candidates: IntakeCandidates = {
+      resumable: [issue("r")],
+      mentions: [{ issue: issue("m"), trigger: mention }],
+      todo: [issue("t")],
+    };
+    const ctx: IntakeContext = { busyIds: NONE, budget: Infinity };
+    const plan: IntakePlan = planIntake(candidates, ctx);
     expect(plan.entries.map((e) => [e.issue.id, e.trigger])).toEqual([
       ["r", "resume"],
       ["m", "review"],

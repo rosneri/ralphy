@@ -8,17 +8,31 @@ import type { TicketRow } from "../components/task-pipeline";
 import {
   projectBoard,
   type BoardSource,
+  type ProjectBoardInputs,
   type TicketSourceKind,
 } from "./coordination/project-board";
 import {
   emptyPrStatus,
   PrWatcher,
+  type PrRecoveryGates,
   type PrScanEffect,
+  type PrScanResult,
   type PrStatusBucket,
   type PrStatusCounts,
+  type PrWatcherDeps,
 } from "./coordination/pr-watcher";
-import { IssueNotifier } from "./coordination/issue-notifier";
-import { WorkerPool, type PrepareResult, type WorkerHandle } from "./coordination/worker-pool";
+import {
+  IssueNotifier,
+  type IssueNotifierDeps,
+  type IssueNotifierOpts,
+} from "./coordination/issue-notifier";
+import {
+  WorkerPool,
+  type PrepareResult,
+  type WorkerHandle,
+  type WorkerPoolDeps,
+  type WorkerPoolOpts,
+} from "./coordination/worker-pool";
 import { planIntake } from "./coordination/issue-intake";
 import { emitCapture } from "./coordination/telemetry";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
@@ -346,57 +360,54 @@ export class AgentCoordinator {
       providedMachine,
     );
     this.director = new FlowDirector(flowStore);
-    this.notifier = new IssueNotifier(
-      {
-        postComment: (issue, body) => this.deps.postComment(issue, body),
-        applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
-        removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
-        mergePr: this.deps.mergePr,
-        getIterationCount: this.deps.getIterationCount,
-        getTasksFingerprint: this.deps.getTasksFingerprint,
-        syncTasks: this.deps.syncTasks,
-        director: this.director,
-        flowRef: (issue) => this.flowRef(issue),
-        onLog: (text, color) => this.deps.onLog(text, color),
-        bus: this.bus,
-      },
-      this.opts,
-    );
+    const notifierDeps: IssueNotifierDeps = {
+      postComment: (issue, body) => this.deps.postComment(issue, body),
+      applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
+      removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
+      mergePr: this.deps.mergePr,
+      getIterationCount: this.deps.getIterationCount,
+      getTasksFingerprint: this.deps.getTasksFingerprint,
+      syncTasks: this.deps.syncTasks,
+      director: this.director,
+      flowRef: (issue) => this.flowRef(issue),
+      onLog: (text, color) => this.deps.onLog(text, color),
+      bus: this.bus,
+    };
+    this.notifier = new IssueNotifier(notifierDeps, this.opts satisfies IssueNotifierOpts);
+    const watcherDeps: PrWatcherDeps = {
+      fetchDoneCandidates: () => this.deps.fetchDoneCandidates(),
+      checkPrStatus: (issue) => this.deps.checkPrStatus(issue),
+      director: this.director,
+      flowRef: (issue) => this.flowRef(issue),
+      issueInSetDoneState: (issue) => this.issueInSetDoneState(issue),
+      errorMarkerCleared: (issue) => this.errorMarkerCleared(issue),
+      onLog: (text, color) => this.deps.onLog(text, color),
+    };
     this.prWatcher = new PrWatcher(
-      {
-        fetchDoneCandidates: () => this.deps.fetchDoneCandidates(),
-        checkPrStatus: (issue) => this.deps.checkPrStatus(issue),
-        director: this.director,
-        flowRef: (issue) => this.flowRef(issue),
-        issueInSetDoneState: (issue) => this.issueInSetDoneState(issue),
-        errorMarkerCleared: (issue) => this.errorMarkerCleared(issue),
-        onLog: (text, color) => this.deps.onLog(text, color),
-      },
-      this.opts.prRecovery,
+      watcherDeps,
+      this.opts.prRecovery satisfies PrRecoveryGates | undefined,
     );
-    this.pool = new WorkerPool(
-      {
-        prepare: (issue) => this.deps.prepare(issue),
-        prepareTaskForTrigger: this.deps.prepareTaskForTrigger?.bind(this.deps),
-        spawnWorker: (changeName, issue, trigger) =>
-          this.deps.spawnWorker(changeName, issue, trigger),
-        applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
-        removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
-        postComment: (issue, body) => this.deps.postComment(issue, body),
-        fetchComments: (issueId) => this.deps.fetchComments(issueId),
-        hasPrForChange: this.deps.hasPrForChange?.bind(this.deps),
-        getIterationCount: this.deps.getIterationCount?.bind(this.deps),
-        syncTasks: this.deps.syncTasks?.bind(this.deps),
-        onLog: (text, color) => this.deps.onLog(text, color),
-        onWorkersChanged: () => this.deps.onWorkersChanged(),
-        bus: this.bus,
-        director: this.director,
-        flowRef: (issue) => this.flowRef(issue),
-        dequeue: () => this.queue.shift(),
-        requeueFront: (entry) => this.queue.unshift(entry),
-      },
-      this.opts,
-    );
+    const poolDeps: WorkerPoolDeps = {
+      prepare: (issue) => this.deps.prepare(issue),
+      prepareTaskForTrigger: this.deps.prepareTaskForTrigger?.bind(this.deps),
+      spawnWorker: (changeName, issue, trigger) =>
+        this.deps.spawnWorker(changeName, issue, trigger),
+      applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
+      removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
+      postComment: (issue, body) => this.deps.postComment(issue, body),
+      fetchComments: (issueId) => this.deps.fetchComments(issueId),
+      hasPrForChange: this.deps.hasPrForChange?.bind(this.deps),
+      getIterationCount: this.deps.getIterationCount?.bind(this.deps),
+      syncTasks: this.deps.syncTasks?.bind(this.deps),
+      onLog: (text, color) => this.deps.onLog(text, color),
+      onWorkersChanged: () => this.deps.onWorkersChanged(),
+      bus: this.bus,
+      director: this.director,
+      flowRef: (issue) => this.flowRef(issue),
+      dequeue: () => this.queue.shift(),
+      requeueFront: (entry) => this.queue.unshift(entry),
+    };
+    this.pool = new WorkerPool(poolDeps, this.opts satisfies WorkerPoolOpts);
   }
 
   /** Locator for `issue`'s flow actor: registry key + persistence dir. */
@@ -724,7 +735,8 @@ export class AgentCoordinator {
     const prUrlByIssue = new Map<string, string>();
     for (const [id, pr] of prByIssue) prUrlByIssue.set(id, pr.url);
 
-    return projectBoard({ sources, snapshots, prUrlByIssue });
+    const inputs: ProjectBoardInputs = { sources, snapshots, prUrlByIssue };
+    return projectBoard(inputs);
   }
 
   /**
@@ -932,7 +944,7 @@ export class AgentCoordinator {
       else if (w.trigger === "ci-fix") preexistingFix.ciFailed += 1;
     }
 
-    const scan = await this.prWatcher.scan({ skipIds, preexistingFix });
+    const scan: PrScanResult = await this.prWatcher.scan({ skipIds, preexistingFix });
     for (const effect of scan.effects) {
       await this.applyScanEffect(effect);
     }

@@ -16,7 +16,7 @@ import { emitCapture } from "./telemetry";
 /** Pull the PR number out of a GitHub pull URL, e.g.
  *  `https://github.com/owner/repo/pull/376` → `376`. Returns null when the
  *  URL doesn't match — callers render the full URL in that case. */
-export function extractPrNumber(url: string): string | null {
+function extractPrNumber(url: string): string | null {
   const m = /\/pull\/(\d+)(?:[/?#]|$)/.exec(url);
   return m ? (m[1] ?? null) : null;
 }
