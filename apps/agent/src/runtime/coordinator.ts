@@ -5,12 +5,12 @@ import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { changeNameForIssue } from "../agent/scaffold";
+import type { TicketRow } from "../components/task-pipeline";
 import {
-  machineStateToTicketState,
-  type TicketRow,
-  type TicketState,
-  type TicketRecovery,
-} from "../components/task-pipeline";
+  projectBoard,
+  type BoardSource,
+  type TicketSourceKind,
+} from "./coordination/project-board";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
 import { capture as telemetryCapture } from "@ralphy/telemetry";
@@ -459,10 +459,6 @@ export interface ActiveWorker {
   reapedForAwaiting: boolean;
 }
 
-/** Which input source a board row was resolved from, in precedence order.
- *  Decides the base state before pr-tracker overlays apply. */
-type TicketSourceKind = "worker" | "queued" | "in-progress" | "todo" | "mention" | "awaiting";
-
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
  *  workers continue. The gate clears it once the trunk is green again. */
@@ -792,26 +788,11 @@ export class AgentCoordinator {
   }
 
   /**
-   * Build the lifecycle-pipeline board — one {@link TicketRow} per live
-   * ticket. Sources are walked in precedence order (active worker → queued →
-   * in-progress → todo → mention); the first occurrence of an issue id wins,
-   * which also fixes the render order. State comes from the persisted flow
-   * actor (rehydrated via `getActor`, so a parked/restarted ticket reports its
-   * true state) for actor-backed rows; `todo` / `review` are assigned directly
-   * for the backlog and mention sources (no actor materialized for them).
-   *
-   * Two overlays apply to actor-backed rows only:
-   *  - a pr-tracker **bail** wins outright → `quarantined`;
-   *  - otherwise a live (uncleared, non-bailed) pr-tracker entry folds onto the
-   *    display state when the actor merely rests in a waiting state
-   *    (`awaiting-ci` / `in-progress` / `working`). This surfaces an unresolved
-   *    failure even when `fixCi` / `fixConflicts` is off and the scan never sent
-   *    a `*_DETECTED` event — the case that motivated this board. The pr-tracker
-   *    entry is a reliable "still broken" signal because the scan clears it the
-   *    moment the PR becomes mergeable.
-   *
-   * `done` / disposed tickets are excluded — `done` is a transient glyph, not a
-   * resting row.
+   * Build the lifecycle-pipeline board. The shell's only jobs here are
+   * assembling the precedence-ordered sources and prefetching the flow
+   * snapshot views (rehydrated via the director, so a parked/restarted ticket
+   * reports its true state); every projection rule lives in the pure
+   * {@link projectBoard}.
    */
   private async buildBoard(args: {
     todo: TrackedIssue[];
@@ -824,8 +805,7 @@ export class AgentCoordinator {
     awaitingIds: ReadonlySet<string>;
   }): Promise<TicketRow[]> {
     const { todo, inProgress, mentions, prByIssue, awaitingIds } = args;
-    type Source = { issue: TrackedIssue; kind: TicketSourceKind; changeName: string };
-    const order: Source[] = [
+    const sources: BoardSource[] = [
       ...this.workers.map((w) => ({
         issue: w.issue,
         kind: "worker" as const,
@@ -855,91 +835,25 @@ export class AgentCoordinator {
       })),
     ];
 
+    // Prefetch the snapshot views the projection will read — exactly the
+    // first-occurrence sources whose row is actor-backed (everything except
+    // direct-assigned todo/mention/awaiting rows and blocked parked rows).
+    const snapshots = new Map<string, FlowSnapshotView>();
     const seen = new Set<string>();
-    const rows: TicketRow[] = [];
-    for (const src of order) {
-      if (seen.has(src.issue.id)) continue;
-      seen.add(src.issue.id);
-      const row = await this.resolveBoardRow(src.issue, src.kind, src.changeName, prByIssue);
-      if (row) rows.push(row);
-    }
-    return rows;
-  }
-
-  /** Resolve one board row, or `null` when the ticket is done / disposed and
-   *  should not occupy a resting row. See {@link buildBoard} for the overlay
-   *  rules. */
-  private async resolveBoardRow(
-    issue: TrackedIssue,
-    kind: TicketSourceKind,
-    changeName: string,
-    prByIssue: Map<string, { url: string; status: PrStatusBucket }>,
-  ): Promise<TicketRow | null> {
-    let state: TicketState;
-    let recovery: TicketRecovery | undefined;
-    /** PR URL recorded on the flow snapshot by the failing detection — the
-     *  restart-proof fallback when this poll's scan didn't resolve one. */
-    let recoveryPrUrl: string | undefined;
-    if (kind === "todo") {
-      state = "todo";
-    } else if (kind === "mention") {
-      state = "review";
-    } else if (kind === "awaiting") {
-      // Gated tickets park outside the flow machine (the confirmation feature
-      // owns their state), so the actor snapshot wouldn't read `awaiting` —
-      // assign it directly, the same way `todo` / `mention` are.
-      state = "awaiting";
-    } else if (kind !== "worker" && issue.blockedByIds.length > 0) {
-      // A blocked ticket the dependency gate skips isn't progressing — yet it
-      // may already sit in Linear's "In Progress" with a flow actor resting in
-      // `working` (it was flipped before the blocker was added, or before the
-      // gate existed). Reading that actor would paint it as active work; render
-      // it as a parked `todo` instead so the board matches reality. A ticket
-      // with a *live* worker (kind `worker`) keeps its real state.
-      state = "todo";
-    } else {
-      const view = await this.director.view(this.flowRef(issue));
-      state = machineStateToTicketState(view.value);
-      if (state === "done") return null;
-      // A queued ticket is picked but not yet spawned (waiting for a worker
-      // slot). Pickup drives the actor to `working`/`in-progress`, so without
-      // this it reads as actively `working` while no worker exists — the
-      // "working … waiting for worker" contradiction. Show it as `queued`.
-      if (kind === "queued" && (state === "working" || state === "in-progress")) state = "queued";
-      // Recovery detail comes from the machine context (the single source of
-      // truth now that the pr-tracker file is gone).
-      const flowRecovery = view.recovery;
-      if (flowRecovery) {
-        recovery = {
-          attempts: flowRecovery.attempts,
-          bailed: state === "quarantined",
-          firstFailedAt: flowRecovery.firstFailedAt,
-          lastReason: flowRecovery.lastReason,
-        };
-        if (flowRecovery.prUrl) recoveryPrUrl = flowRecovery.prUrl;
-        // Fold an unresolved failure onto a still-waiting actor so a red PR
-        // whose recovery is gated off still reads as failing rather than
-        // cleanly waiting (the motivating scenario).
-        if (state === "awaiting-ci" || state === "in-progress" || state === "working") {
-          state = flowRecovery.lastReason === "conflicting" ? "conflict-fix" : "ci-fix";
-        }
-      }
+    for (const source of sources) {
+      if (seen.has(source.issue.id)) continue;
+      seen.add(source.issue.id);
+      const direct =
+        source.kind === "todo" || source.kind === "mention" || source.kind === "awaiting";
+      const blockedParked = source.kind !== "worker" && source.issue.blockedByIds.length > 0;
+      if (direct || blockedParked) continue;
+      snapshots.set(source.issue.id, await this.director.view(this.flowRef(source.issue)));
     }
 
-    const prUrl = prByIssue.get(issue.id)?.url ?? recoveryPrUrl;
-    return {
-      changeName,
-      id: issue.id,
-      identifier: issue.identifier,
-      title: issue.title,
-      url: issue.url,
-      priority: issue.priority,
-      state,
-      blockedByIds: issue.blockedByIds,
-      blockedByIdentifiers: issue.blockedByIdentifiers ?? [],
-      ...(recovery ? { recovery } : {}),
-      ...(prUrl ? { prUrl } : {}),
-    };
+    const prUrlByIssue = new Map<string, string>();
+    for (const [id, pr] of prByIssue) prUrlByIssue.set(id, pr.url);
+
+    return projectBoard({ sources, snapshots, prUrlByIssue });
   }
 
   /**
