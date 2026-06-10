@@ -196,6 +196,9 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
 
     await coord.init();
     await coord.pollOnce();
+    // Deflake: spawn is queued asynchronously after pollOnce (same race as
+    // the S10 PR-lifecycle tests) — wait for the coordinator to settle.
+    await coord.whenSettled();
     await tick();
     await tick();
 
@@ -288,6 +291,9 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
 
     await coord.init();
     await coord.pollOnce();
+    // Deflake: spawn is queued asynchronously after pollOnce (same race as
+    // the S10 PR-lifecycle tests) — wait for the coordinator to settle.
+    await coord.whenSettled();
     await tick();
 
     expect(spawnCwd).toBe(tempDir);
@@ -378,6 +384,9 @@ describe("spawnWorker — review phase config", () => {
 
     await coord.init();
     await coord.pollOnce();
+    // Deflake: spawn is queued asynchronously after pollOnce (same race as
+    // the S10 PR-lifecycle tests) — wait for the coordinator to settle.
+    await coord.whenSettled();
     await tick();
 
     expect(spawnedCmds.length).toBeGreaterThan(0);
@@ -454,6 +463,9 @@ describe("spawnWorker — review phase config", () => {
 
     await coord.init();
     await coord.pollOnce();
+    // Deflake: spawn is queued asynchronously after pollOnce (same race as
+    // the S10 PR-lifecycle tests) — wait for the coordinator to settle.
+    await coord.whenSettled();
     await tick();
 
     expect(spawnedCmds.length).toBeGreaterThan(0);
@@ -526,6 +538,9 @@ describe("spawnWorker — review phase config", () => {
 
     await coord.init();
     await coord.pollOnce();
+    // Deflake: spawn is queued asynchronously after pollOnce (same race as
+    // the S10 PR-lifecycle tests) — wait for the coordinator to settle.
+    await coord.whenSettled();
     await tick();
 
     expect(spawnedCmds.length).toBeGreaterThan(0);

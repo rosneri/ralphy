@@ -223,6 +223,9 @@ async function setupHarness(
     trace,
     pollOnce: async () => {
       await coord.pollOnce();
+      // Deflake: spawn lands asynchronously after pollOnce — wait for the
+      // coordinator to settle (the S10 pattern) instead of a fixed delay.
+      await coord.whenSettled();
       await new Promise((r) => setTimeout(r, 20));
     },
   };
