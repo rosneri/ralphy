@@ -201,6 +201,13 @@ export class FlowActorStore {
             pendingAssignment: context.pendingAssignment,
             recovery: undefined,
           };
+    // Migrate pre-RFC-402 recovery records: `prUrl` is now a required field.
+    // Old snapshots default to "" (and to "not notified" by absence of the
+    // `*NotifiedAt` stamps — worst case one duplicate comment after upgrade).
+    const recovery = data.recovery;
+    if (recovery && typeof recovery === "object" && !("prUrl" in recovery)) {
+      data.recovery = { ...recovery, prUrl: "" };
+    }
     return { ...snap, context: { data, runtime: this.buildRuntime() } };
   }
 

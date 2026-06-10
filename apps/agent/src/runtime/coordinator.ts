@@ -3,155 +3,64 @@ import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
-import { NO_CHANGES_EXIT } from "../agent/post-task";
 import { changeNameForIssue } from "../agent/scaffold";
+import type { TicketRow } from "../components/task-pipeline";
 import {
-  machineStateToTicketState,
-  type TicketRow,
-  type TicketState,
-  type TicketRecovery,
-} from "../components/task-pipeline";
+  projectBoard,
+  type BoardSource,
+  type ProjectBoardInputs,
+  type TicketSourceKind,
+} from "./coordination/project-board";
+import {
+  emptyPrStatus,
+  PrWatcher,
+  type PrRecoveryGates,
+  type PrScanEffect,
+  type PrScanResult,
+  type PrStatusBucket,
+  type PrStatusCounts,
+  type PrWatcherDeps,
+} from "./coordination/pr-watcher";
+import {
+  IssueNotifier,
+  type IssueNotifierDeps,
+  type IssueNotifierOpts,
+} from "./coordination/issue-notifier";
+import {
+  WorkerPool,
+  type PrepareResult,
+  type WorkerHandle,
+  type WorkerPoolDeps,
+  type WorkerPoolOpts,
+} from "./coordination/worker-pool";
+import { planIntake } from "./coordination/issue-intake";
+import { emitCapture } from "./coordination/telemetry";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { MentionTrigger, QueueTrigger } from "../queue/queue-order";
-import { capture as telemetryCapture } from "@ralphy/telemetry";
-import type { Bus, EmitInput, RalphEvent } from "@ralphy/events";
+import type { Bus } from "@ralphy/events";
 import { createNoopBus } from "@ralphy/events";
 import { registry as featureRegistry } from "../features/registry";
 import { detectFeature, emitFeatureSkipped, runFeature } from "../features/run-feature";
 import type { FeatureCtx, FeatureId } from "../features/types";
-import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
-import { buildRalphyComment, isStartedComment } from "@ralphy/comms";
-import type { FlowAssignment, FlowId } from "./types";
+import {
+  FlowActorStore,
+  FlowDirector,
+  flowMachine,
+  preemptionActorLogic,
+  type FlowRef,
+  type FlowSnapshotView,
+} from "@ralphy/core/machines";
+import type { ActiveWorker } from "./types";
 
-/**
- * Stage 1: Emits to PostHog AND to the event bus side-by-side. The legacy
- * `capture(event, props)` call sites switch to `capture.call(this, ...)`
- * via a small helper so neither sink is missed.
- */
-export function emitCapture<T extends RalphEvent["type"]>(
-  bus: Bus,
-  event: T,
-  properties?: Record<string, unknown>,
-): void {
-  telemetryCapture(event, properties);
-  bus.emit({ type: event, ...properties } as Extract<EmitInput, { type: T }>);
-}
+export { emitCapture } from "./coordination/telemetry";
 
 export type { QueueTrigger, MentionTrigger } from "../queue/queue-order";
 
-/** Build the Linear comment for a finished worker. Split out to keep the
- *  outcomes (no-op done / quarantined failure / conflict-fix / ci-fix /
- *  deferred-awaiting / genuinely-done) as a flat branch rather than nested
- *  ternaries.
- *
- *  `reachedDone` is the flow actor's post-exit state — `true` only when the
- *  machine actually transitioned to `done`. When a PR is open and recovery is
- *  enabled the actor rests in `awaiting-ci` instead (the watcher owns the
- *  move to done once the PR is genuinely mergeable), so the comment must NOT
- *  claim "completed work" — it reports the real, awaiting state instead. This
- *  is the single guard that stops a fix/review iteration from announcing
- *  completion while the PR is still draft, red, unapproved, or unmerged. */
-export function completionCommentBody(args: {
-  noChanges: boolean;
-  ok: boolean;
-  trigger: QueueTrigger;
-  changeName: string;
-  code: number;
-  /** Flow actor reached the terminal `done` state after this exit. */
-  reachedDone: boolean;
-}): string {
-  const { noChanges, ok, trigger, changeName, code, reachedDone } = args;
-  if (noChanges) {
-    return buildRalphyComment({
-      type: "completed-noop",
-      action: "completed — no code changes",
-      body:
-        `Completed all tasks for this issue but produced no code changes — the requested ` +
-        `work appears to already be present on the base branch (or was a no-op). No PR was ` +
-        `opened. Change: \`${changeName}\`\n\n` +
-        `Marking this done; please verify the work is genuinely in place. If it is not, ` +
-        `reopen the issue with more specifics.`,
-      fields: { change: changeName },
-    });
-  }
-  if (!ok) {
-    return buildRalphyComment({
-      type: "exited",
-      action: `exited with code ${code}`,
-      body:
-        `This issue has been quarantined and will not be auto-resumed on the next poll. ` +
-        `Inspect the worktree at \`~/.ralph/<project>/worktrees/${changeName}\`, fix the ` +
-        `underlying failure, then remove the error marker on this Linear issue (or run ` +
-        `\`ralph clean --name ${changeName}\`) to clear the quarantine. Change: \`${changeName}\``,
-      fields: { change: changeName, code },
-    });
-  }
-  if (trigger === "conflict-fix") {
-    return buildRalphyComment({
-      type: "conflicts-resolved",
-      action: "resolved merge conflicts",
-      body: `Change: \`${changeName}\``,
-      fields: { change: changeName },
-    });
-  }
-  if (trigger === "ci-fix") {
-    // A ci-fix iteration pushed a fix but has NOT re-verified CI — the watcher
-    // re-checks the PR on the next poll. Announcing "completed work" here is
-    // what made a still-red PR look done; report the honest in-flight state.
-    return buildRalphyComment({
-      type: "ci-fix-pushed",
-      action: "pushed a CI fix",
-      body:
-        `Pushed a fix for the failing CI on this PR — re-checking the checks on the ` +
-        `next poll before marking this done. Change: \`${changeName}\``,
-      fields: { change: changeName },
-    });
-  }
-  if (!reachedDone) {
-    // PR is open and recovery is enabled, so the ticket rests in `awaiting-ci`
-    // — the watcher advances it to done only once the PR is genuinely mergeable
-    // (non-draft, approved, CI-green, no conflicts). This is NOT "completed
-    // work": the work is pushed but the PR is not ready yet.
-    const isReview = trigger === "review";
-    return buildRalphyComment({
-      type: "awaiting-ci",
-      action: isReview ? "addressed review feedback" : "opened a PR",
-      body:
-        (isReview
-          ? `Pushed changes for the review feedback to this PR. `
-          : `Finished the work and opened a PR. `) +
-        `Awaiting CI, review, and a clean merge state before marking this done. ` +
-        `Change: \`${changeName}\``,
-      fields: { change: changeName },
-    });
-  }
-  return buildRalphyComment({
-    type: "completed",
-    action: "completed work",
-    body: `Change: \`${changeName}\``,
-    fields: { change: changeName },
-  });
-}
-
-/** Spawn shape — same as before. */
-interface WorkerHandle {
-  exited: Promise<number>;
-  kill: () => void;
-}
-
-/** Result of a `prepare` step. The wire layer is responsible for the side
- *  effects (scaffold, worktree create-or-resume, fix-task prepend, state
- *  reactivation) — the coordinator only sees the change name back. */
-export interface PrepareResult {
-  changeName: string;
-  /** Optional: PR URL the spawn should reference (used for conflict-fix runs). */
-  prUrl?: string;
-  /** Working directory the worker runs in (the worktree when useWorktree is
-   *  on). Carried onto the ActiveWorker so post-exit syncTasks flushes can
-   *  resolve change artifacts after the wire layer has released its
-   *  per-change maps. */
-  cwd?: string;
-}
+export {
+  completionCommentBody,
+  type PrepareResult,
+  type WorkerHandle,
+} from "./coordination/worker-pool";
 
 /** Per-bucket counts surfaced by `pollOnce` for the dashboard / JSON
  *  output. `found` is the sum across buckets and `added` is how many
@@ -180,19 +89,7 @@ export interface PollBuckets {
    *  how many tickets are gated awaiting human confirmation. */
   awaiting: number;
 }
-/** Per-status counts across the done-candidate PRs scanned this tick.
- *  Surfaced in the dashboard so operators can see at a glance how many
- *  shipped PRs are mergeable, blocked by merge conflicts, or red on CI. */
-export interface PrStatusCounts {
-  mergeable: number;
-  conflicted: number;
-  ciFailed: number;
-  /** Conflicting / CI-failed PRs the pr-tracker has bailed on — counted as a
-   *  standing level each scan (not a one-shot delta) so the dashboard shows
-   *  how many PRs are stuck needing a human. */
-  quarantined: number;
-}
-export type PrStatusBucket = "mergeable" | "conflicted" | "ci_failed" | "unknown";
+export type { PrStatusBucket, PrStatusCounts } from "./coordination/pr-watcher";
 export type Flow = "awaiting" | "working" | "conflict-fix" | "ci-fix" | "review";
 export type PlanPhaseValue = "proposal" | "design" | "tasks" | "implement" | "done";
 export interface PollResult {
@@ -214,28 +111,7 @@ export interface PollResult {
    *  failed polls. */
   board: TicketRow[];
 }
-const emptyPrStatus = (): PrStatusCounts => ({
-  mergeable: 0,
-  conflicted: 0,
-  ciFailed: 0,
-  quarantined: 0,
-});
 
-/** Number of consecutive macrotask hops {@link AgentCoordinator.whenSettled}
- *  must observe an empty in-flight set before it concludes the system is idle.
- *  A worker's finalization enrolls only after its exit promise resolves, and
- *  under load that resolve→enroll chain can span more than one macrotask hop;
- *  requiring several stable observations closes that window without ever
- *  hanging on a still-running worker. Test-only barrier. */
-const WHEN_SETTLED_STABLE_HOPS = 3;
-
-/** Pull the PR number out of a GitHub pull URL, e.g.
- *  `https://github.com/owner/repo/pull/376` → `376`. Returns null when the
- *  URL doesn't match — callers render the full URL in that case. */
-function extractPrNumber(url: string): string | null {
-  const m = /\/pull\/(\d+)(?:[/?#]|$)/.exec(url);
-  return m ? (m[1] ?? null) : null;
-}
 const emptyPollResult = (): PollResult => ({
   found: 0,
   added: 0,
@@ -415,45 +291,7 @@ interface CoordinatorOptions {
     | undefined;
 }
 
-export interface ActiveWorker {
-  changeName: string;
-  issueId: string;
-  issueIdentifier: string;
-  issue: TrackedIssue;
-  trigger: QueueTrigger;
-  /** Worker working directory from {@link PrepareResult.cwd}. Lets the
-   *  awaiting-reap / done syncTasks flush read the change artifacts from the
-   *  worktree even after the wire layer's exit handler has already cleared
-   *  `cwdByChange` (otherwise the flush silently falls back to projectRoot,
-   *  where the change files may not exist — no design attachment uploaded). */
-  cwd?: string;
-  kill: () => void;
-  /** Highest iteration count we've already posted a progress comment for. */
-  lastReportedIteration: number;
-  /** Iteration count last passed to `syncTasks`. Lets the poll loop skip
-   *  re-syncing when the worker hasn't ticked a new iteration. Initialized
-   *  to 0 on spawn since the launch path syncs iteration 0 immediately. */
-  lastSyncedIteration: number;
-  /** Artifact fingerprint last passed to `syncTasks` (via
-   *  `getTasksFingerprint`). The poll loop gates on this when the dep is
-   *  wired, so mid-iteration `tasks.md` ticks sync at poll cadence. Left
-   *  unchanged on sync failure so the next poll retries. Initialized to
-   *  `null`; the first poll captures the launch-time fingerprint. */
-  lastSyncedTasksFingerprint: string | null;
-  /** Set by `restartWorker` so the exit handler skips notifyExited and
-   *  re-queues the worker as a resume instead of finalizing the issue. */
-  restarting: boolean;
-  /** Set by `reapForAwaiting` when the coordinator kills the worker
-   *  because the ticket has flipped into `awaiting-confirmation`. The
-   *  exit handler skips notifyExited (no setError, no setDone) and does
-   *  NOT re-queue — the ticket will be resumed on a future poll once the
-   *  gate clears (approval or revise comment). */
-  reapedForAwaiting: boolean;
-}
-
-/** Which input source a board row was resolved from, in precedence order.
- *  Decides the base state before pr-tracker overlays apply. */
-type TicketSourceKind = "worker" | "queued" | "in-progress" | "todo" | "mention" | "awaiting";
+export type { ActiveWorker } from "./types";
 
 /** Pause state set by the baseline gate when the project's base branch is broken.
  *  The coordinator skips picking up new work while this is set, but in-flight
@@ -472,39 +310,26 @@ export interface PauseState {
 }
 
 export class AgentCoordinator {
-  private workers: ActiveWorker[] = [];
-  /** Issues whose prepare step is in flight (between dequeue and spawn). */
-  private pendingIds = new Set<string>();
-  /** Detached async continuations kicked off by the poll loop —
-   *  `launchWorker` (fire-and-forget from `spawnNext`) and each worker's
-   *  exit continuation. Tracked so {@link whenSettled} can deterministically
-   *  await them; production never reads it, but tests need a non-racy seam
-   *  to know all spawn/exit side-effects have flushed. */
-  private inFlight = new Set<Promise<unknown>>();
   /** Per-issue queue of pending dequeues, with the spawn mode they should use. */
   private queue: QueueEntry[] = [];
   private stopped = false;
   private paused: PauseState | null = null;
-  /** Issues we've already detected as conflicted in this process —
-   *  guards against re-queueing + re-posting the conflict comment every
-   *  poll. Cleared once the conflict-fix worker exits successfully so
-   *  the next gh-driven scan re-arms. */
-  private conflictNotified = new Set<string>();
-  /** Symmetric to `conflictNotified` for the ci-fix lifecycle. */
-  private ciFailedNotified = new Set<string>();
-  /** Issue IDs we've already posted a "promoted to conflict-fix / ci-fix"
-   *  comment for in this process run. Cleared when the matching worker
-   *  exits successfully. */
-  private conflictPromoted = new Set<string>();
-  /** Total issues launched this process run — used to enforce maxTickets. */
-  private ticketsStarted = 0;
 
   private readonly bus: Bus;
-  /** Per-issue XState v5 actor store. Keyed by issue.id so the actor is
-   *  available before `prepare()` resolves the changeName. Snapshots are
-   *  persisted to `changeDir/.ralph-state.json` when `getChangeDir` is
-   *  wired, enabling cross-restart rehydration. */
-  private readonly flowStore: FlowActorStore;
+  /** The one gateway to per-issue flow actors (RFC #402). Keyed by issue.id
+   *  so the actor is available before `prepare()` resolves the changeName.
+   *  Snapshots persist to `changeDir/.ralph-state.json` when `getChangeDir`
+   *  is wired, enabling cross-restart rehydration. Recovery-comment dedup
+   *  lives on the persisted snapshot (`recovery.*NotifiedAt`), not in
+   *  process-lifetime Sets, so a restart no longer re-posts comments. */
+  private readonly director: FlowDirector;
+  /** All recurring tracker writes (scan-effect comments, progress, task
+   *  sync) — see {@link IssueNotifier}. */
+  private readonly notifier: IssueNotifier;
+  /** The gh-driven merge-state scan, effects-as-data — see {@link PrWatcher}. */
+  private readonly prWatcher: PrWatcher;
+  /** Worker lifecycle: prepare → spawn → exit → finalize — see {@link WorkerPool}. */
+  private readonly pool: WorkerPool;
 
   constructor(
     private readonly deps: CoordinatorDeps,
@@ -512,7 +337,7 @@ export class AgentCoordinator {
   ) {
     this.bus = deps.bus ?? createNoopBus();
     const providedMachine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
-    this.flowStore = new FlowActorStore(
+    const flowStore = new FlowActorStore(
       {
         bus: this.bus,
         persist: () => {},
@@ -534,20 +359,74 @@ export class AgentCoordinator {
       },
       providedMachine,
     );
+    this.director = new FlowDirector(flowStore);
+    const notifierDeps: IssueNotifierDeps = {
+      postComment: (issue, body) => this.deps.postComment(issue, body),
+      applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
+      removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
+      mergePr: this.deps.mergePr,
+      getIterationCount: this.deps.getIterationCount,
+      getTasksFingerprint: this.deps.getTasksFingerprint,
+      syncTasks: this.deps.syncTasks,
+      director: this.director,
+      flowRef: (issue) => this.flowRef(issue),
+      onLog: (text, color) => this.deps.onLog(text, color),
+      bus: this.bus,
+    };
+    this.notifier = new IssueNotifier(notifierDeps, this.opts satisfies IssueNotifierOpts);
+    const watcherDeps: PrWatcherDeps = {
+      fetchDoneCandidates: () => this.deps.fetchDoneCandidates(),
+      checkPrStatus: (issue) => this.deps.checkPrStatus(issue),
+      director: this.director,
+      flowRef: (issue) => this.flowRef(issue),
+      issueInSetDoneState: (issue) => this.issueInSetDoneState(issue),
+      errorMarkerCleared: (issue) => this.errorMarkerCleared(issue),
+      onLog: (text, color) => this.deps.onLog(text, color),
+    };
+    this.prWatcher = new PrWatcher(
+      watcherDeps,
+      this.opts.prRecovery satisfies PrRecoveryGates | undefined,
+    );
+    const poolDeps: WorkerPoolDeps = {
+      prepare: (issue) => this.deps.prepare(issue),
+      prepareTaskForTrigger: this.deps.prepareTaskForTrigger?.bind(this.deps),
+      spawnWorker: (changeName, issue, trigger) =>
+        this.deps.spawnWorker(changeName, issue, trigger),
+      applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
+      removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
+      postComment: (issue, body) => this.deps.postComment(issue, body),
+      fetchComments: (issueId) => this.deps.fetchComments(issueId),
+      hasPrForChange: this.deps.hasPrForChange?.bind(this.deps),
+      getIterationCount: this.deps.getIterationCount?.bind(this.deps),
+      syncTasks: this.deps.syncTasks?.bind(this.deps),
+      onLog: (text, color) => this.deps.onLog(text, color),
+      onWorkersChanged: () => this.deps.onWorkersChanged(),
+      bus: this.bus,
+      director: this.director,
+      flowRef: (issue) => this.flowRef(issue),
+      dequeue: () => this.queue.shift(),
+      requeueFront: (entry) => this.queue.unshift(entry),
+    };
+    this.pool = new WorkerPool(poolDeps, this.opts satisfies WorkerPoolOpts);
+  }
+
+  /** Locator for `issue`'s flow actor: registry key + persistence dir. */
+  private flowRef(issue: TrackedIssue): FlowRef {
+    return { key: issue.id, changeDir: this.deps.getChangeDir?.(issue) ?? undefined };
   }
 
   get activeCount(): number {
-    return this.workers.length;
+    return this.pool.workers.length;
   }
   get queuedCount(): number {
     return this.queue.length;
   }
   get activeWorkers(): readonly ActiveWorker[] {
-    return this.workers;
+    return this.pool.workers;
   }
   /** How many issues have been started this process run. */
   get ticketsStartedCount(): number {
-    return this.ticketsStarted;
+    return this.pool.ticketsStartedCount;
   }
 
   isPaused(): boolean {
@@ -617,9 +496,12 @@ export class AgentCoordinator {
     }
 
     const queuedIds = new Set(this.queue.map((q) => q.issue.id));
-    const activeIds = new Set(this.workers.map((w) => w.issueId));
+    const activeIds = new Set(this.pool.workers.map((w) => w.issueId));
     const eligible = (id: string): boolean =>
-      !queuedIds.has(id) && !activeIds.has(id) && !this.pendingIds.has(id) && !claimedIds.has(id);
+      !queuedIds.has(id) &&
+      !activeIds.has(id) &&
+      !this.pool.pendingIssueIds.has(id) &&
+      !claimedIds.has(id);
 
     if (this.paused) {
       this.deps.onLog(
@@ -649,98 +531,85 @@ export class AgentCoordinator {
     }
 
     const maxT = this.opts.maxTickets ?? 0;
-    /** Returns true when no more issues should be enqueued this run. */
-    const atTicketLimit = (): boolean => {
+    /** True when no more issues should be classified this run. `pendingPicks`
+     *  counts resumable classifications not yet pushed to the queue, so the
+     *  cap holds mid-classification exactly as it did when each acceptance
+     *  pushed immediately. */
+    const atTicketLimit = (pendingPicks = 0): boolean => {
       if (maxT === 0) return false;
       const inFlight =
-        this.ticketsStarted + this.queue.length + this.workers.length + this.pendingIds.size;
+        this.pool.ticketsStartedCount +
+        this.queue.length +
+        this.pool.workers.length +
+        this.pool.pendingIssueIds.size +
+        pendingPicks;
       return inFlight >= maxT;
     };
 
     let added = 0;
 
-    // 1. In-progress issues take precedence on restart — re-attach first
-    //    so concurrency budget is honored. Before queueing as resume,
-    //    check the PR's state on GitHub: a conflicting / red-CI PR
-    //    short-circuits the resume and routes the ticket into the matching
-    //    fix flow.
+    // 1. Classify the in-progress bucket. Issues take precedence on restart —
+    //    re-attach first so concurrency budget is honored. Before counting an
+    //    issue as resumable, check the PR's state on GitHub: a conflicting /
+    //    red-CI PR short-circuits the resume and routes the ticket into the
+    //    matching fix flow (promotion); a ticket resting in `awaiting-ci`
+    //    already opened its PR and is owned by the merge-state scan (which is
+    //    also where the `fixConflicts` / `fixCi` gates live).
+    const resumable: TrackedIssue[] = [];
     for (const issue of inProgress) {
-      if (atTicketLimit()) break;
+      if (atTicketLimit(resumable.length)) break;
       if (!eligible(issue.id)) continue;
       if (!this.dependenciesResolved(issue)) continue;
-      // RLF-97: a ticket resting in `awaiting-ci` already opened its PR and is
-      // waiting for the watcher to advance it to done (PR_PASSED) or re-engage
-      // recovery. It must NOT be re-run as a resume — `scanPrMergeStates` owns
-      // it from here, which is also where the `fixConflicts` / `fixCi` gates
-      // live, so routing it through the scan keeps recovery gating in one place.
-      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-      const actor = await this.flowStore.getActor(issue.id, changeDir);
-      if ((actor.getSnapshot().value as string) === "awaiting-ci") continue;
-      if (await this.maybePromoteFinishedConflicted(issue)) continue;
-      // Send RESUME_DETECTED to actor (idle → working; ignored if already in working/conflict-fix/etc.)
-      actor.send({ type: "RESUME_DETECTED" });
-      if (changeDir) {
-        await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-      }
-      this.queue.push({
-        issue,
-        trigger: "resume",
-        priority: defaultPriorityFor("resume"),
-      });
-      queuedIds.add(issue.id);
-      added += 1;
-      this.deps.onLog(`  ↳ ${issue.identifier} queued (resume)`, "gray");
+      const view = await this.director.view(this.flowRef(issue));
+      if (view.value === "awaiting-ci") continue;
+      if (await this.maybePromoteFinishedConflicted(issue, view)) continue;
+      resumable.push(issue);
     }
 
     // Conflicted + CI-failed enqueueing happens inside `scanPrMergeStates`
     // below — gh is the single source of truth for those states.
 
-    // 3. @ralphy mention triggers — Linear / GitHub comments newer than
-    //     Ralph's last review-pickup ack. The trigger body becomes the task.
-    for (const { issue, trigger: mention } of mentions) {
-      if (atTicketLimit()) break;
-      if (!eligible(issue.id)) continue;
-      // Send REVIEW_TRIGGERED to actor (idle → review)
-      const mentionChangeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-      const mentionActor = await this.flowStore.getActor(issue.id, mentionChangeDir);
-      mentionActor.send({ type: "REVIEW_TRIGGERED" });
-      if (mentionChangeDir) {
-        await this.flowStore.persistActor(issue.id, mentionChangeDir).catch(() => {});
-      }
-      this.queue.push({
-        issue,
-        trigger: "review",
-        priority: defaultPriorityFor("review"),
-        mention,
-      });
-      queuedIds.add(issue.id);
-      added += 1;
+    // 2. Plan the pickups (eligibility, dependency gate, ticket budget,
+    //    bucket precedence) — pure rules in `planIntake`; then materialize:
+    //    machine pickup event, queue push, log.
+    const inFlightCount =
+      this.pool.ticketsStartedCount +
+      this.queue.length +
+      this.pool.workers.length +
+      this.pool.pendingIssueIds.size;
+    const plan = planIntake(
+      { resumable, mentions, todo },
+      {
+        busyIds: new Set([...queuedIds, ...activeIds, ...this.pool.pendingIssueIds, ...claimedIds]),
+        budget: maxT === 0 ? Infinity : Math.max(0, maxT - inFlightCount),
+      },
+    );
+    for (const blockedIssue of plan.blocked) {
       this.deps.onLog(
-        `  ↳ ${issue.identifier} queued (review via ${mention.source} mention)`,
-        "gray",
+        `  ⏸ ${blockedIssue.identifier} skipped — blocked by unresolved dependency`,
+        "yellow",
       );
     }
-
-    // 4. Fresh todo.
-    for (const issue of todo) {
-      if (atTicketLimit()) break;
-      if (!eligible(issue.id)) continue;
-      if (!this.dependenciesResolved(issue)) continue;
-      // Send FRESH_PICKED_UP to actor (idle → working)
-      const freshChangeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-      const freshActor = await this.flowStore.getActor(issue.id, freshChangeDir);
-      freshActor.send({ type: "FRESH_PICKED_UP" });
-      if (freshChangeDir) {
-        await this.flowStore.persistActor(issue.id, freshChangeDir).catch(() => {});
-      }
-      this.queue.push({
-        issue,
-        trigger: "fresh",
-        priority: defaultPriorityFor("fresh"),
-      });
-      queuedIds.add(issue.id);
+    for (const entry of plan.entries) {
+      // Pickup events: idle → working / review; ignored when the actor is
+      // already mid-flow.
+      await this.director.dispatch(
+        this.flowRef(entry.issue),
+        entry.trigger === "resume"
+          ? { type: "RESUME_DETECTED" }
+          : entry.trigger === "review"
+            ? { type: "REVIEW_TRIGGERED" }
+            : { type: "FRESH_PICKED_UP" },
+      );
+      this.queue.push(entry);
+      queuedIds.add(entry.issue.id);
       added += 1;
-      this.deps.onLog(`  ↳ ${issue.identifier} queued (fresh)`, "gray");
+      this.deps.onLog(
+        entry.trigger === "review"
+          ? `  ↳ ${entry.issue.identifier} queued (review via ${entry.mention?.source} mention)`
+          : `  ↳ ${entry.issue.identifier} queued (${entry.trigger})`,
+        "gray",
+      );
     }
 
     // Run the gh-driven merge-state scan BEFORE the queue sort + spawn
@@ -753,8 +622,8 @@ export class AgentCoordinator {
     }
 
     this.spawnNext();
-    await this.reportProgress();
-    await this.syncWorkerTasks();
+    await this.notifier.reportProgress(this.pool.workers);
+    await this.notifier.syncWorkerTasks(this.pool.workers);
 
     const buckets: PollBuckets = {
       todo: todo.length,
@@ -774,10 +643,10 @@ export class AgentCoordinator {
       buckets.mentions +
       buckets.awaiting;
     const flow: Record<string, Flow> = {};
-    for (const w of this.workers) {
-      const workerActor = this.flowStore.peekActor(w.issueId);
-      if (workerActor) {
-        const stateVal = workerActor.getSnapshot().value as string;
+    for (const w of this.pool.workers) {
+      const workerView = this.director.peek(w.issueId);
+      if (workerView) {
+        const stateVal = workerView.value;
         const validFlowStates: Flow[] = ["conflict-fix", "ci-fix", "awaiting", "review", "working"];
         flow[w.changeName] = (
           validFlowStates.includes(stateVal as Flow) ? stateVal : "working"
@@ -801,26 +670,11 @@ export class AgentCoordinator {
   }
 
   /**
-   * Build the lifecycle-pipeline board — one {@link TicketRow} per live
-   * ticket. Sources are walked in precedence order (active worker → queued →
-   * in-progress → todo → mention); the first occurrence of an issue id wins,
-   * which also fixes the render order. State comes from the persisted flow
-   * actor (rehydrated via `getActor`, so a parked/restarted ticket reports its
-   * true state) for actor-backed rows; `todo` / `review` are assigned directly
-   * for the backlog and mention sources (no actor materialized for them).
-   *
-   * Two overlays apply to actor-backed rows only:
-   *  - a pr-tracker **bail** wins outright → `quarantined`;
-   *  - otherwise a live (uncleared, non-bailed) pr-tracker entry folds onto the
-   *    display state when the actor merely rests in a waiting state
-   *    (`awaiting-ci` / `in-progress` / `working`). This surfaces an unresolved
-   *    failure even when `fixCi` / `fixConflicts` is off and the scan never sent
-   *    a `*_DETECTED` event — the case that motivated this board. The pr-tracker
-   *    entry is a reliable "still broken" signal because the scan clears it the
-   *    moment the PR becomes mergeable.
-   *
-   * `done` / disposed tickets are excluded — `done` is a transient glyph, not a
-   * resting row.
+   * Build the lifecycle-pipeline board. The shell's only jobs here are
+   * assembling the precedence-ordered sources and prefetching the flow
+   * snapshot views (rehydrated via the director, so a parked/restarted ticket
+   * reports its true state); every projection rule lives in the pure
+   * {@link projectBoard}.
    */
   private async buildBoard(args: {
     todo: TrackedIssue[];
@@ -833,9 +687,8 @@ export class AgentCoordinator {
     awaitingIds: ReadonlySet<string>;
   }): Promise<TicketRow[]> {
     const { todo, inProgress, mentions, prByIssue, awaitingIds } = args;
-    type Source = { issue: TrackedIssue; kind: TicketSourceKind; changeName: string };
-    const order: Source[] = [
-      ...this.workers.map((w) => ({
+    const sources: BoardSource[] = [
+      ...this.pool.workers.map((w) => ({
         issue: w.issue,
         kind: "worker" as const,
         changeName: w.changeName,
@@ -864,89 +717,26 @@ export class AgentCoordinator {
       })),
     ];
 
+    // Prefetch the snapshot views the projection will read — exactly the
+    // first-occurrence sources whose row is actor-backed (everything except
+    // direct-assigned todo/mention/awaiting rows and blocked parked rows).
+    const snapshots = new Map<string, FlowSnapshotView>();
     const seen = new Set<string>();
-    const rows: TicketRow[] = [];
-    for (const src of order) {
-      if (seen.has(src.issue.id)) continue;
-      seen.add(src.issue.id);
-      const row = await this.resolveBoardRow(src.issue, src.kind, src.changeName, prByIssue);
-      if (row) rows.push(row);
-    }
-    return rows;
-  }
-
-  /** Resolve one board row, or `null` when the ticket is done / disposed and
-   *  should not occupy a resting row. See {@link buildBoard} for the overlay
-   *  rules. */
-  private async resolveBoardRow(
-    issue: TrackedIssue,
-    kind: TicketSourceKind,
-    changeName: string,
-    prByIssue: Map<string, { url: string; status: PrStatusBucket }>,
-  ): Promise<TicketRow | null> {
-    let state: TicketState;
-    let recovery: TicketRecovery | undefined;
-    if (kind === "todo") {
-      state = "todo";
-    } else if (kind === "mention") {
-      state = "review";
-    } else if (kind === "awaiting") {
-      // Gated tickets park outside the flow machine (the confirmation feature
-      // owns their state), so the actor snapshot wouldn't read `awaiting` —
-      // assign it directly, the same way `todo` / `mention` are.
-      state = "awaiting";
-    } else if (kind !== "worker" && issue.blockedByIds.length > 0) {
-      // A blocked ticket the dependency gate skips isn't progressing — yet it
-      // may already sit in Linear's "In Progress" with a flow actor resting in
-      // `working` (it was flipped before the blocker was added, or before the
-      // gate existed). Reading that actor would paint it as active work; render
-      // it as a parked `todo` instead so the board matches reality. A ticket
-      // with a *live* worker (kind `worker`) keeps its real state.
-      state = "todo";
-    } else {
-      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-      const actor = await this.flowStore.getActor(issue.id, changeDir);
-      const snapshot = actor.getSnapshot();
-      state = machineStateToTicketState(snapshot.value as string);
-      if (state === "done") return null;
-      // A queued ticket is picked but not yet spawned (waiting for a worker
-      // slot). Pickup drives the actor to `working`/`in-progress`, so without
-      // this it reads as actively `working` while no worker exists — the
-      // "working … waiting for worker" contradiction. Show it as `queued`.
-      if (kind === "queued" && (state === "working" || state === "in-progress")) state = "queued";
-      // Recovery detail comes from the machine context (the single source of
-      // truth now that the pr-tracker file is gone).
-      const flowRecovery = snapshot.context.data.recovery;
-      if (flowRecovery) {
-        recovery = {
-          attempts: flowRecovery.attempts,
-          bailed: state === "quarantined",
-          firstFailedAt: flowRecovery.firstFailedAt,
-          lastReason: flowRecovery.lastReason,
-        };
-        // Fold an unresolved failure onto a still-waiting actor so a red PR
-        // whose recovery is gated off still reads as failing rather than
-        // cleanly waiting (the motivating scenario).
-        if (state === "awaiting-ci" || state === "in-progress" || state === "working") {
-          state = flowRecovery.lastReason === "conflicting" ? "conflict-fix" : "ci-fix";
-        }
-      }
+    for (const source of sources) {
+      if (seen.has(source.issue.id)) continue;
+      seen.add(source.issue.id);
+      const direct =
+        source.kind === "todo" || source.kind === "mention" || source.kind === "awaiting";
+      const blockedParked = source.kind !== "worker" && source.issue.blockedByIds.length > 0;
+      if (direct || blockedParked) continue;
+      snapshots.set(source.issue.id, await this.director.view(this.flowRef(source.issue)));
     }
 
-    const prUrl = prByIssue.get(issue.id)?.url;
-    return {
-      changeName,
-      id: issue.id,
-      identifier: issue.identifier,
-      title: issue.title,
-      url: issue.url,
-      priority: issue.priority,
-      state,
-      blockedByIds: issue.blockedByIds,
-      blockedByIdentifiers: issue.blockedByIdentifiers ?? [],
-      ...(recovery ? { recovery } : {}),
-      ...(prUrl ? { prUrl } : {}),
-    };
+    const prUrlByIssue = new Map<string, string>();
+    for (const [id, pr] of prByIssue) prUrlByIssue.set(id, pr.url);
+
+    const inputs: ProjectBoardInputs = { sources, snapshots, prUrlByIssue };
+    return projectBoard(inputs);
   }
 
   /**
@@ -969,9 +759,7 @@ export class AgentCoordinator {
       const ctx = this.deps.buildFeatureCtx(issue);
       if (!ctx) continue;
 
-      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-      const actor = await this.flowStore.getActor(issue.id, changeDir);
-      const wasAwaiting = actor.getSnapshot().value === "awaiting";
+      const wasAwaiting = (await this.director.view(this.flowRef(issue))).value === "awaiting";
 
       let matchedId: FeatureId | null = null;
       for (const feature of featureRegistry) {
@@ -994,15 +782,9 @@ export class AgentCoordinator {
 
       const confirmationClaimed = claimed.get("confirmation")?.has(issue.id) ?? false;
       if (confirmationClaimed) {
-        actor.send({ type: "AWAITING_DETECTED" });
-        if (changeDir) {
-          await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        }
+        await this.director.dispatch(this.flowRef(issue), { type: "AWAITING_DETECTED" });
       } else if (wasAwaiting) {
-        actor.send({ type: "CONFIRMATION_CLEARED" });
-        if (changeDir) {
-          await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        }
+        await this.director.dispatch(this.flowRef(issue), { type: "CONFIRMATION_CLEARED" });
       }
     }
     return claimed;
@@ -1019,7 +801,32 @@ export class AgentCoordinator {
    * Returns true when the ticket was promoted (or is already promoted) and
    * should be skipped from the in-progress queue this poll.
    */
-  private async maybePromoteFinishedConflicted(issue: TrackedIssue): Promise<boolean> {
+  private async maybePromoteFinishedConflicted(
+    issue: TrackedIssue,
+    view: FlowSnapshotView,
+  ): Promise<boolean> {
+    // RLF-97: honor the same recovery gates as `scanPrMergeStates` at this
+    // second detection site. Without these, a non-awaiting-ci in-progress
+    // ticket whose PR goes red would still spawn a fix worker even when
+    // recovery (or the matching toggle) is off — so "off" would not mean off.
+    // Returning false lets the ticket fall through to the normal resume path.
+    if (!this.opts.prRecovery?.enabled) return false;
+
+    // Already promoted into a fix flow — by an earlier poll or, since the
+    // snapshot persists, by a previous process. Skip the resume path; if the
+    // restart emptied the queue, re-enqueue the fix run without re-sending a
+    // detection or re-posting the promotion comment.
+    if (view.value === "conflict-fix" || view.value === "ci-fix") {
+      if (view.value === "conflict-fix" && !this.opts.prRecovery.fixConflicts) return false;
+      if (view.value === "ci-fix" && !this.opts.prRecovery.fixCi) return false;
+      this.ensureFixQueued(issue, view.value);
+      return true;
+    }
+    // A failed fix worker parked the actor in terminal `error` — a human owns
+    // it now (clear the error marker to retry). Keep it out of the resume
+    // queue rather than burning recovery sessions on it every poll.
+    if (view.value === "error") return true;
+
     let pr: { url: string; status: PrStatusBucket } | null;
     try {
       pr = await this.deps.checkPrStatus(issue);
@@ -1032,37 +839,32 @@ export class AgentCoordinator {
     }
     if (!pr) return false;
     if (pr.status !== "conflicted" && pr.status !== "ci_failed") return false;
-
-    // RLF-97: honor the same recovery gates as `scanPrMergeStates` at this
-    // second detection site. Without these, a non-awaiting-ci in-progress
-    // ticket whose PR goes red would still spawn a fix worker even when
-    // recovery (or the matching toggle) is off — so "off" would not mean off.
-    // Returning false lets the ticket fall through to the normal resume path.
-    if (!this.opts.prRecovery?.enabled) return false;
     if (pr.status === "conflicted" && !this.opts.prRecovery.fixConflicts) return false;
     if (pr.status === "ci_failed" && !this.opts.prRecovery.fixCi) return false;
 
     const stateLabel = pr.status === "conflicted" ? "conflicting with main" : "failing CI";
-
-    if (this.conflictPromoted.has(issue.id)) return true;
-
-    // Dispatch to flow actor: ensure actor is in working before sending the
-    // conflict/ci event (it might be idle on fresh restart without a snapshot).
-    const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-    const actor = await this.flowStore.getActor(issue.id, changeDir);
-    if (actor.getSnapshot().value === "idle") {
-      actor.send({ type: "RESUME_DETECTED" });
-    }
-    if (pr.status === "conflicted") {
-      actor.send({ type: "CONFLICT_DETECTED" });
-    } else {
-      actor.send({ type: "CI_FAILED_DETECTED" });
-    }
-
     const trigger: QueueTrigger = pr.status === "conflicted" ? "conflict-fix" : "ci-fix";
 
-    if (changeDir) {
-      await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
+    // Drive the flow machine (RESUME first when idle — e.g. fresh restart
+    // without a snapshot); it owns the demote-vs-quarantine decision.
+    const detection =
+      pr.status === "conflicted"
+        ? ({ type: "CONFLICT_DETECTED", at: new Date().toISOString(), prUrl: pr.url } as const)
+        : ({ type: "CI_FAILED_DETECTED", at: new Date().toISOString(), prUrl: pr.url } as const);
+    const after =
+      view.value === "idle"
+        ? await this.director.dispatch(this.flowRef(issue), { type: "RESUME_DETECTED" }, detection)
+        : await this.director.dispatch(this.flowRef(issue), detection);
+    if (after.value === "quarantined") {
+      if (!after.recovery?.bailNotifiedAt) {
+        await this.notifier.bail(
+          issue,
+          pr.url,
+          detection.type === "CONFLICT_DETECTED" ? "conflicting" : "ci_failed",
+          after.recovery?.attempts ?? 0,
+        );
+      }
+      return true;
     }
 
     emitCapture(this.bus, "agent_conflict_promoted", {
@@ -1075,30 +877,9 @@ export class AgentCoordinator {
       "yellow",
     );
 
-    if (this.opts.postComments !== false) {
-      const prNum = extractPrNumber(pr.url);
-      const ref = prNum !== null ? `PR #${prNum}` : `PR ${pr.url}`;
-      try {
-        await this.deps.postComment(
-          issue,
-          buildRalphyComment({
-            type: "promoted",
-            action: `promoted to ${trigger} flow`,
-            body: `${ref} is ${stateLabel} — promoted to ${trigger} flow.`,
-            fields: { trigger, pr: extractPrNumber(pr.url) ?? pr.url },
-          }),
-        );
-        this.deps.onLog(`  ${issue.identifier}: posted ${trigger}-promotion comment`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear ${trigger}-promotion comment failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
+    if (!after.recovery?.promotionNotifiedAt) {
+      await this.notifier.notifyPromotion(issue, trigger, pr.url, stateLabel);
     }
-    this.conflictPromoted.add(issue.id);
-    if (pr.status === "conflicted") this.conflictNotified.add(issue.id);
-    else this.ciFailedNotified.add(issue.id);
 
     this.queue.push({
       issue,
@@ -1116,7 +897,7 @@ export class AgentCoordinator {
     if (issue.blockedByIds.length === 0) return true;
     const openIds = new Set([
       ...this.queue.map((q) => q.issue.id),
-      ...this.workers.map((w) => w.issueId),
+      ...this.pool.workers.map((w) => w.issueId),
     ]);
     const blocker = issue.blockedByIds.find((bid) => openIds.has(bid));
     if (blocker !== undefined) {
@@ -1133,375 +914,104 @@ export class AgentCoordinator {
     return false;
   }
 
-  private async reportProgress(): Promise<void> {
-    const everyN = this.opts.commentEveryIterations ?? 0;
-    if (everyN <= 0 || this.opts.postComments === false || !this.deps.getIterationCount) {
-      return;
-    }
-    for (const w of this.workers) {
-      let count: number;
-      try {
-        count = await this.deps.getIterationCount(w.changeName);
-      } catch (err) {
-        this.deps.onLog(
-          `! iteration count read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-        continue;
-      }
-      if (count < everyN) continue;
-      const currMilestone = Math.floor(count / everyN);
-      const lastMilestone = Math.floor(w.lastReportedIteration / everyN);
-      if (currMilestone <= lastMilestone) continue;
-      try {
-        await this.deps.postComment(
-          w.issue,
-          buildRalphyComment({
-            type: "progress",
-            action: `progress update — iteration ${count}`,
-            body: `Iteration ${count} on \`${w.changeName}\``,
-            fields: { change: w.changeName, iter: count },
-          }),
-        );
-        w.lastReportedIteration = count;
-        this.deps.onLog(
-          `  ${w.issueIdentifier}: posted progress comment (iteration ${count})`,
-          "gray",
-        );
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear progress comment failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-          "red",
-        );
-      }
-    }
-  }
-
-  /** Refresh the tasks comment for every active worker whose synced
-   *  artifacts have changed since the last sync. Runs every poll (independent
-   *  of the progress-comment cadence) so the tasks list reflects each
-   *  checked-off item promptly — including mid-iteration ticks, which the
-   *  fingerprint gate catches but the legacy iteration-count gate did not.
-   *  Best-effort: failures log a yellow warning and leave the stored marker
-   *  unchanged so the next poll retries. */
-  private async syncWorkerTasks(): Promise<void> {
-    if (!this.deps.syncTasks || !this.deps.getIterationCount) return;
-    for (const w of this.workers) {
-      if (this.deps.getTasksFingerprint) {
-        // Preferred path: gate on artifact content so mid-iteration ticks
-        // reach Linear at poll cadence.
-        let fingerprint: string | null;
-        try {
-          fingerprint = await this.deps.getTasksFingerprint(w.changeName);
-        } catch (err) {
-          this.deps.onLog(
-            `! tasks fingerprint read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-          continue;
-        }
-        // No artifacts on disk yet, or nothing changed since the last sync.
-        if (fingerprint === null || fingerprint === w.lastSyncedTasksFingerprint) {
-          continue;
-        }
-        let iteration: number;
-        try {
-          iteration = await this.deps.getIterationCount(w.changeName);
-        } catch (err) {
-          this.deps.onLog(
-            `! iteration count read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-          continue;
-        }
-        try {
-          await this.deps.syncTasks(w, iteration);
-          // Only advance the marker after a successful sync, so a throw
-          // leaves the fingerprint stale and the next poll retries.
-          w.lastSyncedTasksFingerprint = fingerprint;
-        } catch (err) {
-          this.deps.onLog(
-            `! sync-tasks (poll) failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-            "yellow",
-          );
-        }
-        continue;
-      }
-
-      // Legacy fallback: gate on the iteration counter when the fingerprint
-      // dep is not wired (preserves prior behavior for those callers).
-      let count: number;
-      try {
-        count = await this.deps.getIterationCount(w.changeName);
-      } catch (err) {
-        this.deps.onLog(
-          `! iteration count read failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-        continue;
-      }
-      if (count === w.lastSyncedIteration) continue;
-      try {
-        await this.deps.syncTasks(w, count);
-        w.lastSyncedIteration = count;
-      } catch (err) {
-        this.deps.onLog(
-          `! sync-tasks (poll) failed for ${w.issueIdentifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-  }
-
   /**
    * For every done-candidate ticket (status=setDone with an open PR),
    * read the PR's merge + CI state from GitHub. Conflicting and CI-red
    * PRs are queued for re-fix runs (`conflict-fix` / `ci-fix`). The
-   * in-memory `conflictNotified` / `ciFailedNotified` sets dedup across
+   * persisted flow snapshot's `recovery.*NotifiedAt` stamps dedup across
    * polls — Linear labels are no longer involved in the routing.
    */
   private async scanPrMergeStates(): Promise<{
     counts: PrStatusCounts;
-    /** Per-issue PR url + status discovered this scan, keyed by issue.id.
-     *  Reuses the `checkPrStatus` calls already made — no new `gh` calls — so
-     *  the board can surface a `↗#NNN` link on parked rows. Only the scanned
-     *  candidates are present (active / queued / pending issues are skipped). */
     prByIssue: Map<string, { url: string; status: PrStatusBucket }>;
   }> {
-    const counts = emptyPrStatus();
-    const prByIssue = new Map<string, { url: string; status: PrStatusBucket }>();
-    // RLF-97: `prRecovery.enabled: false` turns recovery off everywhere. Without
-    // this gate the scan re-queued conflict-fix / ci-fix workers regardless of
-    // the setting (only the bail counter was gated) — so "off" never meant off.
-    if (!this.opts.prRecovery?.enabled) return { counts, prByIssue };
-    let candidates: TrackedIssue[] = [];
-    try {
-      candidates = await this.deps.fetchDoneCandidates();
-    } catch (err) {
-      this.deps.onLog(`! PR merge-state scan fetch failed: ${(err as Error).message}`, "yellow");
-      return { counts, prByIssue };
+    // Tickets with an active, pending, or queued worker are in flight — the
+    // watcher leaves them alone.
+    const skipIds = new Set<string>();
+    for (const w of this.pool.workers) skipIds.add(w.issueId);
+    for (const id of this.pool.pendingIssueIds) skipIds.add(id);
+    for (const q of this.queue) skipIds.add(q.issue.id);
+    // Fix items already queued or running were detected in a prior scan and
+    // skipped by the watcher — pass them in so the standing-level counters
+    // stay accurate without double-counting this scan's own effects.
+    const preexistingFix = { conflicted: 0, ciFailed: 0 };
+    for (const q of this.queue) {
+      if (q.trigger === "conflict-fix") preexistingFix.conflicted += 1;
+      else if (q.trigger === "ci-fix") preexistingFix.ciFailed += 1;
     }
-    if (candidates.length === 0) return { counts, prByIssue };
-
-    // Snapshot pre-existing fix workers so the tail loop only counts items
-    // that were already queued/active before this scan — newly pushed items
-    // are already counted via the per-issue bucket increment below.
-    const preQueue = this.queue.map((q) => ({ id: q.issue.id, trigger: q.trigger }));
-    const preWorkers = this.workers.map((w) => ({ id: w.issueId, trigger: w.trigger }));
-
-    for (const issue of candidates) {
-      if (this.workers.some((w) => w.issueId === issue.id)) continue;
-      if (this.pendingIds.has(issue.id)) continue;
-      if (this.queue.some((q) => q.issue.id === issue.id)) continue;
-
-      const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-      const actor = await this.flowStore.getActor(issue.id, changeDir);
-      const stateValue = (): string => actor.getSnapshot().value as string;
-
-      // Quarantine retry: a human cleared the `setError` label to ask for a
-      // fresh attempt. Reset the machine's recovery counter and re-engage —
-      // otherwise a bail only clears when the PR becomes mergeable, which a
-      // conflicting PR can never reach on its own, so the ticket stays stuck.
-      // Non-looping: a subsequent re-bail re-applies setError, so it won't reset
-      // again until a human clears the label once more.
-      if (stateValue() === "quarantined" && this.errorMarkerCleared(issue)) {
-        actor.send({ type: "QUARANTINE_CLEARED" });
-        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        this.conflictNotified.delete(issue.id);
-        this.ciFailedNotified.delete(issue.id);
-        this.conflictPromoted.delete(issue.id);
-        this.deps.onLog(
-          `  ${issue.identifier}: quarantine cleared (ralph:error removed) — retrying recovery`,
-          "cyan",
-        );
-      }
-
-      let pr: { url: string; status: PrStatusBucket } | null;
-      try {
-        pr = await this.deps.checkPrStatus(issue);
-      } catch (err) {
-        this.deps.onLog(
-          `! PR status check failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-        continue;
-      }
-      if (!pr) continue;
-      // Capture the PR url + status before the recovery gates below so the
-      // board surfaces a link even when `fixCi` / `fixConflicts` is off and the
-      // scan otherwise `continue`s past this PR without queueing recovery.
-      prByIssue.set(issue.id, pr);
-      if (pr.status === "mergeable") counts.mergeable += 1;
-      // conflicted/ci_failed counts are accumulated via the queue/worker loops below
-
-      // RLF-97: a mergeable PR (CI green, no conflicts) is the "PR passed"
-      // signal — drop any recovery record and advance the in-review (or
-      // human-resolved quarantined) ticket to done. A ticket already moved to
-      // done, or with a fix worker mid-run, is left alone. The scan only runs
-      // when `prRecovery.enabled` (early return above), so advancement is
-      // implicitly gated on enabled, independent of `fixConflicts` / `fixCi`.
-      if (pr.status === "mergeable") {
-        const value = stateValue();
-        if (value === "awaiting-ci" || value === "quarantined") {
-          if (this.issueInSetDoneState(issue)) {
-            // Already in the setDone state but the actor still rests in
-            // awaiting-ci / quarantined — settle to done without re-applying the
-            // indicator (which would post a spurious "moving to done" comment).
-            actor.send({ type: "RECOVERY_CLEARED" });
-            actor.send({ type: "PR_PASSED" });
-            if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-            if (stateValue() === "done") this.flowStore.disposeActor(issue.id);
-          } else {
-            await this.advancePrToDone(issue, pr.url, actor, changeDir);
-          }
-        } else {
-          // Not in an advanceable state — still drop a stale recovery record so
-          // the board does not keep showing a now-green PR as failing.
-          actor.send({ type: "RECOVERY_CLEARED" });
-          if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        }
-        continue;
-      }
-
-      if (pr.status === "conflicted") {
-        // RLF-97: conflict recovery is gated on `prRecovery.fixConflicts`. When
-        // off, leave the conflicting PR for a human — no queue, no bail, no
-        // count (the watcher still advances it once a human resolves the
-        // conflict and it becomes mergeable). Mirrors the `fixCi` gate below.
-        if (!this.opts.prRecovery?.fixConflicts) continue;
-        // Standing level (fix): count every currently-conflicting PR each scan,
-        // not just freshly-detected ones, so the counter reflects reality rather
-        // than a one-poll delta. Already-quarantined tickets are surfaced as
-        // such — no re-route, no re-notify.
-        if (stateValue() === "quarantined") {
-          counts.quarantined += 1;
-          continue;
-        }
-        counts.conflicted += 1;
-        if (this.conflictNotified.has(issue.id)) continue; // already queued; counted above
-        // Drive the flow machine — it owns the demote-vs-quarantine decision.
-        actor.send({ type: "RESUME_DETECTED" });
-        actor.send({ type: "CONFLICT_DETECTED", at: new Date().toISOString() });
-        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        if (stateValue() === "quarantined") {
-          // This detection just tipped the ticket into quarantine — reclassify
-          // from "Ralph is recovering" to "needs a human" and bail once.
-          counts.conflicted -= 1;
-          counts.quarantined += 1;
-          await this.quarantineBail(issue, pr.url, "conflicting", actor);
-          continue;
-        }
-        emitCapture(this.bus, "agent_conflict_detected", { issue_identifier: issue.identifier });
-        this.conflictNotified.add(issue.id);
-        this.deps.onLog(
-          `  ${issue.identifier}: PR ${pr.url} conflicting — queued (conflict-fix)`,
-          "yellow",
-        );
-        if (this.opts.postComments !== false) {
-          try {
-            await this.deps.postComment(
-              issue,
-              buildRalphyComment({
-                type: "conflict-detected",
-                action: "detected merge conflicts",
-                body: `Detected merge conflicts on this PR (${pr.url}) — re-running to resolve.`,
-                fields: { pr: extractPrNumber(pr.url) ?? pr.url },
-              }),
-            );
-          } catch (err) {
-            this.deps.onLog(
-              `! Linear conflict comment failed for ${issue.identifier}: ${(err as Error).message}`,
-              "yellow",
-            );
-          }
-        }
-        this.queue.push({
-          issue,
-          trigger: "conflict-fix",
-          priority: defaultPriorityFor("conflict-fix"),
-        });
-        // (counts.conflicted already incremented above as a standing level)
-        continue;
-      }
-
-      if (pr.status === "ci_failed") {
-        // RLF-97: CI recovery is gated on `prRecovery.fixCi`. When off, leave a
-        // CI-red PR alone (conflict recovery still runs above) — no queue, no
-        // bail, no count. A human owns the failing checks.
-        if (!this.opts.prRecovery?.fixCi) continue;
-        // Standing level + quarantine surfacing (fix) — mirrors conflicted above.
-        if (stateValue() === "quarantined") {
-          counts.quarantined += 1;
-          continue;
-        }
-        counts.ciFailed += 1;
-        if (this.ciFailedNotified.has(issue.id)) continue; // already queued; counted above
-        actor.send({ type: "RESUME_DETECTED" });
-        actor.send({ type: "CI_FAILED_DETECTED", at: new Date().toISOString() });
-        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        if (stateValue() === "quarantined") {
-          counts.ciFailed -= 1;
-          counts.quarantined += 1;
-          await this.quarantineBail(issue, pr.url, "ci_failed", actor);
-          continue;
-        }
-        emitCapture(this.bus, "agent_ci_failed_detected", { issue_identifier: issue.identifier });
-        this.ciFailedNotified.add(issue.id);
-        this.deps.onLog(
-          `  ${issue.identifier}: PR ${pr.url} CI failing — queued (ci-fix)`,
-          "yellow",
-        );
-        if (this.opts.postComments !== false) {
-          try {
-            await this.deps.postComment(
-              issue,
-              buildRalphyComment({
-                type: "ci-failed",
-                action: "detected failing CI",
-                body: `Detected failing CI on this PR (${pr.url}) — re-running to fix.`,
-                fields: { pr: extractPrNumber(pr.url) ?? pr.url },
-              }),
-            );
-          } catch (err) {
-            this.deps.onLog(
-              `! Linear ci-failed comment failed for ${issue.identifier}: ${(err as Error).message}`,
-              "yellow",
-            );
-          }
-        }
-        this.queue.push({
-          issue,
-          trigger: "ci-fix",
-          priority: defaultPriorityFor("ci-fix"),
-        });
-        // (counts.ciFailed already incremented above as a standing level)
-      }
+    for (const w of this.pool.workers) {
+      if (w.trigger === "conflict-fix") preexistingFix.conflicted += 1;
+      else if (w.trigger === "ci-fix") preexistingFix.ciFailed += 1;
     }
 
-    // Issues already queued or running for conflict-fix / ci-fix were detected
-    // in a prior scan and skipped above — add them so the counter stays accurate.
-    // Use the pre-scan snapshot to avoid double-counting items pushed in this scan.
-    for (const q of preQueue) {
-      if (q.trigger === "conflict-fix") counts.conflicted += 1;
-      else if (q.trigger === "ci-fix") counts.ciFailed += 1;
+    const scan: PrScanResult = await this.prWatcher.scan({ skipIds, preexistingFix });
+    for (const effect of scan.effects) {
+      await this.applyScanEffect(effect);
     }
-    for (const w of preWorkers) {
-      if (w.trigger === "conflict-fix") counts.conflicted += 1;
-      else if (w.trigger === "ci-fix") counts.ciFailed += 1;
-    }
+    return { counts: scan.counts, prByIssue: scan.prByIssue };
+  }
 
-    return { counts, prByIssue };
+  /** Apply one scan effect: queueing stays here (the shell owns the queue);
+   *  all tracker writes go through the notifier. */
+  private async applyScanEffect(effect: PrScanEffect): Promise<void> {
+    if (effect.kind === "advance-done") {
+      await this.notifier.advanceToDone(effect.issue, effect.prUrl);
+      return;
+    }
+    if (effect.kind === "bail") {
+      await this.notifier.bail(effect.issue, effect.prUrl, effect.reason, effect.attempts);
+      return;
+    }
+    // enqueue-fix: a resumed session (post-restart) only needs its worker
+    // back; a fresh detection also logs, captures telemetry, and notifies.
+    if (!effect.fresh) {
+      this.ensureFixQueued(effect.issue, effect.trigger);
+      return;
+    }
+    if (effect.trigger === "conflict-fix") {
+      emitCapture(this.bus, "agent_conflict_detected", {
+        issue_identifier: effect.issue.identifier,
+      });
+    } else {
+      emitCapture(this.bus, "agent_ci_failed_detected", {
+        issue_identifier: effect.issue.identifier,
+      });
+    }
+    this.deps.onLog(
+      `  ${effect.issue.identifier}: PR ${effect.prUrl} ${effect.trigger === "conflict-fix" ? "conflicting" : "CI failing"} — queued (${effect.trigger})`,
+      "yellow",
+    );
+    if (effect.notifyDetection) {
+      await this.notifier.notifyDetection(effect.issue, effect.trigger, effect.prUrl);
+    }
+    this.queue.push({
+      issue: effect.issue,
+      trigger: effect.trigger,
+      priority: defaultPriorityFor(effect.trigger),
+    });
   }
 
   /**
-   * RLF-97: advance an in-review ticket to done after its PR became mergeable.
-   * The worker deferred `setDone` to the watcher (see `notifyExited`), so this
-   * is where the move-to-done actually happens: apply `setDone`, clear the
-   * in-progress label, then drive the flow actor `awaiting-ci` → done and
-   * dispose it. `setDone` is applied BEFORE the actor transition so that if the
-   * Linear write throws the actor stays in `awaiting-ci` and the next scan
-   * retries the advance. Caller guarantees `actor` is in `awaiting-ci`.
+   * RFC #402 pinned behavior: a ticket resting in a fix state with no active,
+   * pending, or queued worker (the post-restart case) is re-enqueued for the
+   * matching fix run — without re-sending a detection and without re-posting
+   * any comment (the snapshot's notification stamps already record those).
    */
+  private ensureFixQueued(issue: TrackedIssue, trigger: "conflict-fix" | "ci-fix"): void {
+    if (this.pool.workers.some((w) => w.issueId === issue.id)) return;
+    if (this.pool.pendingIssueIds.has(issue.id)) return;
+    if (this.queue.some((q) => q.issue.id === issue.id)) return;
+    this.queue.push({ issue, trigger, priority: defaultPriorityFor(trigger) });
+    this.deps.onLog(
+      `  ↳ ${issue.identifier} re-queued (${trigger} — resuming interrupted recovery)`,
+      "yellow",
+    );
+  }
+
+  /** True when `setError` is configured (a quarantine label) but the issue no
+   *  longer carries it — i.e. a human cleared the label to request a retry.
+   *  Used to release a quarantine. Returns false when no label-type setError is
+   *  configured (then a quarantine only clears on a mergeable PR). */
   /** True when the issue already carries the `setDone` marker(s) — i.e. it is
    *  already in the done state (status and/or label). Used to suppress a
    *  redundant advance-to-done on a ticket that reached done by another path. */
@@ -1511,97 +1021,6 @@ export class AgentCoordinator {
     return issueMatchesGetIndicator(issue, { filter: markersOf(sd) });
   }
 
-  private async advancePrToDone(
-    issue: TrackedIssue,
-    prUrl: string,
-    actor: Awaited<ReturnType<typeof this.flowStore.getActor>>,
-    changeDir: string | undefined,
-  ): Promise<void> {
-    // Manual-merge fallback (RLF-97 gap): the worker can no longer merge
-    // "once checks pass", and GitHub's native auto-merge is unavailable on
-    // repos without required checks (`gh pr merge --auto` no-ops/errors there).
-    // So merge the verified-mergeable PR here. Best-effort: a failure is logged
-    // and we still advance to done — the PR was confirmed mergeable, and a
-    // human/native auto-merge can finish it. Omitted dep ≡ fallback disabled.
-    let merged = false;
-    if (this.deps.mergePr) {
-      merged = await this.deps.mergePr(prUrl);
-    }
-    this.deps.onLog(
-      merged
-        ? `  ${issue.identifier}: PR ${prUrl} merged — moving to done`
-        : `  ${issue.identifier}: PR ${prUrl} mergeable — moving to done`,
-      "green",
-    );
-
-    // The PR is healthy again — drop any recovery record now, so even if the
-    // setDone write below fails and we leave the actor in `awaiting-ci`, the
-    // board does not keep showing a now-green PR as failing.
-    actor.send({ type: "RECOVERY_CLEARED" });
-
-    if (this.opts.setDone) {
-      try {
-        await this.deps.applyIndicator(issue, this.opts.setDone);
-        this.deps.onLog(`  ${issue.identifier}: setDone applied`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
-          "red",
-        );
-        emitCapture(this.bus, "agent_indicator_failed", {
-          indicator: "setDone",
-          issue_identifier: issue.identifier,
-          error: (err as Error).message,
-        });
-        // Leave the actor in `awaiting-ci` (recovery already cleared) so the
-        // next scan retries the advance.
-        if (changeDir) await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-        return;
-      }
-      if (this.opts.setInProgress) {
-        try {
-          await this.deps.removeIndicator(issue, this.opts.setInProgress);
-          this.deps.onLog(`  ${issue.identifier}: clearInProgress applied`, "gray");
-        } catch {
-          // non-fatal — label cleanup failure doesn't affect the task outcome
-        }
-      }
-    }
-
-    actor.send({ type: "PR_PASSED" });
-    if (changeDir) {
-      await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-    }
-    if ((actor.getSnapshot().value as string) === "done") {
-      this.flowStore.disposeActor(issue.id);
-    }
-
-    if (this.opts.postComments !== false) {
-      try {
-        await this.deps.postComment(
-          issue,
-          buildRalphyComment({
-            type: "verified",
-            action: merged ? "merged PR" : "verified PR mergeable",
-            body: merged
-              ? `Merged this PR (${prUrl}) (CI green, no conflicts) — moving to done.`
-              : `Verified this PR (${prUrl}) is mergeable (CI green, no conflicts) — moving to done.`,
-            fields: { pr: extractPrNumber(prUrl) ?? prUrl },
-          }),
-        );
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear done comment failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-  }
-
-  /** True when `setError` is configured (a quarantine label) but the issue no
-   *  longer carries it — i.e. a human cleared the label to request a retry.
-   *  Used to release a quarantine. Returns false when no label-type setError is
-   *  configured (then a quarantine only clears on a mergeable PR). */
   private errorMarkerCleared(issue: TrackedIssue): boolean {
     const se = this.opts.setError;
     if (!se) return false;
@@ -1613,412 +1032,14 @@ export class AgentCoordinator {
     return !wantLabels.some((v) => have.has(v));
   }
 
-  /**
-   * The flow machine just routed `issue` to `quarantined` (auto-recovery
-   * exhausted at `maxRecoverySessions`). Apply `setError` and post the give-up
-   * comment exactly once. Once-only is guaranteed by the caller: it short-
-   * circuits when the actor was already `quarantined` before this detection, so
-   * we only reach here on the transition into quarantine. The attempt count is
-   * read from the machine's recovery context — the single source of truth.
-   */
-  private async quarantineBail(
-    issue: TrackedIssue,
-    prUrl: string,
-    reason: "conflicting" | "ci_failed",
-    actor: Awaited<ReturnType<typeof this.flowStore.getActor>>,
-  ): Promise<void> {
-    const attempts = actor.getSnapshot().context.data.recovery?.attempts ?? 0;
-    this.deps.onLog(
-      `  ${issue.identifier}: quarantined after ${attempts} recovery attempts (${reason}) — applying setError`,
-      "red",
-    );
-    emitCapture(this.bus, "agent_pr_tracker_bailed", {
-      issue_identifier: issue.identifier,
-      reason,
-      attempts,
-    });
-    if (this.opts.setError) {
-      try {
-        await this.deps.applyIndicator(issue, this.opts.setError);
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-    if (this.opts.postComments !== false) {
-      const human = reason === "conflicting" ? "merge conflicts" : "failing CI";
-      try {
-        await this.deps.postComment(
-          issue,
-          buildRalphyComment({
-            type: "recovery-gaveup",
-            action: "gave up auto-recovering PR",
-            body: `Gave up auto-recovering this PR (${prUrl}) after ${attempts} attempts — last failure: ${human}. The \`ralph:error\` label has been applied; clear it (or merge the PR) once a human has looked at it.`,
-            fields: { pr: extractPrNumber(prUrl) ?? prUrl, attempts },
-          }),
-        );
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear bail comment failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-  }
-
+  /** Fill free worker slots from the queue. */
   spawnNext(): void {
-    if (this.stopped) return;
-    while (
-      this.workers.length + this.pendingIds.size < this.opts.concurrency &&
-      this.queue.length > 0
-    ) {
-      const next = this.queue.shift()!;
-      this.pendingIds.add(next.issue.id);
-      this.track(this.launchWorker(next.issue, next.trigger, next.mention));
-    }
+    this.pool.fill();
   }
 
-  /** Register a detached promise so {@link whenSettled} can await it, and
-   *  auto-remove it once it settles. Returns the promise unchanged so call
-   *  sites can keep their fire-and-forget shape. */
-  private track<T>(p: Promise<T>): Promise<T> {
-    this.inFlight.add(p);
-    void p.finally(() => {
-      this.inFlight.delete(p);
-    });
-    return p;
-  }
-
-  /**
-   * Await every detached spawn/exit continuation kicked off by the poll
-   * loop until none remain. Test-only seam: `spawnNext` launches workers
-   * (and worker exits run their finalization) as fire-and-forget promises,
-   * so a caller that wants to assert on their side-effects needs a
-   * deterministic barrier instead of a fixed `setTimeout`. Yields a
-   * macrotask between drains so freshly-scheduled continuations (e.g. an
-   * exit handler registered the instant a worker resolves) get a chance to
-   * enroll before we conclude the system is idle. Never waits on a still
-   * running worker — only the work that runs *after* it exits is tracked.
-   *
-   * A worker's finalization enrolls lazily: `handle.exited.then(...)` only
-   * adds the finalize continuation to `inFlight` *after* the worker's exit
-   * promise resolves. Between `resolve()` and that enrollment there is a
-   * window where `inFlight` is transiently empty even though finalization
-   * is imminent. Under CI load that resolve→`.then`→enroll chain can span
-   * more than one macrotask hop, so a single empty observation is not a
-   * reliable idle signal. We therefore require the set to be observed empty
-   * across {@link WHEN_SETTLED_STABLE_HOPS} consecutive macrotask hops
-   * before concluding the system is idle — any pending enrollment lands in
-   * one of those hops, re-fills `inFlight`, and resets the counter so we
-   * drain it. This barrier is test-only; the extra idle yields cost a few
-   * macrotasks and production never calls it.
-   */
+  /** Test-only barrier — see {@link WorkerPool.whenSettled}. */
   async whenSettled(): Promise<void> {
-    let consecutiveEmpty = 0;
-    for (let guard = 0; guard < 1000; guard++) {
-      if (this.inFlight.size > 0) {
-        await Promise.allSettled(this.inFlight);
-        consecutiveEmpty = 0;
-      }
-      // Let any continuation scheduled by the work we just awaited register.
-      // A worker's finalization enrolls lazily — `handle.exited.then(...)`
-      // only adds the finalize continuation to `inFlight` *after* the exit
-      // promise resolves, and under CI load that resolve→enroll chain can
-      // span more than one macrotask hop. Require the set to stay empty
-      // across `WHEN_SETTLED_STABLE_HOPS` consecutive hops before concluding
-      // idle so a pending enrollment lands, re-fills `inFlight`, and resets
-      // the counter. Never hangs on a still-running worker.
-      await new Promise<void>((r) => setTimeout(r, 0));
-      if (this.inFlight.size === 0) {
-        consecutiveEmpty += 1;
-        if (consecutiveEmpty >= WHEN_SETTLED_STABLE_HOPS) return;
-      } else {
-        consecutiveEmpty = 0;
-      }
-    }
-  }
-
-  private async launchWorker(
-    issue: TrackedIssue,
-    trigger: QueueTrigger,
-    mention?: MentionTrigger,
-  ): Promise<void> {
-    let prep: PrepareResult;
-    try {
-      prep = await this.deps.prepare(issue);
-      if (
-        (trigger === "conflict-fix" || trigger === "ci-fix" || trigger === "review") &&
-        this.deps.prepareTaskForTrigger
-      ) {
-        await this.deps.prepareTaskForTrigger(issue, prep.changeName, trigger, mention);
-      }
-    } catch (err) {
-      this.pendingIds.delete(issue.id);
-      this.deps.onLog(
-        `! prepare(${trigger}) failed for ${issue.identifier}: ${(err as Error).message}`,
-        "red",
-      );
-      emitCapture(this.bus, "agent_prepare_failed", {
-        spawn_mode: trigger,
-        issue_identifier: issue.identifier,
-        error: (err as Error).message,
-      });
-      // Quarantine: prepare failure (most often a worktree creation
-      // failure) is the only signal the user has that the issue can't be
-      // picked up. Apply `setError` so the ticket is filtered out of the
-      // todo bucket and the human can investigate.
-      if (this.opts.setError) {
-        try {
-          await this.deps.applyIndicator(issue, this.opts.setError);
-          this.deps.onLog(`  ${issue.identifier}: setError applied`, "gray");
-        } catch (markErr) {
-          this.deps.onLog(
-            `! Linear setError failed for ${issue.identifier}: ${(markErr as Error).message}`,
-            "yellow",
-          );
-        }
-      }
-      this.spawnNext();
-      return;
-    }
-
-    if (this.stopped) {
-      this.pendingIds.delete(issue.id);
-      return;
-    }
-
-    // Apply setInProgress BEFORE spawning so a same-second re-poll doesn't
-    // see the issue as still-todo. Skip for resume (already in progress).
-    // Conflict-fix and review modes also apply it so the issue moves out
-    // of its prior status (done/conflicted) immediately on pickup.
-    if (trigger !== "resume" && this.opts.setInProgress) {
-      try {
-        await this.deps.applyIndicator(issue, this.opts.setInProgress);
-        this.deps.onLog(`  ${issue.identifier}: setInProgress applied`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear setInProgress failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-        emitCapture(this.bus, "agent_indicator_failed", {
-          indicator: "setInProgress",
-          issue_identifier: issue.identifier,
-          error: (err as Error).message,
-        });
-      }
-    }
-
-    if (trigger === "review" && this.opts.postComments !== false) {
-      const sourceTag = mention
-        ? mention.source === "github"
-          ? " (GitHub @mention)"
-          : mention.source === "github-review"
-            ? " (GitHub code review)"
-            : " (Linear @mention)"
-        : "";
-      try {
-        await this.deps.postComment(
-          issue,
-          buildRalphyComment({
-            type: "review-pickup",
-            action: "picked up review comments",
-            body: `Picked up new review comments${sourceTag}. Tracking change: \`${prep.changeName}\``,
-            fields: { change: prep.changeName },
-          }),
-        );
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear review comment failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-
-    // Post the "started" comment idempotently — only on fresh, and only if
-    // we haven't already posted one (resume-detection via comment scan).
-    if (trigger === "fresh" && this.opts.postComments !== false) {
-      let alreadyPosted = false;
-      try {
-        const comments = await this.deps.fetchComments(issue.id);
-        alreadyPosted = comments.some((c) => isStartedComment(c.body));
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear comment fetch failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-      if (!alreadyPosted) {
-        try {
-          await this.deps.postComment(
-            issue,
-            buildRalphyComment({
-              type: "started",
-              action: "started working",
-              body: `Tracking change: \`${prep.changeName}\``,
-              fields: { change: prep.changeName },
-            }),
-          );
-          this.deps.onLog(`  ${issue.identifier}: posted "started" comment`, "gray");
-        } catch (err) {
-          this.deps.onLog(
-            `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
-            "red",
-          );
-        }
-      }
-    }
-
-    this.deps.onLog(
-      `▶ ${issue.identifier} → ${prep.changeName} (${trigger})`,
-      trigger === "conflict-fix" ? "yellow" : "cyan",
-    );
-    const handle = this.deps.spawnWorker(prep.changeName, issue, trigger);
-    const worker: ActiveWorker = {
-      changeName: prep.changeName,
-      issueId: issue.id,
-      issueIdentifier: issue.identifier,
-      issue,
-      trigger,
-      ...(prep.cwd ? { cwd: prep.cwd } : {}),
-      kill: handle.kill,
-      lastReportedIteration: 0,
-      lastSyncedIteration: 0,
-      lastSyncedTasksFingerprint: null,
-      restarting: false,
-      reapedForAwaiting: false,
-    };
-    this.workers.push(worker);
-    this.pendingIds.delete(issue.id);
-
-    // Notify the flow actor that a worker has been spawned so it can track the handle
-    const spawnedActor = this.flowStore.peekActor(issue.id);
-    if (spawnedActor) {
-      const flowWorker = {
-        exited: handle.exited as Promise<number | null>,
-        kill: (_signal?: "SIGTERM" | "SIGKILL") => handle.kill(),
-      };
-      const assignment: FlowAssignment = {
-        flowId: triggerToFlowId(trigger),
-        reason: `started via ${trigger}`,
-        boost: "p2" as const,
-      };
-      spawnedActor.send({ type: "WORKER_SPAWNED", worker: flowWorker, assignment });
-    }
-    this.ticketsStarted += 1;
-    const maxT = this.opts.maxTickets ?? 0;
-    if (maxT > 0 && this.ticketsStarted >= maxT) {
-      this.deps.onLog(
-        `  ticket limit reached (${maxT}) — no new issues will be picked up`,
-        "yellow",
-      );
-    }
-    emitCapture(this.bus, "agent_worker_spawned", {
-      spawn_mode: trigger,
-      issue_identifier: issue.identifier,
-    });
-    this.deps.onWorkersChanged();
-
-    if (this.deps.syncTasks) {
-      try {
-        await this.deps.syncTasks(worker, 0);
-      } catch (err) {
-        this.deps.onLog(
-          `! sync-tasks (launch) failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-
-    // Track the exit *continuation* (not `handle.exited` itself) so
-    // `whenSettled` waits for finalization to flush without hanging on a
-    // still-running worker. Enrollment happens the instant the worker
-    // resolves, inside the `.then` callback.
-    void handle.exited.then((code) =>
-      this.track(this.finalizeWorkerExit(worker, issue, prep, trigger, code)),
-    );
-  }
-
-  /** The post-exit finalization continuation, extracted so it can be
-   *  tracked by {@link whenSettled}. Mutates worker bookkeeping, finalizes
-   *  the issue (or re-queues on restart/reap), and kicks the next spawn. */
-  private async finalizeWorkerExit(
-    worker: ActiveWorker,
-    issue: TrackedIssue,
-    prep: PrepareResult,
-    trigger: QueueTrigger,
-    code: number,
-  ): Promise<void> {
-    {
-      const idx = this.workers.indexOf(worker);
-      if (idx >= 0) this.workers.splice(idx, 1);
-      if (worker.restarting) {
-        // Steering-driven restart — do not finalize the issue. Re-queue
-        // the same issue as a resume so the next iteration picks up the
-        // steering note we just appended.
-        this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
-        this.queue.unshift({
-          issue,
-          trigger: "resume",
-          priority: defaultPriorityFor("resume"),
-        });
-        this.deps.onWorkersChanged();
-        this.spawnNext();
-        return;
-      }
-      if (worker.reapedForAwaiting) {
-        // Ticket flipped into awaiting-confirmation while this worker was
-        // running. Do not finalize the issue (no setError/setDone). A
-        // future poll will re-classify and resume after approval/revise.
-        this.ticketsStarted = Math.max(0, this.ticketsStarted - 1);
-        // Flush a final syncTasks pass so spec-attachments picks up the
-        // proposal.md / design.md / tasks.md that the worker just wrote.
-        // Without this, a planning-only worker (LIT-303 case) that
-        // finishes inside iteration 0 leaves Linear with no design PDF —
-        // the poll loop's `count === lastSyncedIteration` guard skips
-        // every subsequent tick.
-        if (this.deps.syncTasks) {
-          let iteration = 0;
-          if (this.deps.getIterationCount) {
-            try {
-              iteration = await this.deps.getIterationCount(worker.changeName);
-            } catch {
-              iteration = 0;
-            }
-          }
-          try {
-            await this.deps.syncTasks(worker, iteration);
-          } catch (err) {
-            this.deps.onLog(
-              `! sync-tasks (awaiting-reap) failed for ${issue.identifier}: ${(err as Error).message}`,
-              "yellow",
-            );
-          }
-        }
-        this.deps.onLog(
-          `  ${issue.identifier}: worker reaped (awaiting human confirmation)`,
-          "gray",
-        );
-        this.deps.onWorkersChanged();
-        this.spawnNext();
-        return;
-      }
-      const ok = code === 0 || code === NO_CHANGES_EXIT;
-      this.deps.onLog(
-        `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
-        ok ? "green" : "red",
-      );
-      emitCapture(this.bus, "agent_worker_exited", {
-        spawn_mode: trigger,
-        issue_identifier: issue.identifier,
-        exit_code: code,
-        ok,
-      });
-      await this.notifyExited(issue, prep.changeName, code, trigger, worker.cwd);
-      this.deps.onWorkersChanged();
-      this.spawnNext();
-    }
+    return this.pool.whenSettled();
   }
 
   /** Kill the active worker for `changeName` and re-queue the same issue
@@ -2027,58 +1048,21 @@ export class AgentCoordinator {
    *  active worker matches. */
   async restartWorker(changeName: string): Promise<boolean> {
     if (this.stopped) return false;
-    const worker = this.workers.find((w) => w.changeName === changeName);
-    if (!worker) return false;
-    if (worker.restarting) return true;
-    worker.restarting = true;
-    emitCapture(this.bus, "agent_worker_restarted", {
-      change_name: changeName,
-      reason: "steering",
-    });
-    try {
-      worker.kill();
-    } catch {
-      /* ignore */
-    }
-    return true;
+    return this.pool.restartWorker(changeName);
   }
 
   /** Kill the active worker for `changeName` because the ticket has
-   *  flipped into `awaiting-confirmation`. The exit handler skips
-   *  finalization (no setDone/setError) and does NOT re-queue — a
-   *  future poll resumes the ticket once the gate clears. Returns
-   *  `true` if a matching active worker was found and reaped. */
+   *  flipped into `awaiting-confirmation` — see {@link WorkerPool.reapForAwaiting}. */
   reapForAwaiting(changeName: string): boolean {
     if (this.stopped) return false;
-    const worker = this.workers.find((w) => w.changeName === changeName);
-    if (!worker) return false;
-    if (worker.reapedForAwaiting) return true;
-    worker.reapedForAwaiting = true;
-    emitCapture(this.bus, "agent_worker_reaped_for_awaiting", { change_name: changeName });
-    // Notify the flow actor to preempt the current worker and transition to awaiting
-    const reapActor = this.flowStore.peekActor(worker.issueId);
-    if (reapActor) {
-      const awaitingAssignment: FlowAssignment = {
-        flowId: "confirmation",
-        reason: "awaiting human confirmation",
-        boost: "p2" as const,
-      };
-      reapActor.send({ type: "PREEMPT", newAssignment: awaitingAssignment });
-    }
-    try {
-      worker.kill();
-    } catch {
-      /* ignore */
-    }
-    return true;
+    return this.pool.reapForAwaiting(changeName);
   }
 
   /** True when there is an active worker reaped (or being reaped) for
    *  awaiting-confirmation. Used by the wire layer to suppress PR
    *  creation in the post-task block of that worker's exit handler. */
   isAwaitingConfirmation(changeName: string): boolean {
-    const w = this.workers.find((w) => w.changeName === changeName);
-    return w ? w.reapedForAwaiting : false;
+    return this.pool.isAwaitingConfirmation(changeName);
   }
 
   /** Fire the onSteeringAppended hook (if configured). Best-effort —
@@ -2096,192 +1080,13 @@ export class AgentCoordinator {
     }
   }
 
-  private async notifyExited(
-    issue: TrackedIssue,
-    changeName: string,
-    code: number,
-    trigger: QueueTrigger,
-    workerCwd?: string,
-  ): Promise<void> {
-    // NO_CHANGES_EXIT (no-op: branch only ever touched meta files, work already
-    // on base) is finalized as a success — done with an honest comment — not a
-    // quarantined failure. Treat it like `ok` for task sync and finalization.
-    const noChanges = code === NO_CHANGES_EXIT;
-    const ok = code === 0 || noChanges;
-
-    // RLF-97: when a normal worker opens a PR and recovery is enabled, the
-    // ticket is NOT done yet — it rests in-review and the watcher advances it
-    // to done once the PR is mergeable. Defer `setDone` to the watcher and route
-    // the actor to `awaiting-ci` (PR_OPENED) instead of `done` (WORKER_SUCCEEDED).
-    // Recovery-trigger exits and the recovery-off / no-PR cases keep the
-    // immediate-done behavior. `conflict-fix` / `ci-fix` successes route to
-    // `awaiting-ci` via the machine's own WORKER_SUCCEEDED transition.
-    const isRecoveryTrigger = trigger === "conflict-fix" || trigger === "ci-fix";
-    const prOpened = this.deps.hasPrForChange?.(changeName) ?? false;
-    // Defer only for PR-producing runs (`createsPrs`). A non-PR workflow keeps
-    // the historical immediate-Done contract even if a stray PR was discovered
-    // for the branch; `createsPrs && !prOpened` (no-op / no-commits finalize,
-    // exit 70/71) also stays immediate-Done.
-    const deferDone =
-      ok &&
-      !isRecoveryTrigger &&
-      !!this.opts.createsPrs &&
-      prOpened &&
-      !!this.opts.prRecovery?.enabled;
-
-    // Dispatch to flow actor based on exit code
-    const changeDir = this.deps.getChangeDir?.(issue) ?? undefined;
-    const exitActor = await this.flowStore.getActor(issue.id, changeDir);
-    exitActor.send({ type: !ok ? "WORKER_FAILED" : deferDone ? "PR_OPENED" : "WORKER_SUCCEEDED" });
-    if (changeDir) {
-      await this.flowStore.persistActor(issue.id, changeDir).catch(() => {});
-    }
-    const exitActorState = exitActor.getSnapshot().value as string;
-    if (exitActorState === "done" || exitActorState === "error") {
-      this.flowStore.disposeActor(issue.id);
-    }
-    if (this.deps.syncTasks && ok) {
-      const synthetic: ActiveWorker = {
-        changeName,
-        issueId: issue.id,
-        issueIdentifier: issue.identifier,
-        issue,
-        trigger,
-        ...(workerCwd ? { cwd: workerCwd } : {}),
-        kill: () => {},
-        lastReportedIteration: 0,
-        lastSyncedIteration: 0,
-        lastSyncedTasksFingerprint: null,
-        restarting: false,
-        reapedForAwaiting: false,
-      };
-      try {
-        let iteration = 0;
-        if (this.deps.getIterationCount) {
-          try {
-            iteration = await this.deps.getIterationCount(changeName);
-          } catch {
-            iteration = 0;
-          }
-        }
-        await this.deps.syncTasks(synthetic, iteration);
-      } catch (err) {
-        this.deps.onLog(
-          `! sync-tasks (done) failed for ${issue.identifier}: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-    }
-    if (this.opts.postComments !== false) {
-      const body = completionCommentBody({
-        noChanges,
-        ok,
-        trigger,
-        changeName,
-        code,
-        reachedDone: exitActorState === "done",
-      });
-      try {
-        await this.deps.postComment(issue, body);
-        this.deps.onLog(`  ${issue.identifier}: posted completion comment`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear comment failed for ${issue.identifier}: ${(err as Error).message}`,
-          "red",
-        );
-      }
-    }
-
-    if (ok) {
-      // Conflict-fix / ci-fix success: the worker iteration drove the
-      // re-fix; the coordinator just re-arms the gh-driven scan so the
-      // next poll re-evaluates the PR state from scratch.
-      if (trigger === "conflict-fix") {
-        this.conflictNotified.delete(issue.id);
-        this.conflictPromoted.delete(issue.id);
-      } else if (trigger === "ci-fix") {
-        this.ciFailedNotified.delete(issue.id);
-        this.conflictPromoted.delete(issue.id);
-      } else if (deferDone) {
-        // PR open + recovery enabled: the ticket rests in-review. The watcher
-        // applies setDone (and clears in-progress) once the PR is mergeable, so
-        // we leave both labels untouched here.
-        this.deps.onLog(
-          `  ${issue.identifier}: PR open — deferring setDone to the PR-recovery watcher`,
-          "gray",
-        );
-      } else if (this.opts.setDone) {
-        try {
-          await this.deps.applyIndicator(issue, this.opts.setDone);
-          this.deps.onLog(`  ${issue.identifier}: setDone applied`, "gray");
-        } catch (err) {
-          this.deps.onLog(
-            `! Linear setDone failed for ${issue.identifier}: ${(err as Error).message}`,
-            "red",
-          );
-          emitCapture(this.bus, "agent_indicator_failed", {
-            indicator: "setDone",
-            issue_identifier: issue.identifier,
-            error: (err as Error).message,
-          });
-        }
-        // Remove the in-progress label now that the task is done.
-        if (this.opts.setInProgress) {
-          try {
-            await this.deps.removeIndicator(issue, this.opts.setInProgress);
-            this.deps.onLog(`  ${issue.identifier}: clearInProgress applied`, "gray");
-          } catch {
-            // non-fatal — label cleanup failure doesn't affect the task outcome
-          }
-        }
-      }
-    } else if (this.opts.setError) {
-      try {
-        await this.deps.applyIndicator(issue, this.opts.setError);
-        this.deps.onLog(`  ${issue.identifier}: setError applied`, "gray");
-      } catch (err) {
-        this.deps.onLog(
-          `! Linear setError failed for ${issue.identifier}: ${(err as Error).message}`,
-          "red",
-        );
-        emitCapture(this.bus, "agent_indicator_failed", {
-          indicator: "setError",
-          issue_identifier: issue.identifier,
-          error: (err as Error).message,
-        });
-      }
-      // Remove the in-progress label now that the task has errored.
-      if (this.opts.setInProgress) {
-        try {
-          await this.deps.removeIndicator(issue, this.opts.setInProgress);
-          this.deps.onLog(`  ${issue.identifier}: clearInProgress applied`, "gray");
-        } catch {
-          // non-fatal
-        }
-      }
-    }
-  }
-
   stop(): void {
     this.stopped = true;
-    for (const w of this.workers) {
-      try {
-        w.kill();
-      } catch {
-        /* ignore */
-      }
-    }
+    this.pool.stop();
   }
 }
 
 import type { BoostBand } from "./types";
-
-function triggerToFlowId(trigger: QueueTrigger): FlowId {
-  if (trigger === "conflict-fix") return "conflict-fix";
-  if (trigger === "ci-fix") return "ci-fix";
-  if (trigger === "review") return "review-followup";
-  return "implement";
-}
 
 const BOOST_RANK: Record<BoostBand, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 

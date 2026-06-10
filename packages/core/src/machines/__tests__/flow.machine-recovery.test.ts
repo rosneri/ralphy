@@ -36,6 +36,7 @@ describe("flowMachine — recovery counter", () => {
       attempts: 1,
       lastReason: "conflicting",
       firstFailedAt: "2026-06-09T10:00:00.000Z",
+      prUrl: "",
     });
   });
 
@@ -109,6 +110,7 @@ describe("flowMachine — recovery counter", () => {
       attempts: 1,
       lastReason: "conflicting",
       firstFailedAt: "",
+      prUrl: "",
     });
   });
 
