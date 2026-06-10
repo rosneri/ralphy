@@ -9,6 +9,7 @@ import { resolveOpenspecBin } from "@ralphy/openspec";
 import { parseLoopArgs, printLoopHelp } from "./cli";
 import { parseTaskArgs, printTaskHelp } from "./task-cli";
 import { App } from "./components/App";
+import { applyWorkerColumnsOverride } from "./stdout-columns";
 import { runDebug } from "./debug";
 
 /**
@@ -143,6 +144,7 @@ export async function main(argv: string[]): Promise<number> {
     await ensureRalphGitignore(projectRoot);
   }
 
+  applyWorkerColumnsOverride();
   await runWithContext(createDefaultContext({ layout, args }), async () => {
     const { waitUntilExit } = render(createElement(App, { args }));
     await waitUntilExit();
@@ -175,6 +177,7 @@ export async function taskMain(argv: string[]): Promise<number> {
   await mkdir(join(tasksDir, args.name), { recursive: true });
   await ensureRalphGitignore(projectRoot);
 
+  applyWorkerColumnsOverride();
   // parseTaskArgs returns a LoopParsedArgs superset, so App consumes it directly.
   await runWithContext(createDefaultContext({ layout, args }), async () => {
     const { waitUntilExit } = render(

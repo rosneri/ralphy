@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createBus } from "@ralphy/events";
 import { runCapability } from "../run-capability";
-import { spawnWorker, type WorkerSpawner } from "../worker-spawner";
+import { spawnWorker, workerSpawnEnvironment, type WorkerSpawner } from "../worker-spawner";
 
 let root = "";
 
@@ -14,6 +14,25 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+describe("workerSpawnEnvironment", () => {
+  test("passes the parent terminal width to the worker, minus the card chrome margin", () => {
+    const environment = workerSpawnEnvironment(180, { PATH: "/usr/bin" });
+    expect(environment["RALPH_WORKER_COLUMNS"]).toBe("170");
+    expect(environment["PATH"]).toBe("/usr/bin");
+  });
+
+  test("never goes below the 40-column floor", () => {
+    const environment = workerSpawnEnvironment(30, {});
+    expect(environment["RALPH_WORKER_COLUMNS"]).toBe("40");
+  });
+
+  test("omits the variable when the parent has no measurable width", () => {
+    const environment = workerSpawnEnvironment(undefined, { PATH: "/usr/bin" });
+    expect(environment["RALPH_WORKER_COLUMNS"]).toBeUndefined();
+    expect(environment["PATH"]).toBe("/usr/bin");
+  });
 });
 
 describe("worker-spawner capability", () => {
