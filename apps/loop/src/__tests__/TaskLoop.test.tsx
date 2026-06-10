@@ -1352,7 +1352,7 @@ describe("TaskLoop", () => {
         manualTest: false,
         changeStore: stubChangeStore,
         reviewPhase: { enabled: true, maxRounds: 1, reviewerModel: "opus" },
-        onReviewRound: async (result: import("../loop").ReviewRoundResult) => {
+        onReviewRound: async (result: import("@ralphy/core/loop").ReviewRoundResult) => {
           reviewFindings.push(`round=${result.roundNumber} open=${result.openFindings}`);
         },
       };

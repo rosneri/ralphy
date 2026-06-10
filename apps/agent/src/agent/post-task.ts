@@ -321,9 +321,9 @@ export function _resetRepoAutoMergeCache(): void {
 
 /**
  * The loop sets state.status="completed" once tasks.md has no unchecked
- * items. A re-spawned worker would then exit immediately via
- * checkStopCondition without ever reading the freshly-prepended fix task.
- * Reset to "active" so the new section gets picked up.
+ * items. A re-spawned worker would then exit immediately via the loop
+ * machine's statusNotActive guard without ever reading the freshly-prepended
+ * fix task. Reset to "active" so the new section gets picked up.
  */
 async function reactivateState(
   stateFilePath: string,

@@ -9,7 +9,6 @@ import {
   buildReviewPrompt,
   buildPhasePrompt,
   checkStopSignal,
-  checkStopCondition,
   updateStateIteration,
   appendSteeringMessage,
   buildSteeringPrompt,
@@ -159,69 +158,6 @@ describe("checkStopSignal", () => {
       const persisted = readState(tempDir);
       expect(persisted.status).toBe("blocked");
     }));
-});
-
-describe("checkStopCondition", () => {
-  const baseOptions = {
-    name: "x",
-    prompt: "",
-    engine: "claude",
-    model: "opus",
-    maxIterations: 0,
-    maxCostUsd: 0,
-    maxRuntimeMinutes: 0,
-    maxConsecutiveFailures: 0,
-    delay: 0,
-    log: false,
-    verbose: false,
-    manualTest: false,
-    changeStore: { archiveChange: async () => {} },
-  };
-
-  test("returns null when loop should continue", () => {
-    const state = makeState();
-    expect(checkStopCondition(state, 0, baseOptions, Date.now(), 0)).toBeNull();
-  });
-
-  test("returns maxIterations when iteration cap reached", () => {
-    const state = makeState();
-    expect(checkStopCondition(state, 5, { ...baseOptions, maxIterations: 5 }, Date.now(), 0)).toBe(
-      "maxIterations",
-    );
-  });
-
-  test("returns completed when state is not active", () => {
-    const state = { ...makeState(), status: "completed" as const };
-    expect(checkStopCondition(state, 0, baseOptions, Date.now(), 0)).toBe("completed");
-  });
-
-  test("returns costCap when usage exceeds maxCostUsd", () => {
-    const state = makeState();
-    state.usage.total_cost_usd = 5;
-    expect(checkStopCondition(state, 0, { ...baseOptions, maxCostUsd: 1 }, Date.now(), 0)).toBe(
-      "costCap",
-    );
-  });
-
-  test("returns runtimeLimit when elapsed exceeds maxRuntimeMinutes", () => {
-    const state = makeState();
-    expect(
-      checkStopCondition(
-        state,
-        0,
-        { ...baseOptions, maxRuntimeMinutes: 1 },
-        Date.now() - 120_000,
-        0,
-      ),
-    ).toBe("runtimeLimit");
-  });
-
-  test("returns consecutiveFailures when failure threshold reached", () => {
-    const state = makeState();
-    expect(
-      checkStopCondition(state, 0, { ...baseOptions, maxConsecutiveFailures: 3 }, Date.now(), 3),
-    ).toBe("consecutiveFailures");
-  });
 });
 
 describe("updateStateIteration", () => {
