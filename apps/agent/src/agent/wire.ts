@@ -36,7 +36,7 @@ import {
 } from "./wire/mention-scan";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
-import { createCommentSyncHooks } from "./wire/comment-sync";
+import { createTrackerCommentSyncHooks } from "./wire/comment-sync";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -436,19 +436,21 @@ export function buildAgentCoordinator(
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
 
-  // Task/spec sync to a sticky comment + spec attachments are Linear-only.
-  // GitHub mode disables them (see design "Out of scope").
-  const commentSync = isGithubTracker
-    ? { enabled: false as const }
-    : createCommentSyncHooks({
-        apiKey,
-        cfg,
-        projectRoot,
-        onLog,
-        diag,
-        cwdByChange,
-        issueByChange,
-      });
+  // Task sync (plan-once + sticky tasks + steering refresh) to issue comments.
+  // Linear uses its comment API; GitHub gets the marker-idempotent sticky-upsert
+  // adapter. Spec attachments stay Linear-only (`attachmentsSupported: false`).
+  const commentSync = createTrackerCommentSyncHooks({
+    isGithubTracker,
+    apiKey,
+    cfg,
+    projectRoot,
+    onLog,
+    diag,
+    cwdByChange,
+    issueByChange,
+    cmdRunner,
+    ...(githubProvider ? { githubRepo: githubProvider.repo } : {}),
+  });
 
   const coord = new AgentCoordinator(
     {

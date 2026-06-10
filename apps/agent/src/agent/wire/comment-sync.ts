@@ -16,6 +16,8 @@ import {
   deleteAttachment,
   findIssueAttachmentByTitle,
 } from "../linear";
+import type { CmdRunner } from "../pr";
+import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
 import type { TrackedIssue } from "@ralphy/tracker";
 
 interface CommentSyncInput {
@@ -26,6 +28,13 @@ interface CommentSyncInput {
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
   issueByChange: Map<string, TrackedIssue>;
+  /** Tracker-specific comment mutations. Defaults to the Linear trio. */
+  commentMutations?: CommentMutations;
+  /** Whether the backend credentials are ready. Defaults to `Boolean(apiKey)`. */
+  credentialsReady?: boolean;
+  /** Whether the backend supports spec attachments. Defaults to `true`
+   *  (Linear); GitHub has no attachments API, so it passes `false`. */
+  attachmentsSupported?: boolean;
 }
 
 interface CommentSyncHooks {
@@ -44,12 +53,15 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   // Wire the hook when *either* is on — gating spec attachments behind
   // `syncTasksToComment` previously left `syncSpecsAsAttachments: true` dead
   // whenever the sticky comment was disabled (no design PDF on the issue).
-  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
-  const specAttachmentsEnabled = Boolean(cfg.linear.syncSpecsAsAttachments && apiKey);
+  const credsReady = input.credentialsReady ?? Boolean(apiKey);
+  const attachmentsSupported = input.attachmentsSupported ?? true;
+  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment) && credsReady;
+  const specAttachmentsEnabled =
+    attachmentsSupported && Boolean(cfg.linear.syncSpecsAsAttachments) && credsReady;
   const enabled = commentsEnabled || specAttachmentsEnabled;
   if (!enabled) return { enabled: false };
 
-  const commentMutations: CommentMutations = {
+  const commentMutations: CommentMutations = input.commentMutations ?? {
     createIssueComment,
     updateIssueComment,
     deleteIssueComment,
@@ -153,4 +165,56 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
         }
       : {}),
   };
+}
+
+interface TrackerCommentSyncInput {
+  /** GitHub mode routes onto `gh`; Linear mode uses the Linear comment API. */
+  isGithubTracker: boolean;
+  apiKey: string;
+  cfg: RalphyConfig;
+  projectRoot: string;
+  onLog: (text: string, color?: string) => void;
+  diag: (area: string, message: string, color?: string) => void;
+  cwdByChange: Map<string, string>;
+  issueByChange: Map<string, TrackedIssue>;
+  cmdRunner: CmdRunner;
+  /** Resolves the GitHub `owner/name` slug (githubProvider.repo). */
+  githubRepo?: () => Promise<string>;
+}
+
+/**
+ * Select the comment-sync hooks for the active tracker. GitHub gets the
+ * marker-idempotent sticky-upsert adapter over `gh` (no spec attachments, auth
+ * via the CLI); Linear keeps its comment API + spec-attachment uploads.
+ */
+export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): CommentSyncHooks {
+  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
+  if (input.isGithubTracker) {
+    return createCommentSyncHooks({
+      apiKey: "",
+      cfg,
+      projectRoot,
+      onLog,
+      diag,
+      cwdByChange,
+      issueByChange,
+      commentMutations: createGithubCommentMutations({
+        cmdRunner: input.cmdRunner,
+        projectRoot,
+        repo: input.githubRepo!,
+        diag,
+      }),
+      attachmentsSupported: false,
+      credentialsReady: true,
+    });
+  }
+  return createCommentSyncHooks({
+    apiKey,
+    cfg,
+    projectRoot,
+    onLog,
+    diag,
+    cwdByChange,
+    issueByChange,
+  });
 }

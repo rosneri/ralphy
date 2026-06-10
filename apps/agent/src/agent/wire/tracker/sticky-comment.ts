@@ -30,7 +30,7 @@ interface GhComment {
 
 /** GraphQL mutation that edits an existing issue comment in place. Body and id
  *  travel as GraphQL variables (`-f`/`-F`), so markdown is never shell-quoted. */
-const UPDATE_COMMENT_MUTATION =
+export const UPDATE_COMMENT_MUTATION =
   "mutation($id:ID!,$body:String!){updateIssueComment(input:{id:$id,body:$body}){clientMutationId}}";
 
 /**
