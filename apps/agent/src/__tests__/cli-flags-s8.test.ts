@@ -77,7 +77,7 @@ describe("CLI flags S8 — parseAgentArgs cross-flag validation", () => {
 
   test("S8.9: --codex + --worktree both parsed correctly", async () => {
     const result = await parseAgentArgs(["--codex", "--worktree"]);
-    expect(result.engine).toBe("codex");
+    expect(result.overrides.engine).toBe("codex");
     expect(result.worktree).toBe(true);
   });
 });

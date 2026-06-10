@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import React from "react";
 import { render } from "ink-testing-library";
-import { initialCommonArgs } from "@ralphy/cli-args";
+import { emptyCommonArgs } from "@ralphy/cli-args";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
 import {
   AgentMode,
@@ -29,7 +29,7 @@ const ensureConfigStub = async () => "/tmp/ralphy.json";
 const loadConfigStub = async (): Promise<RalphyConfig> => fakeConfig;
 
 const baseArgs: ParsedArgs = {
-  ...initialCommonArgs(),
+  ...emptyCommonArgs(),
   mode: "agent",
   name: "",
   linearTeam: "RLF",
@@ -46,7 +46,6 @@ const baseArgs: ParsedArgs = {
   maxTickets: 0,
   jsonOutput: false,
   prompt: "",
-  manualTest: false,
   debug: false,
   agentDebug: false,
   checks: false,

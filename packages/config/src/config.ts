@@ -155,6 +155,14 @@ const bunFileSystem: ConfigFileSystem = {
   },
 };
 
+/** Sparse review-phase overrides from the bespoke `--review-*` CLI flags. */
+export interface ReviewPhaseOverrides {
+  enabled?: boolean;
+  maxRounds?: number;
+  reviewerModel?: string;
+  reviewerContextStrategy?: "fresh" | "warm";
+}
+
 /** Per-task runtime injections — everything `LoopOptions` needs beyond config. */
 export interface LoopRuntime {
   name: string;
@@ -165,9 +173,10 @@ export interface LoopRuntime {
   prDraft?: boolean;
   onReviewRound?: LoopOptions["onReviewRound"];
   metaPrompt?: MetaPromptOptions;
-  /** Bespoke `--review-*` CLI flags; when set they replace the workflow's
-   *  `openspec.reviewPhase` block for this run. */
-  reviewPhase?: LoopOptions["reviewPhase"];
+  /** Bespoke `--review-*` CLI flags — sparse, overlaid onto the workflow's
+   *  `openspec.reviewPhase` block with the same presence-based precedence as
+   *  every other override. */
+  reviewPhase?: ReviewPhaseOverrides;
 }
 
 /**
@@ -179,18 +188,18 @@ export function loopOptionsFromConfig(
   runtime: LoopRuntime,
 ): LoopOptions {
   const configReview = effective.openspec.reviewPhase;
-  const reviewPhase =
-    runtime.reviewPhase ??
-    (configReview.enabled
-      ? {
-          enabled: true,
-          maxRounds: configReview.maxRounds,
-          reviewerContextStrategy: configReview.reviewerContextStrategy,
-          ...(configReview.reviewerModel !== undefined
-            ? { reviewerModel: configReview.reviewerModel }
-            : {}),
-        }
-      : undefined);
+  const overlay = runtime.reviewPhase ?? {};
+  const reviewEnabled = overlay.enabled ?? configReview.enabled;
+  const reviewerModel = overlay.reviewerModel ?? configReview.reviewerModel;
+  const reviewPhase = reviewEnabled
+    ? {
+        enabled: true,
+        maxRounds: overlay.maxRounds ?? configReview.maxRounds,
+        reviewerContextStrategy:
+          overlay.reviewerContextStrategy ?? configReview.reviewerContextStrategy,
+        ...(reviewerModel !== undefined ? { reviewerModel } : {}),
+      }
+    : undefined;
   return {
     name: runtime.name,
     prompt: runtime.prompt,

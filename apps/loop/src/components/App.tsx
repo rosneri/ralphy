@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { join } from "node:path";
 import { Text, useApp } from "ink";
+import type { ResolvedConfig } from "@ralphy/config";
 import type { LoopParsedArgs } from "../cli";
 import type { TaskPhase } from "../loop";
 import { readState } from "@ralphy/core/state";
@@ -11,6 +12,8 @@ import { OpenSpecChangeStore } from "@ralphy/openspec";
 
 interface AppProps {
   args: LoopParsedArgs;
+  /** Boot-resolved config (WORKFLOW.md ⊕ CLI). Required for task mode. */
+  resolved?: ResolvedConfig;
   taskPhase?: TaskPhase;
 }
 
@@ -33,35 +36,28 @@ function ErrorMessage({ message }: { message: string }) {
 
 interface TaskModeWrapperProps {
   args: LoopParsedArgs;
+  resolved: ResolvedConfig;
   taskPhase?: TaskPhase;
 }
 
-function TaskModeWrapper({ args, taskPhase }: TaskModeWrapperProps) {
+function TaskModeWrapper({ args, resolved, taskPhase }: TaskModeWrapperProps) {
+  // Config-derived fields (engine, model, limits, …) come from the resolved
+  // config — never from raw args. Only runtime injections are wired here.
   return (
     <TaskLoop
-      opts={{
+      opts={resolved.loopOptions({
         name: args.name,
         prompt: args.prompt,
-        engine: args.engine,
-        model: args.model,
-        maxIterations: args.maxIterations,
-        maxCostUsd: args.maxCostUsd,
-        maxRuntimeMinutes: args.maxRuntimeMinutes,
-        maxConsecutiveFailures: args.maxConsecutiveFailures,
-        delay: args.delay,
-        log: args.log,
-        verbose: args.verbose,
-        manualTest: args.manualTest,
         createPr: args.fromAgent,
         changeStore: new OpenSpecChangeStore(),
+        reviewPhase: args.review,
         ...(taskPhase !== undefined ? { phase: taskPhase } : {}),
-        ...(args.reviewPhase.enabled ? { reviewPhase: args.reviewPhase } : {}),
-      }}
+      })}
     />
   );
 }
 
-export function App({ args, taskPhase }: AppProps) {
+export function App({ args, resolved, taskPhase }: AppProps) {
   switch (args.mode) {
     case "status": {
       if (!args.name) {
@@ -100,9 +96,18 @@ export function App({ args, taskPhase }: AppProps) {
       if (!args.name) {
         return <ErrorMessage message="Error: --name is required for task mode" />;
       }
+      if (!resolved) {
+        return <ErrorMessage message="Error: task mode needs a resolved config (internal)" />;
+      }
       // Directory creation is handled up front in index.ts / the sidecar; the
       // storage provider will create parents lazily on first write as well.
-      return <TaskModeWrapper args={args} {...(taskPhase !== undefined ? { taskPhase } : {})} />;
+      return (
+        <TaskModeWrapper
+          args={args}
+          resolved={resolved}
+          {...(taskPhase !== undefined ? { taskPhase } : {})}
+        />
+      );
     }
   }
 }

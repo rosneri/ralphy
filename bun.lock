@@ -42,6 +42,7 @@
       "dependencies": {
         "@ralphy/cli-args": "workspace:*",
         "@ralphy/comms": "workspace:*",
+        "@ralphy/config": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
@@ -92,6 +93,7 @@
       "dependencies": {
         "@inkjs/ui": "^2.0.0",
         "@ralphy/cli-args": "workspace:*",
+        "@ralphy/config": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
@@ -142,12 +144,14 @@
       "name": "@ralphy/ui",
       "version": "0.0.0",
       "dependencies": {
+        "@ralphy/config": "workspace:*",
         "@ralphy/context": "workspace:*",
         "@ralphy/core": "workspace:*",
         "@ralphy/engine": "workspace:*",
         "@ralphy/log": "workspace:*",
         "@ralphy/openspec": "workspace:*",
         "@ralphy/types": "workspace:*",
+        "@ralphy/workflow": "workspace:*",
         "@tauri-apps/api": "^2.2.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",

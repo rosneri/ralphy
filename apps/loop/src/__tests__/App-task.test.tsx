@@ -9,6 +9,7 @@ import type { ProjectLayout } from "@ralphy/types";
 import { buildInitialState, writeState } from "@ralphy/core/state";
 import type { State } from "@ralphy/types";
 import type { BuildInitialStateOptions } from "@ralphy/core/state";
+import { resolveParsedConfig, type ConfigFileSystem } from "@ralphy/config";
 import type { LoopParsedArgs as ParsedArgs } from "../cli";
 
 // Mock engine module
@@ -100,22 +101,18 @@ function makeArgs(overrides: Partial<ParsedArgs> = {}): ParsedArgs {
     mode: "task",
     name: "",
     prompt: "",
-    engine: "claude",
-    model: "opus",
-    engineSet: false,
-    maxIterations: 0,
-    maxCostUsd: 0,
-    maxRuntimeMinutes: 0,
-    maxConsecutiveFailures: 5,
-    delay: 0,
-    log: false,
-    verbose: false,
-    manualTest: false,
+    overrides: {},
     fromAgent: false,
-    reviewPhase: { enabled: false, maxRounds: 1, reviewerContextStrategy: "fresh" },
+    review: {},
     ...overrides,
   };
 }
+
+/** No WORKFLOW.md on the fake fs — the resolved config is pure schema defaults. */
+const noWorkflowFs: ConfigFileSystem = {
+  readText: async () => null,
+  writeText: async () => {},
+};
 
 describe("App task mode", () => {
   test("task mode with valid name renders TaskLoop", async () => {
@@ -129,10 +126,15 @@ describe("App task mode", () => {
         mode: "task",
         name: "my-task",
         prompt: "Do something",
-        maxIterations: 1,
+        overrides: { maxIterations: 1 },
+      });
+      const resolved = await resolveParsedConfig({
+        args,
+        projectRoot: tempDir,
+        fileSystem: noWorkflowFs,
       });
 
-      const { frames } = render(<App args={args} />);
+      const { frames } = render(<App args={args} resolved={resolved} />);
       await new Promise((r) => setTimeout(r, 500));
 
       const allText = frames.join("\n");

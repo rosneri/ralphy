@@ -419,16 +419,50 @@ describe("loopOptions — config/runtime split", () => {
     });
   });
 
-  test("a runtime reviewPhase (bespoke --review-* flags) replaces the workflow block", () => {
+  test("sparse --review-* overrides overlay the workflow block (cli > workflow)", () => {
     const effective = WorkflowConfigSchema.parse({
-      openspec: { reviewPhase: { enabled: true, maxRounds: 2 } },
+      openspec: {
+        reviewPhase: { enabled: true, maxRounds: 2, reviewerContextStrategy: "warm" },
+      },
     });
     const opts = loopOptionsFromConfig(effective, {
       name: "x",
       prompt: "",
       changeStore,
-      reviewPhase: { enabled: true, maxRounds: 5, reviewerContextStrategy: "fresh" },
+      reviewPhase: { maxRounds: 5 },
     });
-    expect(opts.reviewPhase?.maxRounds).toBe(5);
+    // Overridden key wins; untouched keys keep their workflow values.
+    expect(opts.reviewPhase).toEqual({
+      enabled: true,
+      maxRounds: 5,
+      reviewerContextStrategy: "warm",
+    });
+  });
+
+  test("--review-enabled turns the phase on even when the workflow leaves it off", () => {
+    const effective = WorkflowConfigSchema.parse({});
+    const opts = loopOptionsFromConfig(effective, {
+      name: "x",
+      prompt: "",
+      changeStore,
+      reviewPhase: { enabled: true, reviewerModel: "haiku" },
+    });
+    expect(opts.reviewPhase).toEqual({
+      enabled: true,
+      maxRounds: 1,
+      reviewerContextStrategy: "fresh",
+      reviewerModel: "haiku",
+    });
+  });
+
+  test("review value flags without --review-enabled leave the phase off", () => {
+    const effective = WorkflowConfigSchema.parse({});
+    const opts = loopOptionsFromConfig(effective, {
+      name: "x",
+      prompt: "",
+      changeStore,
+      reviewPhase: { maxRounds: 3 },
+    });
+    expect(opts.reviewPhase).toBeUndefined();
   });
 });

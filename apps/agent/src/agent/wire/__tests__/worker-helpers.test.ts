@@ -16,90 +16,85 @@ import type { TrackedIssue } from "@ralphy/tracker";
 const baseArgs = (): Promise<AgentParsedArgs> => parseAgentArgs([]);
 const baseCfg = (o: Record<string, unknown> = {}): RalphyConfig => WorkflowConfigSchema.parse(o);
 
+const WORKFLOW_PATH = "/root/WORKFLOW.md";
+
 // Pure decisions extracted from the spawn-worker exit handler, asserted
 // without constructing the closure (the release-maps.ts pattern).
 
 describe("buildTaskCmd", () => {
   test("emits the loop task argv terminated by --from-agent", async () => {
-    const cmd = buildTaskCmd(await baseArgs(), baseCfg(), "rlf-1");
-    expect(cmd.slice(2, 7)).toEqual(["loop", "task", "--name", "rlf-1", "--claude"]);
+    const cmd = buildTaskCmd(await baseArgs(), "rlf-1", WORKFLOW_PATH);
+    expect(cmd.slice(2, 6)).toEqual(["loop", "task", "--name", "rlf-1"]);
     expect(cmd[cmd.length - 1]).toBe("--from-agent");
   });
 
-  test("passes the model via the explicit --model flag, never positionally", async () => {
-    const cmd = buildTaskCmd(await baseArgs(), baseCfg(), "rlf-1");
-    const engineIdx = cmd.indexOf("--claude");
-    // The token right after the engine flag must be `--model`, not a bare name.
-    expect(cmd[engineIdx + 1]).toBe("--model");
-    expect(cmd[cmd.indexOf("--model") + 1]).toBe("opus");
+  test("with no CLI overrides the argv carries no config values — the child re-resolves", async () => {
+    const cmd = buildTaskCmd(await baseArgs(), "rlf-1", WORKFLOW_PATH);
+    // No pre-merged engine/model/limits in the spawn command: the worker
+    // resolves WORKFLOW.md itself, so parent and child share one merge path.
+    expect(cmd).toEqual([
+      process.execPath,
+      process.argv[1] ?? "",
+      "loop",
+      "task",
+      "--name",
+      "rlf-1",
+      "--workflow",
+      WORKFLOW_PATH,
+      "--from-agent",
+    ]);
   });
 
-  test("uses CLI engine/model when engineSet, else config values", async () => {
-    const args = await baseArgs();
-    args.engineSet = true;
-    args.engine = "codex";
-    args.model = "sonnet";
-    const cmd = buildTaskCmd(args, baseCfg({ engine: "claude", model: "opus" }), "rlf-1");
+  test("forwards exactly the user's sparse overrides", async () => {
+    const args = await parseAgentArgs([
+      "--codex",
+      "--model",
+      "sonnet",
+      "--max-iterations",
+      "7",
+      "--max-cost",
+      "3.5",
+      "--max-runtime",
+      "42",
+      "--delay",
+      "9",
+    ]);
+    const cmd = buildTaskCmd(args, "rlf-1", WORKFLOW_PATH);
     expect(cmd).toContain("--codex");
     expect(cmd[cmd.indexOf("--model") + 1]).toBe("sonnet");
-
-    const fallback = buildTaskCmd(
-      await baseArgs(),
-      baseCfg({ engine: "codex", model: "sonnet" }),
-      "rlf-1",
-    );
-    expect(fallback).toContain("--codex");
-    expect(fallback[fallback.indexOf("--model") + 1]).toBe("sonnet");
-  });
-
-  test("adds limit flags only when set", async () => {
-    const args = await baseArgs();
-    args.maxIterations = 7;
-    args.maxCostUsd = 3.5;
-    args.maxRuntimeMinutes = 42;
-    args.delay = 9;
-    const cmd = buildTaskCmd(args, baseCfg(), "rlf-1");
     expect(cmd[cmd.indexOf("--max-iterations") + 1]).toBe("7");
     expect(cmd[cmd.indexOf("--max-cost") + 1]).toBe("3.5");
     expect(cmd[cmd.indexOf("--max-runtime") + 1]).toBe("42");
     expect(cmd[cmd.indexOf("--delay") + 1]).toBe("9");
   });
 
-  test("omits --max-failures at the default 5, includes it when overridden", async () => {
-    const def = await baseArgs();
-    def.maxConsecutiveFailures = 5;
-    expect(buildTaskCmd(def, baseCfg({ maxConsecutiveFailuresPerTask: 5 }), "rlf-1")).not.toContain(
-      "--max-failures",
-    );
+  test("an explicit --max-failures is forwarded even at the old sentinel value 5", async () => {
+    // The old `!== 5` check dropped a user's explicit 5; presence-based
+    // overrides forward it like any other value.
+    const args = await parseAgentArgs(["--max-failures", "5"]);
+    const cmd = buildTaskCmd(args, "rlf-1", WORKFLOW_PATH);
+    expect(cmd[cmd.indexOf("--max-failures") + 1]).toBe("5");
 
-    const over = await baseArgs();
-    over.maxConsecutiveFailures = 2;
-    const cmd = buildTaskCmd(over, baseCfg(), "rlf-1");
-    expect(cmd[cmd.indexOf("--max-failures") + 1]).toBe("2");
+    const none = buildTaskCmd(await baseArgs(), "rlf-1", WORKFLOW_PATH);
+    expect(none).not.toContain("--max-failures");
   });
 
-  test("wires review-phase flags only when the review phase is enabled", async () => {
-    const args = await baseArgs();
-    expect(buildTaskCmd(args, baseCfg(), "rlf-1")).not.toContain("--review-enabled");
+  test("boolean passthrough flags are forwarded only when the user set them", async () => {
+    const args = await parseAgentArgs(["--log", "--verbose", "--manual-test"]);
+    const cmd = buildTaskCmd(args, "rlf-1", WORKFLOW_PATH);
+    expect(cmd).toContain("--log");
+    expect(cmd).toContain("--verbose");
+    expect(cmd).toContain("--manual-test");
 
-    const cmd = buildTaskCmd(
-      args,
-      baseCfg({
-        openspec: {
-          reviewPhase: {
-            enabled: true,
-            maxRounds: 3,
-            reviewerModel: "sonnet",
-            reviewerContextStrategy: "warm",
-          },
-        },
-      }),
-      "rlf-1",
-    );
-    expect(cmd).toContain("--review-enabled");
-    expect(cmd[cmd.indexOf("--review-max-rounds") + 1]).toBe("3");
-    expect(cmd[cmd.indexOf("--review-model") + 1]).toBe("sonnet");
-    expect(cmd[cmd.indexOf("--review-context-strategy") + 1]).toBe("warm");
+    const none = buildTaskCmd(await baseArgs(), "rlf-1", WORKFLOW_PATH);
+    expect(none).not.toContain("--log");
+    expect(none).not.toContain("--verbose");
+    expect(none).not.toContain("--manual-test");
+  });
+
+  test("pins the worker to the parent's WORKFLOW.md via --workflow", async () => {
+    const cmd = buildTaskCmd(await baseArgs(), "rlf-1", "/elsewhere/ALT.md");
+    expect(cmd[cmd.indexOf("--workflow") + 1]).toBe("/elsewhere/ALT.md");
   });
 });
 

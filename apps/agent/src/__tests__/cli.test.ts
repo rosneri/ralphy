@@ -142,8 +142,8 @@ describe("agent parseArgs", () => {
 
   test("parses common engine flags", async () => {
     const result = await parseArgs(["--claude", "sonnet"]);
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("sonnet");
+    expect(result.overrides.engine).toBe("claude");
+    expect(result.overrides.model).toBe("sonnet");
   });
 
   test("parses --name, --prompt, --max-tickets, and mode argument", async () => {
@@ -183,7 +183,7 @@ describe("agent parseArgs", () => {
     expect(result.stackPrs).toBe(true);
     expect(result.codeReview).toBe(true);
     expect(result.jsonOutput).toBe(true);
-    expect(result.manualTest).toBe(true);
+    expect(result.overrides.manualTest).toBe(true);
     expect(result.debug).toBe(true);
   });
 

@@ -2,7 +2,7 @@ import { log } from "@ralphy/output";
 import type { Indicators, Marker, SetIndicator, GetIndicator } from "@ralphy/types";
 import { VERSION } from "@ralphy/version";
 import {
-  initialCommonArgs,
+  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
@@ -38,8 +38,6 @@ export interface AgentParsedArgs extends CommonArgs {
   jsonOutput: boolean;
   /** Optional path to mirror JSONL events to a file (works in both TUI and --json-output modes). */
   jsonLogFile?: string;
-  /** Enable manual testing phase passthrough for the inner loop. */
-  manualTest: boolean;
   /** List mode: enable per-ticket diagnostics for --name <identifier>. */
   debug: boolean;
   /** Opt-in: after each ticket reaches a terminal disposition, spawn a one-shot
@@ -199,9 +197,8 @@ function mergeIndicator(bag: Partial<Indicators>, key: keyof Indicators, marker:
 }
 
 export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
-  const common = initialCommonArgs();
   const result: AgentParsedArgs = {
-    ...common,
+    ...emptyCommonArgs(),
     mode: "agent",
     linearTeam: "",
     linearAssignee: "",
@@ -214,7 +211,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
     codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
-    manualTest: false,
     debug: false,
     noTmux: false,
     checks: false,
@@ -319,9 +315,6 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         break;
       case "--json-log-file":
         expectJsonLogFile = true;
-        break;
-      case "--manual-test":
-        result.manualTest = true;
         break;
       case "--checks":
         result.checks = true;

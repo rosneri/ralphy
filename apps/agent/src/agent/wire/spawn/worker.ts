@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { serializeOverrides } from "@ralphy/config";
+import { workflowPath } from "@ralphy/workflow";
 import { projectLayout } from "@ralphy/core/layout";
 import {
   MISSION_TASKS_FILENAME,
@@ -113,58 +115,35 @@ export function releaseWorkerMaps(maps: WorkerChangeMaps, changeName: string): v
 }
 
 /**
- * Build the `ralph loop task …` argv for a worker subprocess. Pure and
- * exported so the engine/model selection, conditional limit flags, and the
- * `--model`-as-flag invariant are unit-testable without spawning anything.
- * The model is passed via the explicit `--model` flag rather than positionally
- * because `--claude` consumes a trailing model token but `--codex` does not — a
- * positional would be parsed as a stray argument and abort the worker. The argv
- * always terminates with `--from-agent`.
+ * Build the `ralph loop task …` argv for a worker subprocess.
+ *
+ * The child receives the user's sparse CLI overrides
+ * (`serializeOverrides(args.overrides)`) plus an explicit `--workflow` path,
+ * never pre-merged effective values: it re-runs the shared config resolution
+ * against the SAME WORKFLOW.md, so parent and child apply `cli > workflow >
+ * default` precedence through one code path. Config-only settings (limits the
+ * user did not pass, the review phase, …) reach the worker through that
+ * re-resolution, not through argv. The `--workflow` flag pins the main
+ * checkout's file so a worktree cwd cannot drift the worker's config. The
+ * argv always terminates with `--from-agent`.
  */
 export function buildTaskCmd(
   args: AgentParsedArgs,
-  cfg: RalphyConfig,
   changeName: string,
+  workflowFilePath: string,
 ): string[] {
-  const engine = args.engineSet ? args.engine : cfg.engine;
-  const model = args.engineSet ? args.model : cfg.model;
-  const c: string[] = [
+  return [
     process.execPath,
     process.argv[1] ?? "",
     "loop",
     "task",
     "--name",
     changeName,
-    "--" + engine,
-    "--model",
-    model,
+    ...serializeOverrides(args.overrides),
+    "--workflow",
+    workflowFilePath,
+    "--from-agent",
   ];
-  const maxIter = args.maxIterations || cfg.maxIterationsPerTask;
-  if (maxIter > 0) c.push("--max-iterations", String(maxIter));
-  const maxCost = args.maxCostUsd || cfg.maxCostUsdPerTask;
-  if (maxCost > 0) c.push("--max-cost", String(maxCost));
-  const maxRuntime = args.maxRuntimeMinutes || cfg.maxRuntimeMinutesPerTask;
-  if (maxRuntime > 0) c.push("--max-runtime", String(maxRuntime));
-  const maxFailures =
-    args.maxConsecutiveFailures !== 5
-      ? args.maxConsecutiveFailures
-      : cfg.maxConsecutiveFailuresPerTask;
-  if (maxFailures !== 5) c.push("--max-failures", String(maxFailures));
-  const delay = args.delay || cfg.iterationDelaySeconds;
-  if (delay > 0) c.push("--delay", String(delay));
-  if (args.log || cfg.logRawStream) c.push("--log");
-  if (args.verbose || cfg.taskVerbose) c.push("--verbose");
-  if (args.manualTest || cfg.enableManualTest) c.push("--manual-test");
-  const rp = cfg.openspec.reviewPhase;
-  if (rp.enabled) {
-    c.push("--review-enabled");
-    if (rp.maxRounds !== 1) c.push("--review-max-rounds", String(rp.maxRounds));
-    if (rp.reviewerModel !== undefined) c.push("--review-model", rp.reviewerModel);
-    if (rp.reviewerContextStrategy !== "fresh")
-      c.push("--review-context-strategy", rp.reviewerContextStrategy);
-  }
-  c.push("--from-agent");
-  return c;
 }
 
 /**
@@ -325,7 +304,11 @@ export function createSpawnWorker(
   // gets the real import; tests inject a capturing fake.
   const doPostTask = input.runners?.runPostTask ?? runPostTask;
 
-  const buildTaskCmdFor = (changeName: string): string[] => buildTaskCmd(args, cfg, changeName);
+  // Pin the worker to the main checkout's WORKFLOW.md (honoring --workflow):
+  // a worktree cwd must not resolve a different config than the parent did.
+  const workflowFilePath = workflowPath(projectRoot, args.workflowFile);
+  const buildTaskCmdFor = (changeName: string): string[] =>
+    buildTaskCmd(args, changeName, workflowFilePath);
 
   // --agent-debug: one in-memory dedupe set shared across every worker this
   // run spawns. The closure is built once and passed to `runPostTask` only
@@ -345,8 +328,8 @@ export function createSpawnWorker(
         }
         digest = buildTicketDigest(info.issue, comments);
       }
-      const engine = args.engineSet ? args.engine : cfg.engine;
-      const model = args.engineSet ? args.model : cfg.model;
+      // cfg is the merged effective config (CLI overrides already applied).
+      const { engine, model } = cfg;
       const ctx: RetroContext = {
         identifier,
         changeName: info.changeName,

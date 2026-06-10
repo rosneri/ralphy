@@ -1,3 +1,4 @@
+import { mergeConfig, type CliOverrides } from "@ralphy/config";
 import { ensureWorkflow, loadWorkflow, type WorkflowConfig } from "@ralphy/workflow";
 
 /**
@@ -7,12 +8,19 @@ import { ensureWorkflow, loadWorkflow, type WorkflowConfig } from "@ralphy/workf
  */
 export type RalphyConfig = WorkflowConfig;
 
+/**
+ * Load WORKFLOW.md and merge the sparse CLI overrides through the one shared
+ * merge function (`cli > workflow > default`). The returned config is the
+ * EFFECTIVE config: downstream agent code reads `cfg.x` and never writes
+ * `args.x || cfg.x` for any config-backed key again.
+ */
 export async function loadRalphyConfig(
   projectRoot: string,
   workflowFile?: string,
+  overrides: CliOverrides = {},
 ): Promise<RalphyConfig> {
   const { config } = await loadWorkflow(projectRoot, workflowFile);
-  return config;
+  return mergeConfig(config, overrides).effective;
 }
 
 export async function ensureRalphyConfig(

@@ -9,6 +9,7 @@
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
     "@ralphy/cli-args": "workspace:*",
+    "@ralphy/config": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",

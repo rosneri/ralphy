@@ -1,5 +1,7 @@
 import { join } from "node:path";
 import { logJsonEvent, initWorkerLog } from "@ralphy/log";
+import { loopOptionsFromConfig, mergeConfig, type CliOverrides } from "@ralphy/config";
+import { loadWorkflow } from "@ralphy/workflow";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
 import { runWithContext, createDefaultContext, getStorage, getLayout } from "@ralphy/context";
 import { projectLayout } from "@ralphy/core/layout";
@@ -103,21 +105,32 @@ export async function loopRoutes(
 
     const body = (await req.json()) as Partial<LoopOptions>;
 
-    const opts: LoopOptions = {
+    // One merge path with the CLIs: the request body is a sparse override
+    // layer over WORKFLOW.md (cli > workflow > default) — no hand-filled
+    // defaults here.
+    const overrides: CliOverrides = {
+      ...(body.engine === "claude" || body.engine === "codex" ? { engine: body.engine } : {}),
+      ...(body.model !== undefined ? { model: body.model } : {}),
+      ...(body.maxIterations !== undefined ? { maxIterations: body.maxIterations } : {}),
+      ...(body.maxCostUsd !== undefined ? { maxCostUsd: body.maxCostUsd } : {}),
+      ...(body.maxRuntimeMinutes !== undefined
+        ? { maxRuntimeMinutes: body.maxRuntimeMinutes }
+        : {}),
+      ...(body.maxConsecutiveFailures !== undefined
+        ? { maxConsecutiveFailures: body.maxConsecutiveFailures }
+        : {}),
+      ...(body.delay !== undefined ? { delay: body.delay } : {}),
+      ...(body.log !== undefined ? { log: body.log } : {}),
+      ...(body.verbose !== undefined ? { verbose: body.verbose } : {}),
+      ...(body.manualTest !== undefined ? { manualTest: body.manualTest } : {}),
+    };
+    const { config } = await loadWorkflow(ctx.projectRoot);
+    const { effective } = mergeConfig(config, overrides);
+    const opts: LoopOptions = loopOptionsFromConfig(effective, {
       name: taskName,
       prompt: body.prompt ?? "",
-      engine: body.engine ?? "claude",
-      model: body.model ?? "sonnet",
-      maxIterations: body.maxIterations ?? 0,
-      maxCostUsd: body.maxCostUsd ?? 0,
-      maxRuntimeMinutes: body.maxRuntimeMinutes ?? 0,
-      maxConsecutiveFailures: body.maxConsecutiveFailures ?? 5,
-      delay: body.delay ?? 2,
-      log: body.log ?? false,
-      verbose: body.verbose ?? false,
-      manualTest: body.manualTest ?? false,
       changeStore: new OpenSpecChangeStore(),
-    };
+    });
 
     // Clear any leftover STOP signal from a previous run
     const storage = getStorage();
