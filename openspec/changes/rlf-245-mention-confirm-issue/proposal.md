@@ -1,7 +1,7 @@
 # RLF-245: Mention confirm issue
 
 Source: [RLF-245](https://linear.app/neriros/issue/RLF-245/mention-confirm-issue)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 
 ## Why

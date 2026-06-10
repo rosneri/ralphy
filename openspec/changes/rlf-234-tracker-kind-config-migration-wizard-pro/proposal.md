@@ -1,7 +1,7 @@
 # RLF-234: tracker.kind config + migration + wizard + provider selection
 
 Source: [RLF-234](https://linear.app/neriros/issue/RLF-234/trackerkind-config-migration-wizard-provider-selection)
-Status: Todo
+Status: Done
 Labels: approved
 
 ## Why

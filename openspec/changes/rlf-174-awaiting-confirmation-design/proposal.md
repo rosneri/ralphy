@@ -1,8 +1,14 @@
 # RLF-174: Awaiting confirmation design
 
 Source: [RLF-174](https://linear.app/neriros/issue/RLF-174/awaiting-confirmation-design)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
+
+> **Superseded:** shipped in PR #292 (gated-tickets `LabeledBox` card), then
+> removed by the lifecycle-pipeline task board rewrite (PRs #385/#388), which
+> replaced the gated-ticket card with board rows. The UI described below — and
+> the spec delta under `specs/awaiting-confirmation-ui/` — no longer exists in
+> the code.
 
 ## Why
 

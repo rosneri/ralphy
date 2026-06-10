@@ -1,7 +1,7 @@
 # RLF-76: Add a self-review phase that loops back to design when findings remain
 
 Source: [RLF-76](https://linear.app/neriros/issue/RLF-76/add-a-self-review-phase-that-loops-back-to-design-when-findings-remain)
-Status: Todo
+Status: Done
 Labels: Feature
 
 ## Why

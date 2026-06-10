@@ -1,7 +1,7 @@
 # RLF-82: Conflict-fix flow: move push inside the AI iteration; post-task only verifies
 
 Source: [RLF-82](https://linear.app/neriros/issue/RLF-82/conflict-fix-flow-move-push-inside-the-ai-iteration-post-task-only)
-Status: Todo
+Status: Done
 Labels: ralph:auto-merge, ralph:approved
 
 ## Why
@@ -56,15 +56,22 @@ of owning a separate retry harness.
 
 ## Acceptance
 
-- [ ] Conflict-fix worker's fix-task body includes the push step.
-- [ ] `post-task.ts` does not push for conflict-fix mode.
-- [ ] `post-task.ts` calls `fetchPrStatus` exactly once per conflict-fix iteration.
-- [ ] On `MERGEABLE` → `clearConflicted` runs; the ticket leaves the
-      `getConflicted` bucket on the next poll.
-- [ ] On still-`CONFLICTING` → log + leave label in place; next poll re-queues.
-- [ ] No regression on `fresh` / `resume` / `review` modes — they still
+> Shipped in PR #252. Two details evolved afterwards: the single
+> `fetchPrStatus` probe became a `waitForMergeability` backoff loop, and
+> `clearConflicted` was superseded by the coordinator's `conflicts-resolved`
+> outcome plus the unified prRecovery watcher.
+
+- [x] Conflict-fix worker's fix-task body includes the push step.
+- [x] `post-task.ts` does not push for conflict-fix mode.
+- [x] `post-task.ts` calls `fetchPrStatus` exactly once per conflict-fix iteration
+      (now a `waitForMergeability` backoff loop — see note above).
+- [x] On `MERGEABLE` → `clearConflicted` runs; the ticket leaves the
+      `getConflicted` bucket on the next poll (now via the coordinator's
+      `conflicts-resolved` outcome — see note above).
+- [x] On still-`CONFLICTING` → log + leave label in place; next poll re-queues.
+- [x] No regression on `fresh` / `resume` / `review` modes — they still
       get the push + hook-fix retry harness.
-- [ ] Tests cover all three exit paths.
+- [x] Tests cover all three exit paths.
 
 ## Non-goals
 

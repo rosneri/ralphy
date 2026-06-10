@@ -1,7 +1,7 @@
 # RLF-177: Research and implement proper task breakdown methodology
 
 Source: [RLF-177](https://linear.app/neriros/issue/RLF-177/research-and-implement-proper-task-breakdown-methodology)
-Status: Todo
+Status: Done
 
 ## Why
 

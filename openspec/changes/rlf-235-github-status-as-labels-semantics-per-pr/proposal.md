@@ -1,7 +1,16 @@
 # RLF-235: GitHub status-as-labels semantics (per-provider applyMarker)
 
 Source: [RLF-235](https://linear.app/neriros/issue/RLF-235/github-status-as-labels-semantics-per-provider-applymarker)
-Status: Todo
+Status: Done
+
+> **Superseded:** shipped in PR #390 against the contract-kit
+> `github-tracker-provider.ts`, but RLF-229 (PR #398) deleted that provider's
+> self-`gh`-calling body days later. The production GitHub transport
+> (`agent/wire/tracker/github.ts`) now does `--add-label` only — no
+> stale-status stripping — and its status labels default to the `ralph:*`
+> namespace, not `status:*`. The single-active-status invariant survives only
+> in the pure `staleStatusLabels` helper and the FakeGithub test harness, so
+> the design below no longer describes the shipped GitHub path.
 
 ## Why
 

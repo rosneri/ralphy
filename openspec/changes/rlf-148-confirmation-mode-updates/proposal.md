@@ -1,7 +1,7 @@
 # RLF-148: Confirmation mode updates
 
 Source: [RLF-148](https://linear.app/neriros/issue/RLF-148/confirmation-mode-updates)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 
 ## Why

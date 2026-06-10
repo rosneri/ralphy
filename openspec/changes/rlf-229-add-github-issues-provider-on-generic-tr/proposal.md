@@ -1,7 +1,7 @@
 # RLF-229: Add GitHub issues provider on generic tracker contract
 
 Source: [RLF-229](https://linear.app/neriros/issue/RLF-229/add-github-issues-provider-on-generic-tracker-contract)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 Labels: auto-merge
 

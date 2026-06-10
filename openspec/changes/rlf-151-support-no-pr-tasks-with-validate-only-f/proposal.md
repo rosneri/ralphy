@@ -1,7 +1,7 @@
 # RLF-151: Support no-PR tasks with validate-only flow
 
 Source: [RLF-151](https://linear.app/neriros/issue/RLF-151/support-no-pr-tasks-with-validate-only-flow)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 Labels: Feature
 

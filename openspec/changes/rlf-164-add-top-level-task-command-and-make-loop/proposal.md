@@ -1,7 +1,7 @@
 # RLF-164: Add top-level `task` command and make `loop` orchestrate phases
 
 Source: [RLF-164](https://linear.app/neriros/issue/RLF-164/add-top-level-task-command-and-make-loop-orchestrate-phases)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 Labels: Refactor, Feature
 

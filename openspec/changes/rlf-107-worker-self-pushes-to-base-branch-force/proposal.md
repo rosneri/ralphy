@@ -1,7 +1,7 @@
 # RLF-107: Sandbox worker git push to its own branch
 
 Source: [RLF-107](https://linear.app/neriros/issue/RLF-107/worker-self-pushes-to-base-branch-force-pushes-own-branch-when-test)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 Labels: ralph:auto-merge
 
