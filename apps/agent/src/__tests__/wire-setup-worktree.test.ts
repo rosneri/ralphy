@@ -317,8 +317,8 @@ describe("git.seedWorktreeMcpConfig capability", () => {
   });
 });
 
-describe("spawnWorker — review phase CLI flags", () => {
-  test("openspec.reviewPhase.enabled passes --review-enabled to worker", async () => {
+describe("spawnWorker — review phase config", () => {
+  test("an enabled review phase adds NO review flags — the worker re-resolves WORKFLOW.md", async () => {
     installLinearStub();
 
     await writeWorkflow(tempDir, {
@@ -382,13 +382,18 @@ describe("spawnWorker — review phase CLI flags", () => {
 
     expect(spawnedCmds.length).toBeGreaterThan(0);
     const cmd = spawnedCmds[0]!;
-    expect(cmd).toContain("--review-enabled");
+    // Review config reaches the worker through its own resolveConfig pass
+    // against the pinned WORKFLOW.md, never through pre-merged argv.
+    expect(cmd).not.toContain("--review-enabled");
     expect(cmd).not.toContain("--review-model");
     expect(cmd).not.toContain("--review-max-rounds");
     expect(cmd).not.toContain("--review-context-strategy");
+    expect(cmd[cmd.indexOf("--workflow") + 1]).toBe(join(tempDir, "WORKFLOW.md"));
+    // The pinned file really does carry the review phase for the child to find.
+    expect(cfg.openspec.reviewPhase.enabled).toBe(true);
   });
 
-  test("openspec.reviewPhase.reviewerModel passes --review-model to worker", async () => {
+  test("the spawn argv pins the parent's WORKFLOW.md even with review config present", async () => {
     installLinearStub();
 
     await writeWorkflow(tempDir, {
@@ -453,13 +458,14 @@ describe("spawnWorker — review phase CLI flags", () => {
 
     expect(spawnedCmds.length).toBeGreaterThan(0);
     const cmd = spawnedCmds[0]!;
-    expect(cmd).toContain("--review-enabled");
-    expect(cmd).toContain("--review-model");
-    expect(cmd[cmd.indexOf("--review-model") + 1]).toBe("haiku");
-    expect(cmd).toContain("--review-max-rounds");
-    expect(cmd[cmd.indexOf("--review-max-rounds") + 1]).toBe("2");
-    expect(cmd).toContain("--review-context-strategy");
-    expect(cmd[cmd.indexOf("--review-context-strategy") + 1]).toBe("warm");
+    expect(cmd).not.toContain("--review-model");
+    expect(cmd).not.toContain("--review-max-rounds");
+    expect(cmd[cmd.indexOf("--workflow") + 1]).toBe(join(tempDir, "WORKFLOW.md"));
+    // The effective config the parent loaded carries the reviewer settings the
+    // child will re-derive from the same file.
+    expect(cfg.openspec.reviewPhase.reviewerModel).toBe("haiku");
+    expect(cfg.openspec.reviewPhase.maxRounds).toBe(2);
+    expect(cfg.openspec.reviewPhase.reviewerContextStrategy).toBe("warm");
   });
 
   test("openspec.reviewPhase.enabled false passes no review flags to worker", async () => {
