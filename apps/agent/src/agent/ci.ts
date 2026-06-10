@@ -1,51 +1,12 @@
-import type { CmdRunner } from "./pr";
-import {
-  classifyGhBucket,
-  NO_CHECKS_RE,
-  PARTIAL_ACCESS_RE,
-  runGhWithRetry,
-} from "../shared/pr/ci-classify";
-
-const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
-
-interface GhCheck {
-  name: string;
-  bucket: string;
-  link?: string;
-}
-
-/** Safely parse the `gh pr checks --json` array; returns [] on empty/malformed
- *  output so a partial-success blob can be probed without throwing. */
-function parseChecks(stdout: string | undefined): GhCheck[] {
-  try {
-    const parsed = JSON.parse(stdout || "[]");
-    return Array.isArray(parsed) ? (parsed as GhCheck[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-interface CiStatus {
-  bucket: "pass" | "fail" | "pending";
-  /** Workflow run IDs of failing checks (only populated when bucket is "fail"). */
-  failedRunIds: string[];
-  /** Names of failing checks (only populated when bucket is "fail"). */
-  failedCheckNames: string[];
-}
+import { createGhCliCodeHost, type CiStatus, type CmdRunner } from "@ralphy/codehost";
 
 /**
- * Resolve the status of a PR's CI checks.
- *
- * - "pending" if any check is still in progress
- * - "fail"    if every non-pending check has settled and at least one failed
- * - "pass"    if every check passed
- *
- * `failedRunIds` extracts numeric workflow-run IDs from each failing
- * check's `link` field (e.g. ".../actions/runs/12345/job/9876" → "12345").
- *
- * Transient HTTP 5xx / network failures from `gh` are retried with
- * backoff (5s/15s/45s) — a single GitHub blip should not abort the
- * watch loop.
+ * Resolve the status of a PR's CI checks. Thin delegation onto the
+ * {@link CodeHost} adapter (`@ralphy/codehost`), which owns the bucket
+ * classification, the transient-failure retry policy, the "no checks
+ * reported" pass, and the partial-access salvage. Kept as a function so the
+ * many existing call sites (post-task, pr-discovery, watch loops) keep their
+ * signature.
  */
 export async function getPrChecksStatus(
   prRef: string,
@@ -54,47 +15,13 @@ export async function getPrChecksStatus(
   onTransientRetry?: (attempt: number, delayMs: number, reason: string) => void,
   ignoreCiChecks: string[] = [],
 ): Promise<CiStatus> {
-  let out: { stdout: string; stderr: string };
-  try {
-    out = await runGhWithRetry(
-      ["gh", "pr", "checks", prRef, "--json", PR_CHECKS_FIELDS],
-      runner,
-      cwd,
-      onTransientRetry,
-    );
-  } catch (err) {
-    const e = err as Error & { stderr?: string; stdout?: string };
-    const blob = `${e.message}\n${e.stderr ?? ""}\n${e.stdout ?? ""}`;
-    // gh exits 1 with "no checks reported" when the repo has no CI workflows.
-    // Treat this as a pass — no checks configured means nothing can fail.
-    if (NO_CHECKS_RE.test(blob)) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
-    // gh exits 1 on a PARTIAL access error when the token can't read some
-    // checks' commit-status contexts, yet still prints usable bucket JSON for
-    // the rest. Salvage that output instead of aborting the CI watch — the
-    // unreadable contexts are simply omitted (LIT-408 #607).
-    if (PARTIAL_ACCESS_RE.test(blob) && parseChecks(e.stdout).length > 0) {
-      out = { stdout: e.stdout!, stderr: e.stderr ?? "" };
-    } else {
-      throw err;
-    }
-  }
-  const ignoredLower = ignoreCiChecks.map((n) => n.toLowerCase());
-  const checks = parseChecks(out.stdout)
-    .filter((c) => !ignoredLower.includes(c.name.toLowerCase()))
-    .filter((c) => classifyGhBucket(c.bucket) !== "skip");
-
-  if (checks.some((c) => classifyGhBucket(c.bucket) === "pending")) {
-    return { bucket: "pending", failedRunIds: [], failedCheckNames: [] };
-  }
-  const failed = checks.filter((c) => classifyGhBucket(c.bucket) === "fail");
-  if (failed.length === 0) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
-
-  const ids = new Set<string>();
-  for (const c of failed) {
-    const m = c.link?.match(/\/actions\/runs\/(\d+)/);
-    if (m) ids.add(m[1]!);
-  }
-  return { bucket: "fail", failedRunIds: [...ids], failedCheckNames: failed.map((c) => c.name) };
+  const host = createGhCliCodeHost({
+    cmdRunner: runner,
+    cwd,
+    ignoreChecks: ignoreCiChecks,
+    ...(onTransientRetry ? { onTransientRetry } : {}),
+  });
+  return host.getChecksStatus(prRef);
 }
 
 /** Fetch the failure logs for a set of workflow runs, truncated. */

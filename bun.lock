@@ -41,6 +41,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ralphy/cli-args": "workspace:*",
+        "@ralphy/codehost": "workspace:*",
         "@ralphy/comms": "workspace:*",
         "@ralphy/config": "workspace:*",
         "@ralphy/context": "workspace:*",
@@ -184,6 +185,10 @@
         "@ralphy/types": "workspace:*",
         "@ralphy/workflow": "workspace:*",
       },
+    },
+    "packages/codehost": {
+      "name": "@ralphy/codehost",
+      "version": "0.0.0",
     },
     "packages/comms": {
       "name": "@ralphy/comms",
@@ -914,6 +919,8 @@
     "@ralphy/change-store": ["@ralphy/change-store@workspace:packages/change-store"],
 
     "@ralphy/cli-args": ["@ralphy/cli-args@workspace:packages/cli-args"],
+
+    "@ralphy/codehost": ["@ralphy/codehost@workspace:packages/codehost"],
 
     "@ralphy/comms": ["@ralphy/comms@workspace:packages/comms"],
 

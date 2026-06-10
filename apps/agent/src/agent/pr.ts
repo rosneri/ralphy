@@ -1,11 +1,11 @@
 import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
 import { buildRalphyComment } from "@ralphy/comms";
+import { openPullRequest, type CmdRunner } from "@ralphy/codehost";
 import type { TrackedIssue } from "@ralphy/tracker";
 
-export interface CmdRunner {
-  /** Run a command in the given cwd. Throws on non-zero exit; throw object exposes `stderr`. */
-  run: (cmd: string[], cwd: string) => Promise<{ stdout: string; stderr: string }>;
-}
+// The runner seam now lives with the CodeHost port; re-exported so the many
+// existing `import type { CmdRunner } from "../pr"` sites keep compiling.
+export type { CmdRunner } from "@ralphy/codehost";
 
 /** Blocker PR this PR is stacked on, surfaced in the PR body. */
 interface StackedOnRef {
@@ -246,29 +246,6 @@ async function branchAlreadyMerged(
 }
 
 /**
- * Attach labels to an existing PR, best-effort. Labels are PR decoration, not
- * part of the valuable artifact (the PR itself), so a failure here — a missing
- * label, a permissions issue, an offline `gh` — must never propagate and fail
- * PR creation or burn a retry iteration. Empty/blank entries are filtered so a
- * stray `[""]` never produces `--add-label ""`. No-op when nothing is left to
- * apply.
- */
-async function applyPrLabels(
-  runner: CmdRunner,
-  cwd: string,
-  prRef: string,
-  labels: readonly string[],
-): Promise<void> {
-  const clean = labels.map((l) => l.trim()).filter(Boolean);
-  if (clean.length === 0 || !prRef) return;
-  try {
-    await runner.run(["gh", "pr", "edit", prRef, "--add-label", clean.join(",")], cwd);
-  } catch {
-    // Best-effort: the PR is the artifact, labels are metadata.
-  }
-}
-
-/**
  * Push the worktree's branch to origin and open (or surface) a GitHub PR
  * via the `gh` CLI. Returns the PR URL.
  *
@@ -329,38 +306,16 @@ export async function createPullRequest(
     }
   }
 
-  // Push the branch (idempotent with -u).
-  await runner.run(["git", "push", "-u", "origin", input.branch], input.cwd);
-
-  // If a PR already exists for this branch, just return its URL.
-  const existing = await runner.run(
-    [
-      "gh",
-      "pr",
-      "list",
-      "--head",
-      input.branch,
-      "--state",
-      "open",
-      "--json",
-      "url",
-      "--jq",
-      ".[0].url // empty",
-    ],
-    input.cwd,
-  );
-  const existingUrl = existing.stdout.trim();
-  if (existingUrl) {
-    await applyPrLabels(runner, input.cwd, existingUrl, input.labels ?? []);
-    return { url: existingUrl, created: false };
-  }
-
-  const title = defaultTitle(input.issue);
-  const body = defaultBody(input.issue, input.branch, input.stackedOn);
-  const createArgs = ["gh", "pr", "create", "--base", base, "--title", title, "--body", body];
-  if (input.draft) createArgs.push("--draft");
-  const created = await runner.run(createArgs, input.cwd);
-  const url = created.stdout.trim().split("\n").pop() ?? "";
-  await applyPrLabels(runner, input.cwd, url, input.labels ?? []);
-  return { url, created: true };
+  // Mechanism (push + idempotent open + best-effort labels) lives with the
+  // CodeHost adapter; only the issue-derived title/body policy stays here.
+  const { url, created } = await openPullRequest(runner, input.cwd, {
+    cwd: input.cwd,
+    branch: input.branch,
+    base,
+    title: defaultTitle(input.issue),
+    body: defaultBody(input.issue, input.branch, input.stackedOn),
+    ...(input.draft !== undefined ? { draft: input.draft } : {}),
+    ...(input.labels !== undefined ? { labels: input.labels } : {}),
+  });
+  return { url, created };
 }

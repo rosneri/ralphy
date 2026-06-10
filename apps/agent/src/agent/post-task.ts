@@ -9,6 +9,7 @@ import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import type { DependencyBase } from "./wire/pr-helpers";
 import { fetchPrStatus, type PrStatus } from "../pr-status";
 import { waitForMergeability } from "../shared/pr/wait-for-mergeability";
@@ -873,7 +874,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   if (cfg.prDraft === true) {
     emit("pr-ready");
     try {
-      await cmd.run(["gh", "pr", "ready", prUrl], cwd);
+      await createGhCliCodeHost({ cmdRunner: cmd, cwd }).markReady(prUrl);
       log(`  converted ${prUrl} from draft to ready`, "green");
     } catch (err) {
       const e = err as Error & { stderr?: string };
@@ -897,7 +898,10 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
       );
     } else {
       try {
-        await cmd.run(["gh", "pr", "merge", prUrl, "--auto", `--${cfg.autoMergeStrategy}`], cwd);
+        await createGhCliCodeHost({ cmdRunner: cmd, cwd }).enableAutoMerge(
+          prUrl,
+          cfg.autoMergeStrategy,
+        );
         log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
         emit("auto-merge-enabled", cfg.autoMergeStrategy);
       } catch (err) {
