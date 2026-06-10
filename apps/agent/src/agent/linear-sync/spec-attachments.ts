@@ -38,7 +38,7 @@ function describeLinearError(err: unknown): string {
   return parts.join(" ");
 }
 
-type AttachmentFormat = "md" | "pdf";
+export type AttachmentFormat = "md" | "pdf";
 
 type Slot = "design" | "designPdf";
 /** Legacy slot names retained only for purge-on-upgrade. Past versions
@@ -522,45 +522,64 @@ async function syncSlotSealed(
   ]);
 }
 
-async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
-  const spec = SLOT_SPECS[slot];
-  const [primaryName, ...trailingNames] = spec.sourceFiles;
-  if (!primaryName) return;
-  const primary = Bun.file(join(deps.changeDir, primaryName));
+/** The composed spec source both sinks publish (attachment slots and the
+ *  comment-embedded SpecSink). */
+export interface ComposedSpecSource {
+  /** design.md + appended tasks.md `## Implementation` section, markdown. */
+  sourceBytes: Uint8Array;
+  /** sha256 of the composed bytes — the pre-seal change-detection key. */
+  hash: string;
+  /** sha256 of design.md alone — the post-seal key, so a checkbox-only tick
+   *  of the tasks.md Implementation checklist is not mistaken for a design
+   *  revision. */
+  designOnlyHash: string;
+}
+
+/**
+ * Compose the publishable spec source from a change directory: the primary
+ * file (design.md) with any present trailing source files appended, separated
+ * by a markdown rule so reviewers can tell the sections apart. tasks.md is
+ * special-cased: only its `## Implementation` section is published — the
+ * `## Planning` checklist (agent process tasks) must never reach the tracker.
+ * Returns null (with a log line) when the primary file is missing, unreadable,
+ * or still scaffold-only.
+ */
+export async function composeSpecSource(
+  changeDir: string,
+  log: LogFn,
+  sourceFiles: string[] = SLOT_SPECS.design.sourceFiles,
+): Promise<ComposedSpecSource | null> {
+  const [primaryName, ...trailingNames] = sourceFiles;
+  if (!primaryName) return null;
+  const primary = Bun.file(join(changeDir, primaryName));
   if (!(await primary.exists())) {
-    deps.log(`  spec-attachments: ${primaryName} missing, skipping`, "gray");
-    return;
+    log(`  spec-attachments: ${primaryName} missing, skipping`, "gray");
+    return null;
   }
 
   let primaryBytes: Uint8Array;
   try {
     primaryBytes = await primary.bytes();
   } catch (err) {
-    deps.log(`! spec-attachments: read ${primaryName} failed: ${(err as Error).message}`, "yellow");
-    return;
+    log(`! spec-attachments: read ${primaryName} failed: ${(err as Error).message}`, "yellow");
+    return null;
   }
 
   if (!hasMeaningfulContent(primaryBytes)) {
-    deps.log(`  spec-attachments: ${primaryName} has no content yet, skipping`, "gray");
-    return;
+    log(`  spec-attachments: ${primaryName} has no content yet, skipping`, "gray");
+    return null;
   }
 
-  // Compose the upload payload by appending any present trailing source
-  // files (e.g. tasks.md after design.md), separated by a markdown rule
-  // so reviewers can tell the sections apart inside one attachment.
-  // tasks.md is special-cased: only its `## Implementation` section is
-  // published — the `## Planning` checklist (agent process tasks) must
-  // never reach the Linear design attachment.
   const parts: Uint8Array[] = [primaryBytes];
   const enc = new TextEncoder();
   for (const name of trailingNames) {
-    const f = Bun.file(join(deps.changeDir, name));
+    const f = Bun.file(join(changeDir, name));
     if (!(await f.exists())) continue;
     let raw: Uint8Array;
     try {
       raw = await f.bytes();
     } catch (err) {
-      deps.log(
+      log(
         `! spec-attachments: read ${name} failed (continuing without it): ${(err as Error).message}`,
         "yellow",
       );
@@ -581,13 +600,15 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   }
 
   // Hash the *composed* source so the md and pdf slots track the same
-  // content signal. A change to either design.md or tasks.md invalidates
-  // both the design and designPdf slots. Used by the pre-seal in-place path.
-  const hash = sha256Hex(sourceBytes);
-  // Design-only hash (design.md alone). Used post-seal so a checkbox-only
-  // tick of the tasks.md Implementation checklist — which does not touch
-  // design.md — is not mistaken for a design revision.
-  const designOnlyHash = sha256Hex(primaryBytes);
+  // content signal; the design-only hash narrows post-seal change detection.
+  return { sourceBytes, hash: sha256Hex(sourceBytes), designOnlyHash: sha256Hex(primaryBytes) };
+}
+
+async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
+  const spec = SLOT_SPECS[slot];
+  const source = await composeSpecSource(deps.changeDir, deps.log, spec.sourceFiles);
+  if (!source) return;
+  const { sourceBytes, hash, designOnlyHash } = source;
   const state = await readSpecAttachments(deps.statePath);
 
   const sealed = await isDesignSealed(stateDirOf(deps.statePath));

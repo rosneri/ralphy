@@ -6,7 +6,12 @@ import {
   postSteeringAndRefreshTasks,
   type CommentMutations,
 } from "../linear-sync/comment-sync";
-import { syncSpecAttachments, type SpecAttachmentMutations } from "../linear-sync/spec-attachments";
+import type { SpecAttachmentMutations } from "../linear-sync/spec-attachments";
+import {
+  createAttachmentSpecSink,
+  createCommentSpecSink,
+  type SpecSink,
+} from "../linear-sync/spec-sink";
 import {
   createIssueComment,
   updateIssueComment,
@@ -18,7 +23,18 @@ import {
 } from "../linear";
 import type { CmdRunner } from "../pr";
 import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
+import { readStickyComment, upsertStickyComment } from "./tracker/sticky-comment";
 import type { TrackedIssue } from "@ralphy/tracker";
+
+/** The Linear spec-attachment IO bag (module-level client functions). */
+function defaultLinearSpecMutations(): SpecAttachmentMutations {
+  return {
+    uploadFileToLinear,
+    createAttachmentForUrl,
+    deleteAttachment,
+    findIssueAttachmentByTitle,
+  };
+}
 
 interface CommentSyncInput {
   apiKey: string;
@@ -32,9 +48,11 @@ interface CommentSyncInput {
   commentMutations?: CommentMutations;
   /** Whether the backend credentials are ready. Defaults to `Boolean(apiKey)`. */
   credentialsReady?: boolean;
-  /** Whether the backend supports spec attachments. Defaults to `true`
-   *  (Linear); GitHub has no attachments API, so it passes `false`. */
-  attachmentsSupported?: boolean;
+  /** Spec-content sink (RLF-239): how `syncSpecsAsAttachments` content reaches
+   *  the issue. Defaults to the Linear attachment sink over the module-level
+   *  Linear mutations; `null` disables spec publishing. The GitHub tracker
+   *  passes the comment-embedded sink. */
+  specSink?: SpecSink | null;
 }
 
 interface CommentSyncHooks {
@@ -54,10 +72,25 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   // `syncTasksToComment` previously left `syncSpecsAsAttachments: true` dead
   // whenever the sticky comment was disabled (no design PDF on the issue).
   const credsReady = input.credentialsReady ?? Boolean(apiKey);
-  const attachmentsSupported = input.attachmentsSupported ?? true;
   const commentsEnabled = Boolean(cfg.linear.syncTasksToComment) && credsReady;
+  // Default sink: the Linear attachment slots over the module-level Linear
+  // mutations — the pre-seam behavior. An explicit `null` (a backend with no
+  // way to publish specs) disables the feature outright.
+  const specSink: SpecSink | null =
+    input.specSink !== undefined
+      ? input.specSink
+      : createAttachmentSpecSink({
+          apiKey,
+          mutations: defaultLinearSpecMutations(),
+          ...(cfg.linear.specAttachmentFormats !== undefined
+            ? { formats: cfg.linear.specAttachmentFormats }
+            : {}),
+          ...(cfg.linear.specAttachmentRevisions !== undefined
+            ? { sealedRevisionMode: cfg.linear.specAttachmentRevisions }
+            : {}),
+        });
   const specAttachmentsEnabled =
-    attachmentsSupported && Boolean(cfg.linear.syncSpecsAsAttachments) && credsReady;
+    specSink !== null && Boolean(cfg.linear.syncSpecsAsAttachments) && credsReady;
   const enabled = commentsEnabled || specAttachmentsEnabled;
   if (!enabled) return { enabled: false };
 
@@ -65,12 +98,6 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
     createIssueComment,
     updateIssueComment,
     deleteIssueComment,
-  };
-  const specAttachmentMutations: SpecAttachmentMutations = {
-    uploadFileToLinear,
-    createAttachmentForUrl,
-    deleteAttachment,
-    findIssueAttachmentByTitle,
   };
 
   return {
@@ -107,17 +134,13 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
           mutations: commentMutations,
         });
       }
-      if (specAttachmentsEnabled) {
-        await syncSpecAttachments({
-          apiKey,
+      if (specAttachmentsEnabled && specSink) {
+        await specSink.sync({
           issueId: worker.issueId,
           statePath,
           changeDir,
           iteration,
           log: onLog,
-          mutations: specAttachmentMutations,
-          formats: cfg.linear.specAttachmentFormats,
-          sealedRevisionMode: cfg.linear.specAttachmentRevisions,
         });
       }
     },
@@ -183,9 +206,43 @@ interface TrackerCommentSyncInput {
 }
 
 /**
+ * Build the GitHub comment-embedded {@link SpecSink} (RLF-239): the composed
+ * spec content lives inside one marker-tagged sticky issue comment, upserted
+ * and re-read through `gh`.
+ */
+export function createGithubCommentSpecSink(deps: {
+  cmdRunner: CmdRunner;
+  projectRoot: string;
+  repo: () => Promise<string>;
+  diag: (area: string, message: string, color?: string) => void;
+}): SpecSink {
+  return createCommentSpecSink({
+    upsertStickyComment: async (issueId, type, body) =>
+      upsertStickyComment({
+        cmdRunner: deps.cmdRunner,
+        repo: await deps.repo(),
+        projectRoot: deps.projectRoot,
+        issueNumber: issueId,
+        type,
+        body,
+        diag: deps.diag,
+      }),
+    readStickyComment: async (issueId, type) =>
+      readStickyComment({
+        cmdRunner: deps.cmdRunner,
+        repo: await deps.repo(),
+        projectRoot: deps.projectRoot,
+        issueNumber: issueId,
+        type,
+      }),
+  });
+}
+
+/**
  * Select the comment-sync hooks for the active tracker. GitHub gets the
- * marker-idempotent sticky-upsert adapter over `gh` (no spec attachments, auth
- * via the CLI); Linear keeps its comment API + spec-attachment uploads.
+ * marker-idempotent sticky-upsert adapter over `gh` (auth via the CLI) and the
+ * comment-embedded spec sink; Linear keeps its comment API + spec-attachment
+ * uploads.
  */
 export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): CommentSyncHooks {
   const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
@@ -204,7 +261,12 @@ export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): C
         repo: input.githubRepo!,
         diag,
       }),
-      attachmentsSupported: false,
+      specSink: createGithubCommentSpecSink({
+        cmdRunner: input.cmdRunner,
+        projectRoot,
+        repo: input.githubRepo!,
+        diag,
+      }),
       credentialsReady: true,
     });
   }

@@ -34,6 +34,28 @@ export const UPDATE_COMMENT_MUTATION =
   "mutation($id:ID!,$body:String!){updateIssueComment(input:{id:$id,body:$body}){clientMutationId}}";
 
 /**
+ * Read the current body of the marker-tagged sticky comment of `type` on a
+ * GitHub issue, or null when none exists. The read half of the sticky-upsert
+ * pattern — the comment-embedded SpecSink uses it to re-read the published
+ * content sha so unchanged content skips the write. Throws on `gh` failure;
+ * callers own the degrade-gracefully policy.
+ */
+export async function readStickyComment(deps: {
+  cmdRunner: CmdRunner;
+  repo: string;
+  projectRoot: string;
+  issueNumber: string;
+  type: RalphyCommentType;
+}): Promise<string | null> {
+  const { stdout } = await deps.cmdRunner.run(
+    ["gh", "issue", "view", deps.issueNumber, "--repo", deps.repo, "--json", "comments"],
+    deps.projectRoot,
+  );
+  const parsed = JSON.parse(stdout.trim() || "{}") as { comments?: GhComment[] };
+  return findStickyComment(parsed.comments ?? [], deps.type)?.body ?? null;
+}
+
+/**
  * Upsert a single marker-tagged "sticky" comment on a GitHub issue: list the
  * issue's comments, find the one carrying the {@link StickyUpsertDeps.type}
  * marker, and edit it in place when present, else create it. This is the GitHub
