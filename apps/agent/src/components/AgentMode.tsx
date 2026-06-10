@@ -137,6 +137,10 @@ interface WorkerMeta {
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
 const MAX_PENDING_DISPLAY = 15;
+/** Max ticket rows the board renders before overflowing the rest into a compact
+ *  horizontal identifier strip. Ctrl+F (full screen) raises this to fill the
+ *  terminal height. */
+const MAX_BOARD_ROWS = 10;
 
 /**
  * Reorder subtasks for the capped SUBTASKS panel: unchecked items first,
@@ -489,6 +493,9 @@ export function AgentMode({
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   /** Toggled by Ctrl+L — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
+  /** Toggled by Ctrl+F — the TASKS board takes the whole screen, showing every
+   *  ticket as a full row (capped at terminal height) instead of the 10-row cap. */
+  const [boardFullScreen, setBoardFullScreen] = useState(false);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -850,6 +857,22 @@ export function AgentMode({
     ? coordRef.current?.activeWorkers.find((w) => w.issueId === focusedRow.id)
     : undefined;
 
+  // Board windowing: render at most `boardCap` ticket rows (10, or terminal-tall
+  // when full-screen), scrolling so the focused row stays visible; every ticket
+  // that doesn't get a full row is listed by identifier in a horizontal strip.
+  const boardCap = boardFullScreen
+    ? Math.max(MAX_BOARD_ROWS, termHeight - 9)
+    : Math.min(MAX_BOARD_ROWS, tree.length);
+  const winStart = (() => {
+    if (tree.length <= boardCap || focusedIndex < 0) return 0;
+    if (focusedIndex < boardCap) return 0;
+    return Math.min(focusedIndex - boardCap + 1, tree.length - boardCap);
+  })();
+  const visibleTree = tree.slice(winStart, winStart + boardCap);
+  const hiddenIdentifiers = tree
+    .filter((_, i) => i < winStart || i >= winStart + boardCap)
+    .map((t) => t.row.identifier);
+
   const steeringFocusedRef = useRef(false);
   // Resize-survival mirrors: SteeringField may be re-mounted by the
   // resizeKey-keyed Box below, so we persist its state in refs here and
@@ -868,6 +891,10 @@ export function AgentMode({
         if (activeCount > 0) setShowPendingTasks((v) => !v);
         return;
       }
+      if (key.ctrl && (input === "f" || input === "F")) {
+        setBoardFullScreen((v) => !v);
+        return;
+      }
       if (tree.length === 0) return;
       const idx = focusedIndex < 0 ? 0 : focusedIndex;
       if (key.tab || key.downArrow) {
@@ -876,20 +903,34 @@ export function AgentMode({
         setFocusedId(tree[(idx - 1 + tree.length) % tree.length]!.row.id);
       } else {
         const n = parseInt(input, 10);
-        if (!isNaN(n) && n >= 1 && n <= Math.min(9, tree.length)) setFocusedId(tree[n - 1]!.row.id);
+        if (!isNaN(n) && n >= 0 && n <= Math.min(9, tree.length - 1)) setFocusedId(tree[n]!.row.id);
       }
     },
     { isActive: isRawModeSupported && board.length > 0 },
   );
 
-  const steeringActive = isRawModeSupported && focusedWorker !== undefined;
+  // Full-screen gives the board the whole terminal: the focused card and
+  // steering field are hidden so every reserved line goes to ticket rows.
+  const steeringActive = isRawModeSupported && focusedWorker !== undefined && !boardFullScreen;
+
+  // Estimated wrapped-line count of the overflow identifier strip (0 when every
+  // ticket has a full row), so the OUTPUT tail budget below stays accurate.
+  const overflowStripLines =
+    hiddenIdentifiers.length === 0
+      ? 0
+      : Math.max(
+          1,
+          Math.ceil((hiddenIdentifiers.join(" · ").length + 8) / Math.max(20, termWidth)),
+        );
 
   // Height budget for the focused active card's OUTPUT tail. Logs flow into
   // terminal scrollback via <Static>, so the live region is:
-  //   header-box(5) + tasks-box(4 + one line per board row) + card-non-tail(8)
-  //   + steering(3 when shown).
+  //   header-box(5) + tasks-box(4 + one line per visible row + overflow strip)
+  //   + card-non-tail(8, hidden in full screen) + steering(3 when shown).
   const steeringBoxLines = steeringActive ? 3 : 0;
-  const FIXED_OVERHEAD = 5 + (4 + board.length) + 8 + steeringBoxLines;
+  const cardOverhead = boardFullScreen ? 0 : 8;
+  const FIXED_OVERHEAD =
+    5 + (4 + visibleTree.length + overflowStripLines) + cardOverhead + steeringBoxLines;
   const focusedTailLines = focusedCardTailLines(termHeight, FIXED_OVERHEAD);
 
   if (preflightError) {
@@ -1005,7 +1046,7 @@ export function AgentMode({
         {(() => {
           const tasksInnerWidth = Math.max(0, termWidth - 2);
           const lead = "─ ";
-          const hint = " Tab/↑↓·1-9 ";
+          const hint = " Tab/↑↓·0-9·^F ";
           const live = ` ${tasksLiveness} `;
           const trail = "─";
           // Fill the header border between the left label and the right liveness
@@ -1071,7 +1112,7 @@ export function AgentMode({
                         <Text>{" ".repeat(prefixWidth)}</Text>
                         <PipelineCells glyphs={null} />
                       </Box>
-                      {tree.map(({ row, depth }, i) => {
+                      {visibleTree.map(({ row, depth }, i) => {
                         const isFocused = row.id === focusedRow?.id;
                         // `└ ` connector at depth>0, two spaces per level above.
                         const indent = depth > 0 ? "  ".repeat(depth - 1) + "└ " : "";
@@ -1106,7 +1147,7 @@ export function AgentMode({
                               </Text>
                             </Box>
                             <Box width={idxWidth}>
-                              <Text dimColor={!isFocused}>[{i + 1}]</Text>
+                              <Text dimColor={!isFocused}>[{winStart + i}]</Text>
                             </Box>
                             <Box width={idColWidth + 1}>
                               {indent && <Text dimColor>{indent}</Text>}
@@ -1144,6 +1185,13 @@ export function AgentMode({
                           </Box>
                         );
                       })}
+                      {hiddenIdentifiers.length > 0 && (
+                        <Box>
+                          <Text>{" ".repeat(2)}</Text>
+                          <Text dimColor>{`+${hiddenIdentifiers.length} more  `}</Text>
+                          <Text dimColor>{hiddenIdentifiers.join(" · ")}</Text>
+                        </Box>
+                      )}
                       {stalled && (
                         <Box marginTop={1}>
                           <Text color="yellow" bold>
@@ -1168,8 +1216,10 @@ export function AgentMode({
         {/* ── Box 4: the focused ticket ─────────────────────────
             An active worker gets the full card (live CMD / OUTPUT / phase
             pipeline / subtasks / steering). A parked ticket gets a compact
-            read-only card below (pipeline + state + recovery + AGE + PR). */}
-        {focusedWorker &&
+            read-only card below (pipeline + state + recovery + AGE + PR).
+            Hidden in full-screen so the board owns the whole terminal. */}
+        {!boardFullScreen &&
+          focusedWorker &&
           (() => {
             const w = focusedWorker;
             const meta = workerMetaRef.current.get(w.changeName);
@@ -1444,8 +1494,10 @@ export function AgentMode({
             );
           })()}
 
-        {/* Parked focused ticket — read-only card, no CMD / OUTPUT / steering. */}
-        {!focusedWorker &&
+        {/* Parked focused ticket — read-only card, no CMD / OUTPUT / steering.
+            Hidden in full-screen so the board owns the whole terminal. */}
+        {!boardFullScreen &&
+          !focusedWorker &&
           focusedRow &&
           (() => {
             const row = focusedRow;
