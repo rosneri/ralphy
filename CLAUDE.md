@@ -18,6 +18,14 @@ The authoritative stop and flow logic lives in XState machines — do not duplic
 - `packages/core/src/machines/loop.machine.ts` — loop stop-condition guards (`maxIterationsReached`, `costCapReached`, `runtimeLimitReached`, `consecutiveFailuresReached`). The machine is the source of truth; imperative wrappers in `loop.ts` (`checkStopCondition`) are still used by older callers but should not be duplicated for new code.
 - `packages/core/src/machines/flow-actor-store.ts` — in-memory actor registry with optional disk persistence. Call `getActor(issueId, changeDir)` to get-or-create an actor; call `persistActor` to flush state to disk. An actor is always loaded for any active worker — if `getActor` returns a missing actor, log a warning rather than falling back to stale trigger strings.
 
+## Configuration
+
+One config pipeline (`packages/config`): argv ⊕ WORKFLOW.md ⊕ schema defaults, merged in exactly one place with `cli > workflow > default` precedence.
+
+- CLI parse results are SPARSE (`CliOverrides` carries only the keys the user passed). Never re-introduce pre-filled defaults into a parse result, and never write `args.x || cfg.y` / `args.x !== <default>` merge logic in app code — call `resolveConfig`/`resolveParsedConfig` at boot and read `effective`.
+- Child workers receive `serializeOverrides(overrides)` plus an explicit `--workflow` path and re-resolve the same WORKFLOW.md; spawn commands never carry pre-merged effective values.
+- New config keys go in the workflow Zod schema (plus an optional wizard field) and flow through automatically. Enum-backed wizard selects and the CLI option table derive from the schema (`packages/workflow/src/schema-meta/`); Zod introspection stays confined to `schema-meta/introspect.ts`.
+
 ## Change Layout
 
 Change files are split across two directories:

@@ -466,3 +466,37 @@ describe("loopOptions — config/runtime split", () => {
     expect(opts.reviewPhase).toBeUndefined();
   });
 });
+
+describe("resolveConfig — default Bun-backed file system", () => {
+  test("reads a real WORKFLOW.md from disk when no fileSystem is injected", async () => {
+    const dir = await import("node:fs/promises").then(async (fs) => {
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      return fs.mkdtemp(join(tmpdir(), "ralphy-config-"));
+    });
+    try {
+      await Bun.write(`${dir}/WORKFLOW.md`, `---\nmodel: haiku\n---\nbody\n`);
+      const resolved = await resolveConfig({ argv: [], projectRoot: dir });
+      expect(resolved.effective.model).toBe("haiku");
+      // A missing file on the real fs falls back to defaults, not an error.
+      const missing = await resolveConfig({ argv: [], projectRoot: `${dir}/nope` });
+      expect(missing.effective.model).toBe("opus");
+    } finally {
+      const { rm } = await import("node:fs/promises");
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a missing --prompt-file throws with the path attached", async () => {
+    const err = await resolveConfig({
+      argv: ["--prompt-file", "/proj/missing.txt"],
+      projectRoot: "/proj",
+      fileSystem: fakeFs(),
+    }).then(
+      () => null,
+      (e: Error & { path?: string }) => e,
+    );
+    expect(err?.message).toBe("--prompt-file not found");
+    expect(err?.path).toBe("/proj/missing.txt");
+  });
+});
