@@ -44,7 +44,27 @@ export interface FlowRecovery {
   /** ISO timestamp of the first detected failure — the AGE clock for failing /
    *  quarantined rows. Empty when no detection carried a timestamp. */
   firstFailedAt: string;
+  /** PR URL the failing detection was scanned from. Lives on the snapshot so
+   *  the board can link failing rows without re-plumbing per-poll maps. Empty
+   *  when no detection carried a URL. */
+  prUrl: string;
+  /** ISO timestamp of the detection comment posted for the current recovery
+   *  session (`RECOVERY_NOTIFIED kind:"detection"`). Survives restarts — the
+   *  restart-proof replacement for the coordinator's `conflictNotified` /
+   *  `ciFailedNotified` Sets. Cleared when a fix worker succeeds so the next
+   *  genuine red re-notifies. */
+  detectionNotifiedAt?: string;
+  /** ISO timestamp of the promoted-to-fix-flow comment
+   *  (`RECOVERY_NOTIFIED kind:"promotion"`). Same lifecycle as
+   *  {@link detectionNotifiedAt}; replaces the `conflictPromoted` Set. */
+  promotionNotifiedAt?: string;
+  /** ISO timestamp of the quarantine give-up comment
+   *  (`RECOVERY_NOTIFIED kind:"bail"`). Makes the bail comment once-only
+   *  across restarts; only `QUARANTINE_CLEARED` resets it. */
+  bailNotifiedAt?: string;
 }
+
+export type RecoveryNotificationKind = "detection" | "promotion" | "bail";
 
 /**
  * Serializable lifecycle state. Survives a `getPersistedSnapshot` → JSON →
@@ -176,9 +196,12 @@ type FlowEvent =
   | { type: "REVIEW_TRIGGERED" }
   | { type: "AWAITING_DETECTED" }
   /** A failing-PR detection. `at` (ISO) seeds `recovery.firstFailedAt` on the
-   *  first failure — the AGE clock. */
-  | { type: "CONFLICT_DETECTED"; at?: string }
-  | { type: "CI_FAILED_DETECTED"; at?: string }
+   *  first failure — the AGE clock. `prUrl` records which PR was red. */
+  | { type: "CONFLICT_DETECTED"; at?: string; prUrl?: string }
+  | { type: "CI_FAILED_DETECTED"; at?: string; prUrl?: string }
+  /** The coordinator posted a recovery-lifecycle comment — record the fact on
+   *  the snapshot so the dedup survives restarts. */
+  | { type: "RECOVERY_NOTIFIED"; kind: RecoveryNotificationKind; at: string }
   /** A human cleared the quarantine (e.g. removed the `ralph:error` label) to
    *  request a retry — reset the counter and re-engage recovery. */
   | { type: "QUARANTINE_CLEARED" }
@@ -197,12 +220,24 @@ type FlowEvent =
   | WorkerSpawnedEvent
   | PreemptEvent;
 
-/** A failing-PR detection event (carries the optional AGE timestamp). */
-type DetectionEvent = { type: "CONFLICT_DETECTED" | "CI_FAILED_DETECTED"; at?: string };
+/** A failing-PR detection event (carries the optional AGE timestamp and PR URL). */
+type DetectionEvent = {
+  type: "CONFLICT_DETECTED" | "CI_FAILED_DETECTED";
+  at?: string;
+  prUrl?: string;
+};
+
+type RecoveryNotifiedEvent = {
+  type: "RECOVERY_NOTIFIED";
+  kind: RecoveryNotificationKind;
+  at: string;
+};
 
 /**
  * `assign` updater for a fresh failure detection: bump `attempts`, set
- * `lastReason`, and seed `firstFailedAt` once (first detection wins).
+ * `lastReason`, and seed `firstFailedAt` once (first detection wins). The
+ * notification timestamps are carried over — a re-detection within the same
+ * unresolved session must not re-arm the comment dedup.
  */
 function recordDetection(reason: FailureReason) {
   return ({
@@ -217,13 +252,52 @@ function recordDetection(reason: FailureReason) {
       data: {
         ...context.data,
         recovery: {
+          ...previous,
           attempts: (previous?.attempts ?? 0) + 1,
           lastReason: reason,
           firstFailedAt: previous?.firstFailedAt ?? event.at ?? "",
+          prUrl: event.prUrl ?? previous?.prUrl ?? "",
         },
       },
     };
   };
+}
+
+/** `assign` updater for `RECOVERY_NOTIFIED`: stamp the matching `*NotifiedAt`
+ *  field. A notification with no prior recovery record (defensive — should not
+ *  happen) seeds an empty one so the fact is still not lost. */
+function recordNotification({
+  context,
+  event,
+}: {
+  context: FlowContext;
+  event: RecoveryNotifiedEvent;
+}): { data: FlowData } {
+  const previous = context.data.recovery ?? {
+    attempts: 0,
+    lastReason: "ci_failed" as FailureReason,
+    firstFailedAt: "",
+    prUrl: "",
+  };
+  const field =
+    event.kind === "detection"
+      ? "detectionNotifiedAt"
+      : event.kind === "promotion"
+        ? "promotionNotifiedAt"
+        : "bailNotifiedAt";
+  return {
+    data: { ...context.data, recovery: { ...previous, [field]: event.at } },
+  };
+}
+
+/** `assign` updater clearing the detection / promotion notification stamps
+ *  when a fix worker succeeds — the session resolved, so the next genuine red
+ *  re-notifies. Attempts / firstFailedAt persist until `RECOVERY_CLEARED`. */
+function clearSessionNotifications({ context }: { context: FlowContext }): { data: FlowData } {
+  const previous = context.data.recovery;
+  if (!previous) return { data: context.data };
+  const { detectionNotifiedAt: _d, promotionNotifiedAt: _p, ...rest } = previous;
+  return { data: { ...context.data, recovery: rest } };
 }
 
 /** Guard: this detection tips the ticket over the quarantine threshold. A
@@ -236,14 +310,25 @@ function reachesQuarantine({ context }: { context: FlowContext }): boolean {
 /** `assign` updater for a re-detection while already quarantined: refresh the
  *  reason without re-counting (mirrors the old tracker's post-bail behavior). */
 function refreshReason(reason: FailureReason) {
-  return ({ context }: { context: FlowContext }): { data: FlowData } => ({
-    data: {
-      ...context.data,
-      recovery: context.data.recovery
-        ? { ...context.data.recovery, lastReason: reason }
-        : { attempts: 0, lastReason: reason, firstFailedAt: "" },
-    },
-  });
+  return ({
+    context,
+    event,
+  }: {
+    context: FlowContext;
+    event: DetectionEvent;
+  }): {
+    data: FlowData;
+  } => {
+    const previous = context.data.recovery;
+    return {
+      data: {
+        ...context.data,
+        recovery: previous
+          ? { ...previous, lastReason: reason, prUrl: event.prUrl ?? previous.prUrl }
+          : { attempts: 0, lastReason: reason, firstFailedAt: "", prUrl: event.prUrl ?? "" },
+      },
+    };
+  };
 }
 
 /** `assign` updater that drops the recovery record — the PR is healthy again
@@ -353,8 +438,11 @@ export const flowMachine = setup({
     "conflict-fix": {
       on: {
         // A recovered PR isn't done — it goes back to waiting for the watcher
-        // to confirm it's mergeable (or red again) on the next scan.
-        WORKER_SUCCEEDED: "awaiting-ci",
+        // to confirm it's mergeable (or red again) on the next scan. The
+        // session's notification stamps clear so the next genuine red
+        // re-notifies (mirrors the old Set-clearing on fix-worker success).
+        WORKER_SUCCEEDED: { target: "awaiting-ci", actions: assign(clearSessionNotifications) },
+        RECOVERY_NOTIFIED: { actions: assign(recordNotification) },
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
@@ -382,8 +470,11 @@ export const flowMachine = setup({
     "ci-fix": {
       on: {
         // A recovered PR isn't done — it goes back to waiting for the watcher
-        // to confirm it's mergeable (or red again) on the next scan.
-        WORKER_SUCCEEDED: "awaiting-ci",
+        // to confirm it's mergeable (or red again) on the next scan. The
+        // session's notification stamps clear so the next genuine red
+        // re-notifies (mirrors the old Set-clearing on fix-worker success).
+        WORKER_SUCCEEDED: { target: "awaiting-ci", actions: assign(clearSessionNotifications) },
+        RECOVERY_NOTIFIED: { actions: assign(recordNotification) },
         WORKER_FAILED: "error",
         PREEMPT: {
           target: "preempting",
@@ -565,6 +656,7 @@ export const flowMachine = setup({
         // (the coordinator drives this the same as an awaiting-ci PR_PASSED).
         PR_PASSED: "done",
         QUARANTINE_CLEARED: { target: "idle", actions: assign(clearRecovery) },
+        RECOVERY_NOTIFIED: { actions: assign(recordNotification) },
         CONFLICT_DETECTED: { actions: assign(refreshReason("conflicting")) },
         CI_FAILED_DETECTED: { actions: assign(refreshReason("ci_failed")) },
       },
