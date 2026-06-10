@@ -106,7 +106,14 @@ interface AgentModeProps {
 interface LogLine {
   id: string;
   text: string;
+  timestamp: string;
   color?: string | undefined;
+}
+
+/** Local wall-clock stamp prefixed to every scrolling log line (HH:MM:SS). */
+export function formatLogTimestamp(date: Date = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 let lineCounter = 0;
@@ -522,7 +529,7 @@ export function AgentMode({
   });
 
   function appendLog(text: string, color?: string, workerLogFile?: string) {
-    setLogs((prev) => [...prev, { id: nextId(), text, color }]);
+    setLogs((prev) => [...prev, { id: nextId(), text, timestamp: formatLogTimestamp(), color }]);
     logCoord(text, workerLogFile);
   }
 
@@ -969,15 +976,12 @@ export function AgentMode({
           to stdout above the live UI. The terminal's native
           scrollback owns history — no in-app cap or truncation. */}
       <Static items={logs}>
-        {(line) =>
-          line.color ? (
-            <Text key={line.id} color={line.color}>
-              {line.text}
-            </Text>
-          ) : (
-            <Text key={line.id}>{line.text}</Text>
-          )
-        }
+        {(line) => (
+          <Text key={line.id}>
+            <Text dimColor>{line.timestamp} </Text>
+            {line.color ? <Text color={line.color}>{line.text}</Text> : line.text}
+          </Text>
+        )}
       </Static>
 
       <Box flexDirection="column" marginTop={0}>
