@@ -449,14 +449,21 @@ describe("LoopRunner — steering", () => {
           expect(req.resumeSessionId).toBe("session-1");
           expect(req.prompt).toContain("LIVE STEERING UPDATE FROM USER");
           expect(req.prompt).toContain("use zod v4");
+          // Session init events are noise on resume and must be filtered;
+          // other events pass through.
+          req.onFeedEvent({ type: "session", model: "opus", sessionId: "session-1" });
+          req.onFeedEvent({ type: "session-unknown", sessionId: "session-1" });
+          req.onFeedEvent({ type: "text", text: "resumed" });
           writeTasks(CHECKED_TASKS);
           return ok({ usage: usage(2) });
         },
       ),
     );
 
+    let steered = false;
     runner.subscribe((event) => {
-      if (event.type === "feed" && event.event.type === "text") {
+      if (!steered && event.type === "feed" && event.event.type === "text") {
+        steered = true;
         runner.steer("use zod v4");
       }
     });
@@ -473,6 +480,11 @@ describe("LoopRunner — steering", () => {
     const state = readStateInCtx();
     expect(state.usage.total_cost_usd).toBe(3);
     expect(state.iteration).toBe(1);
+    // Session init events from the resumed run were filtered out.
+    const feedTypes = events.filter((e) => e.type === "feed").map((e) => e.event.type);
+    expect(feedTypes).not.toContain("session-unknown");
+    expect(feedTypes.filter((t) => t === "session").length).toBe(0);
+    expect(feedTypes).toContain("text");
   });
 
   test("steer between iterations is queued into steering.md before the next prompt", async () => {
@@ -613,6 +625,47 @@ describe("LoopRunner — lifecycle", () => {
     await runner.start();
 
     expect(readStateInCtx().model).toBe("opus");
+  });
+
+  test("stops with error when the engine throws", async () => {
+    writeTasks(UNCHECKED_TASKS);
+    const agent = fakeAgent(() => {
+      throw new Error("spawn failed");
+    });
+    const { runner, events } = makeRunner(agent, { limits: { maxIterations: 10 } });
+
+    const reason = await runner.start();
+
+    expect(reason).toBe("error");
+    expect(stoppedEvent(events).reason).toBe("error");
+    expect(agent.calls.length).toBe(1);
+    const infos = events.filter((e) => e.type === "info").map((e) => e.text);
+    expect(infos.some((t) => t.includes("Engine error"))).toBe(true);
+  });
+
+  test("uses the default sleep between iterations when none is injected", async () => {
+    writeTasks(UNCHECKED_TASKS);
+    const agent = fakeAgent(
+      () => ok(),
+      () => {
+        writeTasks(CHECKED_TASKS);
+        return ok();
+      },
+    );
+    const { git } = fakeGit();
+    const runner = createLoopRunner({
+      name: NAME,
+      delaySeconds: 0.001,
+      deps: { agent, layout: projectLayout(root), changeStore: fakeChangeStore(), git },
+    });
+
+    expect(await runner.start()).toBe("completed");
+    expect(agent.calls.length).toBe(2);
+  });
+
+  test("start() rejects when no layout is injected and none is ambient", async () => {
+    const runner = createLoopRunner({ name: NAME });
+    expect(runner.start()).rejects.toThrow("no project layout available");
   });
 
   test("getSnapshot returns a stable reference between events", async () => {
