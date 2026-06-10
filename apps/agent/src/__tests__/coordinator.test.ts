@@ -1111,6 +1111,72 @@ describe("AgentCoordinator — RLF-97 done-deferral + watcher advance", () => {
     expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("mergeable"))).toBe(true);
   });
 
+  test("manual-merge fallback: advance merges the PR when mergePr is wired", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps({ todo: [ticket] });
+    ctx.prChanges.add("change-eng-1");
+    const mergeCalls: string[] = [];
+    ctx.deps.mergePr = async (prUrl: string) => {
+      mergeCalls.push(prUrl);
+      return true;
+    };
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+
+    // Next poll: the PR is mergeable → the watcher merges it, then moves to done.
+    ctx.setTodo([]);
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+
+    // The PR was actually merged (the RLF-97 gap), and done still applied.
+    expect(mergeCalls).toEqual(["https://gh/pr/1"]);
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+    expect(ctx.logs.some((l) => l.text.includes("merged — moving to done"))).toBe(true);
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("Merged this PR"))).toBe(true);
+  });
+
+  test("manual-merge fallback: a failed merge still advances the ticket to done", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps({ todo: [ticket] });
+    ctx.prChanges.add("change-eng-1");
+    ctx.deps.mergePr = async () => false; // merge fails (e.g. transient gh error)
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+
+    ctx.setTodo([]);
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+
+    // Merge failure is non-fatal: still advances to done, falls back to the
+    // "mergeable" wording (a human / native auto-merge can finish the merge).
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+    expect(ctx.logs.some((l) => l.text.includes("mergeable — moving to done"))).toBe(true);
+  });
+
   test("a healthy already-Done ticket is NOT re-advanced (no duplicate setDone)", async () => {
     // setDone fired immediately (no PR at exit); later the PR is discovered
     // mergeable. The watcher must leave the Done ticket alone — its actor is

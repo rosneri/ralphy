@@ -24,10 +24,18 @@ interface PrDiscoveryInput {
    *  what the in-`gh pr checks` filter uses elsewhere (RLF-97: previously this
    *  watcher path dropped the configured ignore-list). */
   ignoreCiChecks: string[];
+  /** Strategy passed to `gh pr merge` by `mergePr`. Defaults to "squash". */
+  autoMergeStrategy?: "squash" | "merge" | "rebase";
 }
 
 interface PrDiscovery {
   checkPrStatus: (issue: TrackedIssue) => Promise<{ url: string; status: PrStatus } | null>;
+  /** Merge a PR directly via `gh pr merge --<strategy>`. The coordinator calls
+   *  this from `advancePrToDone` once a PR is verified mergeable — the
+   *  manual-merge fallback for repos where GitHub's native auto-merge is
+   *  unavailable or no-ops (e.g. no required checks). Returns true on success;
+   *  logs and returns false on failure (caller still advances to done). */
+  mergePr: (prUrl: string) => Promise<boolean>;
   resolvePrUrlForIssue: (issue: TrackedIssue) => Promise<string | null>;
   isPrUnavailable: (changeName: string) => boolean;
   markPrUnavailable: (changeName: string) => void;
@@ -45,6 +53,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     prByChange,
     getPollContext,
     ignoreCiChecks,
+    autoMergeStrategy = "squash",
   } = input;
   const prUnavailable = new Map<string, number>();
   const prUrlByIssue = createPrUrlCache(5 * 60 * 1000);
@@ -242,8 +251,20 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     return found;
   }
 
+  async function mergePr(prUrl: string): Promise<boolean> {
+    try {
+      await cmdRunner.run(["gh", "pr", "merge", prUrl, `--${autoMergeStrategy}`], projectRoot);
+      return true;
+    } catch (err) {
+      const e = err as Error & { stderr?: string };
+      onLog(`! failed to merge ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
+      return false;
+    }
+  }
+
   return {
     checkPrStatus,
+    mergePr,
     resolvePrUrlForIssue,
     isPrUnavailable,
     markPrUnavailable,

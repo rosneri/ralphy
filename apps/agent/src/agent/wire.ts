@@ -262,6 +262,7 @@ export function buildAgentCoordinator(
     prByChange,
     getPollContext: () => pollContext,
     ignoreCiChecks: cfg.prRecovery.ignoreChecks,
+    autoMergeStrategy: cfg.autoMergeStrategy,
   });
 
   const prep = createPrepareHelpers({
@@ -472,6 +473,10 @@ export function buildAgentCoordinator(
       postComment: tracker.postComment,
       fetchComments: tracker.fetchComments,
       checkPrStatus: prDiscovery.checkPrStatus,
+      // Manual-merge fallback: wire the merge capability unless explicitly
+      // disabled. The coordinator merges a verified-mergeable PR in
+      // advancePrToDone instead of leaving it open (RLF-97 left it unmerged).
+      ...(cfg.manualMergeWhenAutoMergeDisabled !== false ? { mergePr: prDiscovery.mergePr } : {}),
       hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>
         isChangeArchivedForIssue(issue, cwdByChange, projectRoot),

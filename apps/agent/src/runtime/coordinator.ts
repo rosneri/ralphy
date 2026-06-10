@@ -308,6 +308,13 @@ export interface CoordinatorDeps extends IssueTrackerProvider {
    *  created). `unknown` is used when GitHub hasn't computed mergeability
    *  yet or `gh` failed; the caller skips acting on it. */
   checkPrStatus: (issue: TrackedIssue) => Promise<{ url: string; status: PrStatusBucket } | null>;
+  /** Merge a verified-mergeable PR directly (the manual-merge fallback). When
+   *  wired, `advancePrToDone` calls this before moving the ticket to done, so a
+   *  mergeable PR is actually merged rather than left open. Omitted when
+   *  `manualMergeWhenAutoMergeDisabled` is false (then PRs are left for a human
+   *  or GitHub's native auto-merge). Returns true on success; a false/throw is
+   *  non-fatal — the ticket still advances to done. */
+  mergePr?: (prUrl: string) => Promise<boolean>;
   /** True when the worker has registered an open PR for this change this run
    *  (reads the shared `prByChange` map). Used at worker-exit to decide whether
    *  to defer `setDone` to the watcher (PR open + recovery enabled) or apply it
@@ -1507,7 +1514,22 @@ export class AgentCoordinator {
     actor: Awaited<ReturnType<typeof this.flowStore.getActor>>,
     changeDir: string | undefined,
   ): Promise<void> {
-    this.deps.onLog(`  ${issue.identifier}: PR ${prUrl} mergeable — moving to done`, "green");
+    // Manual-merge fallback (RLF-97 gap): the worker can no longer merge
+    // "once checks pass", and GitHub's native auto-merge is unavailable on
+    // repos without required checks (`gh pr merge --auto` no-ops/errors there).
+    // So merge the verified-mergeable PR here. Best-effort: a failure is logged
+    // and we still advance to done — the PR was confirmed mergeable, and a
+    // human/native auto-merge can finish it. Omitted dep ≡ fallback disabled.
+    let merged = false;
+    if (this.deps.mergePr) {
+      merged = await this.deps.mergePr(prUrl);
+    }
+    this.deps.onLog(
+      merged
+        ? `  ${issue.identifier}: PR ${prUrl} merged — moving to done`
+        : `  ${issue.identifier}: PR ${prUrl} mergeable — moving to done`,
+      "green",
+    );
 
     // The PR is healthy again — drop any recovery record now, so even if the
     // setDone write below fails and we leave the actor in `awaiting-ci`, the
@@ -1557,8 +1579,10 @@ export class AgentCoordinator {
           issue,
           buildRalphyComment({
             type: "verified",
-            action: "verified PR mergeable",
-            body: `Verified this PR (${prUrl}) is mergeable (CI green, no conflicts) — moving to done.`,
+            action: merged ? "merged PR" : "verified PR mergeable",
+            body: merged
+              ? `Merged this PR (${prUrl}) (CI green, no conflicts) — moving to done.`
+              : `Verified this PR (${prUrl}) is mergeable (CI green, no conflicts) — moving to done.`,
             fields: { pr: extractPrNumber(prUrl) ?? prUrl },
           }),
         );
