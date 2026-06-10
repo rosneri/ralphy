@@ -96,6 +96,9 @@
     },
     "packages/tracker": {
       "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
+    },
+    "packages/config": {
+      "entry": ["src/**/*.ts"]
     }
   }
 }

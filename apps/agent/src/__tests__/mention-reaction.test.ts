@@ -236,6 +236,7 @@ async function runMentionPoll(tempDir: string, handlers: FakeFetchHandlers): Pro
 
   await coord.init();
   await coord.pollOnce();
+  await coord.whenSettled();
   await new Promise((r) => setTimeout(r, 20));
 
   return { reactionCalls, pickupCommentBodies };
@@ -422,6 +423,7 @@ describe("fetchMentions wire layer — read-confirmed reactions", () => {
 
     await coord.init();
     await coord.pollOnce();
+    await coord.whenSettled();
     await new Promise((r) => setTimeout(r, 20));
 
     // Inline comments mean the per-issue fetchIssueComments query is

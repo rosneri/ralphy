@@ -1,33 +1,32 @@
 import { describe, expect, test } from "bun:test";
 import { isAbsolute, resolve } from "node:path";
 import {
-  initialCommonArgs,
+  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   parseWorkflowPathArgs,
 } from "../common-args";
 
 describe("parseCommonArg", () => {
-  test("parses --claude with model", () => {
-    const args = initialCommonArgs();
+  test("parses --claude with model into sparse overrides", () => {
+    const args = emptyCommonArgs();
     const state = emptyParseState();
     expect(parseCommonArg("--claude", args, state)).toBe(true);
     expect(parseCommonArg("sonnet", args, state)).toBe(true);
-    expect(args.engine).toBe("claude");
-    expect(args.model).toBe("sonnet");
-    expect(args.engineSet).toBe(true);
+    expect(args.overrides.engine).toBe("claude");
+    expect(args.overrides.model).toBe("sonnet");
   });
 
   test("parses --max-iterations value", () => {
-    const args = initialCommonArgs();
+    const args = emptyCommonArgs();
     const state = emptyParseState();
     parseCommonArg("--max-iterations", args, state);
     parseCommonArg("12", args, state);
-    expect(args.maxIterations).toBe(12);
+    expect(args.overrides.maxIterations).toBe(12);
   });
 
   test("rejects conflicting engine flags", () => {
-    const args = initialCommonArgs();
+    const args = emptyCommonArgs();
     const state = emptyParseState();
     parseCommonArg("--claude", args, state);
     parseCommonArg("--max-iterations", args, state);
@@ -36,7 +35,7 @@ describe("parseCommonArg", () => {
   });
 
   test("resolves --workflow value to an absolute path against cwd", () => {
-    const args = initialCommonArgs();
+    const args = emptyCommonArgs();
     const state = emptyParseState();
     expect(parseCommonArg("--workflow", args, state)).toBe(true);
     expect(parseCommonArg("config/WORKFLOW.md", args, state)).toBe(true);
@@ -45,9 +44,17 @@ describe("parseCommonArg", () => {
   });
 
   test("returns false for unknown args", () => {
-    const args = initialCommonArgs();
+    const args = emptyCommonArgs();
     const state = emptyParseState();
     expect(parseCommonArg("--unknown", args, state)).toBe(false);
+  });
+
+  test("flags the user did not pass stay absent — no baked defaults", () => {
+    const args = emptyCommonArgs();
+    const state = emptyParseState();
+    parseCommonArg("--max-cost", args, state);
+    parseCommonArg("2.5", args, state);
+    expect(args.overrides).toEqual({ maxCostUsd: 2.5 });
   });
 });
 

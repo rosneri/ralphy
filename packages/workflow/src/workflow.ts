@@ -6,6 +6,7 @@ import { renderTemplate } from "./template";
 import { buildWorkflowMarkdown } from "./wizard";
 import { normalizeWorkflowMarkdown } from "./migrate/normalize";
 import { migrateWorkflowMarkdown } from "./migrate/pr-recovery";
+import { foldAliasesRaw } from "./schema-meta/aliases";
 
 export type { WorkflowConfig } from "./schema";
 export { WorkflowConfigSchema, CURRENT_WORKFLOW_VERSION } from "./schema";
@@ -30,6 +31,11 @@ export {
   type NormalizeResult,
 } from "./migrate/normalize";
 export { migrateWorkflowMarkdown, type MigrateResult } from "./migrate/pr-recovery";
+export {
+  WORKFLOW_TOP_LEVEL_ALIASES,
+  foldAliasesRaw,
+  type WorkflowAlias,
+} from "./schema-meta/aliases";
 
 export interface ParsedWorkflow {
   config: WorkflowConfig;
@@ -63,6 +69,12 @@ export function parseWorkflow(text: string, path = ""): ParsedWorkflow {
 
   rejectInlineFilterArrays(raw, path);
 
+  // Fold the nested alias blocks (`agent.*`, `github.*`, `worktree.*`) onto
+  // their flat keys BEFORE validation: Zod fills defaults during parse, which
+  // would destroy the "did the author write this key?" signal the fold needs.
+  // Presence-based — an explicitly written flat key always wins.
+  foldAliasesRaw(raw);
+
   const parsed = WorkflowConfigSchema.safeParse(raw);
   if (!parsed.success) {
     const issues = parsed.error.issues
@@ -73,8 +85,29 @@ export function parseWorkflow(text: string, path = ""): ParsedWorkflow {
     );
   }
 
-  applyAliases(parsed.data);
   return { config: parsed.data, body, path };
+}
+
+/**
+ * Top-level frontmatter keys the author explicitly wrote (after alias
+ * folding), straight from the raw YAML — BEFORE any defaults-fill, which
+ * materializes every default-bearing key and would erase the presence signal.
+ * Used by `@ralphy/config` as the provenance witness distinguishing
+ * "workflow set this" from "schema default". Returns an empty set for
+ * missing/unparseable frontmatter (a defaults-only config).
+ */
+export function explicitWorkflowKeys(text: string): Set<string> {
+  const m = FRONTMATTER_RE.exec(text);
+  if (!m) return new Set();
+  let raw: unknown;
+  try {
+    raw = YAML.parse(m[1] ?? "", { schema: "core" });
+  } catch {
+    return new Set();
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return new Set();
+  foldAliasesRaw(raw);
+  return new Set(Object.keys(raw));
 }
 
 /**
@@ -99,50 +132,6 @@ function rejectInlineFilterArrays(raw: unknown, path: string): void {
           (path ? `  File: ${path}\n` : "") +
           `  Inline JSON-array form is not accepted — use a "- " list.`,
       );
-    }
-  }
-}
-
-/**
- * Bridge the new-shape blocks (`agent.engine`, `github.base_branch`,
- * `worktree.*`) onto the flat fields the rest of the codebase already reads.
- * Top-level keys win when both are present so legacy configs keep working.
- */
-function applyAliases(cfg: WorkflowConfig): void {
-  if (cfg.github) {
-    if (cfg.github.base_branch !== undefined && cfg.prBaseBranch === "main") {
-      cfg.prBaseBranch = cfg.github.base_branch;
-    }
-    if (cfg.github.auto_merge_strategy !== undefined && cfg.autoMergeStrategy === "squash") {
-      cfg.autoMergeStrategy = cfg.github.auto_merge_strategy;
-    }
-    if (cfg.github.pr_labels !== undefined && cfg.prLabels.length === 0) {
-      cfg.prLabels = cfg.github.pr_labels;
-    }
-  }
-  if (cfg.agent) {
-    if (cfg.agent.engine !== undefined) cfg.engine = cfg.agent.engine;
-    if (cfg.agent.model !== undefined) cfg.model = cfg.agent.model;
-    if (cfg.agent.concurrency !== undefined && cfg.concurrency === 1) {
-      cfg.concurrency = cfg.agent.concurrency;
-    }
-    if (cfg.agent.max_iterations_per_task !== undefined && cfg.maxIterationsPerTask === 0) {
-      cfg.maxIterationsPerTask = cfg.agent.max_iterations_per_task;
-    }
-    if (
-      cfg.agent.max_consecutive_failures !== undefined &&
-      cfg.maxConsecutiveFailuresPerTask === 5
-    ) {
-      cfg.maxConsecutiveFailuresPerTask = cfg.agent.max_consecutive_failures;
-    }
-  }
-  if (cfg.worktree) {
-    if (cfg.worktree.enabled !== undefined) cfg.useWorktree = cfg.worktree.enabled;
-    if (cfg.worktree.cleanup_on_success !== undefined) {
-      cfg.cleanupWorktreeOnSuccess = cfg.worktree.cleanup_on_success;
-    }
-    if (cfg.worktree.setup_script !== undefined && cfg.setupScript === undefined) {
-      cfg.setupScript = cfg.worktree.setup_script;
     }
   }
 }

@@ -208,17 +208,9 @@ describe("getArgs", () => {
 
   test("returns the args when present in context", () => {
     const args: CommonArgs = {
-      engine: "claude",
-      model: "opus",
-      engineSet: false,
-      maxIterations: 0,
-      maxCostUsd: 0,
-      maxRuntimeMinutes: 0,
-      maxConsecutiveFailures: 5,
-      delay: 0,
-      log: false,
-      verbose: false,
+      overrides: { engine: "claude", model: "opus" },
       projectRoot: undefined,
+      workflowFile: undefined,
       name: "test-change",
       prompt: "do something",
       fromAgent: false,

@@ -309,7 +309,9 @@ export const WorkflowConfigSchema = z.object({
    *  comment instead of respawning a doomed reapply loop and quarantining it. */
   finalizeNoOpAsDone: z.boolean().default(true),
   engine: z.enum(["claude", "codex"]).default("claude"),
-  model: z.enum(["haiku", "sonnet", "opus"]).default("opus"),
+  // Enum order is display order: the wizard and CLI derive their option lists
+  // from this schema (see schema-introspect.ts), most-capable tier first.
+  model: z.enum(["opus", "sonnet", "haiku"]).default("opus"),
   /** Which issue tracker drives the loop. Defaults to `linear`, so a file with
    *  no `tracker` block behaves exactly as before. `github` selects the GitHub
    *  Issues provider (built on the `gh` CLI; see `github.issues`). */

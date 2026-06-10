@@ -10,6 +10,8 @@
     "./wizard": "./src/wizard.ts",
     "./wizard-types": "./src/wizard-types.ts",
     "./fields": "./src/fields.ts",
+    "./cli-options": "./src/schema-meta/cli-options.ts",
+    "./schema-introspect": "./src/schema-meta/introspect.ts",
     "./default": "./src/default.ts",
     "./boundaries": "./src/boundaries.ts"
   },

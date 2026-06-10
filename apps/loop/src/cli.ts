@@ -1,30 +1,24 @@
 import { log } from "@ralphy/output";
 import { VERSION } from "@ralphy/version";
 import {
-  initialCommonArgs,
+  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
   type CommonArgs,
 } from "@ralphy/cli-args";
+import type { ReviewPhaseOverrides } from "@ralphy/config";
 
 export { VERSION };
 
 export type LoopMode = "task" | "status" | "init" | "clean" | "debug";
 
-export interface ReviewPhaseArgs {
-  enabled: boolean;
-  maxRounds: number;
-  reviewerModel?: string;
-  reviewerContextStrategy: "fresh" | "warm";
-}
-
 export interface LoopParsedArgs extends CommonArgs {
   mode: LoopMode;
-  manualTest: boolean;
-  /** Review phase configuration forwarded from the workflow config. */
-  reviewPhase: ReviewPhaseArgs;
+  /** Sparse `--review-*` overrides, overlaid onto the workflow's
+   *  `openspec.reviewPhase` by the config pipeline. */
+  review: ReviewPhaseOverrides;
 }
 
 // allow-duplicate
@@ -49,14 +43,14 @@ const HELP_TEXT = [
   "  --prompt <text>         Task description",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",
-  "  --claude [model]        Use Claude engine (haiku|sonnet|opus, default: opus)",
+  "  --claude [model]        Use Claude engine (haiku|sonnet|opus)",
   "  --codex                 Use Codex engine",
   "  --delay <seconds>       Seconds between iterations",
   "  --max-iterations <n>    Stop after N iterations (0 = unlimited)",
   "  --max-cost <n>          Stop when total cost exceeds $N (0 = no limit)",
   "  --max-runtime <n>       Stop after N minutes of wall-clock time (0 = no limit)",
   "  --max-failures <n>      Stop after N consecutive failures (default: 5, 0 = disable)",
-  "  --unlimited             No iteration limit (default)",
+  "  --unlimited             No iteration limit",
   "  --manual-test           Enable manual testing phase (create test tasks in tasks.md)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
@@ -65,6 +59,9 @@ const HELP_TEXT = [
   "  --review-max-rounds <n> Max review-fix rounds (default: 1)",
   "  --review-context-strategy <s>  fresh|warm (default: fresh)",
   "  --help, -h              Show this help message",
+  "",
+  "Flags override WORKFLOW.md; unset flags fall back to its values, then to",
+  "schema defaults (cli > workflow > default).",
   "",
   "Examples:",
   '  ralphy loop task --name my-feature --prompt "Add dark mode"',
@@ -79,16 +76,10 @@ export function printLoopHelp(): void {
 }
 
 export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
-  const common = initialCommonArgs();
   const result: LoopParsedArgs = {
-    ...common,
+    ...emptyCommonArgs(),
     mode: "task",
-    manualTest: false,
-    reviewPhase: {
-      enabled: false,
-      maxRounds: 1,
-      reviewerContextStrategy: "fresh",
-    },
+    review: {},
   };
 
   const state = emptyParseState();
@@ -98,13 +89,13 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
 
   for (const arg of argv) {
     if (expectReviewModel) {
-      result.reviewPhase.reviewerModel = arg;
-      result.reviewPhase.enabled = true;
+      result.review.reviewerModel = arg;
+      result.review.enabled = true;
       expectReviewModel = false;
       continue;
     }
     if (expectReviewMaxRounds) {
-      result.reviewPhase.maxRounds = parseInt(arg, 10);
+      result.review.maxRounds = parseInt(arg, 10);
       expectReviewMaxRounds = false;
       continue;
     }
@@ -112,7 +103,7 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
       if (arg !== "fresh" && arg !== "warm") {
         throw new Error('Invalid --review-context-strategy value. Must be "fresh" or "warm".');
       }
-      result.reviewPhase.reviewerContextStrategy = arg;
+      result.review.reviewerContextStrategy = arg;
       expectReviewContextStrategy = false;
       continue;
     }
@@ -120,11 +111,8 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
     if (parseCommonArg(arg, result, state)) continue;
 
     switch (arg) {
-      case "--manual-test":
-        result.manualTest = true;
-        break;
       case "--review-enabled":
-        result.reviewPhase.enabled = true;
+        result.review.enabled = true;
         break;
       case "--review-model":
         expectReviewModel = true;

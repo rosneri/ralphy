@@ -203,6 +203,36 @@ describe("parseWorkflow", () => {
     expect(config.model).toBe("sonnet");
   });
 
+  test("an explicitly written flat key wins over its alias — even at the default value", () => {
+    // Presence carries intent: `engine: claude` IS the schema default, but the
+    // author wrote it, so the alias must not override it (the old
+    // default-equality sentinel got this exactly backwards).
+    const { config } = parseWorkflow(`---\nengine: claude\nagent:\n  engine: codex\n---\n`);
+    expect(config.engine).toBe("claude");
+
+    const base = parseWorkflow(
+      `---\nprBaseBranch: main\ngithub:\n  base_branch: develop\n---\n`,
+    ).config;
+    expect(base.prBaseBranch).toBe("main");
+
+    const wt = parseWorkflow(`---\nuseWorktree: false\nworktree:\n  enabled: true\n---\n`).config;
+    expect(wt.useWorktree).toBe(false);
+  });
+
+  test("aliases fill flat keys the author did not write", () => {
+    const { config } = parseWorkflow(
+      `---\ngithub:\n  base_branch: develop\n  auto_merge_strategy: rebase\nworktree:\n  enabled: true\n  cleanup_on_success: true\n  setup_script: bun install\nagent:\n  concurrency: 3\n  max_iterations_per_task: 9\n  max_consecutive_failures: 2\n---\n`,
+    );
+    expect(config.prBaseBranch).toBe("develop");
+    expect(config.autoMergeStrategy).toBe("rebase");
+    expect(config.useWorktree).toBe(true);
+    expect(config.cleanupWorktreeOnSuccess).toBe(true);
+    expect(config.setupScript).toBe("bun install");
+    expect(config.concurrency).toBe(3);
+    expect(config.maxIterationsPerTask).toBe(9);
+    expect(config.maxConsecutiveFailuresPerTask).toBe(2);
+  });
+
   test("prLabels defaults to an empty list", () => {
     const { config } = parseWorkflow(`---\nproject:\n  name: demo\n---\n`);
     expect(config.prLabels).toEqual([]);

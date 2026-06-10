@@ -49,59 +49,58 @@ describe("parseTaskArgs — errors", () => {
 describe("parseTaskArgs — common flags", () => {
   test("parses --max-iterations", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--max-iterations", "5"]);
-    expect(args.maxIterations).toBe(5);
+    expect(args.overrides.maxIterations).toBe(5);
   });
 
   test("parses --max-cost", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--max-cost", "2.5"]);
-    expect(args.maxCostUsd).toBe(2.5);
+    expect(args.overrides.maxCostUsd).toBe(2.5);
   });
 
   test("parses --max-runtime", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--max-runtime", "30"]);
-    expect(args.maxRuntimeMinutes).toBe(30);
+    expect(args.overrides.maxRuntimeMinutes).toBe(30);
   });
 
   test("parses --max-failures", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--max-failures", "3"]);
-    expect(args.maxConsecutiveFailures).toBe(3);
+    expect(args.overrides.maxConsecutiveFailures).toBe(3);
   });
 
   test("parses --log flag", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--log"]);
-    expect(args.log).toBe(true);
+    expect(args.overrides.log).toBe(true);
   });
 
   test("parses --verbose flag", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--verbose"]);
-    expect(args.verbose).toBe(true);
+    expect(args.overrides.verbose).toBe(true);
   });
 
   test("parses --claude engine", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--claude"]);
-    expect(args.engine).toBe("claude");
+    expect(args.overrides.engine).toBe("claude");
   });
 
   test("parses --claude with model", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--claude", "sonnet"]);
-    expect(args.engine).toBe("claude");
-    expect(args.model).toBe("sonnet");
+    expect(args.overrides.engine).toBe("claude");
+    expect(args.overrides.model).toBe("sonnet");
   });
 
   test("parses --codex engine", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--codex"]);
-    expect(args.engine).toBe("codex");
-    expect(args.engineSet).toBe(true);
+    expect(args.overrides.engine).toBe("codex");
   });
 
   test("parses --model flag", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--model", "haiku"]);
-    expect(args.model).toBe("haiku");
+    expect(args.overrides.model).toBe("haiku");
   });
 
   test("parses --delay flag", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo", "--delay", "10"]);
-    expect(args.delay).toBe(10);
+    expect(args.overrides.delay).toBe(10);
   });
 
   test("parses --from-agent flag", async () => {
@@ -121,10 +120,9 @@ describe("parseTaskArgs — common flags", () => {
     expect(args.prompt).toBe("prompt from file");
   });
 
-  test("defaults: fromAgent=false, engine=claude, model=opus", async () => {
+  test("defaults: fromAgent=false and no overrides — config supplies the rest", async () => {
     const args = await parseTaskArgs(["execute", "--name", "foo"]);
     expect(args.fromAgent).toBe(false);
-    expect(args.engine).toBe("claude");
-    expect(args.model).toBe("opus");
+    expect(args.overrides).toEqual({});
   });
 });
