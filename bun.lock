@@ -188,6 +188,16 @@
       "name": "@ralphy/comms",
       "version": "0.0.0",
     },
+    "packages/config": {
+      "name": "@ralphy/config",
+      "version": "0.0.0",
+      "dependencies": {
+        "@ralphy/cli-args": "workspace:*",
+        "@ralphy/core": "workspace:*",
+        "@ralphy/types": "workspace:*",
+        "@ralphy/workflow": "workspace:*",
+      },
+    },
     "packages/content": {
       "name": "@ralphy/content",
       "version": "0.0.0",
@@ -904,6 +914,8 @@
     "@ralphy/cli-args": ["@ralphy/cli-args@workspace:packages/cli-args"],
 
     "@ralphy/comms": ["@ralphy/comms@workspace:packages/comms"],
+
+    "@ralphy/config": ["@ralphy/config@workspace:packages/config"],
 
     "@ralphy/content": ["@ralphy/content@workspace:packages/content"],
 

@@ -1,0 +1,317 @@
+/**
+ * One config pipeline (issue #404): argv ⊕ WORKFLOW.md ⊕ schema defaults,
+ * merged in exactly one place with explicit `cli > workflow > default`
+ * precedence and a provenance witness.
+ *
+ * Presence is the only signal of user intent — `CliOverrides` carries exactly
+ * the keys argv set (no baked defaults, no sentinels), and the WORKFLOW.md
+ * side distinguishes "the author wrote this key" from "Zod filled the
+ * default" via `explicitWorkflowKeys`. App code never writes
+ * `args.x || cfg.y` again: it calls `resolveConfig` at boot and reads
+ * `effective`; child workers receive `serializeOverrides(overrides)` and
+ * re-resolve against the same WORKFLOW.md, so parent and child apply
+ * precedence through one code path.
+ */
+import {
+  parseCommonArgv,
+  type CliOverrides,
+  type CliPassthrough,
+  type CommonArgs,
+} from "@ralphy/cli-args";
+import {
+  DEFAULT_WORKFLOW_MD,
+  explicitWorkflowKeys,
+  migrateWorkflowMarkdown,
+  normalizeWorkflowMarkdown,
+  parseWorkflow,
+  workflowPath,
+  type WorkflowConfig,
+} from "@ralphy/workflow";
+import type { LoopChangeStore, LoopOptions, MetaPromptOptions, TaskPhase } from "@ralphy/core/loop";
+
+export type { CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
+export type { WorkflowConfig } from "@ralphy/workflow";
+
+/** Where an effective config value came from. */
+export type ConfigOrigin = "cli" | "workflow" | "default";
+
+/** Map from each CLI override key to the WORKFLOW.md key it overrides. */
+export const OVERRIDE_TO_WORKFLOW_KEY = {
+  engine: "engine",
+  model: "model",
+  maxIterations: "maxIterationsPerTask",
+  maxCostUsd: "maxCostUsdPerTask",
+  maxRuntimeMinutes: "maxRuntimeMinutesPerTask",
+  maxConsecutiveFailures: "maxConsecutiveFailuresPerTask",
+  delay: "iterationDelaySeconds",
+  log: "logRawStream",
+  verbose: "taskVerbose",
+  manualTest: "enableManualTest",
+} as const satisfies Record<keyof CliOverrides, keyof WorkflowConfig>;
+
+export const OVERRIDE_KEYS: readonly (keyof CliOverrides)[] = [
+  "engine",
+  "model",
+  "maxIterations",
+  "maxCostUsd",
+  "maxRuntimeMinutes",
+  "maxConsecutiveFailures",
+  "delay",
+  "log",
+  "verbose",
+  "manualTest",
+];
+
+/**
+ * Narrow a CLI model string (already validated by the parser against the
+ * schema enum) back to the workflow's model type. Falls back to the workflow
+ * value for anything unexpected so a hand-constructed override can never
+ * poison the effective config.
+ */
+function asWorkflowModel(
+  value: string | undefined,
+  fallback: WorkflowConfig["model"],
+): WorkflowConfig["model"] {
+  if (value === "opus" || value === "sonnet" || value === "haiku") return value;
+  return fallback;
+}
+
+/**
+ * Pure merge core — `cli > workflow > default` for every override key, plus
+ * the per-key provenance map. `explicitKeys` is the set of top-level
+ * WORKFLOW.md keys the author actually wrote (see `explicitWorkflowKeys`);
+ * without it every non-CLI value reports `"default"`.
+ */
+export function mergeConfig(
+  workflow: WorkflowConfig,
+  overrides: CliOverrides,
+  explicitKeys: ReadonlySet<string> = new Set(),
+): { effective: WorkflowConfig; origin: Map<keyof CliOverrides, ConfigOrigin> } {
+  const effective: WorkflowConfig = {
+    ...workflow,
+    engine: overrides.engine ?? workflow.engine,
+    model: asWorkflowModel(overrides.model, workflow.model),
+    maxIterationsPerTask: overrides.maxIterations ?? workflow.maxIterationsPerTask,
+    maxCostUsdPerTask: overrides.maxCostUsd ?? workflow.maxCostUsdPerTask,
+    maxRuntimeMinutesPerTask: overrides.maxRuntimeMinutes ?? workflow.maxRuntimeMinutesPerTask,
+    maxConsecutiveFailuresPerTask:
+      overrides.maxConsecutiveFailures ?? workflow.maxConsecutiveFailuresPerTask,
+    iterationDelaySeconds: overrides.delay ?? workflow.iterationDelaySeconds,
+    logRawStream: overrides.log ?? workflow.logRawStream,
+    taskVerbose: overrides.verbose ?? workflow.taskVerbose,
+    enableManualTest: overrides.manualTest ?? workflow.enableManualTest,
+  };
+  const origin = new Map<keyof CliOverrides, ConfigOrigin>();
+  for (const key of OVERRIDE_KEYS) {
+    if (overrides[key] !== undefined) origin.set(key, "cli");
+    else if (explicitKeys.has(OVERRIDE_TO_WORKFLOW_KEY[key])) origin.set(key, "workflow");
+    else origin.set(key, "default");
+  }
+  return { effective, origin };
+}
+
+/**
+ * Re-encode sparse overrides as argv for a child worker. Exactly the keys the
+ * user passed — the child re-runs `resolveConfig` against the same
+ * WORKFLOW.md, so parent and child compute identical effective configs
+ * through one code path (no pre-merged values in spawn commands).
+ * Round-trip property: parsing the result yields the same overrides.
+ */
+export function serializeOverrides(overrides: Readonly<CliOverrides>): string[] {
+  const argv: string[] = [];
+  if (overrides.engine !== undefined) argv.push(`--${overrides.engine}`);
+  if (overrides.model !== undefined) argv.push("--model", overrides.model);
+  if (overrides.maxIterations !== undefined) {
+    argv.push("--max-iterations", String(overrides.maxIterations));
+  }
+  if (overrides.maxCostUsd !== undefined) argv.push("--max-cost", String(overrides.maxCostUsd));
+  if (overrides.maxRuntimeMinutes !== undefined) {
+    argv.push("--max-runtime", String(overrides.maxRuntimeMinutes));
+  }
+  if (overrides.maxConsecutiveFailures !== undefined) {
+    argv.push("--max-failures", String(overrides.maxConsecutiveFailures));
+  }
+  if (overrides.delay !== undefined) argv.push("--delay", String(overrides.delay));
+  if (overrides.log) argv.push("--log");
+  if (overrides.verbose) argv.push("--verbose");
+  if (overrides.manualTest) argv.push("--manual-test");
+  return argv;
+}
+
+/** The only effect in this package: reading WORKFLOW.md (and `--prompt-file`). */
+export interface ConfigFileSystem {
+  /** Returns null when the file does not exist. */
+  readText(path: string): Promise<string | null>;
+  writeText(path: string, text: string): Promise<void>;
+}
+
+const bunFileSystem: ConfigFileSystem = {
+  async readText(path) {
+    const file = Bun.file(path);
+    return (await file.exists()) ? await file.text() : null;
+  },
+  async writeText(path, text) {
+    await Bun.write(path, text);
+  },
+};
+
+/** Per-task runtime injections — everything `LoopOptions` needs beyond config. */
+export interface LoopRuntime {
+  name: string;
+  prompt: string;
+  changeStore: LoopChangeStore;
+  phase?: TaskPhase;
+  createPr?: boolean;
+  prDraft?: boolean;
+  onReviewRound?: LoopOptions["onReviewRound"];
+  metaPrompt?: MetaPromptOptions;
+  /** Bespoke `--review-*` CLI flags; when set they replace the workflow's
+   *  `openspec.reviewPhase` block for this run. */
+  reviewPhase?: LoopOptions["reviewPhase"];
+}
+
+/**
+ * Assemble `LoopOptions` from an effective config plus runtime injections —
+ * the one place this wiring exists, so callers cannot hand-wire it wrong.
+ */
+export function loopOptionsFromConfig(
+  effective: WorkflowConfig,
+  runtime: LoopRuntime,
+): LoopOptions {
+  const configReview = effective.openspec.reviewPhase;
+  const reviewPhase =
+    runtime.reviewPhase ??
+    (configReview.enabled
+      ? {
+          enabled: true,
+          maxRounds: configReview.maxRounds,
+          reviewerContextStrategy: configReview.reviewerContextStrategy,
+          ...(configReview.reviewerModel !== undefined
+            ? { reviewerModel: configReview.reviewerModel }
+            : {}),
+        }
+      : undefined);
+  return {
+    name: runtime.name,
+    prompt: runtime.prompt,
+    engine: effective.engine,
+    model: effective.model,
+    maxIterations: effective.maxIterationsPerTask,
+    maxCostUsd: effective.maxCostUsdPerTask,
+    maxRuntimeMinutes: effective.maxRuntimeMinutesPerTask,
+    maxConsecutiveFailures: effective.maxConsecutiveFailuresPerTask,
+    delay: effective.iterationDelaySeconds,
+    log: effective.logRawStream,
+    verbose: effective.taskVerbose,
+    manualTest: effective.enableManualTest,
+    changeStore: runtime.changeStore,
+    ...(runtime.createPr !== undefined ? { createPr: runtime.createPr } : {}),
+    ...(runtime.prDraft !== undefined ? { prDraft: runtime.prDraft } : {}),
+    ...(runtime.phase !== undefined ? { phase: runtime.phase } : {}),
+    ...(reviewPhase !== undefined ? { reviewPhase } : {}),
+    ...(runtime.onReviewRound !== undefined ? { onReviewRound: runtime.onReviewRound } : {}),
+    ...(runtime.metaPrompt !== undefined ? { metaPrompt: runtime.metaPrompt } : {}),
+  };
+}
+
+/** Resolved values at boot — defaults ⊕ WORKFLOW.md ⊕ CLI, plus provenance. */
+export interface ResolvedConfig {
+  readonly effective: WorkflowConfig;
+  readonly cli: CliPassthrough;
+  /** Exactly what argv set — re-serializable for child workers. */
+  readonly overrides: Readonly<CliOverrides>;
+  readonly workflowPath: string;
+  /** Testable precedence witness. */
+  origin(key: keyof CliOverrides): ConfigOrigin;
+  /** Config-derived fields + caller-injected runtime. */
+  loopOptions(runtime: LoopRuntime): LoopOptions;
+}
+
+export interface ResolveConfigInput {
+  argv: string[];
+  /** Fallback project root when `--project-root` is not on argv. Explicit —
+   *  this package never reads `process.cwd()`. */
+  projectRoot?: string;
+  fileSystem?: ConfigFileSystem;
+}
+
+/**
+ * The only entry apps call at boot: parses argv (skipping app-bespoke
+ * tokens), loads + migrates WORKFLOW.md, merges. Apps that already ran a
+ * bespoke parser can hand their parsed `CommonArgs` to `resolveParsedConfig`
+ * instead and skip the re-parse.
+ */
+export async function resolveConfig(input: ResolveConfigInput): Promise<ResolvedConfig> {
+  const fileSystem = input.fileSystem ?? bunFileSystem;
+  const { args } = await parseCommonArgv(input.argv, async (path) => {
+    const text = await fileSystem.readText(path);
+    if (text === null) {
+      const err = new Error("--prompt-file not found") as Error & { path?: string };
+      err.path = path;
+      throw err;
+    }
+    return text;
+  });
+  return resolveParsedConfig({
+    args,
+    ...(input.projectRoot !== undefined ? { projectRoot: input.projectRoot } : {}),
+    fileSystem,
+  });
+}
+
+export interface ResolveParsedConfigInput {
+  /** The common slice of an app's parsed argv (sparse overrides + passthrough). */
+  args: CommonArgs;
+  projectRoot?: string;
+  fileSystem?: ConfigFileSystem;
+}
+
+/** `resolveConfig` for apps that already parsed argv with `@ralphy/cli-args`. */
+export async function resolveParsedConfig(
+  input: ResolveParsedConfigInput,
+): Promise<ResolvedConfig> {
+  const fileSystem = input.fileSystem ?? bunFileSystem;
+  const { args } = input;
+  const projectRoot = args.projectRoot ?? input.projectRoot;
+  if (projectRoot === undefined) {
+    throw new Error("resolveConfig needs a projectRoot (pass one, or use --project-root)");
+  }
+  const path = workflowPath(projectRoot, args.workflowFile);
+  const text = await fileSystem.readText(path);
+
+  let workflow: WorkflowConfig;
+  let explicitKeys: ReadonlySet<string>;
+  if (text === null) {
+    // Missing file: pure schema defaults. The default template is parsed (not
+    // hand-built) so this stays identical to `loadWorkflow`'s fallback.
+    workflow = parseWorkflow(DEFAULT_WORKFLOW_MD).config;
+    explicitKeys = new Set<string>();
+  } else {
+    // Versioned migration first, then in-memory self-heal — the same pipeline
+    // as `loadWorkflow` (no persistence from here; that stays an init-only,
+    // deliberate action). The explicit-keys witness is captured from the
+    // MIGRATED text, before normalize materializes every default-bearing key.
+    const migrated = migrateWorkflowMarkdown(text);
+    const normalized = normalizeWorkflowMarkdown(migrated.markdown);
+    workflow = parseWorkflow(normalized.markdown, path).config;
+    explicitKeys = explicitWorkflowKeys(migrated.markdown);
+  }
+
+  const { effective, origin } = mergeConfig(workflow, args.overrides, explicitKeys);
+  const overrides: Readonly<CliOverrides> = { ...args.overrides };
+  const cli: CliPassthrough = {
+    projectRoot: args.projectRoot,
+    workflowFile: args.workflowFile,
+    name: args.name,
+    prompt: args.prompt,
+    fromAgent: args.fromAgent,
+  };
+  return {
+    effective,
+    cli,
+    overrides,
+    workflowPath: path,
+    origin: (key) => origin.get(key) ?? "default",
+    loopOptions: (runtime) => loopOptionsFromConfig(effective, runtime),
+  };
+}

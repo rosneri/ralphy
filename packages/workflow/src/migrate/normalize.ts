@@ -28,6 +28,7 @@ import { WorkflowConfigSchema } from "../schema";
 import { FRONTMATTER_RE } from "../default";
 import { FIELD_DESCRIPTIONS } from "../fields";
 import { toCommentLines } from "../wizard";
+import { WORKFLOW_TOP_LEVEL_ALIASES } from "../schema-meta/aliases";
 
 /**
  * Approval indicators injected when the confirmation gate is on but no
@@ -121,6 +122,23 @@ export function normalizeWorkflowMarkdown(markdown: string): NormalizeResult {
   if (!YAML.isMap(document.contents)) return { markdown, changed: false, added: [] };
   const body = match[2] ?? "";
   const added: string[] = [];
+
+  // 0) Alias fold — MUST run before the defaults-fill. The nested alias
+  //    blocks (`agent.*`, `github.*`, `worktree.*`) fill their flat keys only
+  //    when the author did not write the flat key; if the defaults-fill ran
+  //    first it would materialize the flat key with the schema default and
+  //    silently shadow the alias value (presence-based folding everywhere —
+  //    see aliases.ts).
+  for (const { flat, alias } of WORKFLOW_TOP_LEVEL_ALIASES) {
+    if (document.getIn([flat]) !== undefined) continue;
+    const aliasNode = document.getIn(alias, true);
+    if (aliasNode === undefined) continue;
+    const value = YAML.isNode(aliasNode) ? aliasNode.toJSON() : aliasNode;
+    if (value === undefined) continue;
+    document.setIn([flat], value);
+    stampDescription(document, [flat]);
+    added.push(flat);
+  }
 
   // 1) Defaults-fill.
   for (const { path, value } of defaultLeafEntries()) {
