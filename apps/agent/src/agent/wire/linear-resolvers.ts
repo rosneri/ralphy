@@ -20,9 +20,9 @@ import {
   addLabelToIssue,
   removeLabelFromIssue,
   issueMatchesGetIndicator,
-  type LinearIssue,
   type LinearFilterSpec,
 } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { linearIdentifierStrategy } from "../../shared/capabilities/github/identifier-strategy";
 
 interface LinearResolversInput {
@@ -49,7 +49,7 @@ interface LinearResolversInput {
  * `createLinearTrackerProvider` seam (RLF-223) can take it as input.
  */
 export interface LinearResolvers extends Omit<TrackerProvider, "fetchDoneCandidates"> {
-  resolveLabelId: (issue: LinearIssue, name: string, group?: string) => Promise<string | null>;
+  resolveLabelId: (issue: TrackedIssue, name: string, group?: string) => Promise<string | null>;
 }
 
 export function createLinearResolvers(input: LinearResolversInput): LinearResolvers {
@@ -59,9 +59,9 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
   const stateCache = new Map<string, Map<string, string>>();
   const labelCache = new Map<string, Map<string, string>>();
   const teamIdCache = new Map<string, string>();
-  const teamKeyOf = (issue: LinearIssue): string => linearIdentifierStrategy.scopeKey(issue);
+  const teamKeyOf = (issue: TrackedIssue): string => linearIdentifierStrategy.scopeKey(issue);
 
-  async function resolveStateId(issue: LinearIssue, name: string): Promise<string | null> {
+  async function resolveStateId(issue: TrackedIssue, name: string): Promise<string | null> {
     const t = teamKeyOf(issue);
     let map = stateCache.get(t);
     if (!map) {
@@ -73,7 +73,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
   }
 
   async function resolveLabelId(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     name: string,
     group?: string,
   ): Promise<string | null> {
@@ -129,7 +129,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
    * non-fatal — the add is still attempted.
    */
   async function stripSiblingGroupLabels(
-    issue: LinearIssue,
+    issue: TrackedIssue,
     group: string,
     keepId: string,
   ): Promise<void> {
@@ -155,7 +155,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     }
   }
 
-  async function applyMarker(issue: LinearIssue, m: Marker): Promise<void> {
+  async function applyMarker(issue: TrackedIssue, m: Marker): Promise<void> {
     if (m.type === "status") {
       const id = await resolveStateId(issue, m.value);
       if (!id) {
@@ -207,11 +207,11 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     // time, so they never reach applyMarker in practice — fall through.
   }
 
-  async function applyIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
+  async function applyIndicator(issue: TrackedIssue, ind: SetIndicator): Promise<void> {
     for (const m of markersOf(ind)) await applyMarker(issue, m);
   }
 
-  async function removeIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
+  async function removeIndicator(issue: TrackedIssue, ind: SetIndicator): Promise<void> {
     for (const m of markersOf(ind)) {
       if (m.type !== "label") continue;
       const id = await resolveLabelId(issue, m.value, m.group);
@@ -232,7 +232,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
   async function fetchByGet(
     inc: SetIndicator | { filter: Marker[] } | undefined,
     excl: Marker[],
-  ): Promise<LinearIssue[]> {
+  ): Promise<TrackedIssue[]> {
     if (!inc) return [];
     const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     if (include.length === 0) return [];
@@ -263,7 +263,7 @@ export function createLinearResolvers(input: LinearResolversInput): LinearResolv
     labelName: string,
     group?: string,
   ): Promise<string | null> {
-    const fakeIssue = { identifier: `${teamKey}-0` } as LinearIssue;
+    const fakeIssue = { identifier: `${teamKey}-0` } as TrackedIssue;
     return resolveLabelId(fakeIssue, labelName, group);
   }
 
@@ -321,7 +321,7 @@ export async function fetchDoneCandidatesWith(
   scope: LinearFilterScope,
   indicators: Indicators,
   ticketNumbers?: number[] | undefined,
-): Promise<LinearIssue[]> {
+): Promise<TrackedIssue[]> {
   const getIndicators: GetIndicator[] = [
     indicators.getTodo,
     indicators.getInProgress,
@@ -338,7 +338,7 @@ export async function fetchDoneCandidatesWith(
   if (getIndicators.length === 0) return [];
 
   const seen = new Set<string>();
-  const results: LinearIssue[] = [];
+  const results: TrackedIssue[] = [];
 
   await Promise.all(
     getIndicators.map(async (ind) => {

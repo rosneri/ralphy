@@ -21,18 +21,23 @@
 import { buildRalphyComment, findStickyComment } from "@ralphy/comms";
 import type { SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { MentionTrigger } from "../../src/queue/queue-order";
-import { githubIndicatorAction } from "../../src/agent/wire/tracker/github-tracker-provider";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
+import {
+  githubIndicatorAction,
+  staleStatusLabels,
+} from "../../src/agent/wire/tracker/github-tracker-provider";
 import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
+
+/** Namespace identifying single-valued status labels (mirrors the real provider). */
+const STATUS_PREFIX = "status:";
 import type { ContractBucket, MentionSource, ProviderContractBackend } from "./provider-contract";
 
 /** GitHub-flavoured marker vocabulary shared by the fake and its adapter. */
 export const GITHUB_LABELS = {
   selection: "ralphy:todo",
   inProgress: "status:in-progress",
-  review: "ralphy:review",
+  review: "status:in-review",
   prReady: "status:pr-ready",
   error: "status:error",
   /** Interpreted as "close" by `githubIndicatorAction`, never stored. */
@@ -49,23 +54,23 @@ const LIFECYCLE_LABELS: string[] = [
 
 export interface FakeGithub {
   client: IssueTrackerProvider;
-  seed: (issue: SeedIssue) => LinearIssue;
+  seed: (issue: SeedIssue) => TrackedIssue;
   setLabels: (id: string, labels: string[]) => void;
   /** Flip an issue between open (true) and closed (false). */
   setOpen: (id: string, open: boolean) => void;
   pushComment: (issueId: string, body: string, author?: string) => void;
   pushMention: (issueId: string, source: MentionSource, body: string, at: Date) => void;
   comments: (issueId: string) => readonly FakeLinearComment[];
-  issues: () => readonly LinearIssue[];
+  issues: () => readonly TrackedIssue[];
   applied: AppliedLog;
 }
 
 interface IssueRecord {
-  issue: LinearIssue;
+  issue: TrackedIssue;
   open: boolean;
 }
 
-function defaultIssue(seed: SeedIssue): LinearIssue {
+function defaultIssue(seed: SeedIssue): TrackedIssue {
   return {
     id: seed.id,
     identifier: seed.identifier,
@@ -94,7 +99,7 @@ export function createFakeGithub(): FakeGithub {
     clearReview: [],
   };
 
-  const has = (i: LinearIssue, label: string) => i.labels.includes(label);
+  const has = (i: TrackedIssue, label: string) => i.labels.includes(label);
 
   /** Which applied-log slot an applied indicator records into. pr-ready is
    *  checked before the broad in-progress fallback so it is never
@@ -146,7 +151,7 @@ export function createFakeGithub(): FakeGithub {
     fetchComments: async (issueId: string) =>
       (comments.get(issueId) ?? []).map((c) => ({ body: c.body })),
     fetchMentions: async () => {
-      const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+      const out: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
       for (const [issueId, list] of mentions) {
         const rec = records.get(issueId);
         if (!rec) continue;
@@ -188,6 +193,10 @@ export function createFakeGithub(): FakeGithub {
         rec.issue = { ...rec.issue, state: { name: "Closed", type: "completed" } };
         return;
       }
+      // Single-active-status: strip any prior `status:*` label before adding so
+      // the open issue carries at most one status label (mirrors the provider).
+      const stale = staleStatusLabels(rec.issue.labels, action.labels, STATUS_PREFIX);
+      if (stale.length > 0) removeLabels(issue.id, stale);
       addLabels(issue.id, action.labels);
     },
     removeIndicator: async (issue, ind) => {

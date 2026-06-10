@@ -26,6 +26,9 @@
       "path": "../../packages/cli-args"
     },
     {
+      "path": "../../packages/config"
+    },
+    {
       "path": "../../packages/paths"
     },
     {

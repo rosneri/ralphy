@@ -2,7 +2,7 @@ import type { WorkflowConfig } from "./schema";
 
 /**
  * Minimal Linear-issue shape needed to evaluate the confirmation gate
- * client-side. Kept here (instead of importing `LinearIssue`) so this module
+ * client-side. Kept here (instead of importing `TrackedIssue`) so this module
  * stays in `@ralphy/workflow` and free of an apps/agent dependency.
  */
 export interface ConfirmationTicketView {
@@ -74,20 +74,22 @@ function matchesAnyValue(
 /**
  * Compute the two deriver inputs for the confirmation gate.
  *
- *   `confirmationGated` — confirmation mode is on AND the ticket lacks the
- *                         opt-out label.
+ *   `confirmationGated` — confirmation mode is on AND the ticket satisfies the
+ *                         opt-in (`getConfirmGate`).
  *   `approved`          — the `getApproved` indicator (if any) matches the
- *                         ticket's current labels / status / project.
+ *                         ticket's current labels / status / project. Tickets
+ *                         meant to flow through unattended (e.g. `auto-merge`)
+ *                         are folded into `getApproved`, so they read as
+ *                         approved rather than needing a separate opt-out.
  */
 export function computeConfirmationFlags(
   config: WorkflowConfig,
   ticket: ConfirmationTicketView,
 ): { confirmationGated: boolean; approved: boolean } {
   const cm = config.linear.confirmationMode;
-  const { getConfirmGate, getAutoApprove, getApproved } = config.linear.indicators;
+  const { getConfirmGate, getApproved } = config.linear.indicators;
   const optInSatisfied = !getConfirmGate || matchesIndicator(getConfirmGate, ticket);
-  const confirmationGated =
-    cm.enabled && optInSatisfied && !matchesIndicator(getAutoApprove, ticket);
+  const confirmationGated = cm.enabled && optInSatisfied;
   const approved = matchesIndicator(getApproved, ticket);
   return { confirmationGated, approved };
 }

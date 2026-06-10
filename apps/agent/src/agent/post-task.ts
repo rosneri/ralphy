@@ -4,7 +4,8 @@ import { fsChange } from "../shared/capabilities/fs-change";
 import { git as gitCap } from "../shared/capabilities/git";
 import { runCapability } from "../shared/capabilities/run-capability";
 import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
-import { baseBranchFromLabels, type LinearIssue } from "./linear";
+import { baseBranchFromLabels } from "./linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
@@ -62,7 +63,7 @@ export interface PostTaskInput {
   /** Absolute path to `<statesDir>/<changeName>/.ralph-state.json`. */
   stateFilePath: string;
   branch: string | null;
-  issue: LinearIssue | null;
+  issue: TrackedIssue | null;
   /** Exit code from the worker subprocess. */
   exitCode: number;
   useWorktree: boolean;
@@ -146,7 +147,7 @@ export interface RetroDispositionInfo {
   changeDir: string;
   stateFilePath: string;
   branch: string | null;
-  issue: LinearIssue | null;
+  issue: TrackedIssue | null;
   /** The effective exit code after all post-task phases. */
   effectiveCode: number;
 }
@@ -176,14 +177,14 @@ interface PostTaskDeps {
   onPhase?: (phase: PostTaskPhase, detail?: string) => void;
   /** Optional: resolve the blocker PR a stacked PR should base on. See
    *  PrPhaseDeps for details. */
-  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<DependencyBase | null>;
+  resolveDependencyBaseBranch?: (issue: TrackedIssue) => Promise<DependencyBase | null>;
   /** Optional: build the per-issue `FeatureCtx` consumed by the feature
    *  registry walk. When provided, `runPostTask` iterates the registry and
    *  invokes `feature.postTask?.(...)` on each entry alongside the legacy
    *  phases. Stub features have no `postTask`, so this dispatch is a no-op
    *  until a slice migrates. Omitted in today's wire layer; the legacy
    *  phases still own the full post-task flow in that case. */
-  buildFeatureCtx?: (issue: LinearIssue) => FeatureCtx | null;
+  buildFeatureCtx?: (issue: TrackedIssue) => FeatureCtx | null;
   /**
    * Override the backoff schedule (ms) for the conflict-fix verify path's
    * UNKNOWN-mergeability polling. Default is the shared
@@ -320,9 +321,9 @@ export function _resetRepoAutoMergeCache(): void {
 
 /**
  * The loop sets state.status="completed" once tasks.md has no unchecked
- * items. A re-spawned worker would then exit immediately via
- * checkStopCondition without ever reading the freshly-prepended fix task.
- * Reset to "active" so the new section gets picked up.
+ * items. A re-spawned worker would then exit immediately via the loop
+ * machine's statusNotActive guard without ever reading the freshly-prepended
+ * fix task. Reset to "active" so the new section gets picked up.
  */
 async function reactivateState(
   stateFilePath: string,
@@ -424,7 +425,7 @@ async function runWorkerWithFixTask(
  */
 async function createPrWithRetry(
   ctx: PostTaskCtx,
-  issue: LinearIssue,
+  issue: TrackedIssue,
 ): Promise<{ pr: Awaited<ReturnType<typeof createPullRequest>>; gaveUp: boolean }> {
   const base = ctx.base;
   const maxAttempts = MAX_PR_CREATE_ATTEMPTS;
@@ -611,7 +612,7 @@ interface PrPhaseInput {
   branch: string | null;
   changeDir: string;
   stateFilePath: string;
-  issue: LinearIssue | null;
+  issue: TrackedIssue | null;
   wantAutoMerge: boolean;
   cfg: PostTaskInput["cfg"];
 }
@@ -665,7 +666,7 @@ interface PrPhaseDeps {
    *  should stack onto, or null when no unambiguous blocker PR exists. Invoked
    *  only when `cfg.stackPrsOnDependencies` is true and no `ralph:branch:`
    *  label override is present. */
-  resolveDependencyBaseBranch?: (issue: LinearIssue) => Promise<DependencyBase | null>;
+  resolveDependencyBaseBranch?: (issue: TrackedIssue) => Promise<DependencyBase | null>;
 }
 
 /**

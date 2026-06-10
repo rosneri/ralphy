@@ -1,7 +1,7 @@
 # RLF-66: Cut Linear rate-limit pressure: GitHub-first PR lookup, batched mention-scan comments, per-poll URL cache
 
 Source: [RLF-66](https://linear.app/neriros/issue/RLF-66/cut-linear-rate-limit-pressure-github-first-pr-lookup-batched-mention)
-Status: Todo
+Status: Done
 
 ## Why
 

@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { fsChange } from "../shared/capabilities/fs-change";
 import { linearIdentifierStrategy } from "../shared/capabilities/github/identifier-strategy";
 import { runCapability } from "../shared/capabilities/run-capability";
-import type { LinearComment, LinearIssue } from "./linear";
+import type { TrackedComment, TrackedIssue } from "@ralphy/tracker";
 
 export interface TicketAttachment {
   url: string;
@@ -12,15 +12,15 @@ export interface TicketAttachment {
 /** Convert a Linear identifier (e.g. "ENG-123") into a safe change-name slug.
  *  Delegates to `linearIdentifierStrategy.changeName` (the provider-hook seam);
  *  output is unchanged. */
-export function changeNameForIssue(issue: LinearIssue): string {
+export function changeNameForIssue(issue: TrackedIssue): string {
   return linearIdentifierStrategy.changeName(issue);
 }
 
 export async function scaffoldChangeForIssue(
   tasksDir: string,
   statesDir: string,
-  issue: LinearIssue,
-  comments: LinearComment[] = [],
+  issue: TrackedIssue,
+  comments: TrackedComment[] = [],
   appendPrompt: string = "",
   attachments: TicketAttachment[] = [],
 ): Promise<string> {

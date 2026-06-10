@@ -11,8 +11,8 @@ import {
   createIssueComment,
   formatLinearError,
   isRateLimitedError,
-  type LinearIssue,
 } from "../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { buildMentionAckComment } from "@ralphy/core/detections";
 import { changeNameForIssue } from "../scaffold";
 import { scanCodeReview } from "../../features/review-followup/scan";
@@ -75,12 +75,12 @@ interface MentionScanInput {
   cwdByChange: Map<string, string>;
   stalePingedAt: Map<string, number>;
   lastHandledReviewActivity: Map<string, string>;
-  resolvePrUrlForIssue: (issue: LinearIssue) => Promise<string | null>;
+  resolvePrUrlForIssue: (issue: TrackedIssue) => Promise<string | null>;
 }
 
 export function createMentionScanner(input: MentionScanInput): () => Promise<
   {
-    issue: LinearIssue;
+    issue: TrackedIssue;
     trigger: MentionTrigger;
   }[]
 > {
@@ -106,13 +106,13 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
   } = input;
 
   return async function fetchMentions(): Promise<
-    { issue: LinearIssue; trigger: MentionTrigger }[]
+    { issue: TrackedIssue; trigger: MentionTrigger }[]
   > {
     const wantMention = cfg.linear.mentionTrigger;
     const wantCodeReview = args.codeReview || cfg.linear.codeReviewTrigger;
     if (!wantMention && !wantCodeReview) return [];
     const handle = cfg.linear.mentionHandle;
-    let candidates: LinearIssue[] = [];
+    let candidates: TrackedIssue[] = [];
     try {
       candidates = await fetchMentionScanIssues(apiKey, {
         team,
@@ -144,7 +144,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
       );
       return [];
     }
-    const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+    const out: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
     const queued = new Set<string>();
     let rateLimitedLogged = false;
     const logRateLimited = (): void => {
@@ -319,7 +319,7 @@ interface GithubMentionScanInput {
   diag: (area: string, message: string, color?: string) => void;
   /** List the open issues to scan (todo + in-progress, label-scoped; no
    *  Search-API). Injected from the GitHub tracker provider. */
-  listOpenIssues: () => Promise<LinearIssue[]>;
+  listOpenIssues: () => Promise<TrackedIssue[]>;
   /** Resolve the `owner/name` slug for the reactions / ack endpoints. */
   repo: () => Promise<string>;
 }
@@ -333,14 +333,14 @@ interface GithubMentionScanInput {
  */
 export function createGithubMentionScanner(input: GithubMentionScanInput): () => Promise<
   {
-    issue: LinearIssue;
+    issue: TrackedIssue;
     trigger: MentionTrigger;
   }[]
 > {
   const { cfg, cmdRunner, projectRoot, onLog, diag, listOpenIssues, repo } = input;
 
   return async function fetchMentions(): Promise<
-    { issue: LinearIssue; trigger: MentionTrigger }[]
+    { issue: TrackedIssue; trigger: MentionTrigger }[]
   > {
     if (!cfg.linear.mentionTrigger) return [];
     const handle = cfg.linear.mentionHandle;
@@ -358,7 +358,7 @@ export function createGithubMentionScanner(input: GithubMentionScanInput): () =>
       return [];
     }
 
-    let candidates: LinearIssue[];
+    let candidates: TrackedIssue[];
     try {
       candidates = await listOpenIssues();
     } catch (err) {
@@ -370,7 +370,7 @@ export function createGithubMentionScanner(input: GithubMentionScanInput): () =>
       return [];
     }
 
-    const out: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
+    const out: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
     for (const issue of candidates) {
       const issueNumber = Number(issue.id);
       if (!Number.isFinite(issueNumber)) continue;
@@ -446,7 +446,7 @@ export function createGithubMentionScanner(input: GithubMentionScanInput): () =>
 }
 
 export async function isChangeArchivedForIssue(
-  issue: LinearIssue,
+  issue: TrackedIssue,
   cwdByChange: Map<string, string>,
   projectRoot: string,
 ): Promise<boolean> {

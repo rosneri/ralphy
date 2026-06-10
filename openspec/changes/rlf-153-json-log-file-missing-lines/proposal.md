@@ -1,7 +1,7 @@
 # RLF-153: JSON log file missing lines
 
 Source: [RLF-153](https://linear.app/neriros/issue/RLF-153/json-log-file-missing-lines)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 Labels: Bug
 

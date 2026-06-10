@@ -1,7 +1,7 @@
 # RLF-118: Confirmation gate respawn-loop still reproduces after RLF-105 fix — confirmation feature stops claiming on later polls
 
 Source: [RLF-118](https://linear.app/neriros/issue/RLF-118/confirmation-gate-respawn-loop-still-reproduces-after-rlf-105-fix)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 Labels: ralph:auto-merge
 

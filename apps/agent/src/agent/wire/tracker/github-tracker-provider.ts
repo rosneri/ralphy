@@ -1,60 +1,31 @@
 /**
- * `GithubTrackerProvider` — a real issue-tracker provider that maps GitHub
- * primitives onto the shared `IssueTrackerProvider` surface (from
- * `@ralphy/tracker`). It proves the backend-neutral provider
- * contract kit is genuinely tracker-agnostic by standing alongside the Linear
- * client behind the exact same structural interface.
+ * `GithubTrackerProvider` — the GitHub implementation of the tracker-neutral
+ * {@link IssueTrackerProvider} seam (from `@ralphy/tracker`), symmetric with
+ * `createLinearTrackerProvider`. It is a thin adapter: every method delegates
+ * to the `gh`-CLI transport (`createGithubProvider` in `./github`) and the
+ * synthesized label indicators, so GitHub-specific semantics (label buckets,
+ * "done" = closing the issue) live in the transport, not here. The coordinator
+ * never sees the difference between this and the Linear seam.
  *
- * Two GitHub-specific divergences shape this file:
+ * Two GitHub-specific divergences inform the surface (handled in the transport):
  *  1. GitHub has no status field — every lifecycle position except "done" is a
- *     **label**. Bucketing therefore needs exclusion (todo = open + selection
- *     label AND none of the lifecycle labels).
- *  2. "done" is **closing the issue**, not adding a label. `applyIndicator`
- *     recognises a done indicator and runs `gh issue close` instead of
- *     `gh issue edit --add-label`.
+ *     **label**. `fetchReview` therefore has no `getReview` indicator to poll
+ *     and intentionally returns `[]`; review re-engagement flows through
+ *     `fetchMentions`.
+ *  2. "done" is **closing the issue**, not adding a label — the transport's
+ *     `applyMarker` runs `gh issue close` on the done label.
  *
- * The provider shells out through an injected `CmdRunner` (the `gh`
- * capability's transport), so tests drive it with a scripted runner — no
- * network, no `gh` auth, fully deterministic. It imports nothing from the
- * coordinator or the XState machines.
+ * This file also retains pure, transport-agnostic helpers (`mapGithubIssue`,
+ * `flattenLabel`, `githubIndicatorAction`, `staleStatusLabels`) reused by the
+ * test harness's fake GitHub provider. It imports nothing from the coordinator
+ * or the XState machines.
  */
 
-import type { Marker, SetIndicator } from "@ralphy/types";
+import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../../shared/capabilities/linear-client";
-import type { MentionTrigger } from "../../../queue/queue-order";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
-
-/** `--json` fields requested from `gh issue list` / `gh issue view`. */
-const ISSUE_FIELDS = "number,title,body,url,state,labels,assignees,createdAt";
-
-/** Marker vocabulary the provider maps onto GitHub labels. */
-export interface GithubMarkerVocab {
-  /** Label that opts an issue into Ralphy pickup (the todo selection). */
-  selectionLabel: string;
-  /** Label marking an issue as actively worked. */
-  inProgressLabel: string;
-  /** Label marking an issue as under human review. */
-  reviewLabel: string;
-  /**
-   * Labels whose presence on an open issue excludes it from the todo bucket
-   * (in-progress / review / pr-ready / error). "done" is intentionally absent:
-   * done is represented by the issue being closed, not by a label.
-   */
-  lifecycleLabels: string[];
-}
-
-interface GithubTrackerDeps {
-  /** Transport for `gh` invocations (the `gh` capability's runner). */
-  runner: CmdRunner;
-  /** Working directory passed to every `gh` call. */
-  cwd: string;
-  /** Target repository slug, `owner/repo`. */
-  repo: string;
-  /** Label vocabulary mapping lifecycle positions onto GitHub labels. */
-  vocab: GithubMarkerVocab;
-}
+import type { IssueTrackerProvider, MentionTrigger, TrackedIssue } from "@ralphy/tracker";
+import { unionMarkers } from "../indicators";
+import type { createGithubProvider } from "./github";
 
 /** Shape of a single issue in `gh issue list --json …` / `gh issue view`. */
 interface RawGithubIssue {
@@ -70,7 +41,7 @@ interface RawGithubIssue {
 }
 
 /**
- * Pure mapper from a raw `gh` issue JSON object to the shared `LinearIssue`
+ * Pure mapper from a raw `gh` issue JSON object to the shared `TrackedIssue`
  * shape. Kept free of any `gh` invocation so it is unit-testable in isolation.
  *
  * - `number` → `identifier` (`#<n>`) and `id` (`<n>`).
@@ -79,7 +50,7 @@ interface RawGithubIssue {
  * - `labels[].name` → `string[]`.
  * - first `assignees[]` entry → the single `assignee` field.
  */
-export function mapGithubIssue(raw: RawGithubIssue): LinearIssue {
+export function mapGithubIssue(raw: RawGithubIssue): TrackedIssue {
   const closed = (raw.state ?? "OPEN").toUpperCase() === "CLOSED";
   const first = raw.assignees?.[0];
   return {
@@ -147,85 +118,82 @@ export function githubIndicatorAction(
 }
 
 /**
- * Build a `GithubTrackerProvider` over the injected `gh` runner. Returns the
- * structural `IssueTrackerProvider` surface; no coordinator/machine imports.
+ * Existing `prefix`-namespaced labels on an issue that must be stripped when
+ * `addLabels` are applied, to preserve the single-active-status invariant: an
+ * open issue carries at most one label under `prefix`. Returns the labels in
+ * `currentLabels` that start with `prefix` but are not among `addLabels` (so a
+ * status being re-applied is never reported as stale). Non-`prefix` labels are
+ * never returned — only the status namespace is single-valued.
  */
-export function createGithubTrackerProvider(deps: GithubTrackerDeps): IssueTrackerProvider {
-  const { runner, cwd, repo, vocab } = deps;
+export function staleStatusLabels(
+  currentLabels: string[],
+  addLabels: string[],
+  prefix: string,
+): string[] {
+  const adding = new Set(addLabels);
+  return currentLabels.filter((l) => l.startsWith(prefix) && !adding.has(l));
+}
 
-  const run = (args: string[]) => runner.run(["gh", ...args, "--repo", repo], cwd);
+/**
+ * The gh-CLI transport (`createGithubProvider`) the coordinator seam delegates
+ * to — only the subset of methods the seam threads through. Typed off the
+ * transport's own return type so the two cannot drift.
+ */
+type GithubTransport = Pick<
+  ReturnType<typeof createGithubProvider>,
+  | "fetchByGet"
+  | "fetchDoneCandidates"
+  | "applyIndicator"
+  | "removeIndicator"
+  | "applyMarker"
+  | "fetchComments"
+>;
 
-  /** Run `gh issue list` with the given state/label flags and map the output. */
-  async function listIssues(flags: string[]): Promise<LinearIssue[]> {
-    const { stdout } = await run(["issue", "list", ...flags, "--json", ISSUE_FIELDS]);
-    const raw = JSON.parse(stdout || "[]") as RawGithubIssue[];
-    return raw.map(mapGithubIssue);
-  }
+/** Input for the GitHub coordinator seam, assembled in `wire.ts`. Mirrors
+ *  `createLinearTrackerProvider`'s shape: the transport plus the synthesized
+ *  indicators, todo-exclusion set, and separately-built mention scanner. */
+interface GithubTrackerProviderInput {
+  /** The gh-CLI transport (`createGithubProvider`) the seam delegates to. */
+  provider: GithubTransport;
+  /** Label-based indicators synthesized from `github.issues`. */
+  indicators: Indicators;
+  /** Markers excluding an issue from the todo pool (done / error / in-progress).
+   *  Built by `wire.ts` because GitHub's blank-todo-label fetch lists every open
+   *  issue, so in-progress must be excluded too. */
+  excludeFromTodo: Marker[];
+  /** GitHub mention scanner, assembled separately in `wire.ts` (it needs
+   *  PR-discovery / per-change state the seam does not). */
+  fetchMentions: () => Promise<{ issue: TrackedIssue; trigger: MentionTrigger }[]>;
+}
 
-  /**
-   * Lazily-seeded, case-insensitive set of label names known to exist in the
-   * repo. `null` until the first `ensureLabelsExist` call lists them. GitHub
-   * label names are unique case-insensitively, so comparison is lowercased.
-   */
-  let knownLabels: Set<string> | null = null;
-
-  /**
-   * Create any of `labels` that do not yet exist in the repo, so a subsequent
-   * `gh issue edit --add-label` cannot fail on a missing label (GitHub, unlike
-   * Linear, does not auto-create labels on use). Idempotent: the known-label
-   * set is listed once and reused, so repeat applies issue no extra `label
-   * list` and an already-present label is never re-created.
-   */
-  async function ensureLabelsExist(labels: string[]): Promise<void> {
-    if (labels.length === 0) return;
-    if (knownLabels === null) {
-      const { stdout } = await run(["label", "list", "--json", "name"]);
-      const existing = JSON.parse(stdout || "[]") as { name: string }[];
-      knownLabels = new Set(existing.map((l) => l.name.toLowerCase()));
-    }
-    for (const label of labels) {
-      if (knownLabels.has(label.toLowerCase())) continue;
-      await run(["label", "create", label]);
-      knownLabels.add(label.toLowerCase());
-    }
-  }
-
+/**
+ * Build the GitHub coordinator seam by delegating to the `gh` transport, the
+ * single named factory symmetric with `createLinearTrackerProvider`. No `gh`
+ * calls are issued here — GitHub-specific behavior (label buckets, "done" =
+ * close, commenting) lives in the transport's `applyMarker` / `fetchByGet`.
+ */
+export function createGithubTrackerProvider(
+  input: GithubTrackerProviderInput,
+): IssueTrackerProvider {
+  const { provider, indicators, excludeFromTodo, fetchMentions } = input;
   return {
-    fetchTodo: async () => {
-      const issues = await listIssues(["--state", "open", "--label", vocab.selectionLabel]);
-      // Drop issues that already carry a lifecycle label — they have moved on
-      // from the todo bucket even though they keep the selection label.
-      return issues.filter((i) => !i.labels.some((l) => vocab.lifecycleLabels.includes(l)));
-    },
-    fetchInProgress: () => listIssues(["--state", "open", "--label", vocab.inProgressLabel]),
-    fetchReview: () => listIssues(["--state", "open", "--label", vocab.reviewLabel]),
-    fetchDoneCandidates: () => listIssues(["--state", "closed"]),
-    fetchComments: async (issueId: string) => {
-      const { stdout } = await run(["issue", "view", issueId, "--json", "comments"]);
-      const parsed = JSON.parse(stdout || "{}") as { comments?: { body: string }[] };
-      return (parsed.comments ?? []).map((c) => ({ body: c.body }));
-    },
-    applyIndicator: async (issue, ind) => {
-      const action = githubIndicatorAction(ind, "add");
-      if (action.kind === "close") {
-        await run(["issue", "close", issue.id]);
-        return;
-      }
-      if (action.labels.length === 0) return;
-      await ensureLabelsExist(action.labels);
-      await run(["issue", "edit", issue.id, "--add-label", action.labels.join(",")]);
-    },
-    removeIndicator: async (issue, ind) => {
-      const action = githubIndicatorAction(ind, "remove");
-      if (action.kind === "close" || action.labels.length === 0) return;
-      await run(["issue", "edit", issue.id, "--remove-label", action.labels.join(",")]);
-    },
-    postComment: async (issue, body) => {
-      await run(["issue", "comment", issue.id, "--body", body]);
-    },
-    // M4 owns the full GitHub mention scan (cross-issue `@ralphy` search +
-    // review-thread digest). For the MVP this provider returns no mentions; the
-    // contract kit exercises mentions only against the fully-featured fake.
-    fetchMentions: async (): Promise<{ issue: LinearIssue; trigger: MentionTrigger }[]> => [],
+    fetchTodo: () => provider.fetchByGet(indicators.getTodo, excludeFromTodo),
+    fetchInProgress: () =>
+      provider.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
+    // Intentionally empty, NOT an unfinished stub: GitHub emits no `getReview`
+    // indicator and the coordinator does not poll `fetchReview`; GitHub review
+    // re-engagement flows through `fetchMentions`. Symmetric with Linear's
+    // polling model.
+    fetchReview: async () => [],
+    fetchMentions,
+    fetchDoneCandidates: () => provider.fetchDoneCandidates(),
+    // Real comments via `gh issue view --json comments`, backing the
+    // coordinator's started-idempotency check.
+    fetchComments: (issueId) => provider.fetchComments(issueId),
+    applyIndicator: provider.applyIndicator,
+    removeIndicator: provider.removeIndicator,
+    // Progress comments route through a `gh issue comment` via the transport's
+    // comment marker.
+    postComment: (issue, body) => provider.applyMarker(issue, { type: "comment", value: body }),
   };
 }

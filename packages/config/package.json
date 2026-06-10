@@ -1,0 +1,14 @@
+{
+  "name": "@ralphy/config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/config.ts"
+  },
+  "dependencies": {
+    "@ralphy/cli-args": "workspace:*",
+    "@ralphy/core": "workspace:*",
+    "@ralphy/workflow": "workspace:*"
+  }
+}

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import React from "react";
 import { render } from "ink-testing-library";
-import { initialCommonArgs } from "@ralphy/cli-args";
+import { emptyCommonArgs } from "@ralphy/cli-args";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
 import {
   AgentMode,
@@ -29,7 +29,7 @@ const ensureConfigStub = async () => "/tmp/ralphy.json";
 const loadConfigStub = async (): Promise<RalphyConfig> => fakeConfig;
 
 const baseArgs: ParsedArgs = {
-  ...initialCommonArgs(),
+  ...emptyCommonArgs(),
   mode: "agent",
   name: "",
   linearTeam: "RLF",
@@ -46,7 +46,6 @@ const baseArgs: ParsedArgs = {
   maxTickets: 0,
   jsonOutput: false,
   prompt: "",
-  manualTest: false,
   debug: false,
   agentDebug: false,
   checks: false,
@@ -256,6 +255,22 @@ describe("AgentMode awaiting-confirmation", () => {
     await flush();
     const frame = stripVTControlCharacters(lastFrame() ?? "");
     expect(frame).not.toContain("nothing can start");
+    unmount();
+  });
+
+  test("caps the board at 10 rows and lists the rest in a horizontal strip", async () => {
+    const board = Array.from({ length: 13 }, (_, i) => boardRow(`LIT-${i + 1}`, "todo"));
+    const { lastFrame, unmount } = renderBoard(tmpRoot, makeBuilderWithBoard(board));
+    await flush();
+    const frame = stripVTControlCharacters(lastFrame() ?? "");
+    // First 10 tickets get full rows, 0-indexed ([0]..[9], never [10]).
+    expect(frame).toContain("[0]");
+    expect(frame).toContain("[9]");
+    expect(frame).not.toContain("[10]");
+    // The remaining 3 appear only in the horizontal "+N more" identifier strip.
+    expect(frame).toContain("+3 more");
+    expect(frame).toContain("LIT-11");
+    expect(frame).toContain("LIT-13");
     unmount();
   });
 });

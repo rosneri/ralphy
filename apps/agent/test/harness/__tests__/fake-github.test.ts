@@ -84,15 +84,54 @@ describe("FakeGithub applyIndicator", () => {
     expect(fake.applied.setInProgress).toEqual([]);
   });
 
-  test("in-progress and error indicators add labels and log their slot", async () => {
+  test("in-progress then error logs both slots; error supersedes the in-progress label", async () => {
     const fake = createFakeGithub();
     const issue = fake.seed(seed({ id: "1", identifier: "#1", labels: [GITHUB_LABELS.selection] }));
     await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.inProgress });
     await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.error });
     expect(fake.applied.setInProgress).toEqual(["#1"]);
     expect(fake.applied.setError).toEqual(["#1"]);
-    expect(fake.issues()[0]?.labels).toContain(GITHUB_LABELS.inProgress);
+    // Single-active-status: the prior in-progress label was stripped by the error transition.
+    expect(fake.issues()[0]?.labels).not.toContain(GITHUB_LABELS.inProgress);
     expect(fake.issues()[0]?.labels).toContain(GITHUB_LABELS.error);
+  });
+});
+
+describe("FakeGithub single-active-status invariant", () => {
+  /** Count of `status:*` labels on the issue — must never exceed 1 while open. */
+  const statusLabels = (labels: readonly string[]) => labels.filter((l) => l.startsWith("status:"));
+
+  test("todo → in-progress → review → done keeps at most one status label, then closes", async () => {
+    const fake = createFakeGithub();
+    const issue = fake.seed(seed({ id: "1", identifier: "#1", labels: [GITHUB_LABELS.selection] }));
+
+    // todo: no status label yet.
+    expect(statusLabels(fake.issues()[0]?.labels ?? [])).toEqual([]);
+
+    // → in-progress.
+    await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.inProgress });
+    expect(statusLabels(fake.issues()[0]?.labels ?? [])).toEqual([GITHUB_LABELS.inProgress]);
+
+    // → review: in-progress stripped in the same step.
+    await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.review });
+    expect(statusLabels(fake.issues()[0]?.labels ?? [])).toEqual([GITHUB_LABELS.review]);
+    // The non-status selection label is never stripped.
+    expect(fake.issues()[0]?.labels).toContain(GITHUB_LABELS.selection);
+    expect(await ids(fake.client.fetchReview())).toEqual(["#1"]);
+    expect(await ids(fake.client.fetchInProgress())).toEqual([]);
+
+    // → done: closes the issue into the done-candidates bucket.
+    await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.done });
+    expect(await ids(fake.client.fetchDoneCandidates())).toEqual(["#1"]);
+    expect(await ids(fake.client.fetchReview())).toEqual([]);
+  });
+
+  test("error transition supersedes the prior status label", async () => {
+    const fake = createFakeGithub();
+    const issue = fake.seed(seed({ id: "1", identifier: "#1", labels: [GITHUB_LABELS.selection] }));
+    await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.inProgress });
+    await fake.client.applyIndicator(issue, { type: "label", value: GITHUB_LABELS.error });
+    expect(statusLabels(fake.issues()[0]?.labels ?? [])).toEqual([GITHUB_LABELS.error]);
   });
 });
 

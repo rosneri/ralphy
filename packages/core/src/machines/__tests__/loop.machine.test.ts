@@ -125,4 +125,16 @@ describe("loopMachine", () => {
     actor.send({ type: "ITERATION_DONE", costDeltaUsd: 0 });
     expect(actor.getSnapshot().value).toEqual({ stopped: "maxIterations" });
   });
+
+  test("STATUS_CHANGED away from active stops at stopped.completed", () => {
+    const actor = startActor();
+    actor.send({ type: "STATUS_CHANGED", status: "blocked" });
+    expect(actor.getSnapshot().value).toEqual({ stopped: "completed" });
+  });
+
+  test("STATUS_CHANGED to active keeps running", () => {
+    const actor = startActor();
+    actor.send({ type: "STATUS_CHANGED", status: "active" });
+    expect(actor.getSnapshot().value).toBe("running");
+  });
 });

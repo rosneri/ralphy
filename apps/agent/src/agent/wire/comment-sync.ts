@@ -7,12 +7,10 @@ import {
   type CommentMutations,
 } from "../linear-sync/comment-sync";
 import type { SpecSink } from "../linear-sync/spec-sink";
-import {
-  createIssueComment,
-  updateIssueComment,
-  deleteIssueComment,
-  type LinearIssue,
-} from "../linear";
+import { createIssueComment, updateIssueComment, deleteIssueComment } from "../linear";
+import type { CmdRunner } from "../pr";
+import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 interface CommentSyncInput {
   apiKey: string;
@@ -21,7 +19,11 @@ interface CommentSyncInput {
   onLog: (text: string, color?: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
-  issueByChange: Map<string, LinearIssue>;
+  issueByChange: Map<string, TrackedIssue>;
+  /** Tracker-specific comment mutations. Defaults to the Linear trio. */
+  commentMutations?: CommentMutations;
+  /** Whether the backend credentials are ready. Defaults to `Boolean(apiKey)`. */
+  credentialsReady?: boolean;
   /** Backend-neutral design-doc publisher (Linear attachment / GitHub comment),
    *  selected by `tracker.kind` in `wire.ts`. `null` disables spec sync. */
   specSink: SpecSink | null;
@@ -43,7 +45,8 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   // Wire the hook when *either* is on — gating the spec doc behind
   // `syncTasksToComment` previously left `syncSpecsAsAttachments: true` dead
   // whenever the sticky comment was disabled (no design doc on the issue).
-  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment && apiKey);
+  const credsReady = input.credentialsReady ?? Boolean(apiKey);
+  const commentsEnabled = Boolean(cfg.linear.syncTasksToComment) && credsReady;
   // Spec sync runs when the flag is on AND a backend sink was selected. The
   // sink presence encodes backend availability — the Linear sink is built only
   // when an apiKey exists, the GitHub sink only in github mode.
@@ -51,7 +54,7 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   const enabled = commentsEnabled || specEnabled;
   if (!enabled) return { enabled: false };
 
-  const commentMutations: CommentMutations = {
+  const commentMutations: CommentMutations = input.commentMutations ?? {
     createIssueComment,
     updateIssueComment,
     deleteIssueComment,
@@ -145,4 +148,61 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
         }
       : {}),
   };
+}
+
+interface TrackerCommentSyncInput {
+  /** GitHub mode routes onto `gh`; Linear mode uses the Linear comment API. */
+  isGithubTracker: boolean;
+  apiKey: string;
+  cfg: RalphyConfig;
+  projectRoot: string;
+  onLog: (text: string, color?: string) => void;
+  diag: (area: string, message: string, color?: string) => void;
+  cwdByChange: Map<string, string>;
+  issueByChange: Map<string, TrackedIssue>;
+  cmdRunner: CmdRunner;
+  /** Resolves the GitHub `owner/name` slug (githubProvider.repo). */
+  githubRepo?: () => Promise<string>;
+  /** Backend-neutral design-doc publisher selected in `wire.ts` by
+   *  `tracker.kind` (Linear attachment / GitHub comment). `null` disables it. */
+  specSink: SpecSink | null;
+}
+
+/**
+ * Select the comment-sync hooks for the active tracker. GitHub gets the
+ * marker-idempotent sticky-upsert adapter over `gh`; Linear keeps its comment
+ * API. The design-doc publish is routed through the injected {@link SpecSink}
+ * (Linear attachment in linear mode, embedded sticky comment in github mode).
+ */
+export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): CommentSyncHooks {
+  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange, specSink } = input;
+  if (input.isGithubTracker) {
+    return createCommentSyncHooks({
+      apiKey: "",
+      cfg,
+      projectRoot,
+      onLog,
+      diag,
+      cwdByChange,
+      issueByChange,
+      commentMutations: createGithubCommentMutations({
+        cmdRunner: input.cmdRunner,
+        projectRoot,
+        repo: input.githubRepo!,
+        diag,
+      }),
+      credentialsReady: true,
+      specSink,
+    });
+  }
+  return createCommentSyncHooks({
+    apiKey,
+    cfg,
+    projectRoot,
+    onLog,
+    diag,
+    cwdByChange,
+    issueByChange,
+    specSink,
+  });
 }

@@ -1,8 +1,13 @@
 # RLF-45: ctrl shift t doenst work
 
 Source: [RLF-45](https://linear.app/neriros/issue/RLF-45/ctrl-shift-t-doenst-work)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
+
+> **Superseded:** shipped in PR #168 (`Ctrl+Alt+T`), but most terminals swallow
+> the Alt modifier, so RLF-72 (PR #199) rebound the toggle to `Ctrl+L`. The
+> acceptance criteria below describe the `Ctrl+Alt+T` binding and no longer
+> match the code.
 
 ## Why
 

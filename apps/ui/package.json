@@ -10,12 +10,13 @@
     "dev:frontend": "bunx vite"
   },
   "dependencies": {
+    "@ralphy/config": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
-    "@ralphy/engine": "workspace:*",
     "@ralphy/log": "workspace:*",
     "@ralphy/openspec": "workspace:*",
     "@ralphy/types": "workspace:*",
+    "@ralphy/workflow": "workspace:*",
     "@tauri-apps/api": "^2.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

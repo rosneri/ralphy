@@ -1,7 +1,7 @@
 # RLF-80: Comment indicator
 
 Source: [RLF-80](https://linear.app/neriros/issue/RLF-80/comment-indicator)
-Status: Todo
+Status: Done
 Assignee: Neriya Rosner
 
 ## Why

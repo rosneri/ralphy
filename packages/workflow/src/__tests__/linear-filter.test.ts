@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { resolveLinearFilter, applyAssigneeOverride } from "../linear-filter";
+import { resolveLinearFilter, applyAssigneeOverride, linearFilterScope } from "../linear-filter";
 
 describe("resolveLinearFilter", () => {
   it("resolves an empty filter to no assignee constraint and no required labels", () => {
@@ -139,5 +139,28 @@ describe("applyAssigneeOverride", () => {
       { type: "label", value: "ralph" },
       { type: "assignee", value: "dev@example.com" },
     ]);
+  });
+});
+
+describe("linearFilterScope", () => {
+  it("projects only the non-assignee fields, copying optionals only when present", () => {
+    const minimal = linearFilterScope({ requireAllLabels: ["urgent"] });
+    expect(minimal).toEqual({ requireAllLabels: ["urgent"] });
+    expect("excludeLabels" in minimal).toBe(false);
+    expect("requireProject" in minimal).toBe(false);
+    expect("excludeProjects" in minimal).toBe(false);
+
+    const full = linearFilterScope({
+      requireAllLabels: [],
+      excludeLabels: ["wip"],
+      requireProject: "Roadmap",
+      excludeProjects: ["Icebox"],
+    });
+    expect(full).toEqual({
+      requireAllLabels: [],
+      excludeLabels: ["wip"],
+      requireProject: "Roadmap",
+      excludeProjects: ["Icebox"],
+    });
   });
 });

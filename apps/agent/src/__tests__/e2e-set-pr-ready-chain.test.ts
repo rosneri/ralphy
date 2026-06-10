@@ -20,13 +20,13 @@ import { tmpdir } from "node:os";
 import { runPrPhase, _resetRepoAutoMergeCache } from "../agent/post-task";
 import { createFakeLinear } from "../../test/harness/fake-linear";
 import type { CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 
 const SET_PR_READY: SetIndicator = { type: "status", value: "In Review" };
 const SET_DONE: SetIndicator = { type: "status", value: "Done" };
 
-const ISSUE: LinearIssue = {
+const ISSUE: TrackedIssue = {
   id: "u-1",
   identifier: "ENG-91",
   title: "Add feature",
@@ -147,7 +147,7 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
   });
 
   /** Build the `onPrReady` dep exactly as wire/spawn/worker.ts does. */
-  function onPrReadyFor(linear: ReturnType<typeof createFakeLinear>, issue: LinearIssue) {
+  function onPrReadyFor(linear: ReturnType<typeof createFakeLinear>, issue: TrackedIssue) {
     return async () => {
       await linear.client.applyIndicator(issue, SET_PR_READY);
     };

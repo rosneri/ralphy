@@ -1,7 +1,7 @@
 # RLF-198: Port the preemption protocol into the flow machine
 
 Source: [RLF-198](https://linear.app/neriros/issue/RLF-198/port-the-preemption-protocol-into-the-flow-machine)
-Status: Todo
+Status: Done
 Labels: auto-merge
 
 ## Why

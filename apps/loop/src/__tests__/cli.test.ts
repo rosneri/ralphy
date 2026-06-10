@@ -5,14 +5,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { parseLoopArgs as parseArgs, printLoopHelp as printHelp, VERSION } from "../cli";
 
 describe("parseArgs", () => {
-  test("defaults to task mode with claude/opus", async () => {
+  test("defaults to task mode with no overrides — presence carries intent", async () => {
     const result = await parseArgs([]);
     expect(result.mode).toBe("task");
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("opus");
-    expect(result.maxIterations).toBe(0);
-    expect(result.log).toBe(false);
-    expect(result.engineSet).toBe(false);
+    expect(result.overrides).toEqual({});
+    expect(result.review).toEqual({});
   });
 
   test("parses mode as first positional argument", async () => {
@@ -58,29 +55,26 @@ describe("parseArgs", () => {
     }
   });
 
-  test("parses --claude without model (defaults to opus)", async () => {
+  test("parses --claude without model — engine set, model left to config", async () => {
     const result = await parseArgs(["--claude"]);
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("opus");
-    expect(result.engineSet).toBe(true);
+    expect(result.overrides.engine).toBe("claude");
+    expect(result.overrides.model).toBeUndefined();
   });
 
   test("parses --claude with model", async () => {
     const result = await parseArgs(["--claude", "sonnet"]);
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("sonnet");
-    expect(result.engineSet).toBe(true);
+    expect(result.overrides.engine).toBe("claude");
+    expect(result.overrides.model).toBe("sonnet");
   });
 
   test("parses --claude haiku", async () => {
     const result = await parseArgs(["--claude", "haiku"]);
-    expect(result.model).toBe("haiku");
+    expect(result.overrides.model).toBe("haiku");
   });
 
   test("parses --codex", async () => {
     const result = await parseArgs(["--codex"]);
-    expect(result.engine).toBe("codex");
-    expect(result.engineSet).toBe(true);
+    expect(result.overrides.engine).toBe("codex");
   });
 
   test("throws on conflicting engine flags", async () => {
@@ -94,22 +88,22 @@ describe("parseArgs", () => {
 
   test("parses --max-iterations flag", async () => {
     const result = await parseArgs(["--max-iterations", "20"]);
-    expect(result.maxIterations).toBe(20);
+    expect(result.overrides.maxIterations).toBe(20);
   });
 
   test("parses --log", async () => {
     const result = await parseArgs(["--log"]);
-    expect(result.log).toBe(true);
+    expect(result.overrides.log).toBe(true);
   });
 
   test("parses --delay with value", async () => {
     const result = await parseArgs(["--delay", "5"]);
-    expect(result.delay).toBe(5);
+    expect(result.overrides.delay).toBe(5);
   });
 
-  test("parses --unlimited as maxIterations 0", async () => {
+  test("parses --unlimited as an explicit maxIterations 0 override", async () => {
     const result = await parseArgs(["--max-iterations", "10", "--unlimited"]);
-    expect(result.maxIterations).toBe(0);
+    expect(result.overrides.maxIterations).toBe(0);
   });
 
   test("throws on unknown argument", async () => {
@@ -130,70 +124,72 @@ describe("parseArgs", () => {
       "--log",
     ]);
     expect(result.mode).toBe("task");
-    expect(result.maxIterations).toBe(20);
     expect(result.name).toBe("dark-mode");
     expect(result.prompt).toBe("Add dark/light mode toggle");
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("sonnet");
-    expect(result.log).toBe(true);
+    expect(result.overrides).toEqual({
+      maxIterations: 20,
+      engine: "claude",
+      model: "sonnet",
+      log: true,
+    });
   });
 
-  test("--claude followed by non-model arg uses default model", async () => {
+  test("--claude followed by non-model arg leaves the model unset", async () => {
     const result = await parseArgs(["--claude", "--name", "test"]);
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("opus");
+    expect(result.overrides.engine).toBe("claude");
+    expect(result.overrides.model).toBeUndefined();
     expect(result.name).toBe("test");
   });
 
   test("allows duplicate same-engine flags", async () => {
     const result = await parseArgs(["--claude", "--claude", "haiku"]);
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("haiku");
+    expect(result.overrides.engine).toBe("claude");
+    expect(result.overrides.model).toBe("haiku");
   });
 
   test("parses --model flag", async () => {
     const result = await parseArgs(["--model", "sonnet"]);
-    expect(result.model).toBe("sonnet");
+    expect(result.overrides.model).toBe("sonnet");
   });
 
   test("parses --model haiku", async () => {
     const result = await parseArgs(["--model", "haiku"]);
-    expect(result.model).toBe("haiku");
+    expect(result.overrides.model).toBe("haiku");
   });
 
   test("throws on invalid --model value", async () => {
     await expect(parseArgs(["--model", "gpt4"])).rejects.toThrow("Invalid model");
   });
 
-  test("--model overrides --claude default", async () => {
+  test("--model overrides --claude's optional trailing model", async () => {
     const result = await parseArgs(["--claude", "--model", "haiku"]);
-    expect(result.engine).toBe("claude");
-    expect(result.model).toBe("haiku");
+    expect(result.overrides.engine).toBe("claude");
+    expect(result.overrides.model).toBe("haiku");
   });
 
   test("parses --max-cost flag", async () => {
     const result = await parseArgs(["--max-cost", "5.50"]);
-    expect(result.maxCostUsd).toBe(5.5);
+    expect(result.overrides.maxCostUsd).toBe(5.5);
   });
 
   test("parses --max-runtime flag", async () => {
     const result = await parseArgs(["--max-runtime", "30"]);
-    expect(result.maxRuntimeMinutes).toBe(30);
+    expect(result.overrides.maxRuntimeMinutes).toBe(30);
   });
 
   test("parses --max-failures flag", async () => {
     const result = await parseArgs(["--max-failures", "3"]);
-    expect(result.maxConsecutiveFailures).toBe(3);
+    expect(result.overrides.maxConsecutiveFailures).toBe(3);
   });
 
   test("parses --verbose flag", async () => {
     const result = await parseArgs(["--verbose"]);
-    expect(result.verbose).toBe(true);
+    expect(result.overrides.verbose).toBe(true);
   });
 
   test("parses --manual-test flag", async () => {
     const result = await parseArgs(["--manual-test"]);
-    expect(result.manualTest).toBe(true);
+    expect(result.overrides.manualTest).toBe(true);
   });
 
   test("parses --from-agent flag", async () => {
@@ -205,33 +201,30 @@ describe("parseArgs", () => {
     await expect(parseArgs(["--bogus"])).rejects.toThrow("ralphy loop --help");
   });
 
-  test("reviewPhase defaults to disabled", async () => {
+  test("review overrides default to empty — config decides", async () => {
     const result = await parseArgs([]);
-    expect(result.reviewPhase.enabled).toBe(false);
-    expect(result.reviewPhase.maxRounds).toBe(1);
-    expect(result.reviewPhase.reviewerContextStrategy).toBe("fresh");
-    expect(result.reviewPhase.reviewerModel).toBeUndefined();
+    expect(result.review).toEqual({});
   });
 
-  test("--review-enabled sets reviewPhase.enabled", async () => {
+  test("--review-enabled sets review.enabled", async () => {
     const result = await parseArgs(["--review-enabled"]);
-    expect(result.reviewPhase.enabled).toBe(true);
+    expect(result.review.enabled).toBe(true);
   });
 
   test("--review-model sets reviewerModel and enables review", async () => {
     const result = await parseArgs(["--review-model", "haiku"]);
-    expect(result.reviewPhase.reviewerModel).toBe("haiku");
-    expect(result.reviewPhase.enabled).toBe(true);
+    expect(result.review.reviewerModel).toBe("haiku");
+    expect(result.review.enabled).toBe(true);
   });
 
   test("--review-max-rounds sets maxRounds", async () => {
     const result = await parseArgs(["--review-enabled", "--review-max-rounds", "3"]);
-    expect(result.reviewPhase.maxRounds).toBe(3);
+    expect(result.review.maxRounds).toBe(3);
   });
 
   test("--review-context-strategy warm sets reviewerContextStrategy", async () => {
     const result = await parseArgs(["--review-enabled", "--review-context-strategy", "warm"]);
-    expect(result.reviewPhase.reviewerContextStrategy).toBe("warm");
+    expect(result.review.reviewerContextStrategy).toBe("warm");
   });
 
   test("--review-context-strategy rejects invalid value", async () => {
@@ -249,10 +242,12 @@ describe("parseArgs", () => {
       "--review-context-strategy",
       "warm",
     ]);
-    expect(result.reviewPhase.enabled).toBe(true);
-    expect(result.reviewPhase.reviewerModel).toBe("sonnet");
-    expect(result.reviewPhase.maxRounds).toBe(2);
-    expect(result.reviewPhase.reviewerContextStrategy).toBe("warm");
+    expect(result.review).toEqual({
+      enabled: true,
+      reviewerModel: "sonnet",
+      maxRounds: 2,
+      reviewerContextStrategy: "warm",
+    });
   });
 });
 

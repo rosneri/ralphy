@@ -1,5 +1,5 @@
 import type { Bus, EmitInput } from "@ralphy/events";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { PollContext } from "../shared/capabilities/poll-context";
 import type { FeatureCtx } from "../features/types";
 
@@ -22,7 +22,7 @@ export function recordingBus(events: EmitInput[]): Bus {
   };
 }
 
-const FAKE_ISSUE: LinearIssue = {
+const FAKE_ISSUE: TrackedIssue = {
   id: "issue-bare",
   identifier: "BARE-0",
   title: "bare",

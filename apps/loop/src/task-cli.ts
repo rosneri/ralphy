@@ -1,7 +1,7 @@
 import { log } from "@ralphy/output";
 import { VERSION } from "@ralphy/version";
 import {
-  initialCommonArgs,
+  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
@@ -38,17 +38,20 @@ const TASK_HELP_TEXT = [
   "  --prompt <text>         Task description",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (haiku|sonnet|opus)",
-  "  --claude [model]        Use Claude engine (haiku|sonnet|opus, default: opus)",
+  "  --claude [model]        Use Claude engine (haiku|sonnet|opus)",
   "  --codex                 Use Codex engine",
   "  --delay <seconds>       Seconds between iterations",
   "  --max-iterations <n>    Stop after N iterations (0 = unlimited)",
   "  --max-cost <n>          Stop when total cost exceeds $N (0 = no limit)",
   "  --max-runtime <n>       Stop after N minutes of wall-clock time (0 = no limit)",
   "  --max-failures <n>      Stop after N consecutive failures (default: 5, 0 = disable)",
-  "  --unlimited             No iteration limit (default)",
+  "  --unlimited             No iteration limit",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
   "  --help, -h              Show this help message",
+  "",
+  "Flags override WORKFLOW.md; unset flags fall back to its values, then to",
+  "schema defaults (cli > workflow > default).",
   "",
   "Examples:",
   '  ralphy task execute --name my-feature --prompt "Add dark mode"',
@@ -61,13 +64,11 @@ export function printTaskHelp(): void {
 }
 
 export async function parseTaskArgs(argv: string[]): Promise<TaskParsedArgs> {
-  const common = initialCommonArgs();
   const result: TaskParsedArgs = {
-    ...common,
+    ...emptyCommonArgs(),
     mode: "task",
     phase: "execute",
-    manualTest: false,
-    reviewPhase: { enabled: false, maxRounds: 1, reviewerContextStrategy: "fresh" },
+    review: {},
   };
 
   const state = emptyParseState();

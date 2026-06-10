@@ -17,14 +17,14 @@ import { unionMarkers } from "../agent/wire/indicators";
 import { issueMatchesGetIndicator } from "../agent/linear";
 import { createFakeLinear } from "../../test/harness/fake-linear";
 import type { CmdRunner } from "../agent/pr";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 
 const SET_PR_READY: SetIndicator = { type: "status", value: "In Review" };
 const SET_DONE: SetIndicator = { type: "status", value: "Done" };
 const SET_ERROR: SetIndicator = { type: "label", value: "ralphy:error" };
 
-const ISSUE: LinearIssue = {
+const ISSUE: TrackedIssue = {
   id: "u-1",
   identifier: "ENG-77",
   title: "Add feature",
@@ -91,7 +91,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
   });
 
   /** Build the `onPrReady` dep exactly as wire/spawn/worker.ts does. */
-  function onPrReadyFor(linear: ReturnType<typeof createFakeLinear>, issue: LinearIssue) {
+  function onPrReadyFor(linear: ReturnType<typeof createFakeLinear>, issue: TrackedIssue) {
     return async () => {
       await linear.client.applyIndicator(issue, SET_PR_READY);
     };
@@ -224,7 +224,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
     expect(exclude.some((m) => m.type === "status" && m.value === "In Review")).toBe(false);
 
     // An issue carrying the setPrReady marker still matches a getTodo filter.
-    const issueWithReady: LinearIssue = {
+    const issueWithReady: TrackedIssue = {
       ...ISSUE,
       labels: ["ralphy:todo"],
       state: { name: "In Review", type: "started" },

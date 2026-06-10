@@ -10,6 +10,7 @@
     "./format": "./src/format.ts",
     "./init": "./src/init.ts",
     "./loop": "./src/loop.ts",
+    "./loop-runner": "./src/loop-runner/index.ts",
     "./tasks-md": "./src/tasks-md.ts",
     "./layout": "./src/layout.ts",
     "./progress": "./src/progress.ts",
@@ -24,7 +25,9 @@
     "@ralphy/comms": "workspace:*",
     "@ralphy/content": "workspace:*",
     "@ralphy/context": "workspace:*",
+    "@ralphy/engine": "workspace:*",
     "@ralphy/events": "workspace:*",
+    "@ralphy/openspec": "workspace:*",
     "@ralphy/types": "workspace:*",
     "@ralphy/version": "workspace:*",
     "xstate": "^5"

@@ -10,7 +10,7 @@ import { createBus } from "@ralphy/events";
 import type { RalphEvent } from "@ralphy/events";
 import { installShutdown } from "../shutdown";
 import { AgentCoordinator } from "../coordinator";
-import type { LinearIssue } from "../../shared/capabilities/linear-client";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 15; i++) await new Promise((r) => setTimeout(r, 5));
 }
 
-function makeIssue(id: string): LinearIssue {
+function makeIssue(id: string): TrackedIssue {
   return {
     id,
     identifier: `RLF-${id.toUpperCase()}`,
@@ -82,7 +82,7 @@ interface CoordFixture {
 
 function makeCoord(
   opts: { concurrency: number; maxTickets?: number },
-  todo: LinearIssue[],
+  todo: TrackedIssue[],
 ): CoordFixture {
   const handles: FakeHandle[] = [];
   const spawned: string[] = [];
@@ -247,8 +247,8 @@ describe("S6.7 — no new workers spawned after stop()", () => {
 
   it("no new workers spawned when stop() is called mid-poll", async () => {
     const spawned: string[] = [];
-    let resolveFetch!: (issues: LinearIssue[]) => void;
-    const fetchPromise = new Promise<LinearIssue[]>((r) => {
+    let resolveFetch!: (issues: TrackedIssue[]) => void;
+    const fetchPromise = new Promise<TrackedIssue[]>((r) => {
       resolveFetch = r;
     });
 

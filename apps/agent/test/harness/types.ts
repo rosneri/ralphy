@@ -1,8 +1,7 @@
-import type { LinearIssue } from "../../src/shared/capabilities/linear-client";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { CoordinatorDeps } from "../../src/runtime/coordinator";
 
-export type { LinearIssue };
+export type { TrackedIssue };
 
 /** One scripted engine turn played back by `scripted-engine.ts`. */
 export interface ScenarioStep {
@@ -48,7 +47,7 @@ export interface HarnessCtx {
   linear: {
     client: IssueTrackerProvider;
     applied: AppliedLog;
-    seed: (issue: SeedIssue) => LinearIssue;
+    seed: (issue: SeedIssue) => TrackedIssue;
     setLabels: (id: string, labels: string[]) => void;
     setStatus: (id: string, name: string, type: string) => void;
     pushComment: (issueId: string, body: string, author?: string) => void;
@@ -59,7 +58,7 @@ export interface HarnessCtx {
       at: Date,
     ) => void;
     comments: (issueId: string) => readonly FakeLinearComment[];
-    issues: () => readonly LinearIssue[];
+    issues: () => readonly TrackedIssue[];
   };
   runWorkerToCompletion: () => Promise<void>;
   cleanup: () => Promise<void>;

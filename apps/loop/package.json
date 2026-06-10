@@ -9,10 +9,10 @@
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
     "@ralphy/cli-args": "workspace:*",
+    "@ralphy/config": "workspace:*",
     "@ralphy/context": "workspace:*",
     "@ralphy/core": "workspace:*",
     "@ralphy/engine": "workspace:*",
-    "@ralphy/events": "workspace:*",
     "@ralphy/log": "workspace:*",
     "@ralphy/openspec": "workspace:*",
     "@ralphy/output": "workspace:*",
@@ -22,8 +22,7 @@
     "@ralphy/version": "workspace:*",
     "@ralphy/workflow": "workspace:*",
     "ink": "^5.1.0",
-    "react": "^18.3.1",
-    "xstate": "^5"
+    "react": "^18.3.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

@@ -5,12 +5,12 @@ import {
   type QueueEntry,
   type QueueTrigger,
 } from "../queue/queue-order";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 interface IssueOverrides {
   labels?: string[];
-  project?: LinearIssue["project"];
-  milestone?: LinearIssue["milestone"];
+  project?: TrackedIssue["project"];
+  milestone?: TrackedIssue["milestone"];
   blockedByIds?: string[];
 }
 
@@ -20,7 +20,7 @@ function issue(
   priority: number,
   createdAt: string,
   overrides: IssueOverrides = {},
-): LinearIssue {
+): TrackedIssue {
   return {
     id,
     identifier,

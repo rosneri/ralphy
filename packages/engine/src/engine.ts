@@ -6,6 +6,8 @@ import { type FeedEvent, renderFeedEvent } from "./feed-events";
 import { getAgent } from "./agents";
 import type { Agent, AgentRequest } from "./agents";
 
+export type { Agent, AgentRequest, AgentRunResult } from "./agents";
+
 export interface RunEngineOptions {
   engine: Engine;
   model: string;

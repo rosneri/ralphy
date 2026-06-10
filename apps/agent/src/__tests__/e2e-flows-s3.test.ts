@@ -515,6 +515,9 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 1: fresh-mode spawn for issue1 (plan phase), fresh for issue2 not yet (concurrency=1)
     await coord.pollOnce();
+    // Deflake: pickup/spawn side effects land asynchronously after pollOnce —
+    // wait for the coordinator to settle (the S10 pattern) before moving on.
+    await coord.whenSettled();
     await tick();
     // After poll 1, issue1 is being planned (fresh spawn) and issue2 hasn't been picked up yet (concurrency=1)
 
@@ -530,6 +533,7 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 2: issue1 moves to awaiting-confirmation (gate fires), issue2 picked up
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     // Gate fires for issue1: "Ralphy plan ready" comment posted
@@ -608,6 +612,7 @@ describe("S3 — coordinator flow routing", () => {
     await coord.init();
 
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     // Stage-2-correct: mention wins → worker spawned with review/mention trigger.
@@ -712,6 +717,7 @@ describe("S3 — coordinator flow routing", () => {
     await coord.init();
 
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     // Stage-2-correct: conflict-fix spawns, not the stuck flow.
@@ -772,6 +778,7 @@ describe("S3 — coordinator flow routing", () => {
 
       // Poll 1: fresh spawn
       await coord.pollOnce();
+      await coord.whenSettled();
       await tick();
       expect(workers.has(changeName)).toBe(true);
 
@@ -780,6 +787,7 @@ describe("S3 — coordinator flow routing", () => {
 
       // Poll 2: coordinator must detect conflict and kill active worker
       await coord.pollOnce();
+      await coord.whenSettled();
       await tick();
 
       // Stage-2-correct: the worker's exited promise resolved with 143 (SIGKILL)
@@ -845,6 +853,7 @@ describe("S3 — coordinator flow routing", () => {
     // CI is now passing (mergeable, no failing checks)
     // Poll: awaiting-ci "pass" should fire and the ticket should resume
     const poll = await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     // Stage-2-correct: the awaiting-ci bucket clears, ticket resumes or Done.
@@ -898,6 +907,7 @@ describe("S3 — coordinator flow routing", () => {
 
     // Phase 1: new-ticket → implement → done
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(workers.has(changeName)).toBe(true);
     workers.get(changeName)!.resolve(0);
@@ -911,6 +921,7 @@ describe("S3 — coordinator flow routing", () => {
     // Phase 2: conflict-fix (Done ticket, PR goes CONFLICTING)
     setMergeable(changeName, "CONFLICTING");
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     // Conflict-fix worker spawned
     expect(spawnCalls.filter((c) => c.includes(changeName)).length).toBeGreaterThanOrEqual(2);
@@ -976,6 +987,7 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 1: conflicting PR → conflict-fix worker spawns. Ticket NOT done.
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(spawnCalls.some((c) => c.includes(changeName))).toBe(true);
     expect(linear.statusMutations.some((m) => m.statusName === "Done")).toBe(false);
@@ -989,6 +1001,7 @@ describe("S3 — coordinator flow routing", () => {
     // Poll 2: PR is mergeable → the watcher advances the in-review ticket to done.
     setMergeable(changeName, "MERGEABLE");
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-s312-1",
@@ -1049,6 +1062,7 @@ describe("S3 — coordinator flow routing", () => {
     await coord.init();
 
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     // No conflict-fix worker spawned, no conflict comment posted.
     expect(spawnCalls.some((c) => c.includes(changeName))).toBe(false);
@@ -1164,6 +1178,7 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 1: fresh pickup → worker spawns (ticket moves to In Progress).
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     const changeName = [...workers.keys()][0];
     expect(changeName).toBeDefined();
@@ -1177,6 +1192,7 @@ describe("S3 — coordinator flow routing", () => {
     // Poll 2: the PR is now mergeable → the watcher advances the ticket to done.
     prMergeable = true;
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(linear.statusMutations).toContainEqual({
       issueId: "uuid-s314-1",
@@ -1214,6 +1230,7 @@ describe("S3 — coordinator flow routing", () => {
     await coord.init();
 
     const poll = await coord.pollOnce();
+    await coord.whenSettled();
 
     expect(poll.added).toBe(0);
     expect(spawnCalls.length).toBe(0);
@@ -1292,12 +1309,14 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 1: fresh spawn
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(workers.has(changeName)).toBe(true);
     await fillDesign();
 
     // Poll 2: gate fires (rounds=0), plan-ready posted
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(linear.comments.some((c) => c.body.includes("type=plan-ready"))).toBe(true);
 
@@ -1315,12 +1334,14 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 3: revise consumed → rounds=1 (== cap)
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
 
     await fillDesign();
 
     // Poll 4: cap exhausted → stuck comment posted, stuckPostedAt set
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     expect(linear.comments.some((c) => c.body.includes("confirmation gate stuck"))).toBe(true);
 
@@ -1331,6 +1352,7 @@ describe("S3 — coordinator flow routing", () => {
 
     // Poll 5: stuckPostedAt is set → no re-post
     await coord.pollOnce();
+    await coord.whenSettled();
     await tick();
     const stuckCommentsAfter = linear.comments.filter((c) =>
       c.body.includes("confirmation gate stuck"),

@@ -1,31 +1,48 @@
 import { resolve } from "node:path";
 import type { Engine } from "@ralphy/types";
-import { COMMON_CLI_OPTIONS, modelOptionValues, type CliOption } from "@ralphy/workflow/fields";
+import {
+  COMMON_CLI_OPTIONS,
+  modelOptionValues,
+  type CliOption,
+} from "@ralphy/workflow/cli-options";
 
 /**
  * Common CLI flags shared by the loop / agent / task entrypoints.
  *
+ * The parse result is SPARSE: `overrides` contains exactly the keys the user
+ * passed on argv — no baked defaults, no `engineSet`-style sentinels. Presence
+ * is the only signal of user intent; `@ralphy/config` merges these overrides
+ * onto the WORKFLOW.md config with explicit `cli > workflow > default`
+ * precedence. Any API that re-introduces pre-filled defaults into a parse
+ * result is a regression.
+ *
  * The set of config-backed flags (which flag exists, its value kind, and the
- * WORKFLOW.md field it maps to) is declared once in `@ralphy/workflow/fields`
- * as `COMMON_CLI_OPTIONS` and consumed here — so the wizard and the CLI never
- * drift. This module owns only the CommonArgs-specific concerns: the typed
- * assignment of each parsed value and the bespoke flags that have no config
- * field (`--claude`/`--codex`, `--unlimited`, `--name`, `--prompt`, …).
+ * WORKFLOW.md field it maps to) is declared once in
+ * `@ralphy/workflow/cli-options` and consumed here. This module owns only the
+ * typed assignment of each parsed value and the bespoke flags that have no
+ * config field (`--claude`/`--codex`, `--unlimited`, `--name`, `--prompt`, …).
  */
 
-const VALID_MODELS = new Set<string>(modelOptionValues());
+/**
+ * Only keys the user explicitly passed on argv. `--claude [model]` /
+ * `--codex` set `engine` (and optionally `model`); `--unlimited` sets
+ * `maxIterations: 0` — an explicit zero, distinct from "not passed".
+ */
+export interface CliOverrides {
+  engine?: Engine;
+  model?: string;
+  maxIterations?: number;
+  maxCostUsd?: number;
+  maxRuntimeMinutes?: number;
+  maxConsecutiveFailures?: number;
+  delay?: number;
+  log?: boolean;
+  verbose?: boolean;
+  manualTest?: boolean;
+}
 
-export interface CommonArgs {
-  engine: Engine;
-  model: string;
-  engineSet: boolean;
-  maxIterations: number;
-  maxCostUsd: number;
-  maxRuntimeMinutes: number;
-  maxConsecutiveFailures: number;
-  delay: number;
-  log: boolean;
-  verbose: boolean;
+/** Bespoke flags with no WORKFLOW.md counterpart — pass-through, never merged. */
+export interface CliPassthrough {
   projectRoot?: string | undefined;
   /** Absolute path to an alternate WORKFLOW.md (`--workflow`). Resolved against
    *  `--project-root` when that flag is given, otherwise against cwd. */
@@ -38,18 +55,14 @@ export interface CommonArgs {
   fromAgent: boolean;
 }
 
-export function initialCommonArgs(): CommonArgs {
+export interface CommonArgs extends CliPassthrough {
+  /** Sparse config overrides — exactly what argv set. */
+  overrides: CliOverrides;
+}
+
+export function emptyCommonArgs(): CommonArgs {
   return {
-    engine: "claude",
-    model: "opus",
-    engineSet: false,
-    maxIterations: 0,
-    maxCostUsd: 0,
-    maxRuntimeMinutes: 0,
-    maxConsecutiveFailures: 5,
-    delay: 0,
-    log: false,
-    verbose: false,
+    overrides: {},
     projectRoot: undefined,
     workflowFile: undefined,
     name: "",
@@ -57,6 +70,8 @@ export function initialCommonArgs(): CommonArgs {
     fromAgent: false,
   };
 }
+
+const VALID_MODELS = new Set<string>(modelOptionValues());
 
 // ─── Config-backed flags, derived from the shared catalogue ──────────────────
 
@@ -68,37 +83,40 @@ const VALUE_FLAGS = new Set<string>(
 );
 
 /** Typed assignment for each value-taking option, keyed by its `argKey`. */
-type ValueSetter = (args: CommonArgs, raw: string) => void;
+type ValueSetter = (overrides: CliOverrides, raw: string) => void;
 const VALUE_SETTERS: Record<string, ValueSetter> = {
-  model: (args, raw) => {
+  model: (overrides, raw) => {
     if (!VALID_MODELS.has(raw)) throw new Error("Invalid model");
-    args.model = raw;
+    overrides.model = raw;
   },
-  delay: (args, raw) => {
-    args.delay = parseInt(raw, 10);
+  delay: (overrides, raw) => {
+    overrides.delay = parseInt(raw, 10);
   },
-  maxCostUsd: (args, raw) => {
-    args.maxCostUsd = parseFloat(raw);
+  maxCostUsd: (overrides, raw) => {
+    overrides.maxCostUsd = parseFloat(raw);
   },
-  maxRuntimeMinutes: (args, raw) => {
-    args.maxRuntimeMinutes = parseFloat(raw);
+  maxRuntimeMinutes: (overrides, raw) => {
+    overrides.maxRuntimeMinutes = parseFloat(raw);
   },
-  maxConsecutiveFailures: (args, raw) => {
-    args.maxConsecutiveFailures = parseInt(raw, 10);
+  maxConsecutiveFailures: (overrides, raw) => {
+    overrides.maxConsecutiveFailures = parseInt(raw, 10);
   },
-  maxIterations: (args, raw) => {
-    args.maxIterations = parseInt(raw, 10);
+  maxIterations: (overrides, raw) => {
+    overrides.maxIterations = parseInt(raw, 10);
   },
 };
 
 /** Typed assignment for each bare boolean option, keyed by its `argKey`. */
-type BooleanSetter = (args: CommonArgs) => void;
+type BooleanSetter = (overrides: CliOverrides) => void;
 const BOOLEAN_SETTERS: Record<string, BooleanSetter> = {
-  log: (args) => {
-    args.log = true;
+  log: (overrides) => {
+    overrides.log = true;
   },
-  verbose: (args) => {
-    args.verbose = true;
+  verbose: (overrides) => {
+    overrides.verbose = true;
+  },
+  manualTest: (overrides) => {
+    overrides.manualTest = true;
   },
 };
 
@@ -106,14 +124,14 @@ function applyValueOption(option: CliOption, args: CommonArgs, raw: string): voi
   const setter = VALUE_SETTERS[option.argKey];
   // Invariant: every value-kind COMMON_CLI_OPTION must have a setter here.
   if (!setter) throw new Error("no value setter registered for CLI option");
-  setter(args, raw);
+  setter(args.overrides, raw);
 }
 
 function applyBooleanOption(option: CliOption, args: CommonArgs): void {
   const setter = BOOLEAN_SETTERS[option.argKey];
   // Invariant: every boolean-kind COMMON_CLI_OPTION must have a setter here.
   if (!setter) throw new Error("no boolean setter registered for CLI option");
-  setter(args);
+  setter(args.overrides);
 }
 
 /** True if `flag` is a common flag that expects a following value. */
@@ -171,6 +189,13 @@ export function emptyParseState(): ParseState {
   };
 }
 
+function setEngine(overrides: CliOverrides, engine: Engine): void {
+  if (overrides.engine !== undefined && overrides.engine !== engine) {
+    throw new Error("Choose only one engine flag: --claude or --codex");
+  }
+  overrides.engine = engine;
+}
+
 /**
  * Try to handle one argv token as part of the common arg set.
  * Returns true when the token was consumed.
@@ -187,7 +212,7 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
   if (state.expectClaudeModel) {
     state.expectClaudeModel = false;
     if (VALID_MODELS.has(arg)) {
-      args.model = arg;
+      args.overrides.model = arg;
       return true;
     }
     // Token wasn't a model — fall through and let it be parsed normally.
@@ -235,22 +260,16 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
 
   switch (arg) {
     case "--claude":
-      if (args.engineSet && args.engine !== "claude") {
-        throw new Error("Choose only one engine flag: --claude or --codex");
-      }
-      args.engine = "claude";
-      args.engineSet = true;
+      setEngine(args.overrides, "claude");
       state.expectClaudeModel = true;
       return true;
     case "--codex":
-      if (args.engineSet && args.engine !== "codex") {
-        throw new Error("Choose only one engine flag: --claude or --codex");
-      }
-      args.engine = "codex";
-      args.engineSet = true;
+      setEngine(args.overrides, "codex");
       return true;
     case "--unlimited":
-      args.maxIterations = 0;
+      // An explicit "no limit" — recorded as a real override so it wins over
+      // a WORKFLOW.md `maxIterationsPerTask`.
+      args.overrides.maxIterations = 0;
       return true;
     case "--project-root":
       state.expectProjectRoot = true;
@@ -279,11 +298,17 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
  * Resolve a deferred `--prompt-file` path into `args.prompt`.
  *
  * `parseCommonArg` is synchronous, so it only records the file path; callers
- * invoke this once after the parse loop to perform the async file read.
+ * invoke this once after the parse loop to perform the async file read. The
+ * reader is injectable so `@ralphy/config` can route it through its
+ * `ConfigFileSystem`.
  */
-export async function resolvePromptFile(args: CommonArgs, state: ParseState): Promise<void> {
+export async function resolvePromptFile(
+  args: CommonArgs,
+  state: ParseState,
+  readText: (path: string) => Promise<string> = (path) => Bun.file(path).text(),
+): Promise<void> {
   if (state.promptFilePath !== null) {
-    args.prompt = await Bun.file(state.promptFilePath).text();
+    args.prompt = await readText(state.promptFilePath);
   }
 }
 
@@ -301,6 +326,26 @@ export function resolveWorkflowFile(args: CommonArgs, state: ParseState): void {
 }
 
 /**
+ * Parse the full common arg set out of an argv slice, skipping unknown tokens
+ * (an app's bespoke flags). Returns the sparse result plus the unconsumed
+ * tokens, so callers can either parse the rest themselves or reject leftovers.
+ */
+export async function parseCommonArgv(
+  argv: string[],
+  readText?: (path: string) => Promise<string>,
+): Promise<{ args: CommonArgs; rest: string[] }> {
+  const args = emptyCommonArgs();
+  const state = emptyParseState();
+  const rest: string[] = [];
+  for (const token of argv) {
+    if (!parseCommonArg(token, args, state)) rest.push(token);
+  }
+  await resolvePromptFile(args, state, readText);
+  resolveWorkflowFile(args, state);
+  return { args, rest };
+}
+
+/**
  * Parse only the WORKFLOW.md path overrides (`--project-root`, `--workflow`)
  * from an argv slice, ignoring every other token. For entrypoints that need
  * the target file path without a full parse — e.g. `ralphy init` and the shell
@@ -312,7 +357,7 @@ export function parseWorkflowPathArgs(argv: string[]): {
   projectRoot: string | undefined;
   workflowFile: string | undefined;
 } {
-  const args = initialCommonArgs();
+  const args = emptyCommonArgs();
   const state = emptyParseState();
   for (const token of argv) parseCommonArg(token, args, state);
   resolveWorkflowFile(args, state);

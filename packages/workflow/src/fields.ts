@@ -11,6 +11,7 @@
  * WORKFLOW.md (a test keeps the two in sync). Migrations reference these ids.
  */
 import type { WizardValue } from "./wizard-types";
+import { enumValuesAt } from "./schema-meta/introspect";
 
 export type FieldSpec =
   | { kind: "text"; placeholder?: string }
@@ -47,6 +48,35 @@ export interface Field {
 
 const yes = (): FieldSpec => ({ kind: "confirm", defaultChoice: "confirm" });
 const no = (): FieldSpec => ({ kind: "confirm", defaultChoice: "cancel" });
+
+/**
+ * Build a select/multiselect spec whose options come from the schema's enum at
+ * the field's own config path — the schema is the single source of truth for
+ * which values exist; the catalogue only overlays display labels when they
+ * differ from the raw value. Throws at module load if the path is not
+ * enum-backed, so a renamed schema key fails fast rather than rendering an
+ * empty select.
+ */
+function selectFromSchema(fieldId: string, labels: Record<string, string> = {}): FieldSpec {
+  return { kind: "select", options: enumOptions(fieldId, labels) };
+}
+
+function multiselectFromSchema(fieldId: string, labels: Record<string, string> = {}): FieldSpec {
+  return { kind: "multiselect", options: enumOptions(fieldId, labels) };
+}
+
+function enumOptions(
+  fieldId: string,
+  labels: Record<string, string>,
+): { label: string; value: string }[] {
+  const values = enumValuesAt(fieldId.split("."));
+  if (!values || values.length === 0) {
+    const err = new Error("field is not backed by a schema enum") as Error & { fieldId?: string };
+    err.fieldId = fieldId;
+    throw err;
+  }
+  return values.map((value) => ({ label: labels[value] ?? value, value }));
+}
 
 const PROJECT_NAME: Field = {
   id: "project.name",
@@ -219,27 +249,14 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Engine",
     description:
       "Which AI coding tool runs the loop: 'claude' (Claude Code) or 'codex' (OpenAI Codex).",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "claude", value: "claude" },
-        { label: "codex", value: "codex" },
-      ],
-    },
+    spec: selectFromSchema("engine"),
   },
   {
     id: "model",
     label: "Model tier",
     description:
       "Model tier the engine uses. 'opus' is the most capable, 'haiku' the cheapest and fastest; higher tiers cost more per token.",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "opus", value: "opus" },
-        { label: "sonnet", value: "sonnet" },
-        { label: "haiku", value: "haiku" },
-      ],
-    },
+    spec: selectFromSchema("model"),
   },
   {
     id: "logRawStream",
@@ -262,13 +279,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Issue tracker",
     description:
       "Which issue tracker drives the loop: 'linear' (the default) or 'github' (GitHub Issues, via the gh CLI).",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "Linear", value: "linear" },
-        { label: "GitHub", value: "github" },
-      ],
-    },
+    spec: selectFromSchema("tracker.kind", { linear: "Linear", github: "GitHub" }),
   },
   {
     id: "github.issues.repo",
@@ -469,14 +480,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Auto-merge strategy",
     description:
       "How GitHub combines the PR's commits when it auto-merges: squash (one commit), merge (a merge commit), or rebase.",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "squash", value: "squash" },
-        { label: "merge", value: "merge" },
-        { label: "rebase", value: "rebase" },
-      ],
-    },
+    spec: selectFromSchema("autoMergeStrategy"),
     when: isOn("createPrOnSuccess"),
   },
   {
@@ -600,13 +604,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Plan attachment formats",
     description:
       "Which formats to upload the spec docs in: 'md' (raw markdown), 'pdf' (a rendered PDF), or both.",
-    spec: {
-      kind: "multiselect",
-      options: [
-        { label: "md", value: "md" },
-        { label: "pdf", value: "pdf" },
-      ],
-    },
+    spec: multiselectFromSchema("linear.specAttachmentFormats"),
     when: isOn("linear.syncSpecsAsAttachments"),
   },
   // `linear.specAttachmentRevisions` is deliberately NOT a wizard field —
@@ -689,15 +687,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Per-ticket effort tier",
     description:
       "How much effort the meta-prompt nudges the agent toward per ticket. 'auto' detects it from the ticket; 'light'/'standard'/'heavy' pin every ticket to that tier.",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "auto", value: "auto" },
-        { label: "light", value: "light" },
-        { label: "standard", value: "standard" },
-        { label: "heavy", value: "heavy" },
-      ],
-    },
+    spec: selectFromSchema("metaPrompt.effort"),
     when: isOn("metaPrompt.enabled"),
   },
   {
@@ -727,13 +717,7 @@ const CUSTOMIZED_FIELDS: Field[] = [
     label: "Reviewer context",
     description:
       "'fresh' gives the reviewer a brand-new session (unbiased); 'warm' resumes the last task's session (more context, cheaper).",
-    spec: {
-      kind: "select",
-      options: [
-        { label: "fresh", value: "fresh" },
-        { label: "warm", value: "warm" },
-      ],
-    },
+    spec: selectFromSchema("openspec.reviewPhase.reviewerContextStrategy"),
     when: isOn("openspec.reviewPhase.enabled"),
   },
 
@@ -773,56 +757,6 @@ type SetupModeLike = "quick" | "permissive" | "customized";
 export function findField(id: string): Field | undefined {
   // Quick fields are a subset of the customized catalogue, so this covers both.
   return CUSTOMIZED_FIELDS.find((field) => field.id === id);
-}
-
-/** How a CLI flag's following token is parsed (or that it is a bare boolean). */
-export type CliValueKind = "int" | "float" | "model" | "boolean";
-
-/**
- * A CLI flag that writes a WORKFLOW.md setting. `fieldId` points at a real
- * catalogue field so the wizard and the CLI share one definition; `argKey` is
- * the property set on the parsed args object — its name intentionally differs
- * from the config path (e.g. `--max-iterations` → field `maxIterationsPerTask`
- * → `args.maxIterations`). Engine selection, `--unlimited`, and the non-config
- * flags (`--name`, `--prompt`, …) stay bespoke in the parser.
- */
-export interface CliOption {
-  fieldId: string;
-  flag: string;
-  argKey: string;
-  kind: CliValueKind;
-}
-
-export const COMMON_CLI_OPTIONS: CliOption[] = [
-  { fieldId: "model", flag: "--model", argKey: "model", kind: "model" },
-  { fieldId: "iterationDelaySeconds", flag: "--delay", argKey: "delay", kind: "int" },
-  { fieldId: "maxCostUsdPerTask", flag: "--max-cost", argKey: "maxCostUsd", kind: "float" },
-  {
-    fieldId: "maxRuntimeMinutesPerTask",
-    flag: "--max-runtime",
-    argKey: "maxRuntimeMinutes",
-    kind: "float",
-  },
-  {
-    fieldId: "maxConsecutiveFailuresPerTask",
-    flag: "--max-failures",
-    argKey: "maxConsecutiveFailures",
-    kind: "int",
-  },
-  {
-    fieldId: "maxIterationsPerTask",
-    flag: "--max-iterations",
-    argKey: "maxIterations",
-    kind: "int",
-  },
-  { fieldId: "logRawStream", flag: "--log", argKey: "log", kind: "boolean" },
-  { fieldId: "taskVerbose", flag: "--verbose", argKey: "verbose", kind: "boolean" },
-];
-
-/** Valid model values, sourced from the catalogue's `model` select field. */
-export function modelOptionValues(): string[] {
-  const field = findField("model");
-  return field && field.spec.kind === "select" ? field.spec.options.map((o) => o.value) : [];
 }
 
 /**

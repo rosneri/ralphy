@@ -11,6 +11,7 @@ stateDiagram-v2
   running --> checkingStop: ITERATION_DONE
   running --> checkingStop: ITERATION_FAILED
   running --> stopped_rateLimited: RATE_LIMITED
+  running --> checkingStop: STATUS_CHANGED
   running --> stopped_stranded: ALL_TASKS_DONE [guard]
   running --> stopped_completed: ALL_TASKS_DONE [guard]
   state stopped {

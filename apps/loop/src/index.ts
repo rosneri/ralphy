@@ -3,12 +3,14 @@ import { exists, mkdir, rm } from "node:fs/promises";
 import { render } from "ink";
 import { createElement } from "react";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
+import { resolveParsedConfig } from "@ralphy/config";
 import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot, worktreesDir } from "@ralphy/paths";
 import { resolveOpenspecBin } from "@ralphy/openspec";
 import { parseLoopArgs, printLoopHelp } from "./cli";
 import { parseTaskArgs, printTaskHelp } from "./task-cli";
 import { App } from "./components/App";
+import { applyWorkerColumnsOverride } from "./stdout-columns";
 import { runDebug } from "./debug";
 
 /**
@@ -143,8 +145,13 @@ export async function main(argv: string[]): Promise<number> {
     await ensureRalphGitignore(projectRoot);
   }
 
+  // One merge point: WORKFLOW.md ⊕ the sparse CLI overrides, resolved once at
+  // boot. The TUI reads effective values from here, never from raw args.
+  const resolved = await resolveParsedConfig({ args, projectRoot });
+
+  applyWorkerColumnsOverride();
   await runWithContext(createDefaultContext({ layout, args }), async () => {
-    const { waitUntilExit } = render(createElement(App, { args }));
+    const { waitUntilExit } = render(createElement(App, { args, resolved }));
     await waitUntilExit();
   });
 
@@ -175,11 +182,15 @@ export async function taskMain(argv: string[]): Promise<number> {
   await mkdir(join(tasksDir, args.name), { recursive: true });
   await ensureRalphGitignore(projectRoot);
 
+  const resolved = await resolveParsedConfig({ args, projectRoot });
+
+  applyWorkerColumnsOverride();
   // parseTaskArgs returns a LoopParsedArgs superset, so App consumes it directly.
   await runWithContext(createDefaultContext({ layout, args }), async () => {
     const { waitUntilExit } = render(
       createElement(App, {
         args,
+        resolved,
         taskPhase: args.phase,
       }),
     );

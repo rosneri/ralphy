@@ -484,6 +484,10 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
     // ---- 3. First poll: pickup, setInProgress, scaffold, spawn ----
     const poll1 = await coord.pollOnce();
     expect(poll1.added).toBe(1);
+    // Deflake: pickup side effects (setInProgress, scaffold, spawn) land
+    // asynchronously after pollOnce — wait for the coordinator to settle
+    // (the S10 pattern) before asserting on them.
+    await coord.whenSettled();
     await tick();
 
     // setInProgress was applied via the status mutation

@@ -4,12 +4,8 @@ import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@
 import type { GetIndicator, Indicators, LinearFilterScope, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
-import {
-  fetchOpenIssues,
-  fetchAttachmentsForIssues,
-  type LinearFilterSpec,
-  type LinearIssue,
-} from "./agent/linear";
+import { fetchOpenIssues, fetchAttachmentsForIssues, type LinearFilterSpec } from "./agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
@@ -157,7 +153,7 @@ async function fetchBucketIssues(
   anyAssignee: boolean | undefined,
   scope: LinearFilterScope,
   ticketNumbers: number[],
-): Promise<LinearIssue[]> {
+): Promise<TrackedIssue[]> {
   if (!bucket.indicator || bucket.indicator.filter.length === 0) return [];
   const spec: LinearFilterSpec = {
     team,
@@ -243,7 +239,7 @@ export function formatPrStatusMarker(status: PrStatus | null, failedCheckNames?:
  * `bucketOrder` so the rendered order matches the agent queue's pickup order
  * for the same input. Pure (no IO); exported for consistency tests.
  */
-export function backlogRankByIssueId(issues: LinearIssue[]): Map<string, number> {
+export function backlogRankByIssueId(issues: TrackedIssue[]): Map<string, number> {
   const ordered = orderIssuesHierarchically(issues.map((issue) => linearIssueToOrderable(issue)));
   const rankById = new Map<string, number>();
   ordered.forEach((o, i) => rankById.set(o.id, i));
@@ -268,7 +264,7 @@ async function fetchAndPrintLinear(
   const bucketResults = await Promise.all(
     buckets.map(async (bucket) => {
       if (!bucket.indicator || bucket.indicator.filter.length === 0) {
-        return { bucket, issues: [] as LinearIssue[], error: null as string | null };
+        return { bucket, issues: [] as TrackedIssue[], error: null as string | null };
       }
       try {
         const issues = await fetchBucketIssues(
@@ -284,7 +280,7 @@ async function fetchAndPrintLinear(
       } catch (err) {
         return {
           bucket,
-          issues: [] as LinearIssue[],
+          issues: [] as TrackedIssue[],
           error: err instanceof Error ? err.message : String(err),
         };
       }
@@ -300,7 +296,7 @@ async function fetchAndPrintLinear(
   // Dedupe by issue id, remembering bucket label and the source issue (the
   // first bucket wins, as before).
   const seen = new Map<string, UnifiedRow>();
-  const issueById = new Map<string, LinearIssue>();
+  const issueById = new Map<string, TrackedIssue>();
   for (const { bucket, issues } of bucketResults) {
     for (const issue of issues) {
       if (seen.has(issue.id)) continue;

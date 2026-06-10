@@ -106,7 +106,14 @@ interface AgentModeProps {
 interface LogLine {
   id: string;
   text: string;
+  timestamp: string;
   color?: string | undefined;
+}
+
+/** Local wall-clock stamp prefixed to every scrolling log line (HH:MM:SS). */
+export function formatLogTimestamp(date: Date = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 let lineCounter = 0;
@@ -137,6 +144,10 @@ interface WorkerMeta {
 const TAIL_BUFFER_SIZE = 30;
 const CMD_DISPLAY_MAX = 80;
 const MAX_PENDING_DISPLAY = 15;
+/** Max ticket rows the board renders before overflowing the rest into a compact
+ *  horizontal identifier strip. Ctrl+F (full screen) raises this to fill the
+ *  terminal height. */
+const MAX_BOARD_ROWS = 10;
 
 /**
  * Reorder subtasks for the capped SUBTASKS panel: unchecked items first,
@@ -489,6 +500,12 @@ export function AgentMode({
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   /** Toggled by Ctrl+L — expand subtasks over the OUTPUT feed (no cap). */
   const [showAllSubtasks, setShowAllSubtasks] = useState(false);
+  /** Toggled by Ctrl+F — the TASKS board takes the whole screen, showing every
+   *  ticket as a full row (capped at terminal height) instead of the 10-row cap. */
+  const [boardFullScreen, setBoardFullScreen] = useState(false);
+  /** Toggled by Ctrl+W — the active (working) ticket's card takes the whole
+   *  screen: pipeline + a tall OUTPUT tail, with the board hidden. */
+  const [cardFullScreen, setCardFullScreen] = useState(false);
   const coordRef = useRef<AgentModeCoordinator | null>(null);
   const workerMetaRef = useRef<Map<string, WorkerMeta>>(new Map());
   const nextPollAtRef = useRef<number>(0);
@@ -512,7 +529,7 @@ export function AgentMode({
   });
 
   function appendLog(text: string, color?: string, workerLogFile?: string) {
-    setLogs((prev) => [...prev, { id: nextId(), text, color }]);
+    setLogs((prev) => [...prev, { id: nextId(), text, timestamp: formatLogTimestamp(), color }]);
     logCoord(text, workerLogFile);
   }
 
@@ -531,7 +548,7 @@ export function AgentMode({
     async function init() {
       logSession(`=== session start ${SESSION_START} ===`);
       const cfgPath = await ensureConfig(projectRoot, args.workflowFile);
-      const cfg = await loadConfig(projectRoot, args.workflowFile);
+      const cfg = await loadConfig(projectRoot, args.workflowFile, args.overrides);
       cfgRef.current = cfg;
       appendLog(`agent mode v${VERSION} — config: ${cfgPath}`, "gray");
 
@@ -850,6 +867,22 @@ export function AgentMode({
     ? coordRef.current?.activeWorkers.find((w) => w.issueId === focusedRow.id)
     : undefined;
 
+  // Board windowing: render at most `boardCap` ticket rows (10, or terminal-tall
+  // when full-screen), scrolling so the focused row stays visible; every ticket
+  // that doesn't get a full row is listed by identifier in a horizontal strip.
+  const boardCap = boardFullScreen
+    ? Math.max(MAX_BOARD_ROWS, termHeight - 9)
+    : Math.min(MAX_BOARD_ROWS, tree.length);
+  const winStart = (() => {
+    if (tree.length <= boardCap || focusedIndex < 0) return 0;
+    if (focusedIndex < boardCap) return 0;
+    return Math.min(focusedIndex - boardCap + 1, tree.length - boardCap);
+  })();
+  const visibleTree = tree.slice(winStart, winStart + boardCap);
+  const hiddenIdentifiers = tree
+    .filter((_, i) => i < winStart || i >= winStart + boardCap)
+    .map((t) => t.row.identifier);
+
   const steeringFocusedRef = useRef(false);
   // Resize-survival mirrors: SteeringField may be re-mounted by the
   // resizeKey-keyed Box below, so we persist its state in refs here and
@@ -868,6 +901,21 @@ export function AgentMode({
         if (activeCount > 0) setShowPendingTasks((v) => !v);
         return;
       }
+      if (key.ctrl && (input === "f" || input === "F")) {
+        setBoardFullScreen((v) => !v);
+        setCardFullScreen(false);
+        return;
+      }
+      if (key.ctrl && (input === "w" || input === "W")) {
+        // Full-screen the working ticket's card. Keep focus if it is already a
+        // live worker, else jump to the first active (working) one.
+        const workers = coordRef.current?.activeWorkers ?? [];
+        if (workers.length === 0) return;
+        if (!workers.some((wk) => wk.issueId === focusedId)) setFocusedId(workers[0]!.issueId);
+        setCardFullScreen((v) => !v);
+        setBoardFullScreen(false);
+        return;
+      }
       if (tree.length === 0) return;
       const idx = focusedIndex < 0 ? 0 : focusedIndex;
       if (key.tab || key.downArrow) {
@@ -876,20 +924,37 @@ export function AgentMode({
         setFocusedId(tree[(idx - 1 + tree.length) % tree.length]!.row.id);
       } else {
         const n = parseInt(input, 10);
-        if (!isNaN(n) && n >= 1 && n <= Math.min(9, tree.length)) setFocusedId(tree[n - 1]!.row.id);
+        if (!isNaN(n) && n >= 0 && n <= Math.min(9, tree.length - 1)) setFocusedId(tree[n]!.row.id);
       }
     },
     { isActive: isRawModeSupported && board.length > 0 },
   );
 
-  const steeringActive = isRawModeSupported && focusedWorker !== undefined;
+  // Full-screen gives the board the whole terminal: the focused card and
+  // steering field are hidden so every reserved line goes to ticket rows.
+  const steeringActive = isRawModeSupported && focusedWorker !== undefined && !boardFullScreen;
+
+  // Estimated wrapped-line count of the overflow identifier strip (0 when every
+  // ticket has a full row), so the OUTPUT tail budget below stays accurate.
+  const overflowStripLines =
+    hiddenIdentifiers.length === 0
+      ? 0
+      : Math.max(
+          1,
+          Math.ceil((hiddenIdentifiers.join(" · ").length + 8) / Math.max(20, termWidth)),
+        );
 
   // Height budget for the focused active card's OUTPUT tail. Logs flow into
   // terminal scrollback via <Static>, so the live region is:
-  //   header-box(5) + tasks-box(4 + one line per board row) + card-non-tail(8)
-  //   + steering(3 when shown).
+  //   header-box(5) + tasks-box(4 + one line per visible row + overflow strip,
+  //   hidden when card is full-screen) + card-non-tail(8, hidden when board is
+  //   full-screen) + steering(3 when shown). Card full-screen frees the whole
+  //   board budget for the OUTPUT tail.
   const steeringBoxLines = steeringActive ? 3 : 0;
-  const FIXED_OVERHEAD = 5 + (4 + board.length) + 8 + steeringBoxLines;
+  const boardHidden = cardFullScreen && focusedWorker !== undefined;
+  const boardOverhead = boardHidden ? 0 : 4 + visibleTree.length + overflowStripLines;
+  const cardOverhead = boardFullScreen ? 0 : 8;
+  const FIXED_OVERHEAD = 5 + boardOverhead + cardOverhead + steeringBoxLines;
   const focusedTailLines = focusedCardTailLines(termHeight, FIXED_OVERHEAD);
 
   if (preflightError) {
@@ -911,15 +976,12 @@ export function AgentMode({
           to stdout above the live UI. The terminal's native
           scrollback owns history — no in-app cap or truncation. */}
       <Static items={logs}>
-        {(line) =>
-          line.color ? (
-            <Text key={line.id} color={line.color}>
-              {line.text}
-            </Text>
-          ) : (
-            <Text key={line.id}>{line.text}</Text>
-          )
-        }
+        {(line) => (
+          <Text key={line.id}>
+            <Text dimColor>{line.timestamp} </Text>
+            {line.color ? <Text color={line.color}>{line.text}</Text> : line.text}
+          </Text>
+        )}
       </Static>
 
       <Box flexDirection="column" marginTop={0}>
@@ -1002,165 +1064,175 @@ export function AgentMode({
         {/* The liveness (poll state + next-poll countdown) lives on the box
             header border, left label + right liveness; counts are implicit in
             the rows below, so there is no count strip and no inner header. */}
-        {(() => {
-          const tasksInnerWidth = Math.max(0, termWidth - 2);
-          const lead = "─ ";
-          const hint = " Tab/↑↓·1-9 ";
-          const live = ` ${tasksLiveness} `;
-          const trail = "─";
-          // Fill the header border between the left label and the right liveness
-          // so the node spans exactly the inner width (labelVisualWidth = inner
-          // width ⇒ LabeledBox adds no outer dashes).
-          const fixed = lead.length + "TASKS".length + hint.length + live.length + trail.length;
-          const fill = Math.max(1, tasksInnerWidth - fixed);
-          return (
-            <LabeledBox
-              labelVisualWidth={tasksInnerWidth}
-              labelNode={
-                <Box flexDirection="row">
-                  <Text color="gray">{lead}</Text>
-                  <Text bold>TASKS</Text>
-                  <Text dimColor>{hint}</Text>
-                  <Text color="gray">{"─".repeat(fill)}</Text>
-                  <Text dimColor>{live}</Text>
-                  <Text color="gray">{trail}</Text>
-                </Box>
-              }
-              borderColor="gray"
-              width={termWidth}
-              paddingX={1}
-              flexDirection="column"
-            >
-              {board.length === 0 ? (
-                <Text dimColor>no active tickets</Text>
-              ) : (
-                (() => {
-                  // The identifier column holds the dependency indent too, so a
-                  // nested row's `└ ` prefix (depth*2 cols) never pushes the
-                  // pipeline glyphs out of alignment.
-                  const idColWidth = Math.max(
-                    8,
-                    ...tree.map((t) => t.depth * 2 + t.row.identifier.length),
-                  );
-                  const idxWidth = String(tree.length).length + 3;
-                  const prefixWidth = 2 + idxWidth + idColWidth + 1;
-                  // Stall detection: tickets exist but none can advance — no live
-                  // worker, no automated step, and every remaining row is blocked,
-                  // awaiting confirmation, or bailed. Surface why, so an idle board
-                  // doesn't read as "done".
-                  const advancing =
-                    activeCount > 0 || tree.some((t) => ADVANCING_STATES.has(t.row.state));
-                  const hasStartableTodo = tree.some(
-                    (t) => t.row.state === "todo" && !(t.row.blockedByIds?.length ?? 0),
-                  );
-                  const stalled = !advancing && !hasStartableTodo;
-                  const blockedCount = tree.filter(
-                    (t) => t.row.state === "todo" && (t.row.blockedByIds?.length ?? 0) > 0,
-                  ).length;
-                  const awaitingCount = tree.filter((t) => t.row.state === "awaiting").length;
-                  const quarantinedCount = tree.filter((t) => t.row.state === "quarantined").length;
-                  const stallParts = [
-                    blockedCount > 0 ? `${blockedCount} blocked` : null,
-                    awaitingCount > 0 ? `${awaitingCount} awaiting confirmation` : null,
-                    quarantinedCount > 0 ? `${quarantinedCount} quarantined` : null,
-                  ].filter((p): p is string => p !== null);
-                  return (
-                    <>
-                      {/* Node labels, aligned over the row glyphs via a fixed prefix */}
-                      <Box>
-                        <Text>{" ".repeat(prefixWidth)}</Text>
-                        <PipelineCells glyphs={null} />
-                      </Box>
-                      {tree.map(({ row, depth }, i) => {
-                        const isFocused = row.id === focusedRow?.id;
-                        // `└ ` connector at depth>0, two spaces per level above.
-                        const indent = depth > 0 ? "  ".repeat(depth - 1) + "└ " : "";
-                        // Open blockers, named — includes blockers not on the
-                        // board (which the indent can't express).
-                        const blockers = row.blockedByIdentifiers ?? [];
-                        const activeW = coordRef.current?.activeWorkers.find(
-                          (w) => w.issueId === row.id,
-                        );
-                        const meta = activeW
-                          ? workerMetaRef.current.get(activeW.changeName)
-                          : undefined;
-                        // A work-state row with no live worker is waiting for a
-                        // worker slot — show a "waiting for worker" mark instead
-                        // of a timer that is not yet counting anything.
-                        const waitingForWorker = !activeW && WORKER_WAIT_STATES.has(row.state);
-                        // AGE: live worker uptime when active; else time since the
-                        // first recovery failure; else unknown.
-                        let age = "–";
-                        if (meta?.startedAt) {
-                          age = fmtElapsed(now - meta.startedAt);
-                        } else if (!waitingForWorker && row.recovery?.firstFailedAt) {
-                          const failedAt = Date.parse(row.recovery.firstFailedAt);
-                          if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
-                        }
-                        const prUrl = meta?.prUrl ?? row.prUrl ?? null;
-                        return (
-                          <Box key={row.id}>
-                            <Box width={2}>
-                              <Text color="white" bold>
-                                {isFocused ? "▶" : " "}
-                              </Text>
-                            </Box>
-                            <Box width={idxWidth}>
-                              <Text dimColor={!isFocused}>[{i + 1}]</Text>
-                            </Box>
-                            <Box width={idColWidth + 1}>
-                              {indent && <Text dimColor>{indent}</Text>}
-                              <Link
-                                url={row.url}
-                                label={row.identifier}
-                                color={isFocused ? "cyan" : "gray"}
-                              />
-                            </Box>
-                            <PipelineCells glyphs={pipelineStages(row).map((s) => s.status)} />
-                            <Text color={isFocused ? "white" : "gray"} dimColor={!isFocused}>
-                              {"  "}
-                              {statusLabel(row)}
-                            </Text>
-                            {blockers.length > 0 && (
-                              <Text color="yellow" dimColor={!isFocused}>
-                                {"  ⛓ "}
-                                {trunc(blockers.join(", "), 28)}
-                              </Text>
-                            )}
-                            {waitingForWorker ? (
-                              <Text color="yellow">{"  waiting for worker"}</Text>
-                            ) : (
-                              <Text dimColor>
+        {!(cardFullScreen && focusedWorker) &&
+          (() => {
+            const tasksInnerWidth = Math.max(0, termWidth - 2);
+            const lead = "─ ";
+            const hint = " ↑↓·0-9·^F·^W ";
+            const live = ` ${tasksLiveness} `;
+            const trail = "─";
+            // Fill the header border between the left label and the right liveness
+            // so the node spans exactly the inner width (labelVisualWidth = inner
+            // width ⇒ LabeledBox adds no outer dashes).
+            const fixed = lead.length + "TASKS".length + hint.length + live.length + trail.length;
+            const fill = Math.max(1, tasksInnerWidth - fixed);
+            return (
+              <LabeledBox
+                labelVisualWidth={tasksInnerWidth}
+                labelNode={
+                  <Box flexDirection="row">
+                    <Text color="gray">{lead}</Text>
+                    <Text bold>TASKS</Text>
+                    <Text dimColor>{hint}</Text>
+                    <Text color="gray">{"─".repeat(fill)}</Text>
+                    <Text dimColor>{live}</Text>
+                    <Text color="gray">{trail}</Text>
+                  </Box>
+                }
+                borderColor="gray"
+                width={termWidth}
+                paddingX={1}
+                flexDirection="column"
+              >
+                {board.length === 0 ? (
+                  <Text dimColor>no active tickets</Text>
+                ) : (
+                  (() => {
+                    // The identifier column holds the dependency indent too, so a
+                    // nested row's `└ ` prefix (depth*2 cols) never pushes the
+                    // pipeline glyphs out of alignment.
+                    const idColWidth = Math.max(
+                      8,
+                      ...tree.map((t) => t.depth * 2 + t.row.identifier.length),
+                    );
+                    const idxWidth = String(tree.length).length + 3;
+                    const prefixWidth = 2 + idxWidth + idColWidth + 1;
+                    // Stall detection: tickets exist but none can advance — no live
+                    // worker, no automated step, and every remaining row is blocked,
+                    // awaiting confirmation, or bailed. Surface why, so an idle board
+                    // doesn't read as "done".
+                    const advancing =
+                      activeCount > 0 || tree.some((t) => ADVANCING_STATES.has(t.row.state));
+                    const hasStartableTodo = tree.some(
+                      (t) => t.row.state === "todo" && !(t.row.blockedByIds?.length ?? 0),
+                    );
+                    const stalled = !advancing && !hasStartableTodo;
+                    const blockedCount = tree.filter(
+                      (t) => t.row.state === "todo" && (t.row.blockedByIds?.length ?? 0) > 0,
+                    ).length;
+                    const awaitingCount = tree.filter((t) => t.row.state === "awaiting").length;
+                    const quarantinedCount = tree.filter(
+                      (t) => t.row.state === "quarantined",
+                    ).length;
+                    const stallParts = [
+                      blockedCount > 0 ? `${blockedCount} blocked` : null,
+                      awaitingCount > 0 ? `${awaitingCount} awaiting confirmation` : null,
+                      quarantinedCount > 0 ? `${quarantinedCount} quarantined` : null,
+                    ].filter((p): p is string => p !== null);
+                    return (
+                      <>
+                        {/* Node labels, aligned over the row glyphs via a fixed prefix */}
+                        <Box>
+                          <Text>{" ".repeat(prefixWidth)}</Text>
+                          <PipelineCells glyphs={null} />
+                        </Box>
+                        {visibleTree.map(({ row, depth }, i) => {
+                          const isFocused = row.id === focusedRow?.id;
+                          // `└ ` connector at depth>0, two spaces per level above.
+                          const indent = depth > 0 ? "  ".repeat(depth - 1) + "└ " : "";
+                          // Open blockers, named — includes blockers not on the
+                          // board (which the indent can't express).
+                          const blockers = row.blockedByIdentifiers ?? [];
+                          const activeW = coordRef.current?.activeWorkers.find(
+                            (w) => w.issueId === row.id,
+                          );
+                          const meta = activeW
+                            ? workerMetaRef.current.get(activeW.changeName)
+                            : undefined;
+                          // A work-state row with no live worker is waiting for a
+                          // worker slot — show a "waiting for worker" mark instead
+                          // of a timer that is not yet counting anything.
+                          const waitingForWorker = !activeW && WORKER_WAIT_STATES.has(row.state);
+                          // AGE: live worker uptime when active; else time since the
+                          // first recovery failure; else unknown.
+                          let age = "–";
+                          if (meta?.startedAt) {
+                            age = fmtElapsed(now - meta.startedAt);
+                          } else if (!waitingForWorker && row.recovery?.firstFailedAt) {
+                            const failedAt = Date.parse(row.recovery.firstFailedAt);
+                            if (!Number.isNaN(failedAt)) age = fmtElapsed(now - failedAt);
+                          }
+                          const prUrl = meta?.prUrl ?? row.prUrl ?? null;
+                          return (
+                            <Box key={row.id}>
+                              <Box width={2}>
+                                <Text color="white" bold>
+                                  {isFocused ? "▶" : " "}
+                                </Text>
+                              </Box>
+                              <Box width={idxWidth}>
+                                <Text dimColor={!isFocused}>[{winStart + i}]</Text>
+                              </Box>
+                              <Box width={idColWidth + 1}>
+                                {indent && <Text dimColor>{indent}</Text>}
+                                <Link
+                                  url={row.url}
+                                  label={row.identifier}
+                                  color={isFocused ? "cyan" : "gray"}
+                                />
+                              </Box>
+                              <PipelineCells glyphs={pipelineStages(row).map((s) => s.status)} />
+                              <Text color={isFocused ? "white" : "gray"} dimColor={!isFocused}>
                                 {"  "}
-                                {age}
+                                {statusLabel(row)}
                               </Text>
-                            )}
-                            {prUrl && (
-                              <>
-                                <Text dimColor>{"  ↗"}</Text>
-                                <Link url={prUrl} label={prLabel(prUrl)} color="green" />
-                              </>
+                              {blockers.length > 0 && (
+                                <Text color="yellow" dimColor={!isFocused}>
+                                  {"  ⛓ "}
+                                  {trunc(blockers.join(", "), 28)}
+                                </Text>
+                              )}
+                              {waitingForWorker ? (
+                                <Text color="yellow">{"  waiting for worker"}</Text>
+                              ) : (
+                                <Text dimColor>
+                                  {"  "}
+                                  {age}
+                                </Text>
+                              )}
+                              {prUrl && (
+                                <>
+                                  <Text dimColor>{"  ↗"}</Text>
+                                  <Link url={prUrl} label={prLabel(prUrl)} color="green" />
+                                </>
+                              )}
+                            </Box>
+                          );
+                        })}
+                        {hiddenIdentifiers.length > 0 && (
+                          <Box>
+                            <Text>{" ".repeat(2)}</Text>
+                            <Text dimColor>{`+${hiddenIdentifiers.length} more  `}</Text>
+                            <Text dimColor>{hiddenIdentifiers.join(" · ")}</Text>
+                          </Box>
+                        )}
+                        {stalled && (
+                          <Box marginTop={1}>
+                            <Text color="yellow" bold>
+                              {"⏸ nothing can start"}
+                            </Text>
+                            {stallParts.length > 0 && (
+                              <Text color="yellow">{`  —  ${stallParts.join("  ·  ")}`}</Text>
                             )}
                           </Box>
-                        );
-                      })}
-                      {stalled && (
-                        <Box marginTop={1}>
-                          <Text color="yellow" bold>
-                            {"⏸ nothing can start"}
-                          </Text>
-                          {stallParts.length > 0 && (
-                            <Text color="yellow">{`  —  ${stallParts.join("  ·  ")}`}</Text>
-                          )}
-                        </Box>
-                      )}
-                    </>
-                  );
-                })()
-              )}
-            </LabeledBox>
-          );
-        })()}
+                        )}
+                      </>
+                    );
+                  })()
+                )}
+              </LabeledBox>
+            );
+          })()}
 
         {/* Gated (awaiting-confirmation) tickets are no longer a separate card —
             they render inline in the TASKS board above as `awaiting` rows. */}
@@ -1168,8 +1240,10 @@ export function AgentMode({
         {/* ── Box 4: the focused ticket ─────────────────────────
             An active worker gets the full card (live CMD / OUTPUT / phase
             pipeline / subtasks / steering). A parked ticket gets a compact
-            read-only card below (pipeline + state + recovery + AGE + PR). */}
-        {focusedWorker &&
+            read-only card below (pipeline + state + recovery + AGE + PR).
+            Hidden in full-screen so the board owns the whole terminal. */}
+        {!boardFullScreen &&
+          focusedWorker &&
           (() => {
             const w = focusedWorker;
             const meta = workerMetaRef.current.get(w.changeName);
@@ -1444,8 +1518,10 @@ export function AgentMode({
             );
           })()}
 
-        {/* Parked focused ticket — read-only card, no CMD / OUTPUT / steering. */}
-        {!focusedWorker &&
+        {/* Parked focused ticket — read-only card, no CMD / OUTPUT / steering.
+            Hidden in full-screen so the board owns the whole terminal. */}
+        {!boardFullScreen &&
+          !focusedWorker &&
           focusedRow &&
           (() => {
             const row = focusedRow;

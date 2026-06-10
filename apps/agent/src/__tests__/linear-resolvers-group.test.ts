@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createLinearResolvers } from "../agent/wire/linear-resolvers";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;
@@ -29,7 +29,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-const RLF_1 = { identifier: "RLF-1", id: "issue-1" } as LinearIssue;
+const RLF_1 = { identifier: "RLF-1", id: "issue-1" } as TrackedIssue;
 
 function defaultLabelsHandler(body: Captured): unknown {
   if (body.query.includes("issueLabelCreate")) {
@@ -116,7 +116,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
       diag: () => {},
     });
 
-    const issue = { identifier: "RLF-1", id: "issue-1", labels: ["approved"] } as LinearIssue;
+    const issue = { identifier: "RLF-1", id: "issue-1", labels: ["approved"] } as TrackedIssue;
     await resolvers.applyMarker(issue, { type: "label", value: "error", group: "Ralphy" });
 
     const removed = calls.find((c) => c.query.includes("issueRemoveLabel"));
@@ -142,7 +142,7 @@ describe("resolveLabelId — group-scoped lookup", () => {
       diag: () => {},
     });
     // Issue carries an unrelated, ungrouped label — nothing to swap.
-    const issue = { identifier: "RLF-1", id: "issue-1", labels: ["Bug"] } as LinearIssue;
+    const issue = { identifier: "RLF-1", id: "issue-1", labels: ["Bug"] } as TrackedIssue;
     await resolvers.applyMarker(issue, { type: "label", value: "error", group: "Ralphy" });
 
     expect(calls.some((c) => c.query.includes("issueRemoveLabel"))).toBe(false);

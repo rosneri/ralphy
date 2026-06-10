@@ -1,12 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import {
-  fieldsForMode,
-  findField,
-  modelOptionValues,
-  FIELD_DESCRIPTIONS,
-  PROMPT_BODY_FIELD_ID,
-  COMMON_CLI_OPTIONS,
-} from "../fields";
+import { fieldsForMode, findField, FIELD_DESCRIPTIONS, PROMPT_BODY_FIELD_ID } from "../fields";
 
 describe("fieldsForMode", () => {
   test("quick and permissive ask only the three common fields", () => {
@@ -83,19 +76,28 @@ describe("catalogue lookups", () => {
     expect(findField("does.not.exist")).toBeUndefined();
   });
 
-  test("modelOptionValues comes from the model select field", () => {
-    expect(modelOptionValues()).toEqual(["opus", "sonnet", "haiku"]);
+  test("the model select derives its options from the schema enum", () => {
+    const field = findField("model");
+    expect(field?.spec.kind).toBe("select");
+    if (field?.spec.kind === "select") {
+      expect(field.spec.options.map((o) => o.value)).toEqual(["opus", "sonnet", "haiku"]);
+    }
+  });
+
+  test("tracker.kind keeps display labels over the schema values", () => {
+    const field = findField("tracker.kind");
+    expect(field?.spec.kind).toBe("select");
+    if (field?.spec.kind === "select") {
+      expect(field.spec.options).toEqual([
+        { label: "Linear", value: "linear" },
+        { label: "GitHub", value: "github" },
+      ]);
+    }
   });
 
   test("FIELD_DESCRIPTIONS covers settings but excludes the prompt-body step", () => {
     expect(FIELD_DESCRIPTIONS.length).toBeGreaterThan(20);
     expect(FIELD_DESCRIPTIONS.some((d) => d.path.join(".") === PROMPT_BODY_FIELD_ID)).toBe(false);
     expect(FIELD_DESCRIPTIONS.some((d) => d.path.join(".") === "concurrency")).toBe(true);
-  });
-
-  test("every CLI option points at a real catalogue field", () => {
-    for (const option of COMMON_CLI_OPTIONS) {
-      expect(findField(option.fieldId)).toBeDefined();
-    }
   });
 });

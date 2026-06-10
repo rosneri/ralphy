@@ -6,7 +6,7 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import type { LinearIssue } from "./linear";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { projectLayout } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -21,15 +21,11 @@ import {
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
-import {
-  createLinearResolvers,
-  fetchDoneCandidatesWith,
-  type LinearResolvers,
-} from "./wire/linear-resolvers";
-import { createGithubTrackerProvider, githubIndicators } from "./wire/tracker/github";
+import { createGithubProvider, githubIndicators } from "./wire/tracker/github";
+import { createGithubTrackerProvider } from "./wire/tracker/github-tracker-provider";
+import { createLinearProvider } from "./wire/tracker/linear";
 import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
 import type { TrackerProvider } from "./wire/tracker/types";
-import type { IssueTrackerProvider } from "@ralphy/tracker";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
@@ -40,7 +36,7 @@ import {
 } from "./wire/mention-scan";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
-import { createCommentSyncHooks } from "./wire/comment-sync";
+import { createTrackerCommentSyncHooks } from "./wire/comment-sync";
 import { selectSpecSink } from "./wire/tracker/spec-sink-select";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
@@ -167,7 +163,7 @@ export function buildAgentCoordinator(
   const cwdByChange = new Map<string, string>();
   const statesDirByChange = new Map<string, string>();
   const branchByChange = new Map<string, string>();
-  const issueByChange = new Map<string, LinearIssue>();
+  const issueByChange = new Map<string, TrackedIssue>();
   const prByChange = new Map<string, string>();
   const stalePingedAt = new Map<string, number>();
   const lastHandledReviewActivity = new Map<string, string>();
@@ -212,53 +208,35 @@ export function buildAgentCoordinator(
       return code;
     });
 
-  // Linear's GraphQL resolver bag (RLF-223). Only built in Linear mode; it is
-  // both the source of the unified `provider` below and the input to the
-  // `createLinearTrackerProvider` seam. GitHub mode drives the loop off the
-  // gh-CLI provider instead, so it stays null.
-  const resolvers: LinearResolvers | null = isGithubTracker
-    ? null
-    : createLinearResolvers({
-        apiKey,
-        team,
-        assignee,
-        anyAssignee,
-        scope,
-        diag,
-        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-      });
-
   // The provider-agnostic indicator-dispatch + fetch surface used directly by
-  // spawn / confirmation / baseline (and as the base for the GitHub tracker
-  // seam below). Both branches conform to TrackerProvider. The Linear path
-  // binds `fetchDoneCandidates` from the standalone helper (it needs the
-  // indicator map); the GitHub provider implements it directly.
-  // Built only in GitHub mode; retained as a typed handle so the mention
-  // scanner can reach the GitHub-specific `listOpenIssues` / `repo` seams that
-  // the tracker-neutral `TrackerProvider` does not expose.
+  // spawn / confirmation / baseline (and as the base for the tracker seam
+  // below). Both branches conform to TrackerProvider, each built by its own
+  // factory: GitHub via `createGithubTrackerProvider`, Linear via
+  // `createLinearProvider` (RLF-228). The GitHub handle is retained typed so the
+  // mention scanner can reach its `listOpenIssues` / `repo` seams; the Linear
+  // handle exposes `resolvers` for the `createLinearTrackerProvider` seam below.
+  // Each is built only in its own mode, so the other's config may be unset.
   const githubProvider = isGithubTracker
-    ? createGithubTrackerProvider({
+    ? createGithubProvider({
         issues: cfg.github?.issues,
         cmdRunner,
         projectRoot,
         diag,
       })
     : null;
-  const provider: TrackerProvider = githubProvider
-    ? githubProvider
-    : {
-        ...resolvers!,
-        fetchDoneCandidates: () =>
-          fetchDoneCandidatesWith(
-            apiKey,
-            team,
-            assignee,
-            anyAssignee,
-            scope,
-            indicators,
-            ticketNumbers.length > 0 ? ticketNumbers : undefined,
-          ),
-      };
+  const linearProvider = isGithubTracker
+    ? null
+    : createLinearProvider({
+        apiKey,
+        team,
+        assignee,
+        anyAssignee,
+        scope,
+        indicators,
+        diag,
+        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
+      });
+  const provider: TrackerProvider = githubProvider ?? linearProvider!;
 
   // RLF-208: when a ticket is targeted but it matches none of the configured
   // get-indicator buckets, the loop will pick up nothing — surface that so the
@@ -285,6 +263,7 @@ export function buildAgentCoordinator(
     prByChange,
     getPollContext: () => pollContext,
     ignoreCiChecks: cfg.prRecovery.ignoreChecks,
+    autoMergeStrategy: cfg.autoMergeStrategy,
   });
 
   const prep = createPrepareHelpers({
@@ -337,27 +316,20 @@ export function buildAgentCoordinator(
         resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
       });
 
-  // RLF-223 (M1) + RLF-234: the tracker-neutral provider seam injected into
-  // `CoordinatorDeps` below, so the coordinator never references a concrete
-  // backend. Linear wraps its transport + resolvers + mention scanner via
-  // `createLinearTrackerProvider`; GitHub builds the same `IssueTrackerProvider`
-  // shape from the gh-CLI `provider`. Mentions, review and comment-fetch are
-  // Linear-only today — GitHub returns empty sets (see design "Out of scope").
+  // RLF-223 (M1) + RLF-234 + RLF-229: the tracker-neutral provider seam injected
+  // into `CoordinatorDeps` below, so the coordinator never references a concrete
+  // backend. Both backends are now built by a named factory delegating to their
+  // transport: Linear via `createLinearTrackerProvider`, GitHub via
+  // `createGithubTrackerProvider`. GitHub's `fetchComments` reads real issue
+  // comments (started-idempotency); `fetchReview` is intentionally empty
+  // (mentions-driven) — see the factory and design "Out of scope".
   const tracker: IssueTrackerProvider = isGithubTracker
-    ? {
-        fetchTodo: () => provider.fetchByGet(indicators.getTodo, excludeFromTodo),
-        fetchInProgress: () =>
-          provider.fetchByGet(indicators.getInProgress, unionMarkers(indicators.setError)),
-        fetchReview: async () => [],
+    ? createGithubTrackerProvider({
+        provider: githubProvider!,
+        indicators,
+        excludeFromTodo,
         fetchMentions,
-        fetchDoneCandidates: () => provider.fetchDoneCandidates(),
-        applyIndicator: provider.applyIndicator,
-        removeIndicator: provider.removeIndicator,
-        // Progress comments route through a `gh issue comment` via the
-        // provider's comment marker.
-        postComment: (issue, body) => provider.applyMarker(issue, { type: "comment", value: body }),
-        fetchComments: async () => [],
-      }
+      })
     : createLinearTrackerProvider({
         apiKey,
         team,
@@ -365,7 +337,7 @@ export function buildAgentCoordinator(
         anyAssignee,
         scope,
         indicators,
-        resolvers: resolvers!,
+        resolvers: linearProvider!.resolvers,
         fetchMentions,
         ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
       });
@@ -440,7 +412,7 @@ export function buildAgentCoordinator(
     run: async () => {},
   };
 
-  function buildFeatureCtx(issue: LinearIssue): FeatureCtx {
+  function buildFeatureCtx(issue: TrackedIssue): FeatureCtx {
     return {
       issue,
       worktree: cwdByChange.get(changeNameForIssue(issue)) ?? projectRoot,
@@ -469,8 +441,7 @@ export function buildAgentCoordinator(
   // Design-doc publish seam (RLF-239): Linear publishes the design as a
   // re-uploaded attachment; GitHub embeds it in one sticky issue comment.
   // Selected by tracker.kind; gated downstream on
-  // `cfg.linear.syncSpecsAsAttachments`. The Linear tasks-comment mirror stays
-  // Linear-only (createCommentSyncHooks gates it on `apiKey`).
+  // `cfg.linear.syncSpecsAsAttachments`.
   const specSink = selectSpecSink({
     isGithubTracker,
     githubProvider,
@@ -481,7 +452,11 @@ export function buildAgentCoordinator(
     diag,
   });
 
-  const commentSync = createCommentSyncHooks({
+  // Task sync (plan-once + sticky tasks + steering refresh) to issue comments.
+  // Linear uses its comment API; GitHub gets the marker-idempotent sticky-upsert
+  // adapter. The design-doc publish is routed through `specSink`.
+  const commentSync = createTrackerCommentSyncHooks({
+    isGithubTracker,
     apiKey,
     cfg,
     projectRoot,
@@ -489,6 +464,8 @@ export function buildAgentCoordinator(
     diag,
     cwdByChange,
     issueByChange,
+    cmdRunner,
+    ...(githubProvider ? { githubRepo: githubProvider.repo } : {}),
     specSink,
   });
 
@@ -512,6 +489,10 @@ export function buildAgentCoordinator(
       postComment: tracker.postComment,
       fetchComments: tracker.fetchComments,
       checkPrStatus: prDiscovery.checkPrStatus,
+      // Manual-merge fallback: wire the merge capability unless explicitly
+      // disabled. The coordinator merges a verified-mergeable PR in
+      // advancePrToDone instead of leaving it open (RLF-97 left it unmerged).
+      ...(cfg.manualMergeWhenAutoMergeDisabled !== false ? { mergePr: prDiscovery.mergePr } : {}),
       hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>
         isChangeArchivedForIssue(issue, cwdByChange, projectRoot),

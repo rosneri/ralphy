@@ -1,4 +1,4 @@
-import type { LinearIssue } from "../../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { Feature } from "../types";
 import { detectConfirmation } from "./detect";
 import { runConfirmation } from "./run";
@@ -17,8 +17,8 @@ import { runConfirmation } from "./run";
  *   state, surface the awaiting-ticket callback.
  */
 export interface ConfirmationCaps {
-  detect(issue: LinearIssue): Promise<boolean>;
-  run(issue: LinearIssue): Promise<void>;
+  detect(issue: TrackedIssue): Promise<boolean>;
+  run(issue: TrackedIssue): Promise<void>;
 }
 
 export const confirmationFeature: Feature = {

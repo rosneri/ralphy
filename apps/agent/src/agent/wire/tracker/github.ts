@@ -2,7 +2,7 @@ import { buildRalphyComment } from "@ralphy/comms";
 import type { Indicators, Marker, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { CmdRunner } from "../../pr";
-import type { LinearIssue } from "../../linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { upsertStickyComment } from "./sticky-comment";
 import type { TrackerProvider } from "./types";
 
@@ -45,9 +45,9 @@ function identifierForNumber(n: number): string {
   return `issue-${n}`;
 }
 
-/** Map a `gh` issue into the `LinearIssue` shape the loop consumes. The fields
+/** Map a `gh` issue into the `TrackedIssue` shape the loop consumes. The fields
  *  the loop never reads are filled with inert defaults. */
-function toLinearIssue(gh: GhIssue): LinearIssue {
+function toTrackedIssue(gh: GhIssue): TrackedIssue {
   const open = (gh.state ?? "OPEN").toUpperCase() === "OPEN";
   return {
     id: String(gh.number),
@@ -81,11 +81,13 @@ function labelValues(markers: Marker[]): string[] {
  * this provider only has to translate label/comment markers into `gh` calls:
  * fetching by label, moving labels, commenting, and closing on done.
  */
-export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerProvider & {
+export function createGithubProvider(input: GithubTrackerInput): TrackerProvider & {
   /** List open issues for the mention scan (todo + in-progress, no Search-API). */
-  listOpenIssues: () => Promise<LinearIssue[]>;
+  listOpenIssues: () => Promise<TrackedIssue[]>;
   /** Resolve the `owner/name` slug (configured, else detected from origin). */
   repo: () => Promise<string>;
+  /** The issue's comment bodies, via `gh issue view <id> --json comments`. */
+  fetchComments: (issueId: string) => Promise<{ body: string }[]>;
 } {
   const { cmdRunner, projectRoot, diag } = input;
   const statusLabels = input.issues?.statusLabels ?? DEFAULT_STATUS_LABELS;
@@ -121,7 +123,7 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     return repoPromise;
   }
 
-  async function listIssues(args: string[]): Promise<LinearIssue[]> {
+  async function listIssues(args: string[]): Promise<TrackedIssue[]> {
     const r = await repo();
     const { stdout } = await cmdRunner.run(
       [
@@ -141,13 +143,13 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
       projectRoot,
     );
     const parsed = JSON.parse(stdout.trim() || "[]") as GhIssue[];
-    return parsed.map(toLinearIssue);
+    return parsed.map(toTrackedIssue);
   }
 
   async function fetchByGet(
     inc: SetIndicator | { filter: Marker[] } | undefined,
     excl: Marker[],
-  ): Promise<LinearIssue[]> {
+  ): Promise<TrackedIssue[]> {
     if (!inc) return [];
     const include = !Array.isArray(inc) && "filter" in inc ? inc.filter : [];
     const wantLabels = labelValues(include);
@@ -167,7 +169,7 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     await cmdRunner.run(["gh", "issue", ...args, issueNumber, "--repo", r], projectRoot);
   }
 
-  async function applyMarker(issue: LinearIssue, m: Marker): Promise<void> {
+  async function applyMarker(issue: TrackedIssue, m: Marker): Promise<void> {
     if (m.type === "comment") {
       await ghIssue(issue.id, "comment", "--body", m.value);
       diag("github-marker", `  → ${issue.identifier} comment`, "gray");
@@ -219,11 +221,11 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     }
   }
 
-  async function applyIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
+  async function applyIndicator(issue: TrackedIssue, ind: SetIndicator): Promise<void> {
     for (const m of markersOf(ind)) await applyMarker(issue, m);
   }
 
-  async function removeIndicator(issue: LinearIssue, ind: SetIndicator): Promise<void> {
+  async function removeIndicator(issue: TrackedIssue, ind: SetIndicator): Promise<void> {
     for (const m of markersOf(ind)) {
       if (m.type !== "label") continue;
       await ghIssue(issue.id, "edit", "--remove-label", m.value);
@@ -236,21 +238,33 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
    *  fall out of scope), deduped by number. With no configured todo label every
    *  open issue is the todo bucket, so a single unfiltered list suffices. No
    *  Search-API. */
-  async function listOpenIssues(): Promise<LinearIssue[]> {
+  async function listOpenIssues(): Promise<TrackedIssue[]> {
     if (!todoLabel || todoLabel.trim() === "") return listIssues([]);
     const [todo, inProgress] = await Promise.all([
       listIssues(["--label", todoLabel.trim()]),
       listIssues(["--label", statusLabels.inProgress]),
     ]);
-    const byId = new Map<string, LinearIssue>();
+    const byId = new Map<string, TrackedIssue>();
     for (const i of [...todo, ...inProgress]) byId.set(i.id, i);
     return [...byId.values()];
   }
 
-  async function fetchDoneCandidates(): Promise<LinearIssue[]> {
+  async function fetchDoneCandidates(): Promise<TrackedIssue[]> {
     // Issues still carrying the in-progress label are the ones whose PRs the
     // watcher scans for conflict / CI status.
     return listIssues(["--label", statusLabels.inProgress]);
+  }
+
+  /** The issue's comment bodies, backing the coordinator's started-idempotency
+   *  check. An issue with no comments yields `[]` (empty/`{}` stdout guarded). */
+  async function fetchComments(issueNumber: string): Promise<{ body: string }[]> {
+    const r = await repo();
+    const { stdout } = await cmdRunner.run(
+      ["gh", "issue", "view", issueNumber, "--repo", r, "--json", "comments"],
+      projectRoot,
+    );
+    const parsed = JSON.parse(stdout.trim() || "{}") as { comments?: { body: string }[] };
+    return (parsed.comments ?? []).map((c) => ({ body: c.body }));
   }
 
   // GitHub has no team-scoped label-id concept; the baseline gate's Linear
@@ -268,6 +282,7 @@ export function createGithubTrackerProvider(input: GithubTrackerInput): TrackerP
     resolveLabelIdForTeam,
     listOpenIssues,
     repo,
+    fetchComments,
   };
 }
 

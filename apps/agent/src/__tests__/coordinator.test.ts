@@ -5,7 +5,7 @@ import {
   type QueueTrigger,
   type MentionTrigger,
 } from "../agent/coordinator";
-import type { LinearIssue } from "../agent/linear";
+import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 import type { FeatureCtx } from "../features/types";
 import { createNoopBus } from "@ralphy/events";
@@ -14,7 +14,7 @@ import { createNoopBus } from "@ralphy/events";
  *  claim issues whose ids appear in `gatedIds`. Used to exercise the
  *  registry walk in tests that previously poked the now-removed
  *  `classifyAwaitingConfirmation` dep. */
-function gatedCtxFactory(gatedIds: ReadonlySet<string>): (issue: LinearIssue) => FeatureCtx {
+function gatedCtxFactory(gatedIds: ReadonlySet<string>): (issue: TrackedIssue) => FeatureCtx {
   return (issue) =>
     ({
       issue,
@@ -28,7 +28,7 @@ function gatedCtxFactory(gatedIds: ReadonlySet<string>): (issue: LinearIssue) =>
         fsChange: null,
         worker: null,
         confirmation: {
-          detect: async (i: LinearIssue) => gatedIds.has(i.id),
+          detect: async (i: TrackedIssue) => gatedIds.has(i.id),
           run: async () => {},
         },
       },
@@ -43,7 +43,7 @@ function issue(
   priority = 3,
   blockedByIds: string[] = [],
   createdAt = "2026-01-01T00:00:00.000Z",
-): LinearIssue {
+): TrackedIssue {
   return {
     id,
     identifier,
@@ -82,13 +82,13 @@ interface DepsResult {
   /** Change names for which `hasPrForChange` returns true (RLF-97 done-deferral). */
   prChanges: Set<string>;
   /** Update what fetchTodo returns on the next call. */
-  setTodo: (issues: LinearIssue[]) => void;
-  setInProgress: (issues: LinearIssue[]) => void;
-  setMentions: (mentions: { issue: LinearIssue; trigger: MentionTrigger }[]) => void;
-  setDoneCandidates: (issues: LinearIssue[]) => void;
+  setTodo: (issues: TrackedIssue[]) => void;
+  setInProgress: (issues: TrackedIssue[]) => void;
+  setMentions: (mentions: { issue: TrackedIssue; trigger: MentionTrigger }[]) => void;
+  setDoneCandidates: (issues: TrackedIssue[]) => void;
 }
 
-function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
+function makeDeps(initial: { todo?: TrackedIssue[] } = {}): DepsResult {
   const workers = new Map<string, FakeWorker>();
   const logs: { text: string; color?: string }[] = [];
   const fileLogs: string[] = [];
@@ -102,10 +102,10 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
   const archivedIssues = new Set<string>();
   const prChanges = new Set<string>();
 
-  let todo: LinearIssue[] = initial.todo ?? [];
-  let inProgress: LinearIssue[] = [];
-  let mentions: { issue: LinearIssue; trigger: MentionTrigger }[] = [];
-  let doneCandidates: LinearIssue[] = [];
+  let todo: TrackedIssue[] = initial.todo ?? [];
+  let inProgress: TrackedIssue[] = [];
+  let mentions: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
+  let doneCandidates: TrackedIssue[] = [];
 
   const deps: CoordinatorDeps = {
     fetchTodo: mock(async () => todo),
@@ -113,11 +113,11 @@ function makeDeps(initial: { todo?: LinearIssue[] } = {}): DepsResult {
     fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
     fetchReview: mock(async () => []),
-    prepare: mock(async (i: LinearIssue) => ({
+    prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
     prepareTaskForTrigger: mock(
-      async (_i: LinearIssue, _name: string, _t: QueueTrigger, _m?: MentionTrigger) => {},
+      async (_i: TrackedIssue, _name: string, _t: QueueTrigger, _m?: MentionTrigger) => {},
     ),
     spawnWorker: mock((changeName: string) => {
       let resolve!: (code: number) => void;
@@ -1111,6 +1111,72 @@ describe("AgentCoordinator — RLF-97 done-deferral + watcher advance", () => {
     expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("mergeable"))).toBe(true);
   });
 
+  test("manual-merge fallback: advance merges the PR when mergePr is wired", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps({ todo: [ticket] });
+    ctx.prChanges.add("change-eng-1");
+    const mergeCalls: string[] = [];
+    ctx.deps.mergePr = async (prUrl: string) => {
+      mergeCalls.push(prUrl);
+      return true;
+    };
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+
+    // Next poll: the PR is mergeable → the watcher merges it, then moves to done.
+    ctx.setTodo([]);
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+
+    // The PR was actually merged (the RLF-97 gap), and done still applied.
+    expect(mergeCalls).toEqual(["https://gh/pr/1"]);
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+    expect(ctx.logs.some((l) => l.text.includes("merged — moving to done"))).toBe(true);
+    expect(ctx.comments.some((c) => c.id === "a" && c.body.includes("Merged this PR"))).toBe(true);
+  });
+
+  test("manual-merge fallback: a failed merge still advances the ticket to done", async () => {
+    const ticket = issue("a", "ENG-1");
+    const ctx = makeDeps({ todo: [ticket] });
+    ctx.prChanges.add("change-eng-1");
+    ctx.deps.mergePr = async () => false; // merge fails (e.g. transient gh error)
+    const coord = new AgentCoordinator(ctx.deps, {
+      concurrency: 1,
+      setDone,
+      setInProgress,
+      createsPrs: true,
+      prRecovery: { enabled: true, fixCi: true, fixConflicts: true },
+    });
+    await coord.init();
+    await coord.pollOnce();
+    await tick();
+    ctx.workers.get("change-eng-1")!.resolve(0);
+    await tick();
+
+    ctx.setTodo([]);
+    ctx.setDoneCandidates([ticket]);
+    ctx.conflictByIssue.set("a", { url: "https://gh/pr/1", status: "mergeable" as const });
+    await coord.pollOnce();
+    await tick();
+
+    // Merge failure is non-fatal: still advances to done, falls back to the
+    // "mergeable" wording (a human / native auto-merge can finish the merge).
+    expect(ctx.applies).toContainEqual({ id: "a", ind: setDone });
+    expect(ctx.logs.some((l) => l.text.includes("mergeable — moving to done"))).toBe(true);
+  });
+
   test("a healthy already-Done ticket is NOT re-advanced (no duplicate setDone)", async () => {
     // setDone fired immediately (no PR at exit); later the PR is discovered
     // mergeable. The watcher must leave the Done ticket alone — its actor is
@@ -1889,10 +1955,10 @@ describe("AgentCoordinator — flow machine actor state", () => {
       const issueA = issue("a", "ENG-1");
 
       function makeDepsWithChangeDir(
-        initial: { todo?: LinearIssue[] } = {},
+        initial: { todo?: TrackedIssue[] } = {},
       ): ReturnType<typeof makeDeps> & { tmpDir: string } {
         const d = makeDeps(initial);
-        d.deps.getChangeDir = (_i: LinearIssue) => tmpDir;
+        d.deps.getChangeDir = (_i: TrackedIssue) => tmpDir;
         return { ...d, tmpDir };
       }
 
