@@ -3,13 +3,7 @@ import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
-import {
-  buildTaskPrompt,
-  checkStopCondition,
-  checkStopSignal,
-  updateStateIteration,
-} from "../loop";
-import type { LoopOptions } from "../loop";
+import { buildTaskPrompt, checkStopSignal, updateStateIteration } from "../loop";
 import { buildInitialState, writeState, readState } from "@ralphy/core/state";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import type { State, Engine } from "@ralphy/types";
@@ -166,110 +160,6 @@ describe("parseArgs → buildTaskPrompt integration", () => {
       const prompt = buildTaskPrompt(state, tempDir);
       expect(typeof prompt).toBe("string");
     }));
-});
-
-const stubChangeStore = {
-  archiveChange: (_name: string) => Promise.resolve(),
-};
-
-function makeOpts(overrides: Partial<LoopOptions> = {}): LoopOptions {
-  return {
-    name: "test-task",
-    prompt: "Test prompt",
-    engine: "claude",
-    model: "opus",
-    maxIterations: 0,
-    maxCostUsd: 0,
-    maxRuntimeMinutes: 0,
-    maxConsecutiveFailures: 5,
-    delay: 0,
-    log: false,
-    verbose: false,
-    manualTest: false,
-    createPr: false,
-    changeStore: stubChangeStore,
-    ...overrides,
-  };
-}
-
-describe("checkStopCondition", () => {
-  test("returns null when no limits are reached", () => {
-    const state = makeState();
-    const result = checkStopCondition(state, 0, makeOpts(), Date.now(), 0);
-    expect(result).toBeNull();
-  });
-
-  test("returns maxIterations when limit reached", () => {
-    const state = makeState();
-    const result = checkStopCondition(state, 5, makeOpts({ maxIterations: 5 }), Date.now(), 0);
-    expect(result).toBe("maxIterations");
-  });
-
-  test("returns null when iteration is below maxIterations", () => {
-    const state = makeState();
-    const result = checkStopCondition(state, 4, makeOpts({ maxIterations: 5 }), Date.now(), 0);
-    expect(result).toBeNull();
-  });
-
-  test("returns completed when status is not active", () => {
-    const state = { ...makeState(), status: "completed" as const };
-    const result = checkStopCondition(state, 0, makeOpts(), Date.now(), 0);
-    expect(result).toBe("completed");
-  });
-
-  test("returns costCap when cost exceeds limit", () => {
-    const state = {
-      ...makeState(),
-      usage: {
-        total_cost_usd: 10.5,
-        total_duration_ms: 0,
-        total_turns: 0,
-        total_input_tokens: 0,
-        total_output_tokens: 0,
-        total_cache_read_input_tokens: 0,
-        total_cache_creation_input_tokens: 0,
-      },
-    };
-    const result = checkStopCondition(state, 0, makeOpts({ maxCostUsd: 10 }), Date.now(), 0);
-    expect(result).toBe("costCap");
-  });
-
-  test("returns runtimeLimit when elapsed time exceeds limit", () => {
-    const state = makeState();
-    const pastStart = Date.now() - 31 * 60_000; // 31 minutes ago
-    const result = checkStopCondition(state, 0, makeOpts({ maxRuntimeMinutes: 30 }), pastStart, 0);
-    expect(result).toBe("runtimeLimit");
-  });
-
-  test("returns consecutiveFailures when threshold reached", () => {
-    const state = makeState();
-    const result = checkStopCondition(
-      state,
-      0,
-      makeOpts({ maxConsecutiveFailures: 3 }),
-      Date.now(),
-      3,
-    );
-    expect(result).toBe("consecutiveFailures");
-  });
-
-  test("returns null when consecutiveFailures is below threshold", () => {
-    const state = makeState();
-    const result = checkStopCondition(
-      state,
-      0,
-      makeOpts({ maxConsecutiveFailures: 3 }),
-      Date.now(),
-      2,
-    );
-    expect(result).toBeNull();
-  });
-
-  test("ignores maxIterations when set to 0 (unlimited)", () => {
-    const state = makeState();
-    const result = checkStopCondition(state, 100, makeOpts({ maxIterations: 0 }), Date.now(), 0);
-    expect(result).toBeNull();
-  });
 });
 
 describe("checkStopSignal", () => {

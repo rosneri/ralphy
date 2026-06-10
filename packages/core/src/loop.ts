@@ -663,7 +663,9 @@ export function checkStopSignal(taskDir: string, stateDir: string): string | nul
 }
 
 /**
- * Stop reason returned by checkStopCondition when the loop must end.
+ * Stop reason a loop run ends with. Derived from the `loopMachine` stopped
+ * state (`stoppedStateToReason`) — the machine's guards are the only stop
+ * arithmetic; there is no imperative re-implementation.
  */
 export type StopReason =
   | "maxIterations"
@@ -676,29 +678,6 @@ export type StopReason =
    *  edits. The loop refuses to archive a change with stranded work — a
    *  human (or a follow-up reset of `tasks.md`) decides next. See LIT-303. */
   | "stranded";
-
-/**
- * Determine whether the loop should continue.
- * Returns null if it should continue, or a reason string if it should stop.
- */
-export function checkStopCondition(
-  state: State,
-  iteration: number,
-  options: LoopOptions,
-  startTime: number,
-  consecutiveFailures: number,
-): StopReason | null {
-  if (options.maxIterations > 0 && iteration >= options.maxIterations) return "maxIterations";
-  if (state.status !== "active") return "completed";
-  if (options.maxCostUsd > 0 && state.usage.total_cost_usd >= options.maxCostUsd) return "costCap";
-  if (options.maxRuntimeMinutes > 0) {
-    const elapsedMs = Date.now() - startTime;
-    if (elapsedMs >= options.maxRuntimeMinutes * 60_000) return "runtimeLimit";
-  }
-  if (options.maxConsecutiveFailures > 0 && consecutiveFailures >= options.maxConsecutiveFailures)
-    return "consecutiveFailures";
-  return null;
-}
 
 /**
  * Update state after a completed iteration.

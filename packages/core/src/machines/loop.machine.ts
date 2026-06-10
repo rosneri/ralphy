@@ -28,8 +28,15 @@ export type LoopMachineEvent =
       startingStatus?: LoopMachineContext["status"];
     }
   | { type: "ITERATION_DONE"; costDeltaUsd: number }
+  /** Failure-counting semantics (single source of truth): ANY consecutive
+   *  failed iteration increments the counter; a success resets it. The
+   *  failures do not need to be identical. */
   | { type: "ITERATION_FAILED" }
   | { type: "RATE_LIMITED" }
+  /** The loop polls `.ralph-state.json` between iterations; when an external
+   *  writer flips `status` away from "active", the runner reports it here so
+   *  the `statusNotActive` guard — not an imperative check — stops the loop. */
+  | { type: "STATUS_CHANGED"; status: LoopMachineContext["status"] }
   | { type: "ALL_TASKS_DONE"; uncommittedEdits: boolean };
 
 export function stoppedStateToReason(snapshot: { value: unknown }): StopReason | null {
@@ -119,6 +126,12 @@ export const loopMachine = setup({
         },
         RATE_LIMITED: {
           target: "stopped.rateLimited",
+        },
+        STATUS_CHANGED: {
+          target: "checkingStop",
+          actions: assign({
+            status: ({ event }) => event.status,
+          }),
         },
         ALL_TASKS_DONE: [
           {
