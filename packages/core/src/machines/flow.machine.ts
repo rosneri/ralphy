@@ -372,6 +372,9 @@ export const flowMachine = setup({
         FRESH_PICKED_UP: "working",
         RESUME_DETECTED: "working",
         REVIEW_TRIGGERED: "review",
+        // The PR became mergeable while parked here — drop the stale record
+        // so the board stops showing a now-green PR as failing.
+        RECOVERY_CLEARED: { actions: assign(clearRecovery) },
         CONFLICT_DETECTED: [
           {
             guard: reachesQuarantine,
@@ -393,6 +396,8 @@ export const flowMachine = setup({
     working: {
       on: {
         AWAITING_DETECTED: "awaiting",
+        // See `idle` — a now-green PR must not keep a stale failure record.
+        RECOVERY_CLEARED: { actions: assign(clearRecovery) },
         CONFLICT_DETECTED: [
           {
             guard: reachesQuarantine,
@@ -565,6 +570,8 @@ export const flowMachine = setup({
     review: {
       on: {
         WORKER_SUCCEEDED: "done",
+        // See `idle` — a now-green PR must not keep a stale failure record.
+        RECOVERY_CLEARED: { actions: assign(clearRecovery) },
         // Review on a PR-producing run defers to the watcher: the worker pushed
         // to the open PR, so re-await mergeability instead of jumping to done.
         // (The coordinator sends PR_OPENED instead of WORKER_SUCCEEDED when the
