@@ -105,6 +105,10 @@ cleanupWorktreeOnSuccess: false
 # re-runs that reuse an existing worktree.
 setupScript: bun i
 
+# Shell script run once in each task's worktree after the task ends, before the
+# worktree is removed — used here to reclaim disk by deleting installed deps.
+teardownScript: rm -rf node_modules
+
 # When a task succeeds, automatically push the branch and open a GitHub pull
 # request (PR).
 createPrOnSuccess: true
