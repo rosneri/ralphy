@@ -37,7 +37,6 @@ import {
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createTrackerCommentSyncHooks } from "./wire/comment-sync";
-import { selectSpecSink } from "./wire/tracker/spec-sink-select";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -438,23 +437,9 @@ export function buildAgentCoordinator(
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
 
-  // Design-doc publish seam (RLF-239): Linear publishes the design as a
-  // re-uploaded attachment; GitHub embeds it in one sticky issue comment.
-  // Selected by tracker.kind; gated downstream on
-  // `cfg.linear.syncSpecsAsAttachments`.
-  const specSink = selectSpecSink({
-    isGithubTracker,
-    githubProvider,
-    apiKey,
-    cfg,
-    cmdRunner,
-    projectRoot,
-    diag,
-  });
-
   // Task sync (plan-once + sticky tasks + steering refresh) to issue comments.
   // Linear uses its comment API; GitHub gets the marker-idempotent sticky-upsert
-  // adapter. The design-doc publish is routed through `specSink`.
+  // adapter. Spec attachments stay Linear-only (`attachmentsSupported: false`).
   const commentSync = createTrackerCommentSyncHooks({
     isGithubTracker,
     apiKey,
@@ -466,7 +451,6 @@ export function buildAgentCoordinator(
     issueByChange,
     cmdRunner,
     ...(githubProvider ? { githubRepo: githubProvider.repo } : {}),
-    specSink,
   });
 
   const coord = new AgentCoordinator(

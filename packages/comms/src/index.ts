@@ -52,8 +52,7 @@ export type RalphyCommentType =
   | "tasks"
   | "review-round"
   | "pr-body"
-  | "attachment"
-  | "spec";
+  | "attachment";
 
 /** Parsed contents of a `<!-- ralphy:… -->` marker. */
 export interface RalphyMarker {

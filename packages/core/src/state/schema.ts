@@ -8,7 +8,6 @@
  */
 export const OWNERSHIP: Record<string, ReadonlyArray<string>> = {
   "linear-attachments": ["specAttachments"],
-  "github-spec": ["specComment"],
   "linear-comments": ["linearComments"],
   confirmation: ["confirmation"],
   "review-followup": ["review"],
