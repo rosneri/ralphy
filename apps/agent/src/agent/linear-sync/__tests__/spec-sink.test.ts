@@ -100,6 +100,59 @@ describe("createCommentSpecSink", () => {
     expect(comments[0]!.body).not.toContain("Version one.");
   });
 
+  test("a failing readStickyComment is logged and the sync proceeds to write", async () => {
+    writeDesign("# Design\n\nReal content despite a read failure.\n");
+    let written: string | null = null;
+    const sink = createCommentSpecSink({
+      readStickyComment: async () => {
+        throw new Error("boom: read failed");
+      },
+      upsertStickyComment: async (_issueId, _type, body) => {
+        written = body;
+      },
+    });
+
+    logs.length = 0;
+    await sink.sync(syncInput());
+
+    expect(logs.some((l) => l.includes("could not read existing spec comment"))).toBe(true);
+    expect(written).not.toBeNull();
+    expect(written!).toContain("Real content despite a read failure.");
+  });
+
+  test("spec content over the comment size limit is truncated with a note", async () => {
+    const huge = "x".repeat(70_000);
+    writeDesign(`# Design\n\n${huge}\n`);
+    let written: string | null = null;
+    const sink = createCommentSpecSink({
+      readStickyComment: async () => null,
+      upsertStickyComment: async (_issueId, _type, body) => {
+        written = body;
+      },
+    });
+
+    await sink.sync(syncInput());
+
+    expect(written).not.toBeNull();
+    expect(written!).toContain("spec truncated to fit the comment size limit");
+    // The original body is ~70k chars; the published comment stays bounded.
+    expect(written!.length).toBeLessThan(62_000);
+  });
+
+  test("a failing upsertStickyComment is logged and swallowed (never thrown into the loop)", async () => {
+    writeDesign("# Design\n\nContent that fails to publish.\n");
+    const sink = createCommentSpecSink({
+      readStickyComment: async () => null,
+      upsertStickyComment: async () => {
+        throw new Error("boom: upsert failed");
+      },
+    });
+
+    logs.length = 0;
+    await expect(sink.sync(syncInput())).resolves.toBeUndefined();
+    expect(logs.some((l) => l.includes("spec comment upsert failed"))).toBe(true);
+  });
+
   test("scaffold-only design.md publishes nothing", async () => {
     writeDesign("# Title\n\n_placeholder_\n\nStatus: todo\n");
     const tracker = new InMemoryIssueTracker();
