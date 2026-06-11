@@ -49,11 +49,6 @@ type Slot = "design" | "designPdf";
 type LegacySlot = "proposal" | "proposalPdf";
 
 interface SlotSpec {
-  /** Source files (always .md) on disk to read, in order. The first file
-   *  is required; subsequent files are appended to form the upload
-   *  payload, separated by a markdown rule. Missing trailing files are
-   *  skipped silently. */
-  sourceFiles: string[];
   /** Filename to give Linear at upload time. */
   uploadFilename: string;
   /** MIME type Linear should record. */
@@ -75,7 +70,6 @@ const pdfRender =
 
 const SLOT_SPECS: Record<Slot, SlotSpec> = {
   design: {
-    sourceFiles: ["design.md", "tasks.md"],
     uploadFilename: "design.md",
     contentType: "text/markdown",
     title: "Ralph design",
@@ -83,7 +77,6 @@ const SLOT_SPECS: Record<Slot, SlotSpec> = {
     renderBytes: identityRender,
   },
   designPdf: {
-    sourceFiles: ["design.md", "tasks.md"],
     uploadFilename: "design.pdf",
     contentType: "application/pdf",
     title: "Ralph design (PDF)",
@@ -410,6 +403,73 @@ export function extractImplementationSection(tasksMarkdown: string): string {
 }
 
 /**
+ * Compose the canonical Ralph design document for a change: `design.md`
+ * followed by the `## Implementation` section of `tasks.md` (when present),
+ * joined by a `---` markdown rule — the exact payload the Linear `design`
+ * attachment carries. Returns the composed UTF-8 text plus its sha256, or
+ * `null` when `design.md` is missing, unreadable, or scaffold-only (fails
+ * {@link hasMeaningfulContent}).
+ *
+ * This is the single shared definition consumed by both the Linear attachment
+ * sink (via {@link syncSlot}) and the GitHub comment sink, so the two backends
+ * publish byte-identical design docs.
+ */
+export async function composeDesignDoc(
+  changeDir: string,
+  log: LogFn,
+): Promise<{ text: string; sha256: string } | null> {
+  const primaryName = "design.md";
+  const primary = Bun.file(join(changeDir, primaryName));
+  if (!(await primary.exists())) {
+    log(`  spec-attachments: ${primaryName} missing, skipping`, "gray");
+    return null;
+  }
+
+  let primaryBytes: Uint8Array;
+  try {
+    primaryBytes = await primary.bytes();
+  } catch (err) {
+    log(`! spec-attachments: read ${primaryName} failed: ${(err as Error).message}`, "yellow");
+    return null;
+  }
+
+  if (!hasMeaningfulContent(primaryBytes)) {
+    log(`  spec-attachments: ${primaryName} has no content yet, skipping`, "gray");
+    return null;
+  }
+
+  // Append the tasks.md `## Implementation` section (the `## Planning`
+  // checklist must never leak) after a markdown rule when present.
+  const parts: Uint8Array[] = [primaryBytes];
+  const enc = new TextEncoder();
+  const tasks = Bun.file(join(changeDir, "tasks.md"));
+  if (await tasks.exists()) {
+    let raw: Uint8Array | null = null;
+    try {
+      raw = await tasks.bytes();
+    } catch (err) {
+      log(
+        `! spec-attachments: read tasks.md failed (continuing without it): ${(err as Error).message}`,
+        "yellow",
+      );
+    }
+    if (raw && raw.length > 0) {
+      const body = extractImplementationSection(new TextDecoder().decode(raw));
+      if (body) parts.push(enc.encode(`\n\n---\n\n${body}\n`));
+    }
+  }
+
+  const totalLen = parts.reduce((n, p) => n + p.length, 0);
+  const sourceBytes = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const p of parts) {
+    sourceBytes.set(p, offset);
+    offset += p.length;
+  }
+  return { text: new TextDecoder().decode(sourceBytes), sha256: sha256Hex(sourceBytes) };
+}
+
+/**
  * Sealed (post-PR) path for one design slot in **append** mode. The v1
  * attachment and any prior revisions are **never** deleted. A changed design
  * publishes a new additional attachment titled `Ralph design #<n> (<label>)`:
@@ -524,70 +584,30 @@ async function syncSlotSealed(
 
 async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   const spec = SLOT_SPECS[slot];
-  const [primaryName, ...trailingNames] = spec.sourceFiles;
-  if (!primaryName) return;
-  const primary = Bun.file(join(deps.changeDir, primaryName));
-  if (!(await primary.exists())) {
-    deps.log(`  spec-attachments: ${primaryName} missing, skipping`, "gray");
-    return;
-  }
 
-  let primaryBytes: Uint8Array;
-  try {
-    primaryBytes = await primary.bytes();
-  } catch (err) {
-    deps.log(`! spec-attachments: read ${primaryName} failed: ${(err as Error).message}`, "yellow");
-    return;
-  }
-
-  if (!hasMeaningfulContent(primaryBytes)) {
-    deps.log(`  spec-attachments: ${primaryName} has no content yet, skipping`, "gray");
-    return;
-  }
-
-  // Compose the upload payload by appending any present trailing source
-  // files (e.g. tasks.md after design.md), separated by a markdown rule
-  // so reviewers can tell the sections apart inside one attachment.
-  // tasks.md is special-cased: only its `## Implementation` section is
-  // published — the `## Planning` checklist (agent process tasks) must
-  // never reach the Linear design attachment.
-  const parts: Uint8Array[] = [primaryBytes];
-  const enc = new TextEncoder();
-  for (const name of trailingNames) {
-    const f = Bun.file(join(deps.changeDir, name));
-    if (!(await f.exists())) continue;
-    let raw: Uint8Array;
-    try {
-      raw = await f.bytes();
-    } catch (err) {
-      deps.log(
-        `! spec-attachments: read ${name} failed (continuing without it): ${(err as Error).message}`,
-        "yellow",
-      );
-      continue;
-    }
-    if (raw.length === 0) continue;
-    const decoded = new TextDecoder().decode(raw);
-    const body = name === "tasks.md" ? extractImplementationSection(decoded) : decoded.trim();
-    if (!body) continue;
-    parts.push(enc.encode(`\n\n---\n\n${body}\n`));
-  }
-  const totalLen = parts.reduce((n, p) => n + p.length, 0);
-  const sourceBytes = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const p of parts) {
-    sourceBytes.set(p, offset);
-    offset += p.length;
-  }
+  // Compose the upload payload (design.md + the tasks.md `## Implementation`
+  // section, joined by a markdown rule) via the shared helper so the Linear
+  // attachment and the GitHub comment publish byte-identical design docs.
+  // composeDesignDoc handles the missing / unreadable / scaffold-only skips
+  // (logging the same gray/yellow lines this slot used to emit inline).
+  const composed = await composeDesignDoc(deps.changeDir, deps.log);
+  if (!composed) return;
+  const sourceBytes = new TextEncoder().encode(composed.text);
 
   // Hash the *composed* source so the md and pdf slots track the same
   // content signal. A change to either design.md or tasks.md invalidates
   // both the design and designPdf slots. Used by the pre-seal in-place path.
-  const hash = sha256Hex(sourceBytes);
+  const hash = composed.sha256;
   // Design-only hash (design.md alone). Used post-seal so a checkbox-only
   // tick of the tasks.md Implementation checklist — which does not touch
-  // design.md — is not mistaken for a design revision.
-  const designOnlyHash = sha256Hex(primaryBytes);
+  // design.md — is not mistaken for a design revision. Falls back to the
+  // composed hash on a read race so the sync never crashes.
+  let designOnlyHash = hash;
+  try {
+    designOnlyHash = sha256Hex(await Bun.file(join(deps.changeDir, "design.md")).bytes());
+  } catch {
+    /* fall back to composed hash — never crash the sync */
+  }
   const state = await readSpecAttachments(deps.statePath);
 
   const sealed = await isDesignSealed(stateDirOf(deps.statePath));

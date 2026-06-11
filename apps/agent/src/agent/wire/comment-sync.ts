@@ -6,16 +6,8 @@ import {
   postSteeringAndRefreshTasks,
   type CommentMutations,
 } from "../linear-sync/comment-sync";
-import { syncSpecAttachments, type SpecAttachmentMutations } from "../linear-sync/spec-attachments";
-import {
-  createIssueComment,
-  updateIssueComment,
-  deleteIssueComment,
-  uploadFileToLinear,
-  createAttachmentForUrl,
-  deleteAttachment,
-  findIssueAttachmentByTitle,
-} from "../linear";
+import type { SpecSink } from "../linear-sync/spec-sink";
+import { createIssueComment, updateIssueComment, deleteIssueComment } from "../linear";
 import type { CmdRunner } from "../pr";
 import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
 import type { TrackedIssue } from "@ralphy/tracker";
@@ -32,9 +24,9 @@ interface CommentSyncInput {
   commentMutations?: CommentMutations;
   /** Whether the backend credentials are ready. Defaults to `Boolean(apiKey)`. */
   credentialsReady?: boolean;
-  /** Whether the backend supports spec attachments. Defaults to `true`
-   *  (Linear); GitHub has no attachments API, so it passes `false`. */
-  attachmentsSupported?: boolean;
+  /** Backend-neutral design-doc publisher (Linear attachment / GitHub comment),
+   *  selected by `tracker.kind` in `wire.ts`. `null` disables spec sync. */
+  specSink: SpecSink | null;
 }
 
 interface CommentSyncHooks {
@@ -47,30 +39,25 @@ interface CommentSyncHooks {
 }
 
 export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHooks {
-  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
-  // The tasks-comment mirror and the spec-attachment (proposal/design, incl.
-  // PDF) upload are independent features that share one `syncTasks` hook.
-  // Wire the hook when *either* is on — gating spec attachments behind
+  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange, specSink } = input;
+  // The tasks-comment mirror and the spec-doc publish (Linear attachment /
+  // GitHub comment) are independent features that share one `syncTasks` hook.
+  // Wire the hook when *either* is on — gating the spec doc behind
   // `syncTasksToComment` previously left `syncSpecsAsAttachments: true` dead
-  // whenever the sticky comment was disabled (no design PDF on the issue).
+  // whenever the sticky comment was disabled (no design doc on the issue).
   const credsReady = input.credentialsReady ?? Boolean(apiKey);
-  const attachmentsSupported = input.attachmentsSupported ?? true;
   const commentsEnabled = Boolean(cfg.linear.syncTasksToComment) && credsReady;
-  const specAttachmentsEnabled =
-    attachmentsSupported && Boolean(cfg.linear.syncSpecsAsAttachments) && credsReady;
-  const enabled = commentsEnabled || specAttachmentsEnabled;
+  // Spec sync runs when the flag is on AND a backend sink was selected. The
+  // sink presence encodes backend availability — the Linear sink is built only
+  // when an apiKey exists, the GitHub sink only in github mode.
+  const specEnabled = Boolean(cfg.linear.syncSpecsAsAttachments && specSink);
+  const enabled = commentsEnabled || specEnabled;
   if (!enabled) return { enabled: false };
 
   const commentMutations: CommentMutations = input.commentMutations ?? {
     createIssueComment,
     updateIssueComment,
     deleteIssueComment,
-  };
-  const specAttachmentMutations: SpecAttachmentMutations = {
-    uploadFileToLinear,
-    createAttachmentForUrl,
-    deleteAttachment,
-    findIssueAttachmentByTitle,
   };
 
   return {
@@ -85,7 +72,7 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
       const changeDir = layout.changeDir(worker.changeName);
       const statePath = layout.stateFile(worker.changeName);
       if (commentsEnabled) {
-        if (!specAttachmentsEnabled) {
+        if (!specEnabled) {
           await postPlanCommentOnce({
             apiKey,
             issueId: worker.issueId,
@@ -107,17 +94,13 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
           mutations: commentMutations,
         });
       }
-      if (specAttachmentsEnabled) {
-        await syncSpecAttachments({
-          apiKey,
+      if (specEnabled && specSink) {
+        await specSink.sync({
           issueId: worker.issueId,
           statePath,
           changeDir,
           iteration,
           log: onLog,
-          mutations: specAttachmentMutations,
-          formats: cfg.linear.specAttachmentFormats,
-          sealedRevisionMode: cfg.linear.specAttachmentRevisions,
         });
       }
     },
@@ -180,15 +163,19 @@ interface TrackerCommentSyncInput {
   cmdRunner: CmdRunner;
   /** Resolves the GitHub `owner/name` slug (githubProvider.repo). */
   githubRepo?: () => Promise<string>;
+  /** Backend-neutral design-doc publisher selected in `wire.ts` by
+   *  `tracker.kind` (Linear attachment / GitHub comment). `null` disables it. */
+  specSink: SpecSink | null;
 }
 
 /**
  * Select the comment-sync hooks for the active tracker. GitHub gets the
- * marker-idempotent sticky-upsert adapter over `gh` (no spec attachments, auth
- * via the CLI); Linear keeps its comment API + spec-attachment uploads.
+ * marker-idempotent sticky-upsert adapter over `gh`; Linear keeps its comment
+ * API. The design-doc publish is routed through the injected {@link SpecSink}
+ * (Linear attachment in linear mode, embedded sticky comment in github mode).
  */
 export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): CommentSyncHooks {
-  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
+  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange, specSink } = input;
   if (input.isGithubTracker) {
     return createCommentSyncHooks({
       apiKey: "",
@@ -204,8 +191,8 @@ export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): C
         repo: input.githubRepo!,
         diag,
       }),
-      attachmentsSupported: false,
       credentialsReady: true,
+      specSink,
     });
   }
   return createCommentSyncHooks({
@@ -216,5 +203,6 @@ export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): C
     diag,
     cwdByChange,
     issueByChange,
+    specSink,
   });
 }
