@@ -9,6 +9,7 @@ import { describe, expect, it } from "bun:test";
 import { createBus } from "@ralphy/events";
 import type { RalphEvent } from "@ralphy/events";
 import { installShutdown } from "../shutdown";
+import { trackerFromFlat } from "../../../test/harness/provider-contract";
 import { AgentCoordinator } from "../coordinator";
 import type { TrackedIssue } from "@ralphy/tracker";
 
@@ -88,12 +89,9 @@ function makeCoord(
   const spawned: string[] = [];
   const coord = new AgentCoordinator(
     {
-      fetchTodo: async () => todo,
-      fetchInProgress: async () => [],
-      fetchMentions: async () => [],
-      fetchDoneCandidates: async () => [],
-      fetchReview: async () => [],
-      fetchComments: async () => [],
+      tracker: trackerFromFlat({
+        fetchTodo: async () => todo,
+      }),
       prepare: async (issue) => ({ changeName: issue.id }),
       spawnWorker: (_name, issue) => {
         spawned.push(issue.id);
@@ -101,9 +99,6 @@ function makeCoord(
         handles.push(h);
         return h;
       },
-      applyIndicator: async () => {},
-      removeIndicator: async () => {},
-      postComment: async () => {},
       checkPrStatus: async () => null,
       onLog: () => {},
       onWorkersChanged: () => {},
@@ -216,20 +211,14 @@ describe("S6.7 — no new workers spawned after stop()", () => {
     let fetched = false;
     const coord = new AgentCoordinator(
       {
-        fetchTodo: async () => {
-          fetched = true;
-          return [makeIssue("q")];
-        },
-        fetchInProgress: async () => [],
-        fetchMentions: async () => [],
-        fetchDoneCandidates: async () => [],
-        fetchReview: async () => [],
-        fetchComments: async () => [],
+        tracker: trackerFromFlat({
+          fetchTodo: async () => {
+            fetched = true;
+            return [makeIssue("q")];
+          },
+        }),
         prepare: async (issue) => ({ changeName: issue.id }),
         spawnWorker: () => makeHandle(),
-        applyIndicator: async () => {},
-        removeIndicator: async () => {},
-        postComment: async () => {},
         checkPrStatus: async () => null,
         onLog: () => {},
         onWorkersChanged: () => {},
@@ -254,20 +243,14 @@ describe("S6.7 — no new workers spawned after stop()", () => {
 
     const coord = new AgentCoordinator(
       {
-        fetchTodo: () => fetchPromise,
-        fetchInProgress: async () => [],
-        fetchMentions: async () => [],
-        fetchDoneCandidates: async () => [],
-        fetchReview: async () => [],
-        fetchComments: async () => [],
+        tracker: trackerFromFlat({
+          fetchTodo: () => fetchPromise,
+        }),
         prepare: async (issue) => ({ changeName: issue.id }),
         spawnWorker: (_name, issue) => {
           spawned.push(issue.id);
           return makeHandle();
         },
-        applyIndicator: async () => {},
-        removeIndicator: async () => {},
-        postComment: async () => {},
         checkPrStatus: async () => null,
         onLog: () => {},
         onWorkersChanged: () => {},
@@ -292,20 +275,14 @@ describe("S6.8 — stopped coordinator never invokes Linear fetchers", () => {
     let fetchCalls = 0;
     const coord = new AgentCoordinator(
       {
-        fetchTodo: async () => {
-          fetchCalls++;
-          return [];
-        },
-        fetchInProgress: async () => [],
-        fetchMentions: async () => [],
-        fetchDoneCandidates: async () => [],
-        fetchReview: async () => [],
-        fetchComments: async () => [],
+        tracker: trackerFromFlat({
+          fetchTodo: async () => {
+            fetchCalls++;
+            return [];
+          },
+        }),
         prepare: async (issue) => ({ changeName: issue.id }),
         spawnWorker: () => makeHandle(),
-        applyIndicator: async () => {},
-        removeIndicator: async () => {},
-        postComment: async () => {},
         checkPrStatus: async () => null,
         onLog: () => {},
         onWorkersChanged: () => {},

@@ -21,7 +21,7 @@ import {
   removeLabelFromIssue,
   issueMatchesGetIndicator,
   type LinearFilterSpec,
-} from "../linear";
+} from "../../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { linearIdentifierStrategy } from "../../shared/capabilities/github/identifier-strategy";
 

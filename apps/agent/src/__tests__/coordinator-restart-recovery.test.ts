@@ -13,8 +13,9 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 
 function issue(id: string, identifier: string): TrackedIssue {
   return {
@@ -59,13 +60,20 @@ function makeHarness(args: {
 }): Harness {
   const comments: string[] = [];
   const spawns: { changeName: string; trigger: string }[] = [];
-  const deps: CoordinatorDeps = {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => []),
-    fetchReview: mock(async () => []),
     fetchDoneCandidates: mock(async () => [args.candidate]),
     fetchComments: async () => [],
+    applyIndicator: async () => {},
+    removeIndicator: async () => {},
+    postComment: async (_i, body) => {
+      comments.push(body);
+    },
+  };
+  const deps: CoordinatorDeps = {
+    tracker: trackerFromFlat(flat),
     prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
@@ -74,11 +82,6 @@ function makeHarness(args: {
       // Never exits — the fix run stays in flight for the rest of the test.
       return { exited: new Promise<number>(() => {}), kill: () => {} };
     }),
-    applyIndicator: async () => {},
-    removeIndicator: async () => {},
-    postComment: async (_i, body) => {
-      comments.push(body);
-    },
     checkPrStatus: async () => ({ url: "https://github.com/o/r/pull/42", status: args.prStatus }),
     getChangeDir: (i) => join(root, i.id),
     onLog: () => {},

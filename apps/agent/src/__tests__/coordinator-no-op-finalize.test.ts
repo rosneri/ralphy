@@ -1,8 +1,9 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
 import { NO_CHANGES_EXIT } from "../agent/post-task";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 
 // When a worker exits NO_CHANGES_EXIT (branch only ever touched meta files —
 // the requested work is already on base), the coordinator must finalize the
@@ -37,12 +38,25 @@ function makeCtx() {
   const removes: { id: string; ind: SetIndicator }[] = [];
   const comments: { id: string; body: string }[] = [];
 
-  const deps: CoordinatorDeps = {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
-    fetchReview: mock(async () => []),
+    applyIndicator: async (i, ind) => {
+      applies.push({ id: i.id, ind });
+    },
+    removeIndicator: async (i, ind) => {
+      removes.push({ id: i.id, ind });
+    },
+    postComment: async (i, body) => {
+      comments.push({ id: i.id, body });
+    },
+    fetchComments: async () => [],
+  };
+
+  const deps: CoordinatorDeps = {
+    tracker: trackerFromFlat(flat),
     prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
@@ -54,22 +68,12 @@ function makeCtx() {
       workers.push({ resolve, exited });
       return { exited, kill: () => resolve(143) };
     }),
-    applyIndicator: async (i, ind) => {
-      applies.push({ id: i.id, ind });
-    },
-    removeIndicator: async (i, ind) => {
-      removes.push({ id: i.id, ind });
-    },
-    postComment: async (i, body) => {
-      comments.push({ id: i.id, body });
-    },
-    fetchComments: async () => [],
     checkPrStatus: async () => null,
     onLog: () => {},
     onWorkersChanged: () => {},
   };
 
-  return { deps, workers, applies, removes, comments };
+  return { deps, flat, workers, applies, removes, comments };
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
@@ -89,7 +93,7 @@ describe("AgentCoordinator — NO_CHANGES_EXIT finalization", () => {
     });
     await coord.init();
 
-    (ctx.deps.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
+    (ctx.flat.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
       issue("a", "LIT-300"),
     ]);
     await coord.pollOnce();

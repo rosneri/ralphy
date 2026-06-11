@@ -1,7 +1,8 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps, type QueueTrigger } from "../agent/coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 
 function issue(id: string, identifier: string): TrackedIssue {
   return {
@@ -36,12 +37,25 @@ function makeCtx() {
 
   let coordRef: { coord?: AgentCoordinator } = {};
 
-  const deps: CoordinatorDeps = {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
-    fetchReview: mock(async () => []),
+    applyIndicator: async (i, ind) => {
+      applies.push({ id: i.id, ind });
+    },
+    removeIndicator: async (i, ind) => {
+      removes.push({ id: i.id, ind });
+    },
+    postComment: async (i, body) => {
+      comments.push({ id: i.id, body });
+    },
+    fetchComments: async () => [],
+  };
+
+  const deps: CoordinatorDeps = {
+    tracker: trackerFromFlat(flat),
     prepare: mock(async (i: TrackedIssue) => {
       return { changeName: `change-${i.identifier.toLowerCase()}` };
     }),
@@ -69,22 +83,12 @@ function makeCtx() {
         },
       };
     }),
-    applyIndicator: async (i, ind) => {
-      applies.push({ id: i.id, ind });
-    },
-    removeIndicator: async (i, ind) => {
-      removes.push({ id: i.id, ind });
-    },
-    postComment: async (i, body) => {
-      comments.push({ id: i.id, body });
-    },
-    fetchComments: async () => [],
     checkPrStatus: async () => null,
     onLog: () => {},
     onWorkersChanged: () => {},
   };
 
-  return { deps, workers, spawnArgs, applies, removes, comments, triggerByCall, coordRef };
+  return { deps, flat, workers, spawnArgs, applies, removes, comments, triggerByCall, coordRef };
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 5));
@@ -105,7 +109,7 @@ describe("AgentCoordinator.restartWorker", () => {
     await coord.init();
 
     // Seed an active worker by polling once.
-    (ctx.deps.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
+    (ctx.flat.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
       issue("a", "ENG-1"),
     ]);
     await coord.pollOnce();
@@ -144,7 +148,7 @@ describe("AgentCoordinator.restartWorker", () => {
     const ctx = makeCtx();
     const coord = (ctx.coordRef.coord = new AgentCoordinator(ctx.deps, { concurrency: 1 }));
     await coord.init();
-    (ctx.deps.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
+    (ctx.flat.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
       issue("a", "ENG-1"),
     ]);
     await coord.pollOnce();
@@ -159,7 +163,7 @@ describe("AgentCoordinator.restartWorker", () => {
     const ctx = makeCtx();
     const coord = (ctx.coordRef.coord = new AgentCoordinator(ctx.deps, { concurrency: 1 }));
     await coord.init();
-    (ctx.deps.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
+    (ctx.flat.fetchTodo as ReturnType<typeof mock>).mockImplementationOnce(async () => [
       issue("a", "ENG-1"),
     ]);
     await coord.pollOnce();

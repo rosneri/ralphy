@@ -1,7 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
-import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
+import type { IssueTracker, TrackedIssue } from "@ralphy/tracker";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { changeNameForIssue } from "../agent/scaffold";
 import type { TicketRow } from "../components/task-pipeline";
@@ -132,28 +132,30 @@ const emptyPollResult = (): PollResult => ({
 });
 
 /**
- * The orchestration-side dependency bag. It `extends IssueTrackerProvider`, so
- * the nine provider methods (`fetchTodo`, `fetchInProgress`, `fetchReview`,
- * `fetchMentions`, `fetchDoneCandidates`, `fetchComments`, `applyIndicator`,
- * `removeIndicator`, `postComment`) are inherited from the shared
- * `@ralphy/tracker` contract — a single source of truth that the compiler keeps
- * aligned (a signature change there flags here). The orchestration-only members
- * (`prepare`, `spawnWorker`, lifecycle hooks, …) are declared below.
+ * The orchestration-side dependency bag (issue #403: `{ tracker, … }` instead
+ * of nine flat provider methods). The tracker facade is the single fetch/write
+ * surface — `pollOnce` issues one `tracker.poll()` per cycle and every tracker
+ * write (indicators, comments, sticky upserts) goes through the same member.
+ * The orchestration-only members (`prepare`, `spawnWorker`, lifecycle hooks,
+ * …) are declared below.
  *
- * Operationally-meaningful semantics that previously lived on the now-inherited
- * members (the canonical method docs live on `IssueTrackerProvider`):
- *  - The `fetch*` reads return an **empty array** when their backing
- *    get-indicator is unconfigured: `fetchTodo` (no `getTodo`),
- *    `fetchInProgress` (no `getInProgress`), `fetchMentions` (mention scanning
- *    disabled), `fetchDoneCandidates` (no PR remote / no `setDone`).
- *  - `fetchReview` (RLF-223 M2 forward-compat) is **not polled today** —
- *    `pollOnce` never calls it and `buckets.review` stays `0`; review work still
- *    flows through `fetchMentions` (the scanner enqueues `trigger: "review"`).
- *    A future milestone wires a real review poll.
+ * Operationally-meaningful semantics of the facade reads (canonical docs live
+ * on `IssueTracker` / `IssueTrackerProvider`):
+ *  - A poll bucket is an **empty array** when its backing get-indicator is
+ *    unconfigured: `todo` (no `getTodo`), `inProgress` (no `getInProgress`),
+ *    `mentions` (mention scanning disabled), `doneCandidates` (no PR remote /
+ *    no `setDone`).
+ *  - Review work is not polled as its own bucket — it flows through
+ *    `mentions` (the scanner enqueues `trigger: "review"`); `buckets.review`
+ *    stays `0`.
  *  - `removeIndicator` removes a SetIndicator's labels; status removal is a
  *    no-op. `fetchComments` backs "started" idempotency.
  */
-export interface CoordinatorDeps extends IssueTrackerProvider {
+export interface CoordinatorDeps {
+  /** The issue-tracker facade (`@ralphy/tracker`): one `poll()` bundle per
+   *  cycle plus every tracker write. Built by `createTracker` — the only
+   *  place the tracker kind is read. */
+  tracker: IssueTracker;
   /**
    * Side-effect: create or reuse a worktree, scaffold the change directory
    * when its `tasks.md` is missing, and run the project's setup script.
@@ -330,6 +332,10 @@ export class AgentCoordinator {
   private readonly prWatcher: PrWatcher;
   /** Worker lifecycle: prepare → spawn → exit → finalize — see {@link WorkerPool}. */
   private readonly pool: WorkerPool;
+  /** doneCandidates bucket of the current cycle's poll snapshot, consumed by
+   *  the PR watcher's merge-state scan — so one `tracker.poll()` feeds the
+   *  whole cycle. */
+  private lastDoneCandidates: TrackedIssue[] = [];
 
   constructor(
     private readonly deps: CoordinatorDeps,
@@ -361,9 +367,9 @@ export class AgentCoordinator {
     );
     this.director = new FlowDirector(flowStore);
     const notifierDeps: IssueNotifierDeps = {
-      postComment: (issue, body) => this.deps.postComment(issue, body),
-      applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
-      removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
+      postComment: (issue, body) => this.deps.tracker.postComment(issue, body),
+      applyIndicator: (issue, ind) => this.deps.tracker.applyIndicator(issue, ind),
+      removeIndicator: (issue, ind) => this.deps.tracker.removeIndicator(issue, ind),
       mergePr: this.deps.mergePr,
       getIterationCount: this.deps.getIterationCount,
       getTasksFingerprint: this.deps.getTasksFingerprint,
@@ -375,7 +381,9 @@ export class AgentCoordinator {
     };
     this.notifier = new IssueNotifier(notifierDeps, this.opts satisfies IssueNotifierOpts);
     const watcherDeps: PrWatcherDeps = {
-      fetchDoneCandidates: () => this.deps.fetchDoneCandidates(),
+      // The watcher scans the doneCandidates bucket of the current cycle's
+      // poll snapshot — one tracker fetch per poll (issue #403).
+      fetchDoneCandidates: async () => this.lastDoneCandidates,
       checkPrStatus: (issue) => this.deps.checkPrStatus(issue),
       director: this.director,
       flowRef: (issue) => this.flowRef(issue),
@@ -392,10 +400,10 @@ export class AgentCoordinator {
       prepareTaskForTrigger: this.deps.prepareTaskForTrigger?.bind(this.deps),
       spawnWorker: (changeName, issue, trigger) =>
         this.deps.spawnWorker(changeName, issue, trigger),
-      applyIndicator: (issue, ind) => this.deps.applyIndicator(issue, ind),
-      removeIndicator: (issue, ind) => this.deps.removeIndicator(issue, ind),
-      postComment: (issue, body) => this.deps.postComment(issue, body),
-      fetchComments: (issueId) => this.deps.fetchComments(issueId),
+      applyIndicator: (issue, ind) => this.deps.tracker.applyIndicator(issue, ind),
+      removeIndicator: (issue, ind) => this.deps.tracker.removeIndicator(issue, ind),
+      postComment: (issue, body) => this.deps.tracker.postComment(issue, body),
+      fetchComments: (issueId) => this.deps.tracker.fetchComments(issueId),
       hasPrForChange: this.deps.hasPrForChange?.bind(this.deps),
       getIterationCount: this.deps.getIterationCount?.bind(this.deps),
       syncTasks: this.deps.syncTasks?.bind(this.deps),
@@ -464,13 +472,11 @@ export class AgentCoordinator {
     let inProgress: TrackedIssue[] = [];
     let mentions: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
     try {
-      [todo, inProgress, mentions] = await Promise.all([
-        this.deps.fetchTodo(),
-        this.deps.fetchInProgress(),
-        this.deps.fetchMentions(),
-      ]);
+      const snapshot = await this.deps.tracker.poll();
+      ({ todo, inProgress, mentions } = snapshot);
+      this.lastDoneCandidates = snapshot.doneCandidates;
     } catch (err) {
-      this.deps.onLog(`! Linear poll failed: ${(err as Error).message}`, "red");
+      this.deps.onLog(`! tracker poll failed: ${(err as Error).message}`, "red");
       emitCapture(this.bus, "agent_linear_poll_failed", { error: (err as Error).message });
       return emptyPollResult();
     }

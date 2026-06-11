@@ -1,7 +1,8 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { Bus, EmitInput } from "@ralphy/events";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 import type { FeatureCtx } from "../features/types";
 import { recordingBus } from "../__test-utils__/recording-bus";
 
@@ -23,12 +24,18 @@ function issue(id: string, identifier: string): TrackedIssue {
 }
 
 function baseDeps(inProgress: TrackedIssue[], bus: Bus): CoordinatorDeps {
-  return {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: mock(async () => []),
     fetchInProgress: mock(async () => inProgress),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
-    fetchReview: mock(async () => []),
+    applyIndicator: mock(async () => {}),
+    removeIndicator: mock(async () => {}),
+    postComment: mock(async () => {}),
+    fetchComments: mock(async () => []),
+  };
+  return {
+    tracker: trackerFromFlat(flat),
     prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
@@ -39,10 +46,6 @@ function baseDeps(inProgress: TrackedIssue[], bus: Bus): CoordinatorDeps {
       });
       return { exited, kill: () => resolve(143) };
     }),
-    applyIndicator: mock(async () => {}),
-    removeIndicator: mock(async () => {}),
-    postComment: mock(async () => {}),
-    fetchComments: mock(async () => []),
     checkPrStatus: mock(async () => null),
     onLog: () => {},
     onWorkersChanged: () => {},

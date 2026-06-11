@@ -74,7 +74,7 @@ export function attachmentMutationsFromCapability(
   };
 }
 
-export interface AttachmentSpecSinkDeps {
+interface AttachmentSpecSinkDeps {
   apiKey: string;
   mutations: SpecAttachmentMutations;
   formats?: AttachmentFormat[];
@@ -98,7 +98,7 @@ export function createAttachmentSpecSink(deps: AttachmentSpecSinkDeps): SpecSink
   };
 }
 
-export interface CommentSpecSinkDeps {
+interface CommentSpecSinkDeps {
   /** Marker-idempotent sticky upsert on the issue (the tracker primitive). */
   upsertStickyComment: (issueId: string, type: RalphyCommentType, body: string) => Promise<void>;
   /** Current body of the issue's sticky comment of `type`, or null. Used to

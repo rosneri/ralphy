@@ -2,7 +2,7 @@ import {
   fetchAttachmentsForIssues,
   fetchBlockedByForIssues,
   baseBranchFromLabels,
-} from "../linear";
+} from "../../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { createPullRequest, type CmdRunner } from "../pr";
 

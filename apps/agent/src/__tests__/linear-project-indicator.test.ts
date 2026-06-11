@@ -4,7 +4,7 @@ import {
   fetchProjectIdByName,
   issueMatchesGetIndicator,
   setIssueProject,
-} from "../agent/linear";
+} from "../shared/capabilities/linear-client";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

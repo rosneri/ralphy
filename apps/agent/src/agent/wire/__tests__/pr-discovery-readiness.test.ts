@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createPrDiscovery } from "../pr-discovery";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import { PollContext } from "../../../shared/capabilities/poll-context";
 import { changeNameForIssue } from "../../scaffold";
 import type { CmdRunner } from "../../pr";
@@ -68,15 +69,16 @@ function makeCmd(draft: boolean, reviewDecision: string | null): CmdRunner {
 function makeDiscovery(draft: boolean, reviewDecision: string | null) {
   const prByChange = new Map<string, string>();
   prByChange.set(changeNameForIssue(ISSUE), PR_URL); // pre-seed → skip URL discovery
+  const cmdRunner = makeCmd(draft, reviewDecision);
   return createPrDiscovery({
-    apiKey: "k",
     projectRoot: "/tmp/pr-discovery-readiness-test",
-    cmdRunner: makeCmd(draft, reviewDecision),
+    cmdRunner,
+    codeHost: createGhCliCodeHost({ cmdRunner, cwd: "/tmp/pr-discovery-readiness-test" }),
+    fetchPullRequestLinks: async () => [],
     onLog: () => {},
     diag: () => {},
     prByChange,
     getPollContext: () => new PollContext(),
-    ignoreCiChecks: [],
   });
 }
 
@@ -134,14 +136,14 @@ describe("createPrDiscovery — done-gate readiness (BAN-799)", () => {
       },
     };
     const discovery = createPrDiscovery({
-      apiKey: "k",
       projectRoot: "/tmp/pr-discovery-readiness-test",
       cmdRunner,
+      codeHost: createGhCliCodeHost({ cmdRunner, cwd: "/tmp/pr-discovery-readiness-test" }),
+      fetchPullRequestLinks: async () => [],
       onLog: () => {},
       diag: () => {},
       prByChange,
       getPollContext: () => new PollContext(),
-      ignoreCiChecks: [],
     });
     const result = await discovery.checkPrStatus(ISSUE);
     expect(result).toEqual({ url: PR_URL, status: "mergeable" });

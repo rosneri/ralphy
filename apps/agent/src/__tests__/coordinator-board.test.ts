@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentCoordinator, type CoordinatorDeps, type MentionTrigger } from "../agent/coordinator";
 import type { PrStatusBucket } from "../agent/coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { createNoopBus } from "@ralphy/events";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 import { FlowActorStore, flowMachine, preemptionActorLogic } from "@ralphy/core/machines";
 import { statusLabel, type TicketRow } from "../components/task-pipeline";
 
@@ -46,12 +47,19 @@ function makeBoardDeps(): BoardDeps {
   let mentions: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
   let doneCandidates: TrackedIssue[] = [];
 
-  const deps: CoordinatorDeps = {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: async () => todo,
     fetchInProgress: async () => inProgress,
     fetchMentions: async () => mentions,
     fetchDoneCandidates: async () => doneCandidates,
-    fetchReview: async () => [],
+    applyIndicator: async () => {},
+    removeIndicator: async () => {},
+    postComment: async () => {},
+    fetchComments: async () => [],
+  };
+
+  const deps: CoordinatorDeps = {
+    tracker: trackerFromFlat(flat),
     prepare: async (i) => ({ changeName: `change-${i.identifier.toLowerCase()}` }),
     spawnWorker: () => {
       let resolve!: (code: number) => void;
@@ -60,10 +68,6 @@ function makeBoardDeps(): BoardDeps {
       });
       return { exited, kill: () => resolve(143) };
     },
-    applyIndicator: async () => {},
-    removeIndicator: async () => {},
-    postComment: async () => {},
-    fetchComments: async () => [],
     checkPrStatus: async (i) => prByIssue.get(i.id) ?? null,
     getChangeDir: (i) => changeDirByIssue.get(i.id) ?? null,
     onLog: () => {},

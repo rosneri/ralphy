@@ -27,7 +27,7 @@ import {
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
-} from "../agent/linear";
+} from "../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 
 let tempDir: string;

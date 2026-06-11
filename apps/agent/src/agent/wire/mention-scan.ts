@@ -11,7 +11,7 @@ import {
   createIssueComment,
   formatLinearError,
   isRateLimitedError,
-} from "../linear";
+} from "../../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { buildMentionAckComment } from "@ralphy/core/detections";
 import { changeNameForIssue } from "../scaffold";

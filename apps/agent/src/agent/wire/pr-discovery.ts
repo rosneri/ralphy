@@ -1,7 +1,6 @@
 import { PollContext } from "../../shared/capabilities/poll-context";
 import { discoverPrUrlFromGitHub, createPrUrlCache } from "../pr-url";
-import { getPrChecksStatus } from "../ci";
-import { fetchIssueAttachments } from "../linear";
+import type { CodeHost } from "@ralphy/codehost";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { changeNameForIssue } from "../scaffold";
 import type { CmdRunner } from "../pr";
@@ -12,30 +11,23 @@ import { waitForMergeability } from "../../shared/pr/wait-for-mergeability";
 const PR_UNAVAILABLE_TTL_MS = 10 * 60 * 1000;
 
 interface PrDiscoveryInput {
-  apiKey: string;
   projectRoot: string;
   cmdRunner: CmdRunner;
+  /** The CodeHost port — owns the checks classification (with the configured
+   *  ignore-list) used by the merge-state scan. */
+  codeHost: CodeHost;
+  /** PR URLs recorded on the issue, from the tracker facade (Linear:
+   *  attachments; GitHub: identifier-scoped PR search). */
+  fetchPullRequestLinks: (issue: TrackedIssue) => Promise<string[]>;
   onLog: (text: string, color?: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   prByChange: Map<string, string>;
   /** Initial poll context; refreshed by setter on each beforePoll. */
   getPollContext: () => PollContext;
-  /** CI check names the watcher ignores when judging a PR green — must match
-   *  what the in-`gh pr checks` filter uses elsewhere (RLF-97: previously this
-   *  watcher path dropped the configured ignore-list). */
-  ignoreCiChecks: string[];
-  /** Strategy passed to `gh pr merge` by `mergePr`. Defaults to "squash". */
-  autoMergeStrategy?: "squash" | "merge" | "rebase";
 }
 
 interface PrDiscovery {
   checkPrStatus: (issue: TrackedIssue) => Promise<{ url: string; status: PrStatus } | null>;
-  /** Merge a PR directly via `gh pr merge --<strategy>`. The coordinator calls
-   *  this from `advancePrToDone` once a PR is verified mergeable — the
-   *  manual-merge fallback for repos where GitHub's native auto-merge is
-   *  unavailable or no-ops (e.g. no required checks). Returns true on success;
-   *  logs and returns false on failure (caller still advances to done). */
-  mergePr: (prUrl: string) => Promise<boolean>;
   resolvePrUrlForIssue: (issue: TrackedIssue) => Promise<string | null>;
   isPrUnavailable: (changeName: string) => boolean;
   markPrUnavailable: (changeName: string) => void;
@@ -44,17 +36,7 @@ interface PrDiscovery {
 }
 
 export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
-  const {
-    apiKey,
-    projectRoot,
-    cmdRunner,
-    onLog,
-    diag,
-    prByChange,
-    getPollContext,
-    ignoreCiChecks,
-    autoMergeStrategy = "squash",
-  } = input;
+  const { projectRoot, cmdRunner, codeHost, onLog, diag, prByChange, getPollContext } = input;
   const prUnavailable = new Map<string, number>();
   const prUrlByIssue = createPrUrlCache(5 * 60 * 1000);
 
@@ -71,27 +53,21 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     prUnavailable.set(changeName, Date.now() + PR_UNAVAILABLE_TTL_MS);
   }
 
-  async function discoverPrUrlFromLinear(
+  async function discoverPrUrlFromTracker(
     issue: TrackedIssue,
   ): Promise<{ url: string | null; sawNonOpenPr: boolean }> {
-    let attachments;
+    let links: string[];
     try {
-      attachments = await fetchIssueAttachments(apiKey, issue.id);
+      links = await input.fetchPullRequestLinks(issue);
     } catch (err) {
       diag(
-        "linear",
-        `! Linear attachments fetch failed for ${issue.identifier}: ${(err as Error).message}`,
+        "pr",
+        `! tracker PR-link fetch failed for ${issue.identifier}: ${(err as Error).message}`,
         "yellow",
       );
       return { url: null, sawNonOpenPr: false };
     }
-    return pickOpenPrUrlFromAttachments(
-      attachments.map((a) => a.url),
-      issue.identifier,
-      cmdRunner,
-      projectRoot,
-      onLog,
-    );
+    return pickOpenPrUrlFromAttachments(links, issue.identifier, cmdRunner, projectRoot, onLog);
   }
 
   async function discoverPrUrl(issue: TrackedIssue, changeName: string): Promise<string | null> {
@@ -103,17 +79,17 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     );
     if (fromGitHub) return fromGitHub;
 
-    const fromLinear = await discoverPrUrlFromLinear(issue);
-    if (fromLinear.url) {
+    const fromTracker = await discoverPrUrlFromTracker(issue);
+    if (fromTracker.url) {
       diag(
         "pr",
-        `  ${issue.identifier}: PR discovered via Linear attachment (${fromLinear.url})`,
+        `  ${issue.identifier}: PR discovered via tracker PR link (${fromTracker.url})`,
         "gray",
       );
-      return fromLinear.url;
+      return fromTracker.url;
     }
 
-    if (fromLinear.sawNonOpenPr) {
+    if (fromTracker.sawNonOpenPr) {
       markPrUnavailable(changeName);
       return null;
     }
@@ -183,7 +159,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     if (outcome.kind === "conflicting") return { url: prUrl, status: "conflicted" };
 
     try {
-      const ci = await getPrChecksStatus(prUrl, cmdRunner, projectRoot, undefined, ignoreCiChecks);
+      const ci = await codeHost.getChecksStatus(prUrl);
       if (ci.bucket === "fail") return { url: prUrl, status: "ci_failed" };
       // RLF-97: CI still in progress is NOT mergeable. Reporting "mergeable"
       // here clears the pr-tracker recovery counter on every poll between CI
@@ -251,20 +227,8 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     return found;
   }
 
-  async function mergePr(prUrl: string): Promise<boolean> {
-    try {
-      await cmdRunner.run(["gh", "pr", "merge", prUrl, `--${autoMergeStrategy}`], projectRoot);
-      return true;
-    } catch (err) {
-      const e = err as Error & { stderr?: string };
-      onLog(`! failed to merge ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
-      return false;
-    }
-  }
-
   return {
     checkPrStatus,
-    mergePr,
     resolvePrUrlForIssue,
     isPrUnavailable,
     markPrUnavailable,

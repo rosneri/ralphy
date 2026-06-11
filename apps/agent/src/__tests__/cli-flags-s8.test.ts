@@ -1,8 +1,9 @@
 import { describe, expect, test, mock } from "bun:test";
 import { parseAgentArgs } from "../cli";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import { createNoopBus } from "@ralphy/events";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 
 function issue(id: string, identifier: string, priority = 3): TrackedIssue {
   return {
@@ -30,12 +31,18 @@ function makeDeps(todo: TrackedIssue[] = []): {
   workers: Map<string, FakeWorker>;
 } {
   const workers = new Map<string, FakeWorker>();
-  const deps: CoordinatorDeps = {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => []),
     fetchMentions: mock(async () => []),
     fetchDoneCandidates: mock(async () => []),
-    fetchReview: mock(async () => []),
+    applyIndicator: async () => {},
+    removeIndicator: async () => {},
+    postComment: async () => {},
+    fetchComments: async () => [],
+  };
+  const deps: CoordinatorDeps = {
+    tracker: trackerFromFlat(flat),
     prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
@@ -47,10 +54,6 @@ function makeDeps(todo: TrackedIssue[] = []): {
       workers.set(changeName, { resolve });
       return { exited, kill: () => resolve(143) };
     }),
-    applyIndicator: async () => {},
-    removeIndicator: async () => {},
-    postComment: async () => {},
-    fetchComments: async () => [],
     checkPrStatus: async () => null,
     isChangeArchivedForIssue: async () => false,
     onLog: () => {},

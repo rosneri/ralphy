@@ -4,7 +4,7 @@ import { fsChange } from "../shared/capabilities/fs-change";
 import { git as gitCap } from "../shared/capabilities/git";
 import { runCapability } from "../shared/capabilities/run-capability";
 import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
-import { baseBranchFromLabels } from "./linear";
+import { baseBranchFromLabels } from "../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";

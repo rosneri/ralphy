@@ -1,6 +1,6 @@
 import type { GetIndicator } from "@ralphy/types";
 import { type OrderableIssue, orderIssuesHierarchically } from "@ralphy/core/ordering";
-import { issueMatchesGetIndicator } from "../agent/linear";
+import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import type { MentionTrigger, TrackedIssue } from "@ralphy/tracker";
 
 /** Re-exported from `@ralphy/tracker` (RLF-223 M1). Kept here so the existing
