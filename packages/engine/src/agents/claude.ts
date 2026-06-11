@@ -10,13 +10,20 @@ import type { Agent, AgentRequest, AgentRunResult } from "./protocol";
 
 import { isRateLimitText, isResultErrorLimitText } from "./rate-limit-detection";
 
+// `opus`/`sonnet`/`haiku` are CLI-native aliases the Claude CLI resolves on its
+// own. `fable` is not a bare alias, so map it to the full model id; any other
+// value (already a full id, or an alias) passes through untouched.
+function resolveClaudeModel(model: string): string {
+  return model === "fable" ? "claude-fable-5" : model;
+}
+
 function buildClaudeArgs(
   model: string,
   resumeSessionId?: string,
   reviewerContextStrategy?: "fresh" | "warm",
   reviewerModel?: string,
 ): string[] {
-  const effectiveModel = reviewerModel ?? model;
+  const effectiveModel = resolveClaudeModel(reviewerModel ?? model);
   const args = [
     "-p",
     "-",
@@ -44,7 +51,7 @@ async function runInteractive(req: AgentRequest): Promise<AgentRunResult> {
     const cmd = [
       "claude",
       "--model",
-      model,
+      resolveClaudeModel(model),
       "--dangerously-skip-permissions",
       [
         `Read the file ${promptFile} for background on the task.`,

@@ -310,8 +310,9 @@ export const WorkflowConfigSchema = z.object({
   finalizeNoOpAsDone: z.boolean().default(true),
   engine: z.enum(["claude", "codex"]).default("claude"),
   // Enum order is display order: the wizard and CLI derive their option lists
-  // from this schema (see schema-introspect.ts), most-capable tier first.
-  model: z.enum(["opus", "sonnet", "haiku"]).default("opus"),
+  // from this schema (see schema-introspect.ts). `fable` is the Fable line;
+  // the Claude tiers follow most-capable-first. Default stays `opus`.
+  model: z.enum(["fable", "opus", "sonnet", "haiku"]).default("opus"),
   /** Which issue tracker drives the loop. Defaults to `linear`, so a file with
    *  no `tracker` block behaves exactly as before. `github` selects the GitHub
    *  Issues provider (built on the `gh` CLI; see `github.issues`). */
@@ -428,7 +429,7 @@ export const WorkflowConfigSchema = z.object({
   agent: z
     .object({
       engine: z.enum(["claude", "codex"]).optional(),
-      model: z.enum(["haiku", "sonnet", "opus"]).optional(),
+      model: z.enum(["fable", "opus", "sonnet", "haiku"]).optional(),
       concurrency: z.number().int().positive().optional(),
       max_iterations_per_task: z.number().int().nonnegative().optional(),
       max_consecutive_failures: z.number().int().nonnegative().optional(),

@@ -72,7 +72,9 @@ function asWorkflowModel(
   value: string | undefined,
   fallback: WorkflowConfig["model"],
 ): WorkflowConfig["model"] {
-  if (value === "opus" || value === "sonnet" || value === "haiku") return value;
+  if (value === "fable" || value === "opus" || value === "sonnet" || value === "haiku") {
+    return value;
+  }
   return fallback;
 }
 

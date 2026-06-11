@@ -80,7 +80,7 @@ describe("catalogue lookups", () => {
     const field = findField("model");
     expect(field?.spec.kind).toBe("select");
     if (field?.spec.kind === "select") {
-      expect(field.spec.options.map((o) => o.value)).toEqual(["opus", "sonnet", "haiku"]);
+      expect(field.spec.options.map((o) => o.value)).toEqual(["fable", "opus", "sonnet", "haiku"]);
     }
   });
 

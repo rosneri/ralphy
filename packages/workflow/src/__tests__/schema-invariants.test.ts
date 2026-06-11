@@ -57,7 +57,7 @@ describe("schema-keyed overlay invariants", () => {
   });
 
   test("enum-backed select fields read their options from the schema", () => {
-    expect(enumValuesAt(["model"])).toEqual(["opus", "sonnet", "haiku"]);
+    expect(enumValuesAt(["model"])).toEqual(["fable", "opus", "sonnet", "haiku"]);
     expect(enumValuesAt(["engine"])).toEqual(["claude", "codex"]);
     expect(enumValuesAt(["tracker", "kind"])).toEqual(["linear", "github"]);
     expect(enumValuesAt(["autoMergeStrategy"])).toEqual(["squash", "merge", "rebase"]);
@@ -70,7 +70,7 @@ describe("schema-keyed overlay invariants", () => {
   });
 
   test("modelOptionValues comes from the schema enum", () => {
-    expect(modelOptionValues()).toEqual(["opus", "sonnet", "haiku"]);
+    expect(modelOptionValues()).toEqual(["fable", "opus", "sonnet", "haiku"]);
   });
 
   test("schemaHasPath sees through default/optional/preprocess wrappers", () => {
