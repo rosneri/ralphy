@@ -5,7 +5,7 @@ import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTracker, TrackedIssue } from "@ralphy/tracker";
 import { projectLayout } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -197,7 +197,7 @@ export function buildAgentCoordinator(
   // Linear mention scanner resolves PR URLs through discovery; discovery reads
   // PR links recorded on the issue through the tracker). Both calls happen at
   // poll time, so a late-bound ref breaks the construction cycle.
-  const trackerRef: { current: import("@ralphy/tracker").IssueTracker | null } = { current: null };
+  const trackerRef: { current: IssueTracker | null } = { current: null };
 
   const prDiscovery = createPrDiscovery({
     projectRoot,
