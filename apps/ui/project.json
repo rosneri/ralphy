@@ -27,7 +27,7 @@
     "dev:sidecar": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "SIDECAR_PORT=3210 bun --watch src-sidecar/server.ts",
+        "command": "echo 'ui:dev:sidecar is disabled. Restore the command in apps/ui/project.json to re-enable.'",
         "cwd": "{projectRoot}"
       }
     },
@@ -41,15 +41,14 @@
     "dev": {
       "executor": "nx:run-commands",
       "options": {
-        "commands": ["bun nx run ui:dev:sidecar", "bun nx run ui:dev:tauri"],
-        "parallel": true,
+        "command": "echo 'ui:dev (Tauri UI + sidecar) is disabled. Restore the commands in apps/ui/project.json to re-enable.'",
         "cwd": "{workspaceRoot}"
       }
     },
     "dev:tauri": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "source $HOME/.cargo/env 2>/dev/null; bunx tauri dev",
+        "command": "echo 'ui:dev:tauri is disabled. Restore the command in apps/ui/project.json to re-enable.'",
         "cwd": "{projectRoot}"
       }
     },
