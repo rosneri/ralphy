@@ -1,6 +1,6 @@
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
-import { exists } from "node:fs/promises";
+import { exists, rm } from "node:fs/promises";
 
 export interface WorktreeHandle {
   /** Absolute path to the new working tree. */
@@ -127,6 +127,26 @@ export function createWorktree(
   );
 }
 
+/**
+ * Classify the `git worktree list --porcelain` entry for `cwd`:
+ *   - `"live"`   — registered and usable (reuse as a resume);
+ *   - `"stale"`  — registered but git flags it `prunable` (its directory was
+ *                  wiped out-of-band); must be pruned before recreating;
+ *   - `"absent"` — not registered at all (fresh provision).
+ *
+ * Porcelain emits one blank-line-separated block per worktree; a block whose
+ * first line is `worktree <cwd>` and which contains a `prunable ...` line is a
+ * ghost registration.
+ */
+function worktreeRegistration(porcelain: string, cwd: string): "live" | "stale" | "absent" {
+  for (const block of porcelain.split("\n\n")) {
+    const lines = block.split("\n");
+    if (lines[0] !== `worktree ${cwd}`) continue;
+    return lines.some((l) => l.startsWith("prunable ")) ? "stale" : "live";
+  }
+  return "absent";
+}
+
 async function provisionWorktree(
   projectRoot: string,
   changeName: string,
@@ -137,11 +157,26 @@ async function provisionWorktree(
   const cwd = join(dir, changeName);
   const branch = branchForChange(changeName);
 
-  // If the worktree directory already exists in git's worktree list, reuse it.
+  // If the worktree directory already exists in git's worktree list, reuse it —
+  // but only when it's actually live on disk. A registration can go stale: the
+  // working directory gets wiped out-of-band (a manual `rm -rf`, an interrupted
+  // op, OS temp cleanup) while git still lists the entry. `git worktree list
+  // --porcelain` flags such a ghost with a `prunable` line. Reusing it ran git
+  // commands (`config core.hooksPath`) inside a directory whose `.git` link is
+  // gone — "fatal: not in a git directory" — which failed prepare and errored
+  // the issue. Detect the stale entry, prune it, and fall through to recreate.
   const list = await runner.run(["worktree", "list", "--porcelain"], projectRoot);
-  if (list.stdout.includes(`worktree ${cwd}\n`)) {
+  const registration = worktreeRegistration(list.stdout, cwd);
+  if (registration === "live") {
     await installPrePushHook(cwd, runner);
     return { cwd, branch, created: false };
+  }
+  if (registration === "stale") {
+    // Drop the dead entry so the `worktree add` below can re-claim the
+    // path/branch, then clear any leftover stub directory (e.g. a half-written
+    // `.ralph-hooks/`) so the recreation starts from a clean path.
+    await runner.run(["worktree", "prune"], projectRoot);
+    if (await exists(cwd)) await rm(cwd, { recursive: true, force: true });
   }
 
   // Does the branch already exist locally?

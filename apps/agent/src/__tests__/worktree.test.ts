@@ -167,6 +167,54 @@ describe("worktree helpers", () => {
     expect(st.isFile()).toBe(true);
   });
 
+  // Regression: a worktree directory can be wiped out-of-band (manual `rm -rf`,
+  // an interrupted op, OS temp cleanup) while git still lists the registration.
+  // `git worktree list --porcelain` then flags that entry `prunable`. Reusing it
+  // ran git commands inside a directory with no `.git` link → "fatal: not in a
+  // git directory", which errored the issue. Provisioning must self-heal.
+  const STALE_PORCELAIN = (path: string) =>
+    `worktree ${path}\nHEAD abc123\nbranch refs/heads/ralph/eng-stale\nprunable gitdir file points to non-existent location\n`;
+
+  test("self-heals a stale (prunable) registration: prunes then recreates", async () => {
+    const proj = await uniqueProject("stale-fix");
+    const path = join(expectedWtRoot(proj), "eng-stale");
+    const { runner, calls } = makeRunner({
+      "worktree list --porcelain": { stdout: STALE_PORCELAIN(path) },
+      "rev-parse --verify --quiet refs/heads/ralph/eng-stale": { stdout: "abc123" },
+    });
+    const handle = await createWorktree(proj, "eng-stale", "main", runner);
+    const order = calls.map((c) => c.args.join(" "));
+    // The dead entry is pruned before the path/branch is re-claimed.
+    expect(order).toContain("worktree prune");
+    const addIdx = order.findIndex((a) => a.startsWith("worktree add"));
+    expect(addIdx).toBeGreaterThan(-1);
+    expect(order.indexOf("worktree prune")).toBeLessThan(addIdx);
+    // Re-added onto the surviving branch (no fetch — branch still exists).
+    const addCall = calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")!;
+    expect(addCall.args).toEqual(["worktree", "add", path, "ralph/eng-stale"]);
+    expect(calls.find((c) => c.args[0] === "fetch")).toBeUndefined();
+    // Fresh checkout → created=true so one-time setup re-runs.
+    expect(handle.created).toBe(true);
+    // Hook installed into the recreated worktree.
+    const configCall = calls.find((c) => c.args[0] === "config")!;
+    expect(configCall.cwd).toBe(path);
+  });
+
+  test("does NOT prune or re-add a live (non-prunable) worktree — plain resume", async () => {
+    const proj = await uniqueProject("live-resume");
+    const path = join(expectedWtRoot(proj), "eng-live");
+    const { runner, calls } = makeRunner({
+      "worktree list --porcelain": {
+        stdout: `worktree ${path}\nHEAD abc123\nbranch refs/heads/ralph/eng-live\n`,
+      },
+    });
+    const handle = await createWorktree(proj, "eng-live", "main", runner);
+    // A healthy registration is reused as-is: no prune, no re-add, created=false.
+    expect(handle.created).toBe(false);
+    expect(calls.find((c) => c.args[0] === "worktree" && c.args[1] === "prune")).toBeUndefined();
+    expect(calls.find((c) => c.args[0] === "worktree" && c.args[1] === "add")).toBeUndefined();
+  });
+
   test("createWorktree serializes concurrent provisioning for the same repo", async () => {
     // Regression: the coordinator prepares queued issues concurrently. Without
     // a per-repo lock, parallel createWorktree calls run git against the same
