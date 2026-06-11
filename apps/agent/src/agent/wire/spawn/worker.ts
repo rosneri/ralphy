@@ -16,7 +16,10 @@ import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
 import type { GitRunner } from "../../worktree";
-import { fetchIssueComments, issueMatchesGetIndicator } from "../../linear";
+import {
+  fetchIssueComments,
+  issueMatchesGetIndicator,
+} from "../../../shared/capabilities/linear-client";
 import type { TrackedComment, TrackedIssue } from "@ralphy/tracker";
 import {
   runPostTask,

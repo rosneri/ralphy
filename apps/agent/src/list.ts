@@ -4,7 +4,11 @@ import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@
 import type { GetIndicator, Indicators, LinearFilterScope, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
 import { loadRalphyConfig } from "./agent/config";
-import { fetchOpenIssues, fetchAttachmentsForIssues, type LinearFilterSpec } from "./agent/linear";
+import {
+  fetchOpenIssues,
+  fetchAttachmentsForIssues,
+  type LinearFilterSpec,
+} from "./shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { fetchPrStatus, type PrStatus } from "./pr-status";
 import type { CmdRunner } from "./agent/pr";

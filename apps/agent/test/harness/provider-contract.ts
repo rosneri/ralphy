@@ -3,6 +3,7 @@ import { parseRalphyMarker } from "@ralphy/comms";
 import type { SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
+import { createIssueTracker, type IssueTracker, type IssueTrackerExtras } from "@ralphy/tracker";
 import { createFakeLinear, type FakeLinearIndicators } from "./fake-linear";
 import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
 
@@ -240,4 +241,38 @@ export function makeLinearContractBackend(): ProviderContractBackend {
     comments: fake.comments,
     issues: fake.issues,
   };
+}
+
+/**
+ * Build an {@link IssueTracker} facade from a sparse bag of flat provider
+ * methods — the migration shim for tests written against the pre-#403
+ * nine-method `CoordinatorDeps`. Unspecified reads return empty; unspecified
+ * writes are no-ops; the capability extras (sticky upsert, PR links,
+ * blockers) default to inert implementations unless overridden.
+ *
+ * Delegation is late-bound: reassigning a method on the `methods` bag after
+ * construction takes effect on the next call, so tests can keep the
+ * `ctx.flat.fetchTodo = async () => …` override pattern.
+ */
+export function trackerFromFlat(
+  methods: Partial<IssueTrackerProvider> = {},
+  extras: Partial<IssueTrackerExtras> = {},
+): IssueTracker {
+  const provider: IssueTrackerProvider = {
+    fetchTodo: () => methods.fetchTodo?.() ?? Promise.resolve([]),
+    fetchInProgress: () => methods.fetchInProgress?.() ?? Promise.resolve([]),
+    fetchReview: () => methods.fetchReview?.() ?? Promise.resolve([]),
+    fetchMentions: () => methods.fetchMentions?.() ?? Promise.resolve([]),
+    fetchDoneCandidates: () => methods.fetchDoneCandidates?.() ?? Promise.resolve([]),
+    fetchComments: (issueId) => methods.fetchComments?.(issueId) ?? Promise.resolve([]),
+    applyIndicator: (issue, ind) => methods.applyIndicator?.(issue, ind) ?? Promise.resolve(),
+    removeIndicator: (issue, ind) => methods.removeIndicator?.(issue, ind) ?? Promise.resolve(),
+    postComment: (issue, body) => methods.postComment?.(issue, body) ?? Promise.resolve(),
+  };
+  return createIssueTracker(provider, {
+    upsertStickyComment: async () => {},
+    fetchPullRequestLinks: async () => [],
+    fetchBlockers: async () => [],
+    ...extras,
+  });
 }

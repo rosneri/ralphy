@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchOpenIssues, fetchMentionScanIssues } from "../agent/linear";
+import { fetchOpenIssues, fetchMentionScanIssues } from "../shared/capabilities/linear-client";
 import { formatBlockedCell } from "../list";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;

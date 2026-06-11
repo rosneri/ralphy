@@ -99,6 +99,9 @@
     },
     "packages/config": {
       "entry": ["src/**/*.ts"]
+    },
+    "packages/codehost": {
+      "entry": ["src/**/*.ts", "src/__tests__/**/*.ts"]
     }
   }
 }

@@ -10,7 +10,7 @@ import {
   findOpenIssueByLabel,
   createIssue,
   updateIssueDescription,
-} from "../linear";
+} from "../../shared/capabilities/linear-client";
 
 interface BaselineInput {
   args: AgentParsedArgs;

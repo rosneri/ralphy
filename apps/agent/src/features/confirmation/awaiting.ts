@@ -5,7 +5,11 @@ import { gateActive, hasUnchecked, planningComplete } from "@ralphy/core/detecti
 import { isStubArtifact } from "@ralphy/core/openspec-phase";
 import { worktreeDirNameForIssue, worktreesDir } from "../../agent/worktree";
 import { changeNameForIssue } from "../../agent/scaffold";
-import { addIssueComment, addReactionToComment, fetchIssueComments } from "../../agent/linear";
+import {
+  addIssueComment,
+  addReactionToComment,
+  fetchIssueComments,
+} from "../../shared/capabilities/linear-client";
 import { isRalphComment } from "../../shared/utils/ralph-comment";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { RalphyConfig } from "../../agent/config";

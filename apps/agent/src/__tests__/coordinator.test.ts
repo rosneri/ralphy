@@ -5,10 +5,11 @@ import {
   type QueueTrigger,
   type MentionTrigger,
 } from "../agent/coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 import type { FeatureCtx } from "../features/types";
 import { createNoopBus } from "@ralphy/events";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 
 /** Build a `buildFeatureCtx` factory that makes the confirmation feature
  *  claim issues whose ids appear in `gatedIds`. Used to exercise the
@@ -67,6 +68,7 @@ interface FakeWorker {
 
 interface DepsResult {
   deps: CoordinatorDeps;
+  flat: Partial<IssueTrackerProvider>;
   workers: Map<string, FakeWorker>;
   logs: { text: string; color?: string }[];
   fileLogs: string[];
@@ -107,12 +109,25 @@ function makeDeps(initial: { todo?: TrackedIssue[] } = {}): DepsResult {
   let mentions: { issue: TrackedIssue; trigger: MentionTrigger }[] = [];
   let doneCandidates: TrackedIssue[] = [];
 
-  const deps: CoordinatorDeps = {
+  const flat: Partial<IssueTrackerProvider> = {
     fetchTodo: mock(async () => todo),
     fetchInProgress: mock(async () => inProgress),
     fetchMentions: mock(async () => mentions),
     fetchDoneCandidates: mock(async () => doneCandidates),
-    fetchReview: mock(async () => []),
+    applyIndicator: async (i, ind) => {
+      applies.push({ id: i.id, ind });
+    },
+    removeIndicator: async (i, ind) => {
+      removes.push({ id: i.id, ind });
+    },
+    postComment: async (i, body) => {
+      comments.push({ id: i.id, body });
+    },
+    fetchComments: async () => [],
+  };
+
+  const deps: CoordinatorDeps = {
+    tracker: trackerFromFlat(flat),
     prepare: mock(async (i: TrackedIssue) => ({
       changeName: `change-${i.identifier.toLowerCase()}`,
     })),
@@ -134,16 +149,6 @@ function makeDeps(initial: { todo?: TrackedIssue[] } = {}): DepsResult {
         },
       };
     }),
-    applyIndicator: async (i, ind) => {
-      applies.push({ id: i.id, ind });
-    },
-    removeIndicator: async (i, ind) => {
-      removes.push({ id: i.id, ind });
-    },
-    postComment: async (i, body) => {
-      comments.push({ id: i.id, body });
-    },
-    fetchComments: async () => [],
     checkPrStatus: async (i) => conflictByIssue.get(i.id) ?? null,
     hasPrForChange: (changeName) => prChanges.has(changeName),
     isChangeArchivedForIssue: async (i) => archivedIssues.has(i.id),
@@ -158,6 +163,7 @@ function makeDeps(initial: { todo?: TrackedIssue[] } = {}): DepsResult {
 
   return {
     deps,
+    flat,
     workers,
     logs,
     fileLogs,
@@ -260,7 +266,7 @@ describe("AgentCoordinator — todo polling", () => {
 
   test("fetch failure logs and returns zero counts", async () => {
     const ctx = makeDeps();
-    ctx.deps.fetchTodo = async () => {
+    ctx.flat.fetchTodo = async () => {
       throw new Error("network down");
     };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
@@ -278,7 +284,7 @@ describe("AgentCoordinator — todo polling", () => {
       quarantined: 0,
       awaiting: 0,
     });
-    expect(ctx.logs.some((l) => l.text.includes("Linear poll failed: network down"))).toBe(true);
+    expect(ctx.logs.some((l) => l.text.includes("tracker poll failed: network down"))).toBe(true);
   });
 
   test("stop kills active workers and prevents new spawns", async () => {
@@ -532,7 +538,7 @@ describe("AgentCoordinator — set/clear indicators", () => {
 
   test("fetchComments failure logs warning and proceeds with the spawn", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
-    ctx.deps.fetchComments = async () => {
+    ctx.flat.fetchComments = async () => {
       throw new Error("rate limited");
     };
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });
@@ -545,7 +551,7 @@ describe("AgentCoordinator — set/clear indicators", () => {
 
   test("'started' comment is NOT re-posted when an existing one is found", async () => {
     const ctx = makeDeps({ todo: [issue("a", "ENG-1")] });
-    ctx.deps.fetchComments = async () => [
+    ctx.flat.fetchComments = async () => [
       { body: "🤖 Ralph started working on this issue earlier" },
     ];
     const coord = new AgentCoordinator(ctx.deps, { concurrency: 1 });

@@ -11,7 +11,7 @@
  */
 import type { Indicators, LinearFilterScope } from "@ralphy/types";
 import type { IssueTrackerProvider, MentionTrigger, TrackedIssue } from "@ralphy/tracker";
-import { addIssueComment, fetchIssueComments } from "../../linear";
+import { addIssueComment, fetchIssueComments } from "../../../shared/capabilities/linear-client";
 import { unionMarkers } from "../indicators";
 import { fetchDoneCandidatesWith, type LinearResolvers } from "../linear-resolvers";
 
@@ -34,6 +34,14 @@ interface LinearTrackerProviderInput {
   /** RLF-208: when non-empty, done-candidate fetches are constrained to these
    *  Linear ticket numbers (from `--ticket`). */
   ticketNumbers?: number[] | undefined;
+  /** Injectable comment IO. Defaults to the Linear client; tests inject a
+   *  recorder here instead of `mock.module`-ing the shared client (bun's mock
+   *  registry is process-global, so an incomplete module mock breaks every
+   *  other in-process importer). */
+  commentsIo?: {
+    addIssueComment: typeof addIssueComment;
+    fetchIssueComments: typeof fetchIssueComments;
+  };
 }
 
 export function createLinearTrackerProvider(
@@ -50,6 +58,7 @@ export function createLinearTrackerProvider(
     fetchMentions,
     ticketNumbers,
   } = input;
+  const comments = input.commentsIo ?? { addIssueComment, fetchIssueComments };
 
   // setDone/setError exclude an issue from the todo pool; setError alone keeps
   // an in-progress issue from being re-resumed. Mirrors the prior inline wiring.
@@ -73,10 +82,10 @@ export function createLinearTrackerProvider(
       ),
     applyIndicator: resolvers.applyIndicator,
     removeIndicator: resolvers.removeIndicator,
-    postComment: (issue, body) => addIssueComment(apiKey, issue.id, body),
+    postComment: (issue, body) => comments.addIssueComment(apiKey, issue.id, body),
     fetchComments: async (issueId) => {
-      const c = await fetchIssueComments(apiKey, issueId);
-      return c.map((x) => ({ body: x.body }));
+      const c = await comments.fetchIssueComments(apiKey, issueId);
+      return c.map((x: { body: string }) => ({ body: x.body }));
     },
   };
 }

@@ -1,12 +1,11 @@
 import { join } from "node:path";
-import type { Indicators } from "@ralphy/types";
 import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@ralphy/workflow";
 import { createBus, subscribeAgentDiag } from "@ralphy/events";
 import { PollContext } from "../shared/capabilities/poll-context";
 import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
-import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
+import type { TrackedIssue } from "@ralphy/tracker";
 import { projectLayout } from "@ralphy/core/layout";
 import { changeNameForIssue } from "./scaffold";
 import type { ConfirmationCaps } from "../features/confirmation";
@@ -19,24 +18,17 @@ import {
   createOpenDraftPr,
 } from "./wire/pr-helpers";
 import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
-import { mergeIndicators, unionMarkers, describeIndicators } from "./wire/indicators";
+import { describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
-import { createGithubProvider, githubIndicators } from "./wire/tracker/github";
-import { createGithubTrackerProvider } from "./wire/tracker/github-tracker-provider";
-import { createLinearProvider } from "./wire/tracker/linear";
-import { createLinearTrackerProvider } from "./wire/tracker/linear-tracker-provider";
-import type { TrackerProvider } from "./wire/tracker/types";
+import { createTracker } from "./wire/tracker/create-tracker";
 import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
-import {
-  createGithubMentionScanner,
-  createMentionScanner,
-  isChangeArchivedForIssue,
-} from "./wire/mention-scan";
+import { isChangeArchivedForIssue } from "./wire/mention-scan";
 import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
 import { createBaselineGateRunner } from "./wire/baseline";
-import { createTrackerCommentSyncHooks } from "./wire/comment-sync";
+import { createCommentSyncHooks } from "./wire/comment-sync";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -125,13 +117,6 @@ export function buildAgentCoordinator(
   const concurrency = args.concurrency || cfg.concurrency;
   const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
 
-  // The tracker selection (RLF-234). GitHub mode synthesizes label-based
-  // indicators from `github.issues` and drives the loop off the `gh` CLI; Linear
-  // mode is unchanged (config indicators + CLI overrides).
-  const isGithubTracker = cfg.tracker.kind === "github";
-  const indicators: Indicators = isGithubTracker
-    ? githubIndicators(cfg.github?.issues)
-    : mergeIndicators(cfg.linear.indicators as Record<string, unknown>, args.indicators);
   const team = args.linearTeam || cfg.linear.team;
   // The global `linear.filter` (marker list of label + assignee clauses) scopes
   // every Linear query and, transitively, the GitHub PR searches rooted at those
@@ -146,14 +131,6 @@ export function buildAgentCoordinator(
   // validated against the configured team. Throws a clean CLI error on a bare
   // number without a team or an identifier whose team disagrees.
   const ticketNumbers = resolveTicketNumbers(args.ticketTokens, team);
-
-  // GitHub mode lists open issues by label; without a dedicated todo label the
-  // todo fetch returns every open issue, so the in-progress label must also be
-  // excluded or in-flight work is re-picked. Linear's todo fetch is scoped by
-  // its getTodo status filter, so its exclusion set stays as before.
-  const excludeFromTodo = isGithubTracker
-    ? unionMarkers(indicators.setDone, indicators.setError, indicators.setInProgress)
-    : unionMarkers(indicators.setDone, indicators.setError);
 
   const gitRunner = input.runners?.git ?? bunGitRunner;
   const cmdRunner = input.runners?.cmd ?? bunCmdRunner;
@@ -207,35 +184,76 @@ export function buildAgentCoordinator(
       return code;
     });
 
-  // The provider-agnostic indicator-dispatch + fetch surface used directly by
-  // spawn / confirmation / baseline (and as the base for the tracker seam
-  // below). Both branches conform to TrackerProvider, each built by its own
-  // factory: GitHub via `createGithubTrackerProvider`, Linear via
-  // `createLinearProvider` (RLF-228). The GitHub handle is retained typed so the
-  // mention scanner can reach its `listOpenIssues` / `repo` seams; the Linear
-  // handle exposes `resolvers` for the `createLinearTrackerProvider` seam below.
-  // Each is built only in its own mode, so the other's config may be unset.
-  const githubProvider = isGithubTracker
-    ? createGithubProvider({
-        issues: cfg.github?.issues,
-        cmdRunner,
-        projectRoot,
-        diag,
-      })
-    : null;
-  const linearProvider = isGithubTracker
-    ? null
-    : createLinearProvider({
-        apiKey,
-        team,
-        assignee,
-        anyAssignee,
-        scope,
-        indicators,
-        diag,
-        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-      });
-  const provider: TrackerProvider = githubProvider ?? linearProvider!;
+  // The CodeHost port (issue #403): the single gh adapter every PR mechanism
+  // flows through — state probes, checks classification with the configured
+  // ignore-list, merge transitions.
+  const codeHost = createGhCliCodeHost({
+    cmdRunner,
+    cwd: projectRoot,
+    ignoreChecks: cfg.prRecovery.ignoreChecks,
+  });
+
+  // PR discovery and the tracker facade reference each other lazily (the
+  // Linear mention scanner resolves PR URLs through discovery; discovery reads
+  // PR links recorded on the issue through the tracker). Both calls happen at
+  // poll time, so a late-bound ref breaks the construction cycle.
+  const trackerRef: { current: import("@ralphy/tracker").IssueTracker | null } = { current: null };
+
+  const prDiscovery = createPrDiscovery({
+    projectRoot,
+    cmdRunner,
+    codeHost,
+    fetchPullRequestLinks: (issue) => trackerRef.current!.fetchPullRequestLinks(issue),
+    onLog,
+    diag,
+    prByChange,
+    getPollContext: () => pollContext,
+  });
+
+  // The tracker bundle (issue #403): `createTracker` is the only place
+  // `cfg.tracker.kind` is read. Everything backend-specific — indicators,
+  // transport, mention scanning, the IssueTracker facade, comment mutations,
+  // and the spec sink (RLF-239) — is selected there once.
+  const {
+    tracker,
+    indicators,
+    transport: provider,
+    commentMutations,
+    specSink,
+    credentialsReady,
+  } = createTracker({
+    cfg,
+    args,
+    apiKey,
+    projectRoot,
+    useWorktree,
+    cmdRunner,
+    onLog,
+    diag,
+    team,
+    assignee,
+    anyAssignee,
+    scope,
+    ticketNumbers,
+    cwdByChange,
+    stalePingedAt,
+    lastHandledReviewActivity,
+    resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
+  });
+  trackerRef.current = tracker;
+
+  // Manual-merge fallback policy: merge through the CodeHost port, log and
+  // continue on failure (the caller still advances the ticket to done).
+  const mergePr = async (prUrl: string): Promise<boolean> => {
+    try {
+      await codeHost.merge(prUrl, cfg.autoMergeStrategy);
+      return true;
+    } catch (err) {
+      const e = err as Error & { stderr?: string };
+      diag("pr", `! failed to merge ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
+      return false;
+    }
+  };
 
   // RLF-208: when a ticket is targeted but it matches none of the configured
   // get-indicator buckets, the loop will pick up nothing — surface that so the
@@ -253,18 +271,6 @@ export function buildAgentCoordinator(
     }
   }
 
-  const prDiscovery = createPrDiscovery({
-    apiKey,
-    projectRoot,
-    cmdRunner,
-    onLog,
-    diag,
-    prByChange,
-    getPollContext: () => pollContext,
-    ignoreCiChecks: cfg.prRecovery.ignoreChecks,
-    autoMergeStrategy: cfg.autoMergeStrategy,
-  });
-
   const prep = createPrepareHelpers({
     args,
     cfg,
@@ -279,67 +285,6 @@ export function buildAgentCoordinator(
     scriptRunner,
     ...(input.runners?.worktree ? { worktreeProvider: input.runners.worktree } : {}),
   });
-
-  // Mention re-engagement (RLF-240). Linear mode queries Linear for mentions of
-  // the bot handle; GitHub mode scans open issue comments over REST (no
-  // Search-API) via the dedicated scanner. Both are gated on
-  // `linear.mentionTrigger` inside the scanner.
-  const fetchMentions = githubProvider
-    ? createGithubMentionScanner({
-        cfg,
-        cmdRunner,
-        projectRoot,
-        onLog,
-        diag,
-        listOpenIssues: githubProvider.listOpenIssues,
-        repo: githubProvider.repo,
-      })
-    : createMentionScanner({
-        apiKey,
-        args,
-        cfg,
-        team,
-        assignee,
-        anyAssignee,
-        scope,
-        indicators,
-        projectRoot,
-        useWorktree,
-        cmdRunner,
-        onLog,
-        diag,
-        cwdByChange,
-        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-        stalePingedAt,
-        lastHandledReviewActivity,
-        resolvePrUrlForIssue: prDiscovery.resolvePrUrlForIssue,
-      });
-
-  // RLF-223 (M1) + RLF-234 + RLF-229: the tracker-neutral provider seam injected
-  // into `CoordinatorDeps` below, so the coordinator never references a concrete
-  // backend. Both backends are now built by a named factory delegating to their
-  // transport: Linear via `createLinearTrackerProvider`, GitHub via
-  // `createGithubTrackerProvider`. GitHub's `fetchComments` reads real issue
-  // comments (started-idempotency); `fetchReview` is intentionally empty
-  // (mentions-driven) — see the factory and design "Out of scope".
-  const tracker: IssueTrackerProvider = isGithubTracker
-    ? createGithubTrackerProvider({
-        provider: githubProvider!,
-        indicators,
-        excludeFromTodo,
-        fetchMentions,
-      })
-    : createLinearTrackerProvider({
-        apiKey,
-        team,
-        assignee,
-        anyAssignee,
-        scope,
-        indicators,
-        resolvers: linearProvider!.resolvers,
-        fetchMentions,
-        ...(ticketNumbers.length > 0 ? { ticketNumbers } : {}),
-      });
 
   const spawnWorker = createSpawnWorker({
     args,
@@ -437,11 +382,11 @@ export function buildAgentCoordinator(
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
 
-  // Task sync (plan-once + sticky tasks + steering refresh) to issue comments.
-  // Linear uses its comment API; GitHub gets the marker-idempotent sticky-upsert
-  // adapter. Spec attachments stay Linear-only (`attachmentsSupported: false`).
-  const commentSync = createTrackerCommentSyncHooks({
-    isGithubTracker,
+  // Task sync (plan-once + sticky tasks + steering refresh) to issue comments,
+  // plus the spec sink (RLF-239). The backend-specific IO (comment mutations,
+  // attachment vs comment-embedded spec sink, credential readiness) comes
+  // pre-selected from the tracker bundle — no kind branch here.
+  const commentSync = createCommentSyncHooks({
     apiKey,
     cfg,
     projectRoot,
@@ -449,8 +394,9 @@ export function buildAgentCoordinator(
     diag,
     cwdByChange,
     issueByChange,
-    cmdRunner,
-    ...(githubProvider ? { githubRepo: githubProvider.repo } : {}),
+    commentMutations,
+    specSink,
+    credentialsReady,
   });
 
   const coord = new AgentCoordinator(
@@ -458,25 +404,15 @@ export function buildAgentCoordinator(
       beforePoll: () => {
         pollContext = new PollContext();
       },
-      fetchTodo: tracker.fetchTodo,
-      fetchInProgress: tracker.fetchInProgress,
-      fetchMentions: tracker.fetchMentions,
-      fetchDoneCandidates: tracker.fetchDoneCandidates,
-      // Forward-compat (RLF-223 M2): completes the provider surface in the deps
-      // bag. Not polled today — see CoordinatorDeps.fetchReview.
-      fetchReview: tracker.fetchReview,
+      tracker,
       prepare: prep.prepare,
       prepareTaskForTrigger: prep.prepareTaskForTrigger,
       spawnWorker,
-      applyIndicator: tracker.applyIndicator,
-      removeIndicator: tracker.removeIndicator,
-      postComment: tracker.postComment,
-      fetchComments: tracker.fetchComments,
       checkPrStatus: prDiscovery.checkPrStatus,
       // Manual-merge fallback: wire the merge capability unless explicitly
       // disabled. The coordinator merges a verified-mergeable PR in
       // advancePrToDone instead of leaving it open (RLF-97 left it unmerged).
-      ...(cfg.manualMergeWhenAutoMergeDisabled !== false ? { mergePr: prDiscovery.mergePr } : {}),
+      ...(cfg.manualMergeWhenAutoMergeDisabled !== false ? { mergePr } : {}),
       hasPrForChange: (changeName) => prByChange.has(changeName),
       isChangeArchivedForIssue: (issue) =>
         isChangeArchivedForIssue(issue, cwdByChange, projectRoot),

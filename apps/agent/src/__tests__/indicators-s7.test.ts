@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { issueMatchesGetIndicator } from "../agent/linear";
+import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { mergeIndicators } from "../agent/wire/indicators";
 
 const baseIssue = {

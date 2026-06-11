@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runPrPhase } from "../agent/post-task";
 import { unionMarkers } from "../agent/wire/indicators";
-import { issueMatchesGetIndicator } from "../agent/linear";
+import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { createFakeLinear } from "../../test/harness/fake-linear";
 import type { CmdRunner } from "../agent/pr";
 import type { TrackedIssue } from "@ralphy/tracker";

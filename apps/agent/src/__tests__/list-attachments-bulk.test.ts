@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchAttachmentsForIssues } from "../agent/linear";
+import { fetchAttachmentsForIssues } from "../shared/capabilities/linear-client";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

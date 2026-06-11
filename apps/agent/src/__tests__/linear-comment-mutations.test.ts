@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createIssueComment, deleteIssueComment, updateIssueComment } from "../agent/linear";
+import {
+  createIssueComment,
+  deleteIssueComment,
+  updateIssueComment,
+} from "../shared/capabilities/linear-client";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

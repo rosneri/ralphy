@@ -524,7 +524,7 @@ async function syncSlotSealed(
 
 /** The composed spec source both sinks publish (attachment slots and the
  *  comment-embedded SpecSink). */
-export interface ComposedSpecSource {
+interface ComposedSpecSource {
   /** design.md + appended tasks.md `## Implementation` section, markdown. */
   sourceBytes: Uint8Array;
   /** sha256 of the composed bytes — the pre-seal change-detection key. */

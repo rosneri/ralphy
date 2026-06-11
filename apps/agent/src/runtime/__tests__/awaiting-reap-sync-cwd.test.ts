@@ -1,7 +1,8 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type ActiveWorker, type CoordinatorDeps } from "../coordinator";
-import type { TrackedIssue } from "@ralphy/tracker";
+import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { EmitInput } from "@ralphy/events";
+import { trackerFromFlat } from "../../../test/harness/provider-contract";
 import { recordingBus } from "../../__test-utils__/recording-bus";
 
 function makeIssue(id: string, identifier: string): TrackedIssue {
@@ -33,12 +34,19 @@ describe("AgentCoordinator — awaiting-reap syncTasks flush carries worker cwd"
     const issue = makeIssue("a", "RLF-300");
     const syncedWorkers: ActiveWorker[] = [];
 
-    const deps: CoordinatorDeps = {
+    const flat: Partial<IssueTrackerProvider> = {
       fetchTodo: mock(async () => [issue]),
       fetchInProgress: mock(async () => []),
       fetchMentions: mock(async () => []),
       fetchDoneCandidates: mock(async () => []),
-      fetchReview: mock(async () => []),
+      applyIndicator: mock(async () => {}),
+      removeIndicator: mock(async () => {}),
+      postComment: mock(async () => {}),
+      fetchComments: mock(async () => []),
+    };
+
+    const deps: CoordinatorDeps = {
+      tracker: trackerFromFlat(flat),
       prepare: mock(async (i: TrackedIssue) => ({
         changeName: `change-${i.identifier.toLowerCase()}`,
         cwd: "/wt/rlf-300",
@@ -54,10 +62,6 @@ describe("AgentCoordinator — awaiting-reap syncTasks flush carries worker cwd"
         syncedWorkers.push({ ...w });
       }),
       getIterationCount: mock(async () => 0),
-      applyIndicator: mock(async () => {}),
-      removeIndicator: mock(async () => {}),
-      postComment: mock(async () => {}),
-      fetchComments: mock(async () => []),
       checkPrStatus: mock(async () => null),
       onLog: () => {},
       onWorkersChanged: () => {},

@@ -3,6 +3,7 @@ import { runBaselineGate, type BaselineGateLinear } from "../agent/baseline/gate
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
+import { trackerFromFlat } from "../../test/harness/provider-contract";
 
 const noopGit: GitRunner = { run: async () => ({ stdout: "", stderr: "" }) };
 
@@ -22,17 +23,9 @@ function makeCmdRunner(map: Record<string, { code?: number; stderr?: string }>):
 
 function makeCoordinator(): AgentCoordinator {
   const deps: CoordinatorDeps = {
-    fetchTodo: async () => [],
-    fetchInProgress: async () => [],
-    fetchMentions: async () => [],
-    fetchDoneCandidates: async () => [],
-    fetchReview: async () => [],
+    tracker: trackerFromFlat(),
     prepare: async () => ({ changeName: "x" }),
     spawnWorker: () => ({ exited: Promise.resolve(0), kill: () => {} }),
-    applyIndicator: async () => {},
-    removeIndicator: async () => {},
-    postComment: async () => {},
-    fetchComments: async () => [],
     checkPrStatus: async () => null,
     onLog: () => {},
     onWorkersChanged: () => {},

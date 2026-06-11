@@ -8,7 +8,11 @@ import { git } from "../../shared/capabilities/git";
 import { runCapability } from "../../shared/capabilities/run-capability";
 import type { AgentParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
-import { baseBranchFromLabels, fetchIssueAttachments, fetchIssueComments } from "../linear";
+import {
+  baseBranchFromLabels,
+  fetchIssueAttachments,
+  fetchIssueComments,
+} from "../../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { changeNameForIssue, scaffoldChangeForIssue } from "../scaffold";
 import {

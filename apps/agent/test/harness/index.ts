@@ -4,6 +4,7 @@ import { createNoopBus } from "@ralphy/events";
 import { createFakeLinear, type FakeLinear, type FakeLinearIndicators } from "./fake-linear";
 import { createFakeGh, type FakeGh } from "./fake-gh";
 import { createTmpFs, type TmpFs } from "./tmp-fs";
+import { trackerFromFlat } from "./provider-contract";
 import { createTmpRepo, type TmpRepo } from "./tmp-repo";
 import { createScriptedEngine, type EngineLike } from "./scripted-engine";
 import { createVirtualClock, type VirtualClock } from "./clock";
@@ -26,6 +27,7 @@ export { createTmpRepo } from "./tmp-repo";
 export { createScriptedEngine } from "./scripted-engine";
 export { createVirtualClock } from "./clock";
 export { registry as scenarioRegistry, getScenario } from "./scenarios";
+export { trackerFromFlat } from "./provider-contract";
 
 export interface CreateHarnessOptions {
   scenario: string;
@@ -78,14 +80,9 @@ export async function createHarness(opts: CreateHarnessOptions): Promise<Extende
   const pending: PendingWorker[] = [];
 
   const coordDeps: CoordinatorDeps = {
-    fetchTodo: () => linear.client.fetchTodo(),
-    fetchInProgress: () => linear.client.fetchInProgress(),
-    fetchMentions: () => linear.client.fetchMentions(),
-    fetchDoneCandidates: () => linear.client.fetchDoneCandidates(),
-    // Forward-compat (RLF-223 M2): mirrors the other client delegations so
-    // FakeLinear's fetchReview is reachable. Not polled by pollOnce today.
-    fetchReview: () => linear.client.fetchReview(),
-    fetchComments: (issueId) => linear.client.fetchComments(issueId),
+    // The facade over FakeLinear's provider bag — `pollOnce` drives the four
+    // poll buckets and comment IO through this single member (issue #403).
+    tracker: trackerFromFlat(linear.client),
     prepare: async (issue) => {
       const changeName = `change-${issue.identifier.toLowerCase()}`;
       await fs.seedTasks(changeName, ["- [ ] do thing"]);
@@ -103,9 +100,6 @@ export async function createHarness(opts: CreateHarnessOptions): Promise<Extende
       pending.push({ changeName, issue, resolveExit, exited });
       return { exited, kill: () => resolveExit(143) };
     },
-    applyIndicator: (issue, ind) => linear.client.applyIndicator(issue, ind),
-    removeIndicator: (issue, ind) => linear.client.removeIndicator(issue, ind),
-    postComment: (issue, body) => linear.client.postComment(issue, body),
     checkPrStatus: async () => null,
     onLog: () => {},
     onWorkersChanged: () => {},

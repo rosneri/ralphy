@@ -1,6 +1,6 @@
 import type { CmdRunner } from "./agent/pr";
-import { classifyCheck, runGhWithRetry } from "./shared/pr/ci-classify";
-import type { RawCheck } from "./shared/pr/ci-classify";
+import { classifyCheck, runGhWithRetry } from "@ralphy/codehost";
+import type { RawCheck } from "@ralphy/codehost";
 
 export type CiBucket = "pass" | "fail" | "pending";
 export type Mergeable = "MERGEABLE" | "CONFLICTING" | "UNKNOWN";

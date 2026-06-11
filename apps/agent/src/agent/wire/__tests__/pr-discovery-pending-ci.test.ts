@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createPrDiscovery } from "../pr-discovery";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import { PollContext } from "../../../shared/capabilities/poll-context";
 import { changeNameForIssue } from "../../scaffold";
 import type { CmdRunner } from "../../pr";
@@ -61,15 +62,16 @@ function makeCmd(): CmdRunner {
 function makeDiscovery() {
   const prByChange = new Map<string, string>();
   prByChange.set(changeNameForIssue(ISSUE), PR_URL); // pre-seed → skip URL discovery
+  const cmdRunner = makeCmd();
   return createPrDiscovery({
-    apiKey: "k",
     projectRoot: "/tmp/pr-discovery-pending-test",
-    cmdRunner: makeCmd(),
+    cmdRunner,
+    codeHost: createGhCliCodeHost({ cmdRunner, cwd: "/tmp/pr-discovery-pending-test" }),
+    fetchPullRequestLinks: async () => [],
     onLog: () => {},
     diag: () => {},
     prByChange,
     getPollContext: () => new PollContext(),
-    ignoreCiChecks: [],
   });
 }
 

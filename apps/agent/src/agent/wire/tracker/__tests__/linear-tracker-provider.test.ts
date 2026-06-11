@@ -2,14 +2,16 @@ import { describe, expect, test, mock } from "bun:test";
 import type { GetIndicator, Indicators, Marker, SetIndicator } from "@ralphy/types";
 import type { TrackedIssue } from "@ralphy/tracker";
 
-// Stub the Linear transport so `postComment`/`fetchComments` delegation can be
-// observed without a network round-trip, and `fetchDoneCandidatesWith` so the
-// done-candidate path is checked for its `--ticket` normalization.
+// Record the comment IO through the provider's injectable `commentsIo` seam —
+// no `mock.module` of the shared Linear client (bun's mock registry is
+// process-global; an incomplete client mock breaks every other in-process
+// importer). `fetchDoneCandidatesWith` is still module-mocked (complete shape)
+// so the done-candidate path is checked for its `--ticket` normalization.
 const addIssueCommentCalls: { issueId: string; body: string }[] = [];
 const fetchIssueCommentsCalls: string[] = [];
 const fetchDoneCandidatesCalls: unknown[][] = [];
 
-mock.module("../../../linear", () => ({
+const recordingCommentsIo = {
   addIssueComment: async (_apiKey: string, issueId: string, body: string) => {
     addIssueCommentCalls.push({ issueId, body });
   },
@@ -20,7 +22,7 @@ mock.module("../../../linear", () => ({
       { id: "c2", body: "world", createdAt: "2026-01-01T00:00:00.000Z", user: null },
     ];
   },
-}));
+};
 
 mock.module("../../linear-resolvers", () => ({
   // `createLinearResolvers` is unused here, but the export must exist so the
@@ -178,6 +180,7 @@ describe("createLinearTrackerProvider", () => {
       indicators: makeIndicators(),
       resolvers,
       fetchMentions: async () => [],
+      commentsIo: recordingCommentsIo,
     });
 
     await provider.postComment(issue, "ship it");

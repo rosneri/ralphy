@@ -20,9 +20,8 @@ import {
   createAttachmentForUrl,
   deleteAttachment,
   findIssueAttachmentByTitle,
-} from "../linear";
+} from "../../shared/capabilities/linear-client";
 import type { CmdRunner } from "../pr";
-import { createGithubCommentMutations } from "./tracker/github-comment-mutations";
 import { readStickyComment, upsertStickyComment } from "./tracker/sticky-comment";
 import type { TrackedIssue } from "@ralphy/tracker";
 
@@ -190,21 +189,6 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
   };
 }
 
-interface TrackerCommentSyncInput {
-  /** GitHub mode routes onto `gh`; Linear mode uses the Linear comment API. */
-  isGithubTracker: boolean;
-  apiKey: string;
-  cfg: RalphyConfig;
-  projectRoot: string;
-  onLog: (text: string, color?: string) => void;
-  diag: (area: string, message: string, color?: string) => void;
-  cwdByChange: Map<string, string>;
-  issueByChange: Map<string, TrackedIssue>;
-  cmdRunner: CmdRunner;
-  /** Resolves the GitHub `owner/name` slug (githubProvider.repo). */
-  githubRepo?: () => Promise<string>;
-}
-
 /**
  * Build the GitHub comment-embedded {@link SpecSink} (RLF-239): the composed
  * spec content lives inside one marker-tagged sticky issue comment, upserted
@@ -235,48 +219,5 @@ export function createGithubCommentSpecSink(deps: {
         issueNumber: issueId,
         type,
       }),
-  });
-}
-
-/**
- * Select the comment-sync hooks for the active tracker. GitHub gets the
- * marker-idempotent sticky-upsert adapter over `gh` (auth via the CLI) and the
- * comment-embedded spec sink; Linear keeps its comment API + spec-attachment
- * uploads.
- */
-export function createTrackerCommentSyncHooks(input: TrackerCommentSyncInput): CommentSyncHooks {
-  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
-  if (input.isGithubTracker) {
-    return createCommentSyncHooks({
-      apiKey: "",
-      cfg,
-      projectRoot,
-      onLog,
-      diag,
-      cwdByChange,
-      issueByChange,
-      commentMutations: createGithubCommentMutations({
-        cmdRunner: input.cmdRunner,
-        projectRoot,
-        repo: input.githubRepo!,
-        diag,
-      }),
-      specSink: createGithubCommentSpecSink({
-        cmdRunner: input.cmdRunner,
-        projectRoot,
-        repo: input.githubRepo!,
-        diag,
-      }),
-      credentialsReady: true,
-    });
-  }
-  return createCommentSyncHooks({
-    apiKey,
-    cfg,
-    projectRoot,
-    onLog,
-    diag,
-    cwdByChange,
-    issueByChange,
   });
 }
