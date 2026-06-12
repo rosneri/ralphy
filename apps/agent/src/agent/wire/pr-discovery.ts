@@ -143,6 +143,15 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
           "yellow",
         ),
     });
+    if (outcome.kind === "merged") {
+      // The PR landed out-of-band (human merge, or it merged after conflicts
+      // were resolved elsewhere). Report it as "mergeable" so the merge-state
+      // scan runs its settle-to-done / RECOVERY_CLEARED path and disposes the
+      // flow actor. Returning null here (the old "closed" behavior) stranded a
+      // *quarantined* actor forever — it was re-counted on every poll because
+      // the clearing path only fires on a non-null mergeable result.
+      return { url: prUrl, status: "mergeable" };
+    }
     if (outcome.kind === "closed") {
       markPrUnavailable(changeName);
       prUrlByIssue.invalidate(issue.id);
