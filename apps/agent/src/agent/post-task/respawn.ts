@@ -14,8 +14,6 @@ import type { PostTaskCtx } from "./types";
  * into `loopMachine`.
  */
 
-type LogFn = (text: string, color?: string) => void;
-
 /**
  * The loop sets state.status="completed" once tasks.md has no unchecked
  * items. A re-spawned worker would then exit immediately via the loop
@@ -24,7 +22,7 @@ type LogFn = (text: string, color?: string) => void;
  */
 export async function reactivateState(
   stateFilePath: string,
-  log: LogFn,
+  log: (text: string, color?: string) => void,
   changeName: string,
 ): Promise<void> {
   const file = Bun.file(stateFilePath);
