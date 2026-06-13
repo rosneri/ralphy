@@ -86,6 +86,22 @@ export interface CodeHost {
   /** Push the branch and open the PR; returns the existing PR's URL when one
    *  is already open for the branch (idempotent — safe to retry). */
   createPullRequest(options: CreatePullRequestOptions): Promise<string>;
+  /** Best-effort idempotency query: the URL of the open PR whose head is
+   *  `branch`, or null when none is open. The same query
+   *  {@link createPullRequest} uses to surface an existing PR, exposed for
+   *  callers that only need to *find* a PR (e.g. choosing a log level, or
+   *  locating the PR to verify in conflict-fix mode). Swallows transient `gh`
+   *  failures to null so callers can fall back rather than escalate. */
+  findOpenPullRequestForBranch(branch: string): Promise<string | null>;
+  /** Whether the PR's repo allows GitHub native auto-merge
+   *  (`allow_auto_merge`):
+   *   - `true`  → repo allows it (use `--auto`)
+   *   - `false` → repo explicitly disables it (caller may fall back)
+   *   - `null`  → undeterminable (malformed URL, `gh` failure, unparseable
+   *               response); callers treat this as "assume enabled".
+   *  Cached per repo for the adapter's lifetime so a multi-PR run pays the
+   *  `gh` API hop at most once per repo. */
+  isAutoMergeAllowed(prUrl: string): Promise<boolean | null>;
   markReady(url: string): Promise<void>;
   enableAutoMerge(url: string, strategy: MergeStrategy): Promise<void>;
   /** Merge the PR directly (the manual-merge fallback when native auto-merge

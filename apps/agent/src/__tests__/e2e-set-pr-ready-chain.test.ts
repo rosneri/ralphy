@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runPrPhase, _resetRepoAutoMergeCache } from "../agent/post-task";
+import { runPrPhase } from "../agent/post-task";
 import { createFakeLinear } from "../../test/harness/fake-linear";
 import type { CmdRunner } from "../agent/pr";
 import { createGhCliCodeHost } from "@ralphy/codehost";
@@ -132,7 +132,6 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
   let stateFilePath: string;
 
   beforeEach(async () => {
-    _resetRepoAutoMergeCache();
     tmpDir = await mkdtemp(join(tmpdir(), "e2e-set-pr-ready-chain-"));
     changeDir = join(tmpDir, "changes", "my-change");
     await mkdir(changeDir, { recursive: true });

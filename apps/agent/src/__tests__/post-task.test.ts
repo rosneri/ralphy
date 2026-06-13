@@ -8,7 +8,6 @@ import {
   runWorktreeCleanupPhase,
   runTeardownPhase,
   summarizeUncommittedStatus,
-  _resetRepoAutoMergeCache,
 } from "../agent/post-task";
 import { createGhCliCodeHost } from "@ralphy/codehost";
 import type { CmdRunner } from "../agent/pr";
@@ -592,7 +591,6 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
       stateFilePath,
       JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
     );
-    _resetRepoAutoMergeCache();
   });
 
   afterEach(async () => {
@@ -754,7 +752,6 @@ describe("runPrPhase — prDraft behavior", () => {
       stateFilePath,
       JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
     );
-    _resetRepoAutoMergeCache();
   });
 
   afterEach(async () => {
@@ -1398,7 +1395,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       stateFilePath,
       JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
     );
-    _resetRepoAutoMergeCache();
   });
 
   afterEach(async () => {

@@ -29,6 +29,11 @@ export interface FakeCodeHost extends CodeHost {
   setPullRequestDetails(url: string, details: Partial<PullRequestDetails>): void;
   /** Script the checks status for a PR ref (default all-pass). */
   setChecksStatus(prRef: string, status: CiStatus): void;
+  /** Script the open PR URL returned for a branch (default: the PR created
+   *  through the port for that branch, else null). */
+  setOpenPullRequestForBranch(branch: string, url: string): void;
+  /** Script repo auto-merge capability for a PR URL (default null). */
+  setAutoMergeAllowed(prUrl: string, allowed: boolean | null): void;
   /** PRs created through the port, keyed by branch. */
   readonly createdByBranch: Map<string, { url: string; options: CreatePullRequestOptions }>;
   /** Auto-merge enablements, ready transitions, and merges by URL. */
@@ -44,6 +49,8 @@ export function createFakeCodeHost(): FakeCodeHost {
   const stateByUrl = new Map<string, PullRequestState>();
   const detailsByUrl = new Map<string, Partial<PullRequestDetails>>();
   const checksByRef = new Map<string, CiStatus>();
+  const openPrByBranch = new Map<string, string>();
+  const autoMergeByUrl = new Map<string, boolean | null>();
   const createdByBranch = new Map<string, { url: string; options: CreatePullRequestOptions }>();
   const autoMergeEnabled = new Map<string, MergeStrategy>();
   const readied = new Set<string>();
@@ -64,6 +71,12 @@ export function createFakeCodeHost(): FakeCodeHost {
     },
     setChecksStatus(prRef, status) {
       checksByRef.set(prRef, status);
+    },
+    setOpenPullRequestForBranch(branch, url) {
+      openPrByBranch.set(branch, url);
+    },
+    setAutoMergeAllowed(prUrl, allowed) {
+      autoMergeByUrl.set(prUrl, allowed);
     },
     async getPullRequestState(url) {
       calls.push({ method: "getPullRequestState", args: [url] });
@@ -92,6 +105,14 @@ export function createFakeCodeHost(): FakeCodeHost {
       createdByBranch.set(options.branch, { url, options });
       stateByUrl.set(url, "open");
       return url;
+    },
+    async findOpenPullRequestForBranch(branch) {
+      calls.push({ method: "findOpenPullRequestForBranch", args: [branch] });
+      return openPrByBranch.get(branch) ?? createdByBranch.get(branch)?.url ?? null;
+    },
+    async isAutoMergeAllowed(prUrl) {
+      calls.push({ method: "isAutoMergeAllowed", args: [prUrl] });
+      return autoMergeByUrl.has(prUrl) ? (autoMergeByUrl.get(prUrl) ?? null) : null;
     },
     async markReady(url) {
       calls.push({ method: "markReady", args: [url] });

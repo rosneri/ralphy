@@ -226,20 +226,6 @@ interface PostTaskCtx {
 // ---------------------------------------------------------------------------
 
 /**
- * Detect whether the GitHub repo that owns `prUrl` has auto-merge enabled
- * (`allow_auto_merge: true`). Returns:
- *   - `true`  → repo allows auto-merge (use `gh pr merge --auto`)
- *   - `false` → repo explicitly disables it (caller may fall back to polling)
- *   - `null`  → could not determine (malformed URL, gh failure, unparseable
- *               response). Caller treats this as "assume enabled" so we never
- *               regress repos where the API call fails for unrelated reasons.
- *
- * Results are cached per repo across calls so a multi-PR run only pays the
- * gh API hop once.
- */
-const repoAutoMergeCache = new Map<string, boolean | null>();
-
-/**
  * Parse `git status --porcelain` output for the post-worker uncommitted-changes
  * warning. Returns `count` (total entries), `preview` (first up to 10 entries
  * verbatim, status code + path), and `truncated` (how many more were dropped).
@@ -252,75 +238,6 @@ export function summarizeUncommittedStatus(stdout: string): {
   const lines = stdout.split("\n").filter((line) => line.length > 0);
   const preview = lines.slice(0, 10);
   return { count: lines.length, preview, truncated: Math.max(0, lines.length - preview.length) };
-}
-
-/**
- * Best-effort check for an existing open PR for `branch`. Returns the URL or
- * null. Mirrors the query used by `createPullRequest` so the post-task log can
- * pick a quieter log level on long-running PR branches without coupling to the
- * PR-creation path. Failures swallow to null — the caller falls back to the
- * yellow warning rather than escalate transient gh errors.
- */
-async function findExistingOpenPrUrl(
-  cmd: CmdRunner,
-  cwd: string,
-  branch: string,
-): Promise<string | null> {
-  try {
-    const result = await cmd.run(
-      [
-        "gh",
-        "pr",
-        "list",
-        "--head",
-        branch,
-        "--state",
-        "open",
-        "--json",
-        "url",
-        "--jq",
-        ".[0].url // empty",
-      ],
-      cwd,
-    );
-    const url = result.stdout.trim();
-    return url || null;
-  } catch {
-    return null;
-  }
-}
-async function detectRepoAutoMergeAllowed(
-  prUrl: string,
-  cmd: CmdRunner,
-  cwd: string,
-  log: (text: string, color?: string) => void,
-): Promise<boolean | null> {
-  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(prUrl);
-  if (!m) return null;
-  const repoKey = `${m[1]}/${m[2]}`;
-  if (repoAutoMergeCache.has(repoKey)) return repoAutoMergeCache.get(repoKey) ?? null;
-  try {
-    const res = await cmd.run(["gh", "api", `repos/${repoKey}`, "--jq", ".allow_auto_merge"], cwd);
-    const out = res.stdout.trim().toLowerCase();
-    let result: boolean | null;
-    if (out === "true") result = true;
-    else if (out === "false") result = false;
-    else result = null;
-    repoAutoMergeCache.set(repoKey, result);
-    return result;
-  } catch (err) {
-    log(
-      `! could not detect repo auto-merge capability for ${repoKey}: ${(err as Error).message}`,
-      "yellow",
-    );
-    repoAutoMergeCache.set(repoKey, null);
-    return null;
-  }
-}
-
-/** Test-only: clear the per-repo auto-merge capability cache. */
-export function _resetRepoAutoMergeCache(): void {
-  repoAutoMergeCache.clear();
 }
 
 /**
@@ -757,7 +674,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     const status = await cmd.run(["git", "status", "--porcelain"], cwd);
     const summary = summarizeUncommittedStatus(status.stdout);
     if (summary.count > 0) {
-      const existingPrUrl = branch ? await findExistingOpenPrUrl(cmd, cwd, branch) : null;
+      const existingPrUrl = branch ? await codeHost.findOpenPullRequestForBranch(branch) : null;
       const indented = summary.preview.map((line) => `    ${line}`).join("\n");
       const suffix = summary.truncated ? `\n    ... and ${summary.truncated} more` : "";
       if (existingPrUrl) {
@@ -901,7 +818,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
 
   // A draft that could not be converted to ready can't be auto-merged — skip it.
   if (wantAutoMerge && readyOk) {
-    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
+    const repoAllowsAutoMerge = await codeHost.isAutoMergeAllowed(prUrl);
     if (repoAllowsAutoMerge === false) {
       // RLF-97: the worker no longer polls CI in-process, so it can't merge a
       // repo with auto-merge disabled "once checks pass". Leave the PR open for
@@ -1289,7 +1206,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
 
     let prUrl: string | null = input.prUrl ?? null;
     if (!prUrl && branch) {
-      prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
+      prUrl = await deps.codeHost.findOpenPullRequestForBranch(branch);
     }
     if (!prUrl) {
       log(

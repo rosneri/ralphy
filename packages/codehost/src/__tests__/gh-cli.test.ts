@@ -165,6 +165,80 @@ describe("createGhCliCodeHost", () => {
     expect(create).toContain("--draft");
   });
 
+  test("findOpenPullRequestForBranch returns the open PR URL (idempotency query)", async () => {
+    const { runner, calls } = scriptedRunner({
+      "gh pr list": { stdout: "https://github.com/o/r/pull/12\n" },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.findOpenPullRequestForBranch("feat/x")).toBe(
+      "https://github.com/o/r/pull/12",
+    );
+    expect(calls[0]).toEqual([
+      "gh",
+      "pr",
+      "list",
+      "--head",
+      "feat/x",
+      "--state",
+      "open",
+      "--json",
+      "url",
+      "--jq",
+      ".[0].url // empty",
+    ]);
+  });
+
+  test("findOpenPullRequestForBranch returns null when none is open", async () => {
+    const { runner } = scriptedRunner({ "gh pr list": { stdout: "\n" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.findOpenPullRequestForBranch("feat/x")).toBeNull();
+  });
+
+  test("findOpenPullRequestForBranch swallows gh failures to null (best-effort)", async () => {
+    const { runner } = scriptedRunner({ "gh pr list": { error: "gh: network error" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.findOpenPullRequestForBranch("feat/x")).toBeNull();
+  });
+
+  test("isAutoMergeAllowed maps true/false and caches per repo", async () => {
+    const { runner, calls } = scriptedRunner({
+      "gh api repos/o/r": { stdout: "true\n" },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.isAutoMergeAllowed("https://github.com/o/r/pull/1")).toBe(true);
+    // A second PR in the same repo is served from the cache — no extra gh hop.
+    expect(await host.isAutoMergeAllowed("https://github.com/o/r/pull/2")).toBe(true);
+    expect(calls.filter((c) => c[0] === "gh" && c[1] === "api")).toHaveLength(1);
+  });
+
+  test("isAutoMergeAllowed returns false when the repo disables it", async () => {
+    const { runner } = scriptedRunner({ "gh api repos/o/r": { stdout: "false\n" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.isAutoMergeAllowed("https://github.com/o/r/pull/1")).toBe(false);
+  });
+
+  test("isAutoMergeAllowed returns null on malformed URL without probing gh", async () => {
+    const { runner, calls } = scriptedRunner({ "gh api": { stdout: "true\n" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.isAutoMergeAllowed("not-a-pr-url")).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("isAutoMergeAllowed returns null on gh failure and caches the null", async () => {
+    const { runner, calls } = scriptedRunner({ "gh api repos/o/r": { error: "gh boom" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.isAutoMergeAllowed("https://github.com/o/r/pull/1")).toBeNull();
+    // Cached: a repeat probe for the same repo does not re-shell gh.
+    expect(await host.isAutoMergeAllowed("https://github.com/o/r/pull/9")).toBeNull();
+    expect(calls.filter((c) => c[0] === "gh" && c[1] === "api")).toHaveLength(1);
+  });
+
+  test("isAutoMergeAllowed returns null on an unparseable response", async () => {
+    const { runner } = scriptedRunner({ "gh api repos/o/r": { stdout: "null\n" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.isAutoMergeAllowed("https://github.com/o/r/pull/1")).toBeNull();
+  });
+
   test("ready / auto-merge / merge issue the expected gh transitions", async () => {
     const { runner, calls } = scriptedRunner({ "gh pr": {} });
     const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
