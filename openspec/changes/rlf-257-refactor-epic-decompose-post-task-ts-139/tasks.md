@@ -55,8 +55,8 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 7 — Phase pipeline model
 
-- [ ] Refactor `runPostTask` body into an ordered list of phase handlers each returning `{ effectiveCode, terminal }`; the orchestrator runs until one is terminal, then the single teardown. If a `pipeline.ts` file is added, fold `cleanup.ts` + `teardown.ts` into one `terminal.ts` to keep `post-task/` ≤ 10 source files
-- [ ] Run typecheck + structure + tests
+- [x] Refactor `runPostTask` body into an ordered list of phase handlers each returning `{ effectiveCode, terminal }`; the orchestrator runs until one is terminal, then the single teardown. Kept the pipeline inline in `index.ts` (no `pipeline.ts` file added), so `cleanup.ts`/`teardown.ts` stay split and `post-task/` remains at 9 source files ≤ 10
+- [x] Run typecheck + structure + tests
 
 ### Step 8 — Size guard
 

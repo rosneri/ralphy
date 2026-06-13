@@ -139,31 +139,78 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       }
     }
 
-    // Validate-only phase: run check commands and inject the openspec validation
-    // task instead of creating a PR.
-    if (wantValidateOnly && effectiveCode === 0) {
-      effectiveCode = await runValidateOnlyPhase(
-        {
-          changeName,
-          changeDir,
-          stateFilePath,
-          validateCommands: cfg.validateCommands ?? [],
-          cwd,
-        },
-        {
-          log,
-          emit,
-          respawnWorker,
-        },
-      );
-      emit(
-        effectiveCode === 0 ? "done" : "gave-up",
-        effectiveCode !== 0 ? `exit ${effectiveCode}` : undefined,
-      );
-      return effectiveCode;
+    // Ordered phase pipeline. Each handler guards on the current
+    // `effectiveCode`; the orchestrator runs the first whose guard matches.
+    // A `terminal: true` handler owns its own done/gave-up emit and
+    // short-circuits the shared success tail; the non-terminal PR handler
+    // falls through to the tail, which emits the disposition and runs the
+    // retrospective. Exactly one handler can apply because validate-only and
+    // conflict-fix both require `effectiveCode === 0` and the worker mode/flags
+    // are mutually exclusive.
+    interface PhaseResult {
+      effectiveCode: number;
+      terminal: boolean;
     }
 
-    // Phase 1: PR creation + CI/conflict watch
+    const phases: { applies: boolean; run: () => Promise<PhaseResult> }[] = [
+      {
+        // Validate-only: run check commands + inject the openspec validation
+        // task instead of creating a PR. Emits its own disposition.
+        applies: wantValidateOnly === true && effectiveCode === 0,
+        run: async () => {
+          const code = await runValidateOnlyPhase(
+            { changeName, changeDir, stateFilePath, validateCommands: cfg.validateCommands ?? [], cwd },
+            { log, emit, respawnWorker },
+          );
+          emit(code === 0 ? "done" : "gave-up", code !== 0 ? `exit ${code}` : undefined);
+          return { effectiveCode: code, terminal: true };
+        },
+      },
+      {
+        // RLF-82 conflict-fix verify-only short-circuit. Emits its own
+        // disposition (done, or gave-up on an unpushed resolution).
+        applies: input.mode === "conflict-fix" && effectiveCode === 0,
+        run: async () => {
+          const code = await runConflictFixVerify(
+            { identifier: issue?.identifier ?? changeName, cwd, branch, prUrl: input.prUrl ?? null },
+            {
+              cmd,
+              log,
+              emit,
+              ...(deps._mergeabilityBackoffsMs !== undefined
+                ? { mergeabilityBackoffsMs: deps._mergeabilityBackoffsMs }
+                : {}),
+            },
+          );
+          return { effectiveCode: code, terminal: true };
+        },
+      },
+      {
+        // Phase 1: PR creation. Non-terminal — falls through to the shared
+        // success tail (disposition emit + retrospective).
+        applies: effectiveCode === 0 && wantPr,
+        run: async () => {
+          const code = await runPrPhase(
+            { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg },
+            {
+              cmd,
+              log,
+              emit,
+              respawnWorker,
+              ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
+              ...(deps.onPrReady !== undefined ? { onPrReady: deps.onPrReady } : {}),
+              ...(deps.resolveDependencyBaseBranch !== undefined
+                ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }
+                : {}),
+            },
+          );
+          return { effectiveCode: code, terminal: false };
+        },
+      },
+    ];
+
+    // A non-zero exit with `wantPr` skips the PR phase (no handler applies
+    // because the PR guard requires `effectiveCode === 0`); surface why.
     if (effectiveCode !== 0 && wantPr) {
       log(
         `  skipping PR phase for ${changeName} (worker exited with code ${effectiveCode})`,
@@ -171,65 +218,23 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       );
     }
 
-    // RLF-82: conflict-fix verify-only short-circuit. The worker iteration
-    // owns the push (see `wire/prepare.ts::prepareTaskForTrigger`), so this
-    // branch never invokes `git push` or `createPrWithRetry`. It only verifies
-    // the PR's current mergeability and fails the iteration when the worker
-    // left an unpushed resolution. See `conflict-fix-verify.ts`.
-    if (input.mode === "conflict-fix" && effectiveCode === 0) {
-      effectiveCode = await runConflictFixVerify(
-        {
-          identifier: issue?.identifier ?? changeName,
-          cwd,
-          branch,
-          prUrl: input.prUrl ?? null,
-        },
-        {
-          cmd,
-          log,
-          emit,
-          ...(deps._mergeabilityBackoffsMs !== undefined
-            ? { mergeabilityBackoffsMs: deps._mergeabilityBackoffsMs }
-            : {}),
-        },
-      );
-      return effectiveCode;
+    for (const phase of phases) {
+      if (!phase.applies) continue;
+      const result = await phase.run();
+      effectiveCode = result.effectiveCode;
+      if (result.terminal) return effectiveCode;
+      break; // the non-terminal PR phase ran; fall through to the shared tail
     }
 
-    if (effectiveCode === 0 && wantPr) {
-      effectiveCode = await runPrPhase(
-        {
-          changeName,
-          cwd,
-          branch,
-          changeDir,
-          stateFilePath,
-          issue,
-          wantAutoMerge,
-          cfg,
-        },
-        {
-          cmd,
-          log,
-          emit,
-          respawnWorker,
-          ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
-          ...(deps.onPrReady !== undefined ? { onPrReady: deps.onPrReady } : {}),
-          ...(deps.resolveDependencyBaseBranch !== undefined
-            ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }
-            : {}),
-        },
-      );
-    }
-
-    // NO_CHANGES_EXIT is a successful "nothing to ship" outcome, not a failure:
-    // surface it as done on the dashboard, not "gave-up".
+    // Shared success tail — runs for the main PR path and the no-PR /
+    // non-zero fall-through. NO_CHANGES_EXIT is a successful "nothing to ship"
+    // outcome, not a failure: surface it as done on the dashboard.
     const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
     emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
 
     // Retrospective (opt-in, --agent-debug): runs before worktree cleanup so the
     // worktree artifacts + state file are still readable. The dep never throws;
-    // `effectiveCode` is left unchanged. Gated to the main PR path only — the
+    // `effectiveCode` is left unchanged. Reached only on the shared tail — the
     // validate-only and conflict-fix terminals return above without it.
     await deps.runRetrospective?.({
       changeName,
