@@ -7,6 +7,7 @@ export type {
   CodeHost,
   CreatePullRequestOptions,
   MergeStrategy,
+  PullRequestDetails,
   PullRequestState,
 } from "./types";
 export { createGhCliCodeHost, openPullRequest, type GhCliCodeHostInput } from "./gh-cli";

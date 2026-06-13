@@ -38,6 +38,50 @@ describe("createGhCliCodeHost", () => {
     }
   });
 
+  test("getPullRequestDetails returns normalized state + branch/title/url", async () => {
+    const { runner, calls } = scriptedRunner({
+      "gh pr view": {
+        stdout: JSON.stringify({
+          state: "OPEN",
+          headRefName: "feature/x",
+          title: "RLF-42: build it",
+          url: "https://github.com/o/r/pull/9",
+        }),
+      },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    const details = await host.getPullRequestDetails("https://github.com/o/r/pull/9");
+    expect(details).toEqual({
+      state: "open",
+      headRefName: "feature/x",
+      title: "RLF-42: build it",
+      url: "https://github.com/o/r/pull/9",
+    });
+    // Probes the richer field set in one call.
+    expect(calls[0]).toEqual([
+      "gh",
+      "pr",
+      "view",
+      "https://github.com/o/r/pull/9",
+      "--json",
+      "state,headRefName,title,url",
+    ]);
+  });
+
+  test("getPullRequestDetails defaults missing fields (url falls back to input)", async () => {
+    const inputUrl = "https://github.com/o/r/pull/3";
+    const { runner } = scriptedRunner({
+      "gh pr view": { stdout: JSON.stringify({ state: "MERGED" }) },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.getPullRequestDetails(inputUrl)).toEqual({
+      state: "merged",
+      headRefName: "",
+      title: "",
+      url: inputUrl,
+    });
+  });
+
   test("getChecksStatus: 'no checks reported' is a pass", async () => {
     const { runner } = scriptedRunner({
       "gh pr checks": { error: "no checks reported on the 'x' branch" },

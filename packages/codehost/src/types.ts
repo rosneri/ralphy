@@ -20,6 +20,22 @@ export interface CmdRunner {
 /** Lifecycle state of a pull request on the host. */
 export type PullRequestState = "open" | "merged" | "closed";
 
+/**
+ * Richer PR probe — the normalized state plus the head branch, title, and
+ * canonical URL. Used by callers that need more than the lifecycle state (e.g.
+ * stacking a new PR onto a blocker's head branch), so they probe once through
+ * the port rather than re-shelling a wider `gh pr view --json`.
+ */
+export interface PullRequestDetails {
+  state: PullRequestState;
+  /** The PR's head branch (the branch the PR merges *from*). */
+  headRefName: string;
+  /** The PR title. */
+  title: string;
+  /** Canonical PR URL as reported by the host. */
+  url: string;
+}
+
 /** Merge strategy passed to the host's merge / auto-merge commands. */
 export type MergeStrategy = "squash" | "merge" | "rebase";
 
@@ -60,6 +76,10 @@ export interface CreatePullRequestOptions {
  */
 export interface CodeHost {
   getPullRequestState(url: string): Promise<PullRequestState>;
+  /** Richer single-probe view of a PR — state + head branch + title + URL.
+   *  For callers that need more than the lifecycle state (e.g. dependency-base
+   *  resolution stacks onto the blocker PR's `headRefName`). */
+  getPullRequestDetails(url: string): Promise<PullRequestDetails>;
   /** Settled CI bucket for a PR (absorbs the gh retry / partial-access
    *  salvage logic that previously lived in the agent's `ci.ts`). */
   getChecksStatus(prRef: string): Promise<CiStatus>;

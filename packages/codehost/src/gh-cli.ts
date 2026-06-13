@@ -5,10 +5,20 @@ import type {
   CodeHost,
   CreatePullRequestOptions,
   MergeStrategy,
+  PullRequestDetails,
   PullRequestState,
 } from "./types";
 
 const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
+
+/** Normalize GitHub's uppercase `state` (OPEN/MERGED/CLOSED) to the port's
+ *  lowercase {@link PullRequestState}; anything unrecognized is treated as open. */
+function normalizeState(raw: string | undefined): PullRequestState {
+  const state = raw?.toUpperCase();
+  if (state === "MERGED") return "merged";
+  if (state === "CLOSED") return "closed";
+  return "open";
+}
 
 interface GhCheck {
   name: string;
@@ -131,10 +141,26 @@ export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
   return {
     async getPullRequestState(url: string): Promise<PullRequestState> {
       const { stdout } = await cmdRunner.run(["gh", "pr", "view", url, "--json", "state"], cwd);
-      const state = (JSON.parse(stdout.trim() || "{}") as { state?: string }).state?.toUpperCase();
-      if (state === "MERGED") return "merged";
-      if (state === "CLOSED") return "closed";
-      return "open";
+      return normalizeState((JSON.parse(stdout.trim() || "{}") as { state?: string }).state);
+    },
+
+    async getPullRequestDetails(url: string): Promise<PullRequestDetails> {
+      const { stdout } = await cmdRunner.run(
+        ["gh", "pr", "view", url, "--json", "state,headRefName,title,url"],
+        cwd,
+      );
+      const parsed = JSON.parse(stdout.trim() || "{}") as {
+        state?: string;
+        headRefName?: string;
+        title?: string;
+        url?: string;
+      };
+      return {
+        state: normalizeState(parsed.state),
+        headRefName: parsed.headRefName ?? "",
+        title: parsed.title ?? "",
+        url: parsed.url ?? url,
+      };
     },
 
     /**

@@ -599,7 +599,7 @@ export function createSpawnWorker(
               onWorkerPhase(changeName, phase, detail),
           }),
           resolveDependencyBaseBranch: (issue) =>
-            resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
+            resolveDependencyBaseBranchImpl(issue, codeHost, { apiKey, onLog }),
         },
       );
       releaseWorkerMaps(
