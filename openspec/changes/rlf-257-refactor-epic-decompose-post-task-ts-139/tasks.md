@@ -36,9 +36,9 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 4 — Extract PR creation + merge-resolution
 
-- [ ] Move `createPrWithRetry` (including non-fast-forward merge + conflict-fix-task handling) into `post-task/pr-create.ts`
-- [ ] Add focused tests for the push-rejection retry budget, non-ff merge, and merge-conflict fix-task paths
-- [ ] Run typecheck + structure + tests
+- [x] Move `createPrWithRetry` (including non-fast-forward merge + conflict-fix-task handling) into `post-task/pr-create.ts`
+- [x] Add focused tests for the push-rejection retry budget, non-ff merge, and merge-conflict fix-task paths
+- [x] Run typecheck + structure + tests
 
 ### Step 5 — Extract PR phase
 
