@@ -9,6 +9,7 @@
 
 import { join } from "node:path";
 import { AGENT_LOG_PATH } from "@ralphy/log";
+import type { RalphEvent } from "@ralphy/events";
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -48,28 +49,14 @@ function parseTextLog(content: string): DebugLogLine[] {
 // Used by the project-level agent.log when running in JSON/dashboard mode.
 // ---------------------------------------------------------------------------
 
-interface JsonlEntry {
-  ts: number;
-  type: string;
-  changeName?: string;
-  phase?: string;
-  detail?: string;
-  cmd?: string[];
-  durationMs?: number;
-  ok?: boolean;
-  text?: string;
-  color?: string;
-  found?: number;
-  added?: number;
-  // Canonical PR field is `url`; `prUrl` is retained only to render
-  // historical logs written before the wire format was unified (see 8a).
-  url?: string;
-  prUrl?: string;
-  exitCode?: number;
-  version?: string;
-}
+// The project-level `agent.log` persists `RalphEvent` values as JSONL, so the
+// reader's view is derived straight from the canonical union (RLF-254) rather
+// than re-declaring each field. `prUrl` is the pre-8a name for `worker_pr`'s
+// `url`; it is intersected back in here — and ONLY here — so historical log
+// lines written before the rename still render.
+type JsonlEntry = RalphEvent & { prUrl?: string };
 
-function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine[] {
+export function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine[] {
   return content
     .split("\n")
     .filter(Boolean)
@@ -84,12 +71,14 @@ function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine
       const ts = new Date(entry.ts);
       if (isNaN(ts.getTime())) return [];
 
+      const changeName = "changeName" in entry ? entry.changeName : undefined;
+
       // If filtering by changeName, skip entries for other changes
-      if (filterChangeName && entry.changeName && entry.changeName !== filterChangeName) {
+      if (filterChangeName && changeName && changeName !== filterChangeName) {
         return [];
       }
 
-      const cn = entry.changeName ?? "";
+      const cn = changeName ?? "";
 
       switch (entry.type) {
         case "started":

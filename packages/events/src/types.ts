@@ -234,6 +234,9 @@ export type RalphEvent =
       ts: number;
       changeName: string;
       phase: string;
+      // Optional human-readable qualifier for the phase (json-runner attaches
+      // it when the coordinator supplies one).
+      detail?: string;
     }
   | {
       type: "worker_output";
@@ -246,12 +249,14 @@ export type RalphEvent =
       type: "worker_cmd_start";
       ts: number;
       changeName: string;
+      cmd?: string[];
       [k: string]: unknown;
     }
   | {
       type: "worker_cmd_end";
       ts: number;
       changeName: string;
+      cmd?: string[];
       durationMs?: number;
       ok?: boolean;
       [k: string]: unknown;
