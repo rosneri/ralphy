@@ -652,7 +652,7 @@ export function AgentMode({
           }
         },
         onWorkerPr: (changeName, prUrl) => {
-          fileEmit({ type: "worker_pr", changeName, prUrl });
+          fileEmit({ type: "worker_pr", changeName, url: prUrl });
           const m = workerMetaRef.current.get(changeName);
           if (m) m.prUrl = prUrl;
         },

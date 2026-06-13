@@ -61,6 +61,9 @@ interface JsonlEntry {
   color?: string;
   found?: number;
   added?: number;
+  // Canonical PR field is `url`; `prUrl` is retained only to render
+  // historical logs written before the wire format was unified (see 8a).
+  url?: string;
   prUrl?: string;
   exitCode?: number;
   version?: string;
@@ -116,7 +119,7 @@ function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine
             },
           ];
         case "worker_pr":
-          return [{ ts, type: "pr", text: `${cn}: PR → ${entry.prUrl}` }];
+          return [{ ts, type: "pr", text: `${cn}: PR → ${entry.url ?? entry.prUrl}` }];
         case "worker_exited":
           return [
             {

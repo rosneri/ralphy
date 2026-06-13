@@ -260,8 +260,9 @@ export type RalphEvent =
       type: "worker_pr";
       ts: number;
       changeName: string;
-      url?: string;
-      [k: string]: unknown;
+      // Canonical PR field. Every emit path runs after a non-null URL guard
+      // (`post-task.ts` returns early on a null PR url), so this is always set.
+      url: string;
     }
   | {
       type: "awaiting_confirmation";
