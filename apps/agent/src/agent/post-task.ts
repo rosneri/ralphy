@@ -1169,227 +1169,224 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     respawnWorker,
   } = input;
 
-  // Registry walk: let per-feature slices run their post-task tail
-  // alongside the legacy phases. Stub features have no `postTask`, so
-  // this is a no-op until a slice migrates. Walk runs even when the
-  // worker exited non-zero so failure-handling slices (e.g. stuck) can
-  // see the exit code.
-  if (deps.buildFeatureCtx && issue) {
-    const ctx = deps.buildFeatureCtx(issue);
-    if (ctx) {
-      const result = { exitCode, branch };
-      for (const feature of featureRegistry) {
-        await runFeaturePostTask(feature, ctx, result);
-      }
-    }
-  }
-
-  // Validate-only phase: run check commands and inject the openspec validation
-  // task instead of creating a PR.
+  // All terminal paths below set `effectiveCode` and return through the single
+  // `finally`, which runs worktree cleanup + teardown EXACTLY ONCE for every
+  // outcome — success, PR-failed, no-changes, validate-only, conflict-fix, and
+  // the throw path (the `finally` fires even when a phase throws). Cleanup reads
+  // `effectiveCode`, so a path that fails the iteration only needs to set it
+  // (e.g. the conflict-fix unpushed guard → PR_FAILED_EXIT) to preserve the
+  // "keep the worktree on failure" guarantee.
   let effectiveCode = exitCode;
-  if (wantValidateOnly && effectiveCode === 0) {
-    effectiveCode = await runValidateOnlyPhase(
-      {
-        changeName,
-        changeDir,
-        stateFilePath,
-        validateCommands: cfg.validateCommands ?? [],
-        cwd,
-      },
-      {
-        log,
-        emit,
-        respawnWorker,
-      },
-    );
-    emit(
-      effectiveCode === 0 ? "done" : "gave-up",
-      effectiveCode !== 0 ? `exit ${effectiveCode}` : undefined,
-    );
-    await runWorktreeCleanupPhase(
-      { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
-      { git, log, emit },
-    );
-    await runTeardownPhase({ cwd, teardownScript: cfg.teardownScript }, { runScript, log, emit });
-    return effectiveCode;
-  }
-
-  // Phase 1: PR creation + CI/conflict watch
-  if (effectiveCode !== 0 && wantPr) {
-    log(`  skipping PR phase for ${changeName} (worker exited with code ${effectiveCode})`, "gray");
-  }
-
-  // RLF-82: conflict-fix verify-only short-circuit. The worker iteration
-  // owns the push (see `wire/prepare.ts::prepareTaskForTrigger`), so this
-  // branch never invokes `git push` or `createPrWithRetry`. It only verifies
-  // the PR's current mergeability via a single `fetchPrStatus` call and reacts
-  // to the outcome (clearConflicted on MERGEABLE; leave label in place otherwise).
-  if (input.mode === "conflict-fix" && effectiveCode === 0) {
-    const identifier = issue?.identifier ?? changeName;
-
-    // Push-landed guard. In conflict-fix mode the worker owns the push (see
-    // `wire/prepare.ts::prepareTaskForTrigger`); the harness never pushes here.
-    // If the worker resolved + committed but never pushed (or the push silently
-    // failed), the local branch is ahead of `origin/<branch>` while the PR head
-    // stays frozen. The mergeability probe below only inspects GitHub's view of
-    // the *remote* head, so it would report this iteration a success, the
-    // coordinator would post "resolved merge conflicts", and the next poll would
-    // re-detect the same CONFLICTING PR — burning recovery attempts until the
-    // PR-tracker bails to `ralph:error`, then looping forever. Detect the
-    // unpushed divergence and fail the iteration so the "resolved" signal is
-    // honest. (The remote-tracking ref is updated by a successful push, so this
-    // needs no fetch.)
-    if (branch) {
-      let aheadCount = 0;
-      let checked = true;
-      try {
-        const r = await cmd.run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], cwd);
-        aheadCount = Number.parseInt(r.stdout.trim(), 10) || 0;
-      } catch (err) {
-        // Ref missing / detached HEAD / not a worktree — can't determine, so
-        // don't block: fall through to the existing mergeability verification.
-        checked = false;
-        log(
-          `! ${identifier}: could not check for unpushed conflict-fix commits: ${(err as Error).message}`,
-          "yellow",
-        );
-      }
-      if (checked && aheadCount > 0) {
-        log(
-          `! ${identifier}: conflict-fix worker left ${aheadCount} unpushed commit(s) ahead of ` +
-            `origin/${branch} — the resolution never reached the PR. Failing the iteration so it ` +
-            `is retried instead of reported as resolved.`,
-          "red",
-        );
-        emit("gave-up", "unpushed conflict resolution");
-        await runWorktreeCleanupPhase(
-          { changeName, cwd, projectRoot, useWorktree, effectiveCode: PR_FAILED_EXIT, cfg },
-          { git, log, emit },
-        );
-        await runTeardownPhase(
-          { cwd, teardownScript: cfg.teardownScript },
-          { runScript, log, emit },
-        );
-        return PR_FAILED_EXIT;
-      }
-    }
-
-    let prUrl: string | null = input.prUrl ?? null;
-    if (!prUrl && branch) {
-      prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
-    }
-    if (!prUrl) {
-      log(
-        `  ${identifier}: no open PR found for conflict-fix verification — nothing to verify`,
-        "yellow",
-      );
-    } else {
-      // Widen to the union explicitly — TS narrows from the initial
-      // assignment and otherwise won't see closure mutations inside `probe`.
-      let status: PrStatus = { kind: "error", message: "no probe ran" } as PrStatus;
-      const outcome = await waitForMergeability({
-        ...(deps._mergeabilityBackoffsMs !== undefined
-          ? { backoffsMs: deps._mergeabilityBackoffsMs }
-          : {}),
-        bailOnError: true,
-        probe: async () => {
-          status = await fetchPrStatus(prUrl, cmd, cwd);
-          if (status.kind === "error") throw new Error(status.message);
-          return { state: status.state, mergeable: status.mergeable };
-        },
-      });
-      // Synthesize a `status` for the log decision below from the outcome.
-      // `status` closes over each probe attempt's result; `outcome` adds
-      // the post-loop decision (e.g. mergeStateStatus=CLEAN can flip
-      // mergeable=UNKNOWN to "mergeable"), so reconcile the two here.
-      if (outcome.kind === "error") {
-        status = { kind: "error", message: outcome.message };
-      } else if (status.kind === "ok") {
-        if (outcome.kind === "mergeable") {
-          status = { ...status, mergeable: "MERGEABLE" };
-        } else if (outcome.kind === "conflicting") {
-          status = { ...status, mergeable: "CONFLICTING" };
+  try {
+    // Registry walk: let per-feature slices run their post-task tail
+    // alongside the legacy phases. Stub features have no `postTask`, so
+    // this is a no-op until a slice migrates. Walk runs even when the
+    // worker exited non-zero so failure-handling slices (e.g. stuck) can
+    // see the exit code.
+    if (deps.buildFeatureCtx && issue) {
+      const ctx = deps.buildFeatureCtx(issue);
+      if (ctx) {
+        const result = { exitCode, branch };
+        for (const feature of featureRegistry) {
+          await runFeaturePostTask(feature, ctx, result);
         }
-        // outcome.kind === "closed" or "unknown" → leave mergeable as-is
-        // so the "still UNKNOWN" log fires.
       }
-      if (status.kind === "ok" && status.mergeable === "MERGEABLE") {
-        log(`  ${identifier}: PR ${prUrl} is MERGEABLE after rebase`, "green");
-      } else if (status.kind === "ok" && status.mergeable === "CONFLICTING") {
-        log(`! ${identifier}: still CONFLICTING after rebase; will retry`, "yellow");
-      } else if (status.kind === "ok") {
+    }
+
+    // Validate-only phase: run check commands and inject the openspec validation
+    // task instead of creating a PR.
+    if (wantValidateOnly && effectiveCode === 0) {
+      effectiveCode = await runValidateOnlyPhase(
+        {
+          changeName,
+          changeDir,
+          stateFilePath,
+          validateCommands: cfg.validateCommands ?? [],
+          cwd,
+        },
+        {
+          log,
+          emit,
+          respawnWorker,
+        },
+      );
+      emit(
+        effectiveCode === 0 ? "done" : "gave-up",
+        effectiveCode !== 0 ? `exit ${effectiveCode}` : undefined,
+      );
+      return effectiveCode;
+    }
+
+    // Phase 1: PR creation + CI/conflict watch
+    if (effectiveCode !== 0 && wantPr) {
+      log(
+        `  skipping PR phase for ${changeName} (worker exited with code ${effectiveCode})`,
+        "gray",
+      );
+    }
+
+    // RLF-82: conflict-fix verify-only short-circuit. The worker iteration
+    // owns the push (see `wire/prepare.ts::prepareTaskForTrigger`), so this
+    // branch never invokes `git push` or `createPrWithRetry`. It only verifies
+    // the PR's current mergeability via a single `fetchPrStatus` call and reacts
+    // to the outcome (clearConflicted on MERGEABLE; leave label in place otherwise).
+    if (input.mode === "conflict-fix" && effectiveCode === 0) {
+      const identifier = issue?.identifier ?? changeName;
+
+      // Push-landed guard. In conflict-fix mode the worker owns the push (see
+      // `wire/prepare.ts::prepareTaskForTrigger`); the harness never pushes here.
+      // If the worker resolved + committed but never pushed (or the push silently
+      // failed), the local branch is ahead of `origin/<branch>` while the PR head
+      // stays frozen. The mergeability probe below only inspects GitHub's view of
+      // the *remote* head, so it would report this iteration a success, the
+      // coordinator would post "resolved merge conflicts", and the next poll would
+      // re-detect the same CONFLICTING PR — burning recovery attempts until the
+      // PR-tracker bails to `ralph:error`, then looping forever. Detect the
+      // unpushed divergence and fail the iteration so the "resolved" signal is
+      // honest. (The remote-tracking ref is updated by a successful push, so this
+      // needs no fetch.)
+      if (branch) {
+        let aheadCount = 0;
+        let checked = true;
+        try {
+          const r = await cmd.run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], cwd);
+          aheadCount = Number.parseInt(r.stdout.trim(), 10) || 0;
+        } catch (err) {
+          // Ref missing / detached HEAD / not a worktree — can't determine, so
+          // don't block: fall through to the existing mergeability verification.
+          checked = false;
+          log(
+            `! ${identifier}: could not check for unpushed conflict-fix commits: ${(err as Error).message}`,
+            "yellow",
+          );
+        }
+        if (checked && aheadCount > 0) {
+          log(
+            `! ${identifier}: conflict-fix worker left ${aheadCount} unpushed commit(s) ahead of ` +
+              `origin/${branch} — the resolution never reached the PR. Failing the iteration so it ` +
+              `is retried instead of reported as resolved.`,
+            "red",
+          );
+          emit("gave-up", "unpushed conflict resolution");
+          // Fail the iteration; the single `finally` preserves the worktree
+          // because `effectiveCode` is now non-zero.
+          effectiveCode = PR_FAILED_EXIT;
+          return effectiveCode;
+        }
+      }
+
+      let prUrl: string | null = input.prUrl ?? null;
+      if (!prUrl && branch) {
+        prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
+      }
+      if (!prUrl) {
         log(
-          `! ${identifier}: PR mergeability is UNKNOWN — next poll will re-check from GitHub`,
+          `  ${identifier}: no open PR found for conflict-fix verification — nothing to verify`,
           "yellow",
         );
       } else {
-        log(
-          `! ${identifier}: PR status fetch failed (${status.message}) — next poll will re-check`,
-          "yellow",
-        );
+        // Widen to the union explicitly — TS narrows from the initial
+        // assignment and otherwise won't see closure mutations inside `probe`.
+        let status: PrStatus = { kind: "error", message: "no probe ran" } as PrStatus;
+        const outcome = await waitForMergeability({
+          ...(deps._mergeabilityBackoffsMs !== undefined
+            ? { backoffsMs: deps._mergeabilityBackoffsMs }
+            : {}),
+          bailOnError: true,
+          probe: async () => {
+            status = await fetchPrStatus(prUrl, cmd, cwd);
+            if (status.kind === "error") throw new Error(status.message);
+            return { state: status.state, mergeable: status.mergeable };
+          },
+        });
+        // Synthesize a `status` for the log decision below from the outcome.
+        // `status` closes over each probe attempt's result; `outcome` adds
+        // the post-loop decision (e.g. mergeStateStatus=CLEAN can flip
+        // mergeable=UNKNOWN to "mergeable"), so reconcile the two here.
+        if (outcome.kind === "error") {
+          status = { kind: "error", message: outcome.message };
+        } else if (status.kind === "ok") {
+          if (outcome.kind === "mergeable") {
+            status = { ...status, mergeable: "MERGEABLE" };
+          } else if (outcome.kind === "conflicting") {
+            status = { ...status, mergeable: "CONFLICTING" };
+          }
+          // outcome.kind === "closed" or "unknown" → leave mergeable as-is
+          // so the "still UNKNOWN" log fires.
+        }
+        if (status.kind === "ok" && status.mergeable === "MERGEABLE") {
+          log(`  ${identifier}: PR ${prUrl} is MERGEABLE after rebase`, "green");
+        } else if (status.kind === "ok" && status.mergeable === "CONFLICTING") {
+          log(`! ${identifier}: still CONFLICTING after rebase; will retry`, "yellow");
+        } else if (status.kind === "ok") {
+          log(
+            `! ${identifier}: PR mergeability is UNKNOWN — next poll will re-check from GitHub`,
+            "yellow",
+          );
+        } else {
+          log(
+            `! ${identifier}: PR status fetch failed (${status.message}) — next poll will re-check`,
+            "yellow",
+          );
+        }
       }
+      emit("done");
+      return effectiveCode;
     }
-    emit("done");
+
+    if (effectiveCode === 0 && wantPr) {
+      effectiveCode = await runPrPhase(
+        {
+          changeName,
+          cwd,
+          branch,
+          changeDir,
+          stateFilePath,
+          issue,
+          wantAutoMerge,
+          cfg,
+        },
+        {
+          cmd,
+          log,
+          emit,
+          respawnWorker,
+          ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
+          ...(deps.onPrReady !== undefined ? { onPrReady: deps.onPrReady } : {}),
+          ...(deps.resolveDependencyBaseBranch !== undefined
+            ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }
+            : {}),
+        },
+      );
+    }
+
+    // NO_CHANGES_EXIT is a successful "nothing to ship" outcome, not a failure:
+    // surface it as done on the dashboard, not "gave-up".
+    const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
+    emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
+
+    // Retrospective (opt-in, --agent-debug): runs before worktree cleanup so the
+    // worktree artifacts + state file are still readable. The dep never throws;
+    // `effectiveCode` is left unchanged. Gated to the main PR path only — the
+    // validate-only and conflict-fix terminals return above without it.
+    await deps.runRetrospective?.({
+      changeName,
+      cwd,
+      changeDir,
+      stateFilePath,
+      branch,
+      issue,
+      effectiveCode,
+    });
+
+    return effectiveCode;
+  } finally {
+    // Phase 2 (cleanup) + Phase 3 (teardown) — run once for every terminal
+    // outcome, including the throw path.
     await runWorktreeCleanupPhase(
       { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
       { git, log, emit },
     );
     await runTeardownPhase({ cwd, teardownScript: cfg.teardownScript }, { runScript, log, emit });
-    return effectiveCode;
   }
-
-  if (effectiveCode === 0 && wantPr) {
-    effectiveCode = await runPrPhase(
-      {
-        changeName,
-        cwd,
-        branch,
-        changeDir,
-        stateFilePath,
-        issue,
-        wantAutoMerge,
-        cfg,
-      },
-      {
-        cmd,
-        log,
-        emit,
-        respawnWorker,
-        ...(deps.registerPr !== undefined ? { registerPr: deps.registerPr } : {}),
-        ...(deps.onPrReady !== undefined ? { onPrReady: deps.onPrReady } : {}),
-        ...(deps.resolveDependencyBaseBranch !== undefined
-          ? { resolveDependencyBaseBranch: deps.resolveDependencyBaseBranch }
-          : {}),
-      },
-    );
-  }
-
-  // NO_CHANGES_EXIT is a successful "nothing to ship" outcome, not a failure:
-  // surface it as done on the dashboard, not "gave-up".
-  const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
-  emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
-
-  // Retrospective (opt-in, --agent-debug): runs before worktree cleanup so the
-  // worktree artifacts + state file are still readable. The dep never throws;
-  // `effectiveCode` is left unchanged.
-  await deps.runRetrospective?.({
-    changeName,
-    cwd,
-    changeDir,
-    stateFilePath,
-    branch,
-    issue,
-    effectiveCode,
-  });
-
-  // Phase 2: worktree cleanup
-  await runWorktreeCleanupPhase(
-    { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
-    { git, log, emit },
-  );
-
-  // Phase 3: teardown script
-  await runTeardownPhase({ cwd, teardownScript: cfg.teardownScript }, { runScript, log, emit });
-
-  return effectiveCode;
 }

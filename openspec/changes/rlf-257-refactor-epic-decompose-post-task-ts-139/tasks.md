@@ -16,11 +16,11 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 1 — Single teardown (keystone)
 
-- [ ] Add a failing test `apps/agent/src/__tests__/post-task-single-teardown.test.ts` asserting `runWorktreeCleanupPhase` and `runTeardownPhase` each run exactly once for every terminal outcome: PR success, PR-failed (`PR_FAILED_EXIT`), no-changes (`NO_CHANGES_EXIT`), validate-only (pass + fail), conflict-fix verify success, conflict-fix unpushed-divergence failure, and a thrown error (use spy `runScript`/`git` deps and count calls)
-- [ ] Restructure `runPostTask` so all terminal paths set a mutable `effectiveCode` and return through one shared exit; run cleanup + teardown once in a `finally`-style wrapper (covers the throw case too)
-- [ ] Move the conflict-fix unpushed guard to set `effectiveCode = PR_FAILED_EXIT` and `emit("gave-up", ...)` rather than returning with copy-pasted cleanup; verify the worktree is still preserved on the non-zero code
-- [ ] Confirm `runRetrospective` still fires only on the main PR path (not validate-only / conflict-fix), and `emit` parity (`done`/`gave-up`/`NO_CHANGES_EXIT`→`done`) is preserved
-- [ ] Run `bun run typecheck && bun run check:structure && bun test apps/agent/src`
+- [x] Add a failing test `apps/agent/src/__tests__/post-task-single-teardown.test.ts` asserting `runWorktreeCleanupPhase` and `runTeardownPhase` each run exactly once for every terminal outcome: PR success, PR-failed (`PR_FAILED_EXIT`), no-changes (`NO_CHANGES_EXIT`), validate-only (pass + fail), conflict-fix verify success, conflict-fix unpushed-divergence failure, and a thrown error (use spy `runScript`/`git` deps and count calls)
+- [x] Restructure `runPostTask` so all terminal paths set a mutable `effectiveCode` and return through one shared exit; run cleanup + teardown once in a `finally`-style wrapper (covers the throw case too)
+- [x] Move the conflict-fix unpushed guard to set `effectiveCode = PR_FAILED_EXIT` and `emit("gave-up", ...)` rather than returning with copy-pasted cleanup; verify the worktree is still preserved on the non-zero code
+- [x] Confirm `runRetrospective` still fires only on the main PR path (not validate-only / conflict-fix), and `emit` parity (`done`/`gave-up`/`NO_CHANGES_EXIT`→`done`) is preserved
+- [x] Run `bun run typecheck && bun run check:structure && bun test apps/agent/src`
 
 ### Step 2 — Move surface into `agent/post-task/` and extract shared types
 
