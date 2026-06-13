@@ -39,6 +39,7 @@ stage_static() {
 
   run_step "No duplicate declarations"    bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
   run_step "No direct axios in apps/ui"   bun scripts/check-no-direct-http.ts
+  run_step "Bun-native APIs (no node:fs *Sync / createHash / fs.exists)" bun scripts/check-bun-native.ts
   run_step "No prop drilling in React components" bun scripts/check-prop-drilling.ts
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts
   run_step "Folder size check"            bun scripts/check-folder-size.ts
