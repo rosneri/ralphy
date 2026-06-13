@@ -2,13 +2,9 @@ import { join } from "node:path";
 import { AGENT_TASKS_FILENAME, prependFixTask } from "@ralphy/core/tasks-md";
 import { git as gitCap } from "../../shared/capabilities/git";
 import { runCapability } from "../../shared/capabilities/run-capability";
-import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
-import { baseBranchFromLabels } from "../../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "../worktree";
 import type { CmdRunner } from "../pr";
-import { createPullRequest } from "../pr";
-import { createGhCliCodeHost } from "@ralphy/codehost";
 import type { DependencyBase } from "../wire/pr-helpers";
 import { fetchPrStatus, type PrStatus } from "../../pr-status";
 import { waitForMergeability } from "../../shared/pr/wait-for-mergeability";
@@ -18,24 +14,24 @@ import { runFeaturePostTask } from "../../features/run-feature";
 import type { FeatureCtx } from "../../features/types";
 
 import {
-  MAX_PR_CREATE_ATTEMPTS,
   NO_CHANGES_EXIT,
   PR_FAILED_EXIT,
   summarizeUncommittedStatus,
-  type PostTaskCtx,
   type PostTaskInput,
   type PostTaskMode,
   type PostTaskPhase,
   type RetroDispositionInfo,
 } from "./types";
-import { reactivateState, runWorkerWithFixTask } from "./respawn";
-import { createPrWithRetry } from "./pr-create";
+import { reactivateState } from "./respawn";
+import { _resetRepoAutoMergeCache, findExistingOpenPrUrl, runPrPhase } from "./pr-phase";
 
 // Public surface re-exported so `../agent/post-task` consumers (tests, the
 // wire layer, worker-pool) keep importing these from the package root.
 export {
   NO_CHANGES_EXIT,
   summarizeUncommittedStatus,
+  _resetRepoAutoMergeCache,
+  runPrPhase,
   type PostTaskInput,
   type PostTaskMode,
   type PostTaskPhase,
@@ -88,409 +84,10 @@ interface PostTaskDeps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Detect whether the GitHub repo that owns `prUrl` has auto-merge enabled
- * (`allow_auto_merge: true`). Returns:
- *   - `true`  → repo allows auto-merge (use `gh pr merge --auto`)
- *   - `false` → repo explicitly disables it (caller may fall back to polling)
- *   - `null`  → could not determine (malformed URL, gh failure, unparseable
- *               response). Caller treats this as "assume enabled" so we never
- *               regress repos where the API call fails for unrelated reasons.
- *
- * Results are cached per repo across calls so a multi-PR run only pays the
- * gh API hop once.
- */
-const repoAutoMergeCache = new Map<string, boolean | null>();
-
-/**
- * Best-effort check for an existing open PR for `branch`. Returns the URL or
- * null. Mirrors the query used by `createPullRequest` so the post-task log can
- * pick a quieter log level on long-running PR branches without coupling to the
- * PR-creation path. Failures swallow to null — the caller falls back to the
- * yellow warning rather than escalate transient gh errors.
- */
-async function findExistingOpenPrUrl(
-  cmd: CmdRunner,
-  cwd: string,
-  branch: string,
-): Promise<string | null> {
-  try {
-    const result = await cmd.run(
-      [
-        "gh",
-        "pr",
-        "list",
-        "--head",
-        branch,
-        "--state",
-        "open",
-        "--json",
-        "url",
-        "--jq",
-        ".[0].url // empty",
-      ],
-      cwd,
-    );
-    const url = result.stdout.trim();
-    return url || null;
-  } catch {
-    return null;
-  }
-}
-async function detectRepoAutoMergeAllowed(
-  prUrl: string,
-  cmd: CmdRunner,
-  cwd: string,
-  log: (text: string, color?: string) => void,
-): Promise<boolean | null> {
-  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(prUrl);
-  if (!m) return null;
-  const repoKey = `${m[1]}/${m[2]}`;
-  if (repoAutoMergeCache.has(repoKey)) return repoAutoMergeCache.get(repoKey) ?? null;
-  try {
-    const res = await cmd.run(["gh", "api", `repos/${repoKey}`, "--jq", ".allow_auto_merge"], cwd);
-    const out = res.stdout.trim().toLowerCase();
-    let result: boolean | null;
-    if (out === "true") result = true;
-    else if (out === "false") result = false;
-    else result = null;
-    repoAutoMergeCache.set(repoKey, result);
-    return result;
-  } catch (err) {
-    log(
-      `! could not detect repo auto-merge capability for ${repoKey}: ${(err as Error).message}`,
-      "yellow",
-    );
-    repoAutoMergeCache.set(repoKey, null);
-    return null;
-  }
-}
-
-/** Test-only: clear the per-repo auto-merge capability cache. */
-export function _resetRepoAutoMergeCache(): void {
-  repoAutoMergeCache.clear();
-}
-
 // ---------------------------------------------------------------------------
 // Phase functions — each handles one step of the post-task flow and can be
 // tested in isolation by passing minimal deps.
 // ---------------------------------------------------------------------------
-
-/** Inputs consumed only by the PR phase. */
-interface PrPhaseInput {
-  changeName: string;
-  cwd: string;
-  branch: string | null;
-  changeDir: string;
-  stateFilePath: string;
-  issue: TrackedIssue | null;
-  wantAutoMerge: boolean;
-  cfg: PostTaskInput["cfg"];
-}
-
-/**
- * Pre-PR boundary check. Compares the change set (relative to the base
- * branch) against `boundaries.never_touch`. Returns the list of forbidden
- * files that the agent modified anyway, or an empty array when clean.
- */
-async function findNeverTouchViolations(
-  cmd: CmdRunner,
-  cwd: string,
-  base: string,
-  neverTouch: string[],
-): Promise<{ file: string; pattern: string }[]> {
-  if (neverTouch.length === 0) return [];
-  let raw = "";
-  try {
-    const r = await cmd.run(["git", "diff", "--name-only", `origin/${base}...HEAD`], cwd);
-    raw = r.stdout;
-  } catch {
-    // Fall back to local base ref when origin/<base> isn't fetched.
-    try {
-      const r = await cmd.run(["git", "diff", "--name-only", `${base}...HEAD`], cwd);
-      raw = r.stdout;
-    } catch {
-      return [];
-    }
-  }
-  const files = raw
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return findBoundaryViolations(files, neverTouch);
-}
-
-/** Deps consumed only by the PR phase. */
-interface PrPhaseDeps {
-  cmd: CmdRunner;
-  log: (text: string, color?: string) => void;
-  emit: (phase: PostTaskPhase, detail?: string) => void;
-  respawnWorker: () => Promise<number>;
-  registerPr?: (changeName: string, prUrl: string) => void;
-  /** Optional: apply the additive `setPrReady` Linear marker. Invoked once at
-   *  the PR-phase success point, EXCEPT on the immediate non-draft auto-merge
-   *  path (`wantAutoMerge && !prReadyNeeded`). Mirrors `registerPr`; failures
-   *  are the callback's responsibility to swallow (they must not abort the
-   *  run). */
-  onPrReady?: (prUrl: string) => Promise<void>;
-  /** Optional: resolve the blocker PR (branch + ticket + PR) the given issue
-   *  should stack onto, or null when no unambiguous blocker PR exists. Invoked
-   *  only when `cfg.stackPrsOnDependencies` is true and no `ralph:branch:`
-   *  label override is present. */
-  resolveDependencyBaseBranch?: (issue: TrackedIssue) => Promise<DependencyBase | null>;
-}
-
-/**
- * Phase 1 — PR creation.
- *
- * Validates that branch + issue are present (returns `PR_FAILED_EXIT` if not),
- * pushes the branch, opens or surfaces a PR, enables auto-merge / converts a
- * draft to ready, and returns success. The worker performs NO conflict or CI
- * recovery — once the PR is open the ticket is marked done and the scheduler
- * watcher (`prRecovery.*`) owns all recovery.
- *
- * Returns an effective exit code: 0 on success, PR_FAILED_EXIT on failure.
- */
-export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
-  const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg } = input;
-  const { cmd, log, emit, respawnWorker, registerPr, onPrReady, resolveDependencyBaseBranch } =
-    deps;
-
-  if (!branch || !issue) {
-    log(
-      `! createPr requested but no worktree branch is tracked for ${changeName} (use --worktree)`,
-      "yellow",
-    );
-    return PR_FAILED_EXIT;
-  }
-
-  const labelBase = baseBranchFromLabels(issue.labels);
-  let base = labelBase ?? cfg.prBaseBranch;
-  let stackedOn: DependencyBase | undefined;
-  if (labelBase && labelBase !== cfg.prBaseBranch) {
-    log(`  base branch override from label: ${labelBase}`, "gray");
-  } else if (cfg.stackPrsOnDependencies && resolveDependencyBaseBranch) {
-    try {
-      const dependencyBase = await resolveDependencyBaseBranch(issue);
-      if (dependencyBase && dependencyBase.baseBranch !== base) {
-        stackedOn = dependencyBase;
-        base = dependencyBase.baseBranch;
-        const blocker = dependencyBase.blockerIdentifier ?? "blocker";
-        const prRef = dependencyBase.prNumber ? `PR #${dependencyBase.prNumber}` : "blocker PR";
-        log(
-          `  🥞 stacked PR: ${issue.identifier} → based on ${blocker} ${prRef} ` +
-            `(${dependencyBase.prUrl}); base branch \`${base}\``,
-          "cyan",
-        );
-        emit("stacked-pr", `${blocker} ${prRef} → ${base}`);
-      }
-    } catch (err) {
-      log(
-        `! could not resolve dependency base branch for ${issue.identifier}: ${(err as Error).message}`,
-        "yellow",
-      );
-    }
-  }
-
-  const ctx: PostTaskCtx = {
-    changeName,
-    cwd,
-    branch,
-    base,
-    ...(stackedOn ? { stackedOn } : {}),
-    changeDir,
-    stateFilePath,
-    cfg,
-    cmd,
-    log,
-    emit,
-    respawnWorker,
-  };
-
-  try {
-    const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-    const summary = summarizeUncommittedStatus(status.stdout);
-    if (summary.count > 0) {
-      const existingPrUrl = branch ? await findExistingOpenPrUrl(cmd, cwd, branch) : null;
-      const indented = summary.preview.map((line) => `    ${line}`).join("\n");
-      const suffix = summary.truncated ? `\n    ... and ${summary.truncated} more` : "";
-      if (existingPrUrl) {
-        log(
-          `  ${changeName}: ${summary.count} uncommitted file(s) after worker — will retry next iteration:\n${indented}${suffix}`,
-          "gray",
-        );
-      } else {
-        log(
-          `! ${changeName} has uncommitted changes after worker exit — the agent should commit everything before finishing. These changes will not be included in the PR:\n${indented}${suffix}`,
-          "yellow",
-        );
-      }
-    }
-  } catch (err) {
-    log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
-  }
-
-  const violations = await findNeverTouchViolations(cmd, cwd, base, cfg.neverTouch);
-  if (violations.length > 0) {
-    log(`! ${changeName} modified files inside boundaries.never_touch — aborting PR:`, "red");
-    for (const v of violations) {
-      log(`    ${v.file} (matched: ${v.pattern})`, "red");
-    }
-    return PR_FAILED_EXIT;
-  }
-
-  const maxOuterAttempts = MAX_PR_CREATE_ATTEMPTS;
-  let onlyMetaAttempts = 0;
-  let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
-  const finalizeNoOpAsDone = cfg.finalizeNoOpAsDone !== false;
-  while (true) {
-    const attempt = await createPrWithRetry(ctx, issue);
-    if (attempt.gaveUp) return PR_FAILED_EXIT;
-    if (attempt.pr?.blocked === "no-op" && finalizeNoOpAsDone) {
-      const files = attempt.pr.blockedFiles ?? [];
-      emit("pr-skipped-noop", `${files.length} meta file(s)`);
-      log(
-        `  ${changeName}: branch touched only meta files across its whole history — ` +
-          `the requested work appears already present on ${base} (or was a no-op). ` +
-          `Finalizing as done without a PR.`,
-        "yellow",
-      );
-      for (const f of files) log(`    ${f}`, "gray");
-      return NO_CHANGES_EXIT;
-    }
-    // When finalizeNoOpAsDone is disabled, a "no-op" branch falls through to
-    // the legacy reapply-then-quarantine path below alongside "only-meta".
-    if (attempt.pr?.blocked === "only-meta" || attempt.pr?.blocked === "no-op") {
-      onlyMetaAttempts += 1;
-      const files = attempt.pr.blockedFiles ?? [];
-      emit("pr-only-meta", `${files.length} meta file(s)`);
-      log(
-        `! ${changeName}: branch diff against ${base} contains only meta files — implementation appears lost. Refusing to open PR.`,
-        "red",
-      );
-      for (const f of files) log(`    ${f}`, "red");
-      if (onlyMetaAttempts > maxOuterAttempts) {
-        log(
-          `! exceeded ${maxOuterAttempts} only-meta recovery attempts for ${changeName} — giving up`,
-          "red",
-        );
-        return PR_FAILED_EXIT;
-      }
-      const fileList = files.length > 0 ? files.map((f) => `- ${f}`).join("\n") : "(empty diff)";
-      const retryCode = await runWorkerWithFixTask(
-        ctx,
-        "Reapply lost implementation files",
-        [
-          `The diff against \`${base}\` contains only meta files`,
-          `(openspec/tasks.md and similar). The substantive implementation`,
-          `is missing from the branch — likely deleted by an earlier commit`,
-          `or absorbed by a merge from origin/${base}.`,
-          "",
-          `Files currently in the diff:`,
-          fileList,
-          "",
-          `Re-apply the actual implementation work the change is supposed`,
-          `to ship. Inspect git history (\`git log ${base}..HEAD\`) to see`,
-          `what was created earlier and lost, then restore those files`,
-          `(or reproduce the work). Commit the restored files so the next`,
-          `iteration's diff against \`${base}\` contains real code, not`,
-          `just meta files.`,
-        ].join("\n"),
-      );
-      if (retryCode !== 0) {
-        log(`! worker re-run after only-meta block exited code ${retryCode} — giving up`, "red");
-        return PR_FAILED_EXIT;
-      }
-      continue; // re-check the diff after the recovery iteration
-    }
-    pr = attempt.pr;
-    break;
-  }
-  if (!pr) {
-    // If the worktree still has uncommitted edits, the worker exited with
-    // stranded work and there is nothing to PR because nothing was committed —
-    // NOT because the change is a legitimate no-op. Returning 0 here would
-    // cause the caller to post a Linear completion comment and flip the issue
-    // to a done state with no PR (see LIT-303 incident).
-    let dirtyAfterWorker = false;
-    try {
-      const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-      dirtyAfterWorker = summarizeUncommittedStatus(status.stdout).count > 0;
-    } catch {
-      // If we can't check, fall back to the legacy benign behavior.
-    }
-    if (dirtyAfterWorker) {
-      log(
-        `! ${changeName}: worker exited with uncommitted changes and no commits ahead of ${base} — refusing to mark done`,
-        "red",
-      );
-      return PR_FAILED_EXIT;
-    }
-    log(`  no commits ahead of ${base} — skipping PR`, "gray");
-    return 0;
-  }
-  const prUrl = pr.url;
-  if (!prUrl) {
-    log(`! PR creation returned a null URL for ${changeName} — giving up`, "red");
-    return PR_FAILED_EXIT;
-  }
-
-  log(`  ${pr.created ? "opened" : "found existing"} PR: ${prUrl}`, "green");
-  registerPr?.(changeName, prUrl);
-
-  // Convert a draft PR to ready first — no CI wait needed. From here GitHub's
-  // own auto-merge (and the scheduler watcher) handle CI; the worker is done.
-  let readyOk = true;
-  if (cfg.prDraft === true) {
-    emit("pr-ready");
-    try {
-      await createGhCliCodeHost({ cmdRunner: cmd, cwd }).markReady(prUrl);
-      log(`  converted ${prUrl} from draft to ready`, "green");
-    } catch (err) {
-      const e = err as Error & { stderr?: string };
-      log(`! gh pr ready failed for ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
-      readyOk = false;
-    }
-  }
-
-  // A draft that could not be converted to ready can't be auto-merged — skip it.
-  if (wantAutoMerge && readyOk) {
-    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
-    if (repoAllowsAutoMerge === false) {
-      // RLF-97: the worker no longer polls CI in-process, so it can't merge a
-      // repo with auto-merge disabled "once checks pass". Leave the PR open for
-      // a human / repo settings to merge instead of merging speculatively now.
-      log(
-        cfg.manualMergeWhenAutoMergeDisabled !== false
-          ? `  repo has auto-merge disabled — leaving ${prUrl} open for manual merge once checks pass`
-          : `  repo has auto-merge disabled (manual-merge fallback off) — ${prUrl} will not auto-merge`,
-        "yellow",
-      );
-    } else {
-      try {
-        await createGhCliCodeHost({ cmdRunner: cmd, cwd }).enableAutoMerge(
-          prUrl,
-          cfg.autoMergeStrategy,
-        );
-        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
-        emit("auto-merge-enabled", cfg.autoMergeStrategy);
-      } catch (err) {
-        const e = err as Error & { stderr?: string };
-        log(
-          `! failed to enable auto-merge on ${prUrl}: ${e.stderr?.trim() || e.message}`,
-          "yellow",
-        );
-      }
-    }
-  }
-
-  // Additive `setPrReady`: the PR is pushed, surfaced, and (if a draft)
-  // converted to ready. With auto-merge now GitHub-side, the PR sits reviewable
-  // until its checks pass, so always surface it as ready-for-review.
-  await onPrReady?.(prUrl);
-
-  return 0;
-}
 
 /** Inputs consumed only by the worktree cleanup phase. */
 interface WorktreeCleanupPhaseInput {

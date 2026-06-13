@@ -42,9 +42,9 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 5 — Extract PR phase
 
-- [ ] Move `runPrPhase`, `findNeverTouchViolations`, `findExistingOpenPrUrl`, `detectRepoAutoMergeAllowed`, `repoAutoMergeCache`, and `_resetRepoAutoMergeCache` into `post-task/pr-phase.ts` (cache + reset together so the test reset clears the same map)
-- [ ] Confirm `e2e-set-pr-ready*.test.ts` and `pr-no-op-classification.test.ts` pass unchanged
-- [ ] Run typecheck + structure + tests
+- [x] Move `runPrPhase`, `findNeverTouchViolations`, `findExistingOpenPrUrl`, `detectRepoAutoMergeAllowed`, `repoAutoMergeCache`, and `_resetRepoAutoMergeCache` into `post-task/pr-phase.ts` (cache + reset together so the test reset clears the same map)
+- [x] Confirm `e2e-set-pr-ready*.test.ts` pass unchanged (no `pr-no-op-classification.test.ts` exists in this repo; no-op coverage lives in `post-task-no-op.test.ts`, also green)
+- [x] Run typecheck + structure + tests
 
 ### Step 6 — Extract conflict-fix verify and validate-only
 
