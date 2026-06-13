@@ -48,10 +48,10 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 6 — Extract conflict-fix verify and validate-only
 
-- [ ] Move the `mode === "conflict-fix"` mergeability-probe block + unpushed-divergence guard into `post-task/conflict-fix-verify.ts`
-- [ ] Move `runValidateOnlyPhase` + `defaultRunCommand` into `post-task/validate-only.ts`, and `runWorktreeCleanupPhase` / `runTeardownPhase` into `post-task/cleanup.ts` / `post-task/teardown.ts`
-- [ ] Confirm `post-task-conflict-fix.test.ts` and `post-task-validate-only.test.ts` pass unchanged
-- [ ] Run typecheck + structure + tests
+- [x] Move the `mode === "conflict-fix"` mergeability-probe block + unpushed-divergence guard into `post-task/conflict-fix-verify.ts`
+- [x] Move `runValidateOnlyPhase` + `defaultRunCommand` into `post-task/validate-only.ts`, and `runWorktreeCleanupPhase` / `runTeardownPhase` into `post-task/cleanup.ts` / `post-task/teardown.ts`
+- [x] Confirm `post-task-conflict-fix.test.ts` and `post-task-validate-only.test.ts` pass unchanged
+- [x] Run typecheck + structure + tests
 
 ### Step 7 — Phase pipeline model
 
