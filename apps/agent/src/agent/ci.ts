@@ -1,27 +1,16 @@
-import { createGhCliCodeHost, type CiStatus, type CmdRunner } from "@ralphy/codehost";
+import type { CiStatus, CmdRunner, CodeHost } from "@ralphy/codehost";
 
 /**
- * Resolve the status of a PR's CI checks. Thin delegation onto the
- * {@link CodeHost} adapter (`@ralphy/codehost`), which owns the bucket
- * classification, the transient-failure retry policy, the "no checks
- * reported" pass, and the partial-access salvage. Kept as a function so the
- * many existing call sites (post-task, pr-discovery, watch loops) keep their
- * signature.
+ * Resolve the status of a PR's CI checks. Thin delegation onto the injected
+ * {@link CodeHost} (`@ralphy/codehost`), which owns the bucket classification,
+ * the transient-failure retry policy, the "no checks reported" pass, and the
+ * partial-access salvage. The adapter is built once at the entrypoint and
+ * threaded in (issue #403 / RLF-255 9a) rather than re-constructed per call —
+ * the bucket-classification config (`ignoreChecks`, `onTransientRetry`) lives
+ * on that single instance.
  */
-export async function getPrChecksStatus(
-  prRef: string,
-  runner: CmdRunner,
-  cwd: string,
-  onTransientRetry?: (attempt: number, delayMs: number, reason: string) => void,
-  ignoreCiChecks: string[] = [],
-): Promise<CiStatus> {
-  const host = createGhCliCodeHost({
-    cmdRunner: runner,
-    cwd,
-    ignoreChecks: ignoreCiChecks,
-    ...(onTransientRetry ? { onTransientRetry } : {}),
-  });
-  return host.getChecksStatus(prRef);
+export async function getPrChecksStatus(prRef: string, codeHost: CodeHost): Promise<CiStatus> {
+  return codeHost.getChecksStatus(prRef);
 }
 
 /** Fetch the failure logs for a set of workflow runs, truncated. */

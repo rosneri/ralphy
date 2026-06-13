@@ -20,6 +20,8 @@ import { tmpdir } from "node:os";
 import { runPrPhase, _resetRepoAutoMergeCache } from "../agent/post-task";
 import { createFakeLinear } from "../../test/harness/fake-linear";
 import type { CmdRunner } from "../agent/pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 
@@ -172,6 +174,7 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
       },
       {
         cmd: gh.cmd,
+        codeHost: ghHost(gh.cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -218,6 +221,7 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
       },
       {
         cmd: gh.cmd,
+        codeHost: ghHost(gh.cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,

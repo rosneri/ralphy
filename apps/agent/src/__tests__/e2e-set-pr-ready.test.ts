@@ -17,6 +17,8 @@ import { unionMarkers } from "../agent/wire/indicators";
 import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
 import { createFakeLinear } from "../../test/harness/fake-linear";
 import type { CmdRunner } from "../agent/pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { SetIndicator } from "@ralphy/types";
 
@@ -122,6 +124,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -168,6 +171,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -204,6 +208,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,

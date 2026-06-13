@@ -9,7 +9,7 @@ import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
-import { createGhCliCodeHost } from "@ralphy/codehost";
+import type { CodeHost } from "@ralphy/codehost";
 import type { DependencyBase } from "./wire/pr-helpers";
 import { fetchPrStatus, type PrStatus } from "../pr-status";
 import { waitForMergeability } from "../shared/pr/wait-for-mergeability";
@@ -156,6 +156,9 @@ export interface RetroDispositionInfo {
 interface PostTaskDeps {
   cmd: CmdRunner;
   git: GitRunner;
+  /** The single {@link CodeHost} adapter (RLF-255 9a), forwarded into the PR
+   *  phase. Built once at the coordinator boot (`wire.ts`). */
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   /**
    * Optional opt-in (`--agent-debug`): run a one-shot retrospective self-review
@@ -653,6 +656,11 @@ async function findNeverTouchViolations(
 /** Deps consumed only by the PR phase. */
 interface PrPhaseDeps {
   cmd: CmdRunner;
+  /** The single {@link CodeHost} adapter built once at the coordinator boot
+   *  (`wire.ts`) and threaded down (RLF-255 9a). The PR phase issues its
+   *  `markReady` / `enableAutoMerge` transitions through this instance instead
+   *  of re-constructing a gh adapter per call. */
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
   respawnWorker: () => Promise<number>;
@@ -683,8 +691,16 @@ interface PrPhaseDeps {
  */
 export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
   const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg } = input;
-  const { cmd, log, emit, respawnWorker, registerPr, onPrReady, resolveDependencyBaseBranch } =
-    deps;
+  const {
+    cmd,
+    codeHost,
+    log,
+    emit,
+    respawnWorker,
+    registerPr,
+    onPrReady,
+    resolveDependencyBaseBranch,
+  } = deps;
 
   if (!branch || !issue) {
     log(
@@ -874,7 +890,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   if (cfg.prDraft === true) {
     emit("pr-ready");
     try {
-      await createGhCliCodeHost({ cmdRunner: cmd, cwd }).markReady(prUrl);
+      await codeHost.markReady(prUrl);
       log(`  converted ${prUrl} from draft to ready`, "green");
     } catch (err) {
       const e = err as Error & { stderr?: string };
@@ -898,10 +914,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
       );
     } else {
       try {
-        await createGhCliCodeHost({ cmdRunner: cmd, cwd }).enableAutoMerge(
-          prUrl,
-          cfg.autoMergeStrategy,
-        );
+        await codeHost.enableAutoMerge(prUrl, cfg.autoMergeStrategy);
         log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
         emit("auto-merge-enabled", cfg.autoMergeStrategy);
       } catch (err) {
@@ -1352,6 +1365,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       },
       {
         cmd,
+        codeHost: deps.codeHost,
         log,
         emit,
         respawnWorker,
