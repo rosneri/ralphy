@@ -1,27 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSidecar } from "../context/Sidecar.context";
 import type { FeedEvent, State } from "@ralphy/types";
+import type { LoopRunnerEvent } from "@ralphy/core/loop-runner";
 
-export interface ProgressCount {
-  checked: number;
-  unchecked: number;
-  total: number;
-}
-
-export interface ProgressItem {
-  text: string;
-  checked: boolean;
-  section: string;
-}
-
-type WsMessage =
-  | { type: "feed"; event: FeedEvent }
-  | { type: "state"; state: State }
-  | { type: "progress"; progress: ProgressCount; items?: ProgressItem[] }
-  | { type: "info"; text: string }
-  | { type: "stopped"; reason: string }
-  | { type: "error"; message: string }
-  | { type: "running"; running: boolean };
+// The task WebSocket carries exactly the canonical `LoopRunnerEvent` union
+// broadcast by the sidecar (see `apps/ui/src-sidecar/routes/loop.ts`), plus
+// the `error` frame the route adds when the runner promise rejects. We decode
+// against that contract directly rather than re-declaring a hand-rolled copy —
+// the exhaustive switch below fails to compile if the union ever gains a kind.
+type WsMessage = LoopRunnerEvent | { type: "error"; message: string };
 
 export interface LogEntry {
   id: string;
@@ -35,8 +22,6 @@ export function useTaskStream(taskName: string | undefined) {
   const { baseUrl } = useSidecar();
   const [state, setState] = useState<State | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
-  const [progress, setProgress] = useState<ProgressCount | null>(null);
-  const [progressItems, setProgressItems] = useState<ProgressItem[]>([]);
   // null = unknown (haven't heard from server yet), true/false = known
   const [isRunning, setIsRunning] = useState<boolean | null>(null);
   const [stopReason, setStopReason] = useState<string | null>(null);
@@ -51,40 +36,55 @@ export function useTaskStream(taskName: string | undefined) {
     ws.onmessage = (event) => {
       const msg: WsMessage = JSON.parse(event.data);
       const nextId = () => String(idRef.current++);
+      const addInfo = (text: string) =>
+        setLogEntries((prev) => [...prev, { id: nextId(), kind: "info", text, timestamp: Date.now() }]);
 
       switch (msg.type) {
+        case "state":
+          setState(msg.state);
+          break;
+        case "iteration-started":
+          // No dedicated `running` frame exists — the first iteration event is
+          // our confirmation that the loop is live.
+          setIsRunning(true);
+          addInfo(`Iteration ${msg.iteration} started (${msg.phase})`);
+          break;
+        case "iteration-finished":
+          addInfo(`Iteration ${msg.iteration} ${msg.result}`);
+          break;
         case "feed":
           setLogEntries((prev) => [
             ...prev,
             { id: nextId(), kind: "feed", event: msg.event, timestamp: Date.now() },
           ]);
           break;
-        case "state":
-          setState(msg.state);
-          break;
-        case "progress":
-          setProgress(msg.progress);
-          if (msg.items) setProgressItems(msg.items);
-          break;
         case "info":
+          addInfo(msg.text);
+          break;
+        case "review-round":
+          addInfo(
+            `Review round ${msg.result.roundNumber}: ${msg.result.openFindings} open finding(s)` +
+              (msg.result.capReached ? " (cap reached)" : ""),
+          );
+          break;
+        case "steering-applied":
           setLogEntries((prev) => [
             ...prev,
-            { id: nextId(), kind: "info", text: msg.text, timestamp: Date.now() },
+            { id: nextId(), kind: "steering", text: msg.message, timestamp: Date.now() },
           ]);
           break;
         case "stopped":
           setStopReason(msg.reason);
           setIsRunning(false);
           break;
-        case "running":
-          setIsRunning(msg.running);
-          break;
         case "error":
-          setLogEntries((prev) => [
-            ...prev,
-            { id: nextId(), kind: "info", text: `Error: ${msg.message}`, timestamp: Date.now() },
-          ]);
+          addInfo(`Error: ${msg.message}`);
           break;
+        default: {
+          // Exhaustiveness guard: a new `LoopRunnerEvent` kind breaks the build here.
+          const _exhaustive: never = msg;
+          return _exhaustive;
+        }
       }
     };
 
@@ -143,8 +143,6 @@ export function useTaskStream(taskName: string | undefined) {
   return {
     state,
     logEntries,
-    progress,
-    progressItems,
     isRunning,
     stopReason,
     startTask,

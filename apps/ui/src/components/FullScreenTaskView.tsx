@@ -4,9 +4,8 @@ import { useTaskStream } from "../hooks/useTaskStream";
 import { useDocument } from "../hooks/useDocument";
 import { FeedLine } from "./FeedLine";
 import { StatusBar } from "./StatusBar";
-import { ProgressList } from "./ProgressList";
 import { SteeringInput } from "./SteeringInput";
-import { DocPanel, panelHeaderStyle } from "./DocPanel";
+import { DocPanel } from "./DocPanel";
 import type { State } from "@ralphy/types";
 
 type TaskRef = { name: string };
@@ -38,8 +37,6 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
   const {
     state: streamState,
     logEntries,
-    progress,
-    progressItems,
     isRunning,
     stopReason,
     addLogEntry,
@@ -67,7 +64,7 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
   const research = useDocument(currentName, "RESEARCH.md");
   const log = useDocument(currentName, "LOG.jsonl");
 
-  type DocKey = "spec" | "plan" | "research" | "progress" | "steering" | "log";
+  type DocKey = "spec" | "plan" | "research" | "steering" | "log";
   const [expandedDoc, setExpandedDoc] = useState<DocKey>("spec");
 
   useEffect(() => {
@@ -160,12 +157,7 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
       </div>
 
       {state && (
-        <StatusBar
-          state={state}
-          progress={progress}
-          isRunning={effectiveIsRunning}
-          stopReason={stopReason}
-        />
+        <StatusBar state={state} isRunning={effectiveIsRunning} stopReason={stopReason} />
       )}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -249,27 +241,6 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
             placeholder="Implementation plan."
             onExpand={() => setExpandedDoc("plan")}
           />
-          {expandedDoc === "progress" ? (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={panelHeaderStyle}>PROGRESS</div>
-              <ProgressList items={progressItems} />
-            </div>
-          ) : (
-            <div
-              onClick={() => setExpandedDoc("progress")}
-              style={{
-                padding: "8px 12px",
-                borderTop: "1px solid var(--border)",
-                background: "var(--bg-surface)",
-                fontWeight: 600,
-                fontSize: 12,
-                cursor: "pointer",
-                color: "var(--text-dim)",
-              }}
-            >
-              PROGRESS
-            </div>
-          )}
           <DocPanel
             title="STEERING"
             expanded={expandedDoc === "steering"}
