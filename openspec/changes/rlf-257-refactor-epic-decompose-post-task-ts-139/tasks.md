@@ -24,9 +24,9 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 2 — Move surface into `agent/post-task/` and extract shared types
 
-- [ ] Create `apps/agent/src/agent/post-task/` and move `post-task.ts` to `post-task/index.ts`; verify `../agent/post-task` still resolves for all existing test imports
-- [ ] Extract `post-task/types.ts` with `PostTaskInput`, `PostTaskCtx`, `PostTaskPhase`, `PostTaskMode`, `RetroDispositionInfo`, `PR_FAILED_EXIT`, `NO_CHANGES_EXIT` (keep `allow-duplicate` markers), `MAX_PR_CREATE_ATTEMPTS`, `summarizeUncommittedStatus`; re-export public symbols from `index.ts`
-- [ ] Run typecheck + structure + `bun test apps/agent/src` (confirm `check-folder-size` passes — `agent/` drops to 8, `post-task/` ≤ 10)
+- [x] Create `apps/agent/src/agent/post-task/` and move `post-task.ts` to `post-task/index.ts`; verify `../agent/post-task` still resolves for all existing test imports
+- [x] Extract `post-task/types.ts` with `PostTaskInput`, `PostTaskCtx`, `PostTaskPhase`, `PostTaskMode`, `RetroDispositionInfo`, `PR_FAILED_EXIT`, `NO_CHANGES_EXIT` (keep `allow-duplicate` markers), `MAX_PR_CREATE_ATTEMPTS`, `summarizeUncommittedStatus`; re-export public symbols from `index.ts`
+- [x] Run typecheck + structure + `bun test apps/agent/src` (confirm `check-folder-size` passes — `agent/` drops to 8, `post-task/` ≤ 10)
 
 ### Step 3 — Extract respawn tier
 
