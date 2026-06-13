@@ -1,5 +1,5 @@
 import { assign, setup } from "xstate";
-import type { StopReason } from "../loop";
+import { STOP_REASONS, type StopReason } from "../loop";
 
 export interface LoopMachineOptions {
   maxIterations: number;
@@ -42,7 +42,10 @@ export type LoopMachineEvent =
 export function stoppedStateToReason(snapshot: { value: unknown }): StopReason | null {
   const val = snapshot.value;
   if (typeof val === "object" && val !== null && "stopped" in val) {
-    return (val as Record<string, string>).stopped as StopReason;
+    const candidate = (val as Record<string, string>).stopped;
+    return typeof candidate === "string" && (STOP_REASONS as readonly string[]).includes(candidate)
+      ? (candidate as StopReason)
+      : null;
   }
   return null;
 }
