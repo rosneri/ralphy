@@ -17,9 +17,9 @@ export type RalphyConfig = WorkflowConfig;
  * Resolve the EFFECTIVE config through the one shared pipeline
  * (`resolveParsedConfig` → `mergeConfig`, `cli > workflow > default`), folding
  * in both the common `CliOverrides` and the agent-only `AgentOverrides`.
- * Downstream agent code reads `cfg.x` and never writes `args.x || cfg.x` for
- * any config-backed key again — the presence-based merge already won that
- * precedence here.
+ * Downstream agent code reads `cfg.x` and never re-implements an argv-or-config
+ * fallback for any config-backed key again — the presence-based merge already
+ * won that precedence here.
  */
 export async function loadEffectiveConfig(
   projectRoot: string,
