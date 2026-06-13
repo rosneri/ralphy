@@ -61,6 +61,7 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": [],
       "options": {
         "command": "bun test apps/ui/src",
         "cwd": "{workspaceRoot}"
