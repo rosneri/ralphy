@@ -287,4 +287,12 @@ describe("OpenSpecChangeStore", () => {
     const store = new OpenSpecChangeStore();
     await expect(store.archiveChange("sample-change")).rejects.toThrow();
   });
+
+  test("archiveChange error message names the change and exit status", async () => {
+    nextSpawnResult = { exitCode: 7, stdout: "", stderr: "boom" };
+    const store = new OpenSpecChangeStore();
+    await expect(store.archiveChange("sample-change")).rejects.toThrow(
+      'openspec archive failed for "sample-change" (exit 7)',
+    );
+  });
 });

@@ -347,6 +347,29 @@ describe("LoopRunner — completion and archive", () => {
     expect(store.archived).toEqual([]);
     const infos = events.filter((e) => e.type === "info").map((e) => e.text);
     expect(infos.some((t) => t.includes("Archive skipped"))).toBe(true);
+    // An incomplete status is an expected skip, never a failure (RLF-251).
+    expect(infos.some((t) => t.startsWith("Archive failed for"))).toBe(false);
+  });
+
+  test("surfaces a thrown archive error with the change name and still completes", async () => {
+    writeTasks(CHECKED_TASKS);
+    const agent = fakeAgent(() => ok());
+    const store = fakeChangeStore({
+      archiveChange: async () => {
+        const detail = `openspec archive failed for "${NAME}" (exit 1)`;
+        throw new Error(detail);
+      },
+    });
+    const { runner, events } = makeRunner(agent, { deps: { changeStore: store } });
+
+    const reason = await runner.start();
+
+    // Control flow is unchanged — the loop still completes via ALL_TASKS_DONE.
+    expect(reason).toBe("completed");
+    const infos = events.filter((e) => e.type === "info").map((e) => e.text);
+    const failure = infos.find((t) => t.startsWith(`Archive failed for "${NAME}":`));
+    expect(failure).toBeDefined();
+    expect(failure).toContain("(exit 1)");
   });
 
   test("exits when tasks.md is gone and the change was archived externally", async () => {
