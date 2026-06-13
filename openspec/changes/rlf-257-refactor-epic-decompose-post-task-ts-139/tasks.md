@@ -30,9 +30,9 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 3 — Extract respawn tier
 
-- [ ] Move `runWorkerWithFixTask` + `reactivateState` (with the append-only history guard) into `post-task/respawn.ts`; document that its stop semantics are a separate authority from `loopMachine`
-- [ ] Add `post-task/__tests__` (or `apps/agent/src/__tests__`) coverage for the append-only history rewrite guard and the prepend/reactivate path
-- [ ] Run typecheck + structure + tests
+- [x] Move `runWorkerWithFixTask` + `reactivateState` (with the append-only history guard) into `post-task/respawn.ts`; document that its stop semantics are a separate authority from `loopMachine`
+- [x] Add `post-task/__tests__` (or `apps/agent/src/__tests__`) coverage for the append-only history rewrite guard and the prepend/reactivate path
+- [x] Run typecheck + structure + tests
 
 ### Step 4 — Extract PR creation + merge-resolution
 
