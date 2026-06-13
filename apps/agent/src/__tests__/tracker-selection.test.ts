@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
 import { parseAgentArgs as parseArgs } from "../cli";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
@@ -79,7 +79,7 @@ describe("tracker.kind selection", () => {
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
     const { cmd, calls } = recordingCmd();
 
@@ -143,7 +143,7 @@ describe("tracker.kind selection", () => {
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     expect(cfg.tracker.kind).toBe("linear");
     const args = await parseArgs([]);
     const { cmd, calls } = recordingCmd();

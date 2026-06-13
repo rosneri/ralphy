@@ -8,7 +8,9 @@ import {
   loopOptionsFromConfig,
   mergeConfig,
   resolveConfig,
+  serializeAgentOverrides,
   serializeOverrides,
+  type AgentOverrides,
   type CliOverrides,
   type ConfigFileSystem,
   type WorkflowConfig,
@@ -195,6 +197,138 @@ describe("mergeConfig — precedence table", () => {
       const merged: string = effective.model;
       expect(merged).toBe(model);
     }
+  });
+});
+
+describe("mergeConfig — agent overrides (RLF-256)", () => {
+  test("cli agent override beats workflow for each top-level agent key", () => {
+    const workflow = WorkflowConfigSchema.parse({
+      concurrency: 3,
+      pollIntervalSeconds: 45,
+      useWorktree: true,
+      createPrOnSuccess: true,
+      stackPrsOnDependencies: true,
+    });
+    const explicit = new Set([
+      "concurrency",
+      "pollIntervalSeconds",
+      "useWorktree",
+      "createPrOnSuccess",
+      "stackPrsOnDependencies",
+    ]);
+    const agentOverrides: AgentOverrides = {
+      concurrency: 7,
+      pollInterval: 10,
+      worktree: false,
+      createPr: false,
+      stackPrs: false,
+    };
+    const { effective, origin } = mergeConfig(workflow, {}, explicit, agentOverrides);
+    expect(effective.concurrency).toBe(7);
+    expect(effective.pollIntervalSeconds).toBe(10);
+    expect(effective.useWorktree).toBe(false);
+    expect(effective.createPrOnSuccess).toBe(false);
+    expect(effective.stackPrsOnDependencies).toBe(false);
+    expect(origin.get("concurrency")).toBe("cli");
+    expect(origin.get("worktree")).toBe("cli");
+  });
+
+  test("unset agent override falls back to workflow then default", () => {
+    const workflow = WorkflowConfigSchema.parse({ concurrency: 4 });
+    const { effective, origin } = mergeConfig(workflow, {}, new Set(["concurrency"]), {});
+    expect(effective.concurrency).toBe(4);
+    expect(origin.get("concurrency")).toBe("workflow");
+
+    const fromDefault = mergeConfig(defaults(), {}, new Set(), {});
+    expect(fromDefault.effective.concurrency).toBe(defaults().concurrency);
+    expect(fromDefault.origin.get("concurrency")).toBe("default");
+  });
+
+  test("the two nested linear.* overrides merge once, preserving sibling linear fields", () => {
+    const workflow = WorkflowConfigSchema.parse({});
+    const originalTeam = workflow.linear.team;
+    const agentOverrides: AgentOverrides = { linearTeam: "ENG", codeReview: false };
+    const { effective, origin } = mergeConfig(
+      workflow,
+      {},
+      new Set(["linear"]),
+      agentOverrides,
+    );
+    expect(effective.linear.team).toBe("ENG");
+    expect(effective.linear.codeReviewTrigger).toBe(false);
+    // Sibling fields on `linear` survive the rebuild (not clobbered).
+    expect(effective.linear.filter).toEqual(workflow.linear.filter);
+    expect(effective.linear.indicators).toEqual(workflow.linear.indicators);
+    expect(origin.get("linearTeam")).toBe("cli");
+    expect(origin.get("codeReview")).toBe("cli");
+    // Input not mutated.
+    expect(workflow.linear.team).toBe(originalTeam);
+  });
+
+  test("an explicit --concurrency 0 resolves differently than an unset concurrency (E1)", () => {
+    const workflow = WorkflowConfigSchema.parse({ concurrency: 5 });
+    const present = mergeConfig(workflow, {}, new Set(["concurrency"]), { concurrency: 0 });
+    const unset = mergeConfig(workflow, {}, new Set(["concurrency"]), {});
+    expect(present.effective.concurrency).toBe(0);
+    expect(unset.effective.concurrency).toBe(5);
+    expect(present.effective.concurrency).not.toBe(unset.effective.concurrency);
+  });
+
+  test("loop boot is byte-identical when agentOverrides is {} (E6)", () => {
+    // The loop never passes agentOverrides. Its effective config must equal the
+    // pre-RLF-256 behavior: every agent-controlled field equals the workflow's,
+    // and the `linear` container is structurally preserved.
+    const workflow = WorkflowConfigSchema.parse({
+      concurrency: 3,
+      pollIntervalSeconds: 45,
+      useWorktree: true,
+      createPrOnSuccess: true,
+      stackPrsOnDependencies: true,
+    });
+    const withEmpty = mergeConfig(workflow, {}, new Set()).effective;
+    const withExplicitEmpty = mergeConfig(workflow, {}, new Set(), {}).effective;
+    expect(withEmpty).toEqual(withExplicitEmpty);
+    expect(withEmpty.concurrency).toBe(workflow.concurrency);
+    expect(withEmpty.pollIntervalSeconds).toBe(workflow.pollIntervalSeconds);
+    expect(withEmpty.useWorktree).toBe(workflow.useWorktree);
+    expect(withEmpty.createPrOnSuccess).toBe(workflow.createPrOnSuccess);
+    expect(withEmpty.stackPrsOnDependencies).toBe(workflow.stackPrsOnDependencies);
+    expect(withEmpty.linear).toEqual(workflow.linear);
+  });
+});
+
+describe("serializeAgentOverrides — parent/child round-trip", () => {
+  test("empty agent overrides serialize to an empty argv", () => {
+    expect(serializeAgentOverrides({})).toEqual([]);
+  });
+
+  test("each agent override key serializes to its flag", () => {
+    expect(
+      serializeAgentOverrides({
+        concurrency: 4,
+        pollInterval: 30,
+        linearTeam: "ENG",
+        worktree: true,
+        createPr: true,
+        stackPrs: true,
+        codeReview: true,
+      }),
+    ).toEqual([
+      "--concurrency",
+      "4",
+      "--poll-interval",
+      "30",
+      "--linear-team",
+      "ENG",
+      "--worktree",
+      "--create-pr",
+      "--stack-prs",
+      "--code-review",
+    ]);
+  });
+
+  test("an explicit --concurrency 0 survives serialization (E1/E4)", () => {
+    expect(serializeAgentOverrides({ concurrency: 0 })).toEqual(["--concurrency", "0"]);
   });
 });
 

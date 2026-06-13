@@ -68,8 +68,8 @@ const tick = () => new Promise((r) => setTimeout(r, 5));
 describe("CLI flags S8 — parseAgentArgs cross-flag validation", () => {
   test("S8.1: --worktree alone is accepted without --create-pr", async () => {
     const result = await parseAgentArgs(["--worktree"]);
-    expect(result.worktree).toBe(true);
-    expect(result.createPr).toBe(false);
+    expect(result.agentOverrides.worktree).toBe(true);
+    expect(result.agentOverrides.createPr).toBeUndefined();
   });
 
   test("S8.2: --stack-prs without --create-pr is rejected", async () => {
@@ -81,7 +81,7 @@ describe("CLI flags S8 — parseAgentArgs cross-flag validation", () => {
   test("S8.9: --codex + --worktree both parsed correctly", async () => {
     const result = await parseAgentArgs(["--codex", "--worktree"]);
     expect(result.overrides.engine).toBe("codex");
-    expect(result.worktree).toBe(true);
+    expect(result.agentOverrides.worktree).toBe(true);
   });
 });
 

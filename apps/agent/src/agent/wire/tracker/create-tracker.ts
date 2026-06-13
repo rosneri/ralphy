@@ -226,7 +226,6 @@ export function createTracker(input: CreateTrackerInput): TrackerBundle {
   });
   const fetchMentions = createMentionScanner({
     apiKey,
-    args,
     cfg,
     team,
     assignee,

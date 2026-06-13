@@ -27,7 +27,7 @@ mock.module("@ralphy/telemetry", () => ({
 }));
 
 import { parseAgentArgs as parseArgs } from "../cli";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner, WorktreeProvider } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
@@ -489,7 +489,7 @@ describe("S3 — coordinator flow routing", () => {
       },
     };
     await writeWorkflow(tempDir, confirmationWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls } = makeRunners();
@@ -587,7 +587,7 @@ describe("S3 — coordinator flow routing", () => {
       },
     };
     await writeWorkflow(tempDir, mentionWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls, setCiFailing } = makeRunners();
@@ -667,7 +667,7 @@ describe("S3 — coordinator flow routing", () => {
       },
     };
     await writeWorkflow(tempDir, confirmationWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls, setMergeable } = makeRunners();
@@ -755,7 +755,7 @@ describe("S3 — coordinator flow routing", () => {
       setupFetch(linear);
 
       await writeWorkflow(tempDir, baseWorkflow);
-      const cfg = await loadRalphyConfig(tempDir);
+      const cfg = await loadEffectiveConfig(tempDir);
       const args = await parseArgs([]);
 
       const { runners, workers, spawnCalls, setMergeable } = makeRunners();
@@ -821,7 +821,7 @@ describe("S3 — coordinator flow routing", () => {
     setupFetch(linear);
 
     await writeWorkflow(tempDir, baseWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, spawnCalls } = makeRunners();
@@ -884,7 +884,7 @@ describe("S3 — coordinator flow routing", () => {
     setupFetch(linear);
 
     await writeWorkflow(tempDir, baseWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls, setMergeable } = makeRunners();
@@ -963,7 +963,7 @@ describe("S3 — coordinator flow routing", () => {
     setupFetch(linear);
 
     await writeWorkflow(tempDir, baseWorkflow); // baseWorkflow has fixConflicts:true
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls, setMergeable } = makeRunners();
@@ -1039,7 +1039,7 @@ describe("S3 — coordinator flow routing", () => {
       ...baseWorkflow,
       prRecovery: { enabled: true, fixCi: true, fixConflicts: false },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, spawnCalls, setMergeable } = makeRunners();
@@ -1100,7 +1100,7 @@ describe("S3 — coordinator flow routing", () => {
     // createPrOnSuccess + useWorktree ⇒ createsPrs=true ⇒ the worker opens a PR
     // and the coordinator defers setDone.
     await writeWorkflow(tempDir, { ...baseWorkflow, createPrOnSuccess: true, useWorktree: true });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const prUrl = "https://github.com/owner/repo/pull/920";
@@ -1209,7 +1209,7 @@ describe("S3 — coordinator flow routing", () => {
     setupFetch(linear);
 
     await writeWorkflow(tempDir, baseWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, spawnCalls } = makeRunners();
@@ -1276,7 +1276,7 @@ describe("S3 — coordinator flow routing", () => {
       },
     };
     await writeWorkflow(tempDir, confirmationWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers } = makeRunners();

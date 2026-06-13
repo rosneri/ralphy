@@ -3,7 +3,7 @@ import { getStorage, getLayout, getArgs } from "@ralphy/context";
 import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@ralphy/workflow";
 import type { GetIndicator, Indicators, LinearFilterScope, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
-import { loadRalphyConfig } from "./agent/config";
+import { loadEffectiveConfig } from "./agent/config";
 import {
   fetchOpenIssues,
   fetchAttachmentsForIssues,
@@ -428,7 +428,8 @@ async function fetchAndPrintLinear(
 }
 
 interface RunListInput {
-  linearTeamOverride: string;
+  /** `--linear-team` override (sparse — undefined when not passed). */
+  linearTeamOverride: string | undefined;
   linearAssigneeOverride: string;
   debug: boolean;
   name: string;
@@ -460,10 +461,17 @@ export async function runList(input: RunListInput): Promise<void> {
   const rows = buildLocalRows();
   printLocalRows(rows);
 
-  const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
+  const cfg = await loadEffectiveConfig(
+    projectRoot,
+    getArgs().workflowFile,
+    getArgs().overrides,
+    input.linearTeamOverride ? { linearTeam: input.linearTeamOverride } : {},
+  );
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
-  const team = input.linearTeamOverride || cfg.linear.team;
+  // `--linear-team` was folded into the merge above, so `cfg.linear.team` is
+  // already the effective `cli > workflow > default` team.
+  const team = cfg.linear.team;
   const resolved = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
@@ -527,7 +535,8 @@ export async function runList(input: RunListInput): Promise<void> {
 interface DebugInput {
   identifier: string;
   projectRoot: string;
-  linearTeamOverride: string;
+  /** `--linear-team` override (sparse — undefined when not passed). */
+  linearTeamOverride: string | undefined;
   linearAssigneeOverride: string;
 }
 
@@ -645,9 +654,15 @@ async function runListDebug(input: DebugInput): Promise<void> {
     return;
   }
 
-  const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
+  const cfg = await loadEffectiveConfig(
+    projectRoot,
+    getArgs().workflowFile,
+    getArgs().overrides,
+    input.linearTeamOverride ? { linearTeam: input.linearTeamOverride } : {},
+  );
   const indicators = cfg.linear.indicators as Indicators;
-  const team = input.linearTeamOverride || cfg.linear.team;
+  // `--linear-team` folded into the merge above (`cli > workflow > default`).
+  const team = cfg.linear.team;
   const { assignee, anyAssignee, requireAllLabels, excludeLabels } = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );

@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
 import { parseAgentArgs as parseArgs } from "../cli";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
@@ -152,7 +152,7 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const workersSpawned: string[] = [];
@@ -249,7 +249,7 @@ describe("setupWorktree — RLF-39: worktree creation failure must not fall back
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     let spawnCwd: string | null = null as string | null;
@@ -351,7 +351,7 @@ describe("spawnWorker — review phase config", () => {
       },
     });
 
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const spawnedCmds: string[][] = [];
@@ -430,7 +430,7 @@ describe("spawnWorker — review phase config", () => {
       },
     });
 
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const spawnedCmds: string[][] = [];
@@ -505,7 +505,7 @@ describe("spawnWorker — review phase config", () => {
       },
     });
 
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const spawnedCmds: string[][] = [];

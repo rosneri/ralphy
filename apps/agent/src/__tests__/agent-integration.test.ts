@@ -1,6 +1,6 @@
 /**
  * Highest-level integration test for agent mode. Exercises the real
- *   parseArgs → loadRalphyConfig → buildAgentCoordinator → coord.pollOnce()
+ *   parseArgs → loadEffectiveConfig → buildAgentCoordinator → coord.pollOnce()
  * pipeline in one process. Only third parties and side-effects are mocked:
  *   - Linear API (globalThis.fetch)
  *   - git (GitRunner)
@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseAgentArgs as parseArgs } from "../cli";
 import YAML from "yaml";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 
 async function writeWorkflow(dir: string, frontmatter: unknown): Promise<void> {
   await Bun.write(join(dir, "WORKFLOW.md"), `---\n${YAML.stringify(frontmatter)}---\n`);
@@ -458,7 +458,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     // ---- 2. Side-effect runners ----
@@ -604,7 +604,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, setPrState, ghCalls } = makeRunners();
@@ -704,7 +704,7 @@ describe("agent integration — Linear-as-source-of-truth lifecycle", () => {
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers } = makeRunners();

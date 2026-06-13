@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { VERSION, type AgentParsedArgs } from "../cli";
 import {
   ensureRalphyConfig as ensureRalphyConfigImpl,
-  loadRalphyConfig as loadRalphyConfigImpl,
+  loadEffectiveConfig as loadEffectiveConfigImpl,
   type RalphyConfig,
 } from "../agent/config";
 import type { ActiveWorker, PauseState, PollResult } from "../agent/coordinator";
@@ -97,8 +97,8 @@ interface AgentModeProps {
   buildCoordinator?: AgentModeBuildCoordinator;
   /** Test injection — defaults to the real `ensureRalphyConfig`. */
   ensureConfig?: typeof ensureRalphyConfigImpl;
-  /** Test injection — defaults to the real `loadRalphyConfig`. */
-  loadConfig?: typeof loadRalphyConfigImpl;
+  /** Test injection — defaults to the real `loadEffectiveConfig`. */
+  loadConfig?: typeof loadEffectiveConfigImpl;
   /** Test injection — defaults to the real `runPreflight`. */
   runPreflight?: (opts?: PreflightOptions) => Promise<PreflightResult>;
 }
@@ -457,7 +457,7 @@ export function AgentMode({
   appendSteering = appendSteeringImpl,
   buildCoordinator = buildAgentCoordinatorImpl,
   ensureConfig = ensureRalphyConfigImpl,
-  loadConfig = loadRalphyConfigImpl,
+  loadConfig = loadEffectiveConfigImpl,
   runPreflight = runPreflightImpl,
 }: AgentModeProps) {
   const { exit } = useApp();
@@ -548,7 +548,12 @@ export function AgentMode({
     async function init() {
       logSession(`=== session start ${SESSION_START} ===`);
       const cfgPath = await ensureConfig(projectRoot, args.workflowFile);
-      const cfg = await loadConfig(projectRoot, args.workflowFile, args.overrides);
+      const cfg = await loadConfig(
+        projectRoot,
+        args.workflowFile,
+        args.overrides,
+        args.agentOverrides,
+      );
       cfgRef.current = cfg;
       appendLog(`agent mode v${VERSION} — config: ${cfgPath}`, "gray");
 
@@ -558,7 +563,7 @@ export function AgentMode({
       }
 
       const pf = await runPreflight({
-        requireRepoWrite: args.createPr || cfg.createPrOnSuccess,
+        requireRepoWrite: cfg.createPrOnSuccess,
         repoCwd: projectRoot,
       });
       if (!pf.ok) {

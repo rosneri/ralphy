@@ -44,7 +44,7 @@ export async function main(argv: string[]): Promise<number> {
     const { runList } = await import("./list");
     await runWithContext(createDefaultContext({ layout, args }), async () => {
       await runList({
-        linearTeamOverride: args.linearTeam,
+        linearTeamOverride: args.agentOverrides.linearTeam,
         linearAssigneeOverride: args.linearAssignee,
         debug: args.debug,
         name: args.name,
@@ -75,11 +75,16 @@ export async function main(argv: string[]): Promise<number> {
   // RLF-208: validate --ticket up front so a bad identifier fails cleanly
   // before the TUI renders (the wire layer re-runs the same resolution).
   if (args.ticketTokens.length > 0) {
-    const { loadRalphyConfig } = await import("./agent/config");
+    const { loadEffectiveConfig } = await import("./agent/config");
     const { resolveTicketNumbers, formatTicketError } =
       await import("./shared/capabilities/linear-client");
-    const cfg = await loadRalphyConfig(projectRoot, args.workflowFile);
-    const team = args.linearTeam || cfg.linear.team;
+    const cfg = await loadEffectiveConfig(
+      projectRoot,
+      args.workflowFile,
+      args.overrides,
+      args.agentOverrides,
+    );
+    const team = cfg.linear.team;
     try {
       resolveTicketNumbers(args.ticketTokens, team);
     } catch (err) {

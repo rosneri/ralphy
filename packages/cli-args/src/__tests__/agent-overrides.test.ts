@@ -7,7 +7,7 @@ import {
 
 describe("AgentOverrides machinery", () => {
   test("AGENT_OVERRIDE_KEYS covers exactly the 7 agent-only flags", () => {
-    expect([...AGENT_OVERRIDE_KEYS].sort()).toEqual(
+    expect(([...AGENT_OVERRIDE_KEYS] as string[]).sort()).toEqual(
       [
         "codeReview",
         "concurrency",

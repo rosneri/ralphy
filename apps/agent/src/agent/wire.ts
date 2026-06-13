@@ -114,10 +114,12 @@ export function buildAgentCoordinator(
     );
   };
 
-  const concurrency = args.concurrency || cfg.concurrency;
-  const pollInterval = args.pollInterval || cfg.pollIntervalSeconds;
+  // `cfg` is the EFFECTIVE config — agent-only CLI flags were already merged in
+  // by the boot pipeline (`resolveParsedConfig`), so read it straight.
+  const concurrency = cfg.concurrency;
+  const pollInterval = cfg.pollIntervalSeconds;
 
-  const team = args.linearTeam || cfg.linear.team;
+  const team = cfg.linear.team;
   // The global `linear.filter` (marker list of label + assignee clauses) scopes
   // every Linear query and, transitively, the GitHub PR searches rooted at those
   // issues. `--linear-assignee` overrides just the assignee clause for this run.
@@ -147,7 +149,7 @@ export function buildAgentCoordinator(
   const coordRef: { current: AgentCoordinator | null } = { current: null };
 
   let pollContext = new PollContext();
-  let useWorktree = args.worktree || cfg.useWorktree;
+  let useWorktree = cfg.useWorktree;
   // Concurrency > 1 requires isolated worktrees: parallel workers must not share
   // one working copy or they clobber each other's files. Force it on (and warn)
   // rather than silently corrupting the tree. The init wizard enforces the same
@@ -454,7 +456,7 @@ export function buildAgentCoordinator(
       postComments: cfg.linear.postComments,
       commentEveryIterations: cfg.linear.updateEveryIterations,
       ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
-      createsPrs: args.createPr || cfg.createPrOnSuccess,
+      createsPrs: cfg.createPrOnSuccess,
       prRecovery: {
         enabled: prRecoveryEnabled,
         fixCi: cfg.prRecovery.fixCi,

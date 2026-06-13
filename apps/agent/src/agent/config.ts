@@ -1,5 +1,10 @@
-import { mergeConfig, type CliOverrides } from "@ralphy/config";
-import { ensureWorkflow, loadWorkflow, type WorkflowConfig } from "@ralphy/workflow";
+import {
+  resolveParsedConfig,
+  type AgentOverrides,
+  type CliOverrides,
+} from "@ralphy/config";
+import { emptyCommonArgs } from "@ralphy/cli-args";
+import { ensureWorkflow, type WorkflowConfig } from "@ralphy/workflow";
 
 /**
  * Re-export the workflow config under the legacy name so existing callers
@@ -9,18 +14,22 @@ import { ensureWorkflow, loadWorkflow, type WorkflowConfig } from "@ralphy/workf
 export type RalphyConfig = WorkflowConfig;
 
 /**
- * Load WORKFLOW.md and merge the sparse CLI overrides through the one shared
- * merge function (`cli > workflow > default`). The returned config is the
- * EFFECTIVE config: downstream agent code reads `cfg.x` and never writes
- * `args.x || cfg.x` for any config-backed key again.
+ * Resolve the EFFECTIVE config through the one shared pipeline
+ * (`resolveParsedConfig` → `mergeConfig`, `cli > workflow > default`), folding
+ * in both the common `CliOverrides` and the agent-only `AgentOverrides`.
+ * Downstream agent code reads `cfg.x` and never writes `args.x || cfg.x` for
+ * any config-backed key again — the presence-based merge already won that
+ * precedence here.
  */
-export async function loadRalphyConfig(
+export async function loadEffectiveConfig(
   projectRoot: string,
   workflowFile?: string,
   overrides: CliOverrides = {},
+  agentOverrides: AgentOverrides = {},
 ): Promise<RalphyConfig> {
-  const { config } = await loadWorkflow(projectRoot, workflowFile);
-  return mergeConfig(config, overrides).effective;
+  const args = { ...emptyCommonArgs(), overrides, ...(workflowFile ? { workflowFile } : {}) };
+  const resolved = await resolveParsedConfig({ args, agentOverrides, projectRoot });
+  return resolved.effective;
 }
 
 export async function ensureRalphyConfig(

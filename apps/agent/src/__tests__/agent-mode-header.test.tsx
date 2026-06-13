@@ -73,17 +73,11 @@ const baseArgs: ParsedArgs = {
   ...emptyCommonArgs(),
   mode: "agent",
   name: "",
-  linearTeam: "RLF",
+  agentOverrides: { linearTeam: "RLF" },
   linearAssignee: "me",
   ticketTokens: [],
-  pollInterval: 0,
-  concurrency: 0,
-  worktree: false,
   indicators: {},
-  createPr: false,
   noTmux: false,
-  stackPrs: false,
-  codeReview: false,
   maxTickets: 0,
   jsonOutput: false,
   prompt: "",
@@ -112,7 +106,10 @@ describe("AgentMode header", () => {
   test("renders effective concurrency and pollInterval from CLI overrides", async () => {
     const { lastFrame, unmount } = render(
       React.createElement(AgentMode, {
-        args: { ...baseArgs, concurrency: 4, pollInterval: 1000 },
+        args: {
+          ...baseArgs,
+          agentOverrides: { ...baseArgs.agentOverrides, concurrency: 4, pollInterval: 1000 },
+        },
         projectRoot: tmpRoot,
         statesDir: join(tmpRoot, "states"),
         tasksDir: join(tmpRoot, "tasks"),

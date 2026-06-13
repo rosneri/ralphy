@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
 import { parseAgentArgs as parseArgs } from "../cli";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
@@ -129,7 +129,7 @@ describe("wire — RLF-52: normalizeNewlyAppendedSection runs after each worker 
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const tasksPath = join(tempDir, "openspec", "changes", "eng-1-add-dark-mode", "tasks.md");

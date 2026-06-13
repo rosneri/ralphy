@@ -1,7 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
-import type { AgentParsedArgs } from "../../cli";
 import type { RalphyConfig } from "../config";
 import type { CmdRunner } from "../pr";
 import type { MentionTrigger } from "../coordinator";
@@ -56,7 +55,6 @@ function isAlreadyReactedError(err: unknown): boolean {
 
 interface MentionScanInput {
   apiKey: string;
-  args: AgentParsedArgs;
   cfg: RalphyConfig;
   team: string | undefined;
   assignee: string | undefined;
@@ -86,7 +84,6 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
 > {
   const {
     apiKey,
-    args,
     cfg,
     team,
     assignee,
@@ -109,7 +106,7 @@ export function createMentionScanner(input: MentionScanInput): () => Promise<
     { issue: TrackedIssue; trigger: MentionTrigger }[]
   > {
     const wantMention = cfg.linear.mentionTrigger;
-    const wantCodeReview = args.codeReview || cfg.linear.codeReviewTrigger;
+    const wantCodeReview = cfg.linear.codeReviewTrigger;
     if (!wantMention && !wantCodeReview) return [];
     const handle = cfg.linear.mentionHandle;
     let candidates: TrackedIssue[] = [];
