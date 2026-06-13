@@ -60,11 +60,11 @@ Land in order — each task must leave `bun run typecheck`, `bun run check:struc
 
 ### Step 8 — Size guard
 
-- [ ] Add a structure test asserting `apps/agent/src/agent/post-task/index.ts` is under ~400 LOC so the orchestrator cannot regrow (prefer wiring into `check:structure` / a per-file budget; never reduce the coverage threshold)
-- [ ] Run typecheck + structure + tests
+- [x] Add a structure test asserting `apps/agent/src/agent/post-task/index.ts` is under ~400 LOC so the orchestrator cannot regrow (prefer wiring into `check:structure` / a per-file budget; never reduce the coverage threshold)
+- [x] Run typecheck + structure + tests
 
 ### Final verification
 
-- [ ] `wc -l apps/agent/src/agent/post-task/index.ts` confirms the orchestrator is well under its previous 1395 LOC (target < ~400)
-- [ ] `bun run lint && bun run typecheck && bun run check:structure && bun test apps/agent/src` all pass; coverage not reduced
-- [ ] `bunx openspec validate rlf-257-refactor-epic-decompose-post-task-ts-139` passes
+- [x] `wc -l apps/agent/src/agent/post-task/index.ts` confirms the orchestrator is well under its previous 1395 LOC (target < ~400) — now 259 LOC
+- [x] `bun run lint && bun run typecheck && bun run check:structure && bun test apps/agent/src` all pass; coverage not reduced
+- [x] `bunx openspec validate rlf-257-refactor-epic-decompose-post-task-ts-139` passes
