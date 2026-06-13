@@ -1,4 +1,10 @@
-import { classifyGhBucket, NO_CHECKS_RE, PARTIAL_ACCESS_RE, runGhWithRetry } from "./ci-classify";
+import {
+  classifyGhBucket,
+  NO_CHECKS_RE,
+  PARTIAL_ACCESS_RE,
+  reduceToBucket,
+  runGhWithRetry,
+} from "./ci-classify";
 import type {
   CiStatus,
   CmdRunner,
@@ -195,16 +201,13 @@ export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
           throw err;
         }
       }
-      const checks = parseChecks(out.stdout)
-        .filter((c) => !ignoredLower.includes(c.name.toLowerCase()))
-        .filter((c) => classifyGhBucket(c.bucket) !== "skip");
+      const checks = parseChecks(out.stdout).filter(
+        (c) => !ignoredLower.includes(c.name.toLowerCase()),
+      );
+      const bucket = reduceToBucket(checks.map((c) => classifyGhBucket(c.bucket)));
+      if (bucket !== "fail") return { bucket, failedRunIds: [], failedCheckNames: [] };
 
-      if (checks.some((c) => classifyGhBucket(c.bucket) === "pending")) {
-        return { bucket: "pending", failedRunIds: [], failedCheckNames: [] };
-      }
       const failed = checks.filter((c) => classifyGhBucket(c.bucket) === "fail");
-      if (failed.length === 0) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
-
       const ids = new Set<string>();
       for (const c of failed) {
         const m = c.link?.match(/\/actions\/runs\/(\d+)/);

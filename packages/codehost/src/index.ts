@@ -16,6 +16,7 @@ export {
   classifyGhBucket,
   NO_CHECKS_RE,
   PARTIAL_ACCESS_RE,
+  reduceToBucket,
   runGhWithRetry,
   type RawCheck,
 } from "./ci-classify";
