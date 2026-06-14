@@ -6,7 +6,7 @@ import {
   type LoopRunnerEvent,
   type LoopRunnerOptions,
 } from "@ralphy/core/loop-runner";
-import type { StopReason, LoopOptions } from "../loop";
+import { STOP_REASONS, type StopReason, type LoopOptions } from "../loop";
 
 export type LogEntry =
   | { id: string; kind: "iterationHeader"; iteration: number; time: string }
@@ -26,15 +26,7 @@ interface UseLoopResult {
   steer: (message: string) => void;
 }
 
-const MACHINE_STOP_REASONS: ReadonlySet<string> = new Set([
-  "maxIterations",
-  "completed",
-  "costCap",
-  "runtimeLimit",
-  "consecutiveFailures",
-  "rateLimited",
-  "stranded",
-]);
+const MACHINE_STOP_REASONS: ReadonlySet<string> = new Set(STOP_REASONS);
 
 /** The TUI's StopMessage only renders machine stop reasons; runner-level
  *  stops ("cancelled", "signal", "error") close the pane like before. */
