@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { AGENT_LOG_PATH } from "@ralphy/log";
 import type { RalphEvent } from "@ralphy/events";
+import { WORKER_EXIT_CODES } from "@ralphy/types";
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -567,9 +568,9 @@ export async function runDebug(opts: {
     const meaning =
       code === 0
         ? "success"
-        : code === 70
+        : code === WORKER_EXIT_CODES.ciFailed
           ? "CI fix loop exhausted its attempt budget"
-          : code === 71
+          : code === WORKER_EXIT_CODES.prFailed
             ? "push or PR creation failed"
             : "worker subprocess failed";
     out(`  Exit code  : ${code} — ${meaning}`);

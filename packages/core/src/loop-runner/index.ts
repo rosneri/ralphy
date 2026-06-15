@@ -497,25 +497,33 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
           };
           writeState(stateDir, currentState);
           emit({ type: "state", state: currentState }, { state: currentState });
-          try {
-            const skipStatusCheck = currentState.validateOnComplete && !currentState.createPr;
-            if (!skipStatusCheck && typeof changeStore.getStatus === "function") {
-              const status = await changeStore.getStatus(name);
-              if (!status.isComplete) {
-                const blocked = status.artifacts
-                  .filter((a) => a.status !== "done")
-                  .map((a) => `${a.id}=${a.status}`)
-                  .join(", ");
-                info(
-                  `Archive skipped: openspec status reports change incomplete (${blocked || "no artifacts"}).`,
-                );
-                throw new Error("openspec status: change not complete");
-              }
+          const skipStatusCheck = currentState.validateOnComplete && !currentState.createPr;
+          let archiveBlocked = false;
+          if (!skipStatusCheck && typeof changeStore.getStatus === "function") {
+            const status = await changeStore.getStatus(name);
+            if (!status.isComplete) {
+              const blocked = status.artifacts
+                .filter((a) => a.status !== "done")
+                .map((a) => `${a.id}=${a.status}`)
+                .join(", ");
+              // Expected skip — not a failure. Log and fall through to
+              // ALL_TASKS_DONE without entering the failure path.
+              info(
+                `Archive skipped: openspec status reports change incomplete (${blocked || "no artifacts"}).`,
+              );
+              archiveBlocked = true;
             }
-            await changeStore.archiveChange(name);
-            info("Change archived.");
-          } catch (err) {
-            info(`Archive warning: ${err}`);
+          }
+          if (!archiveBlocked) {
+            try {
+              await changeStore.archiveChange(name);
+              info("Change archived.");
+            } catch (err) {
+              // A genuine archive failure must be visible and name the change
+              // so the backlog never accumulates silently (RLF-251).
+              const message = err instanceof Error ? err.message : String(err);
+              info(`Archive failed for "${name}": ${message}`);
+            }
           }
           actor.send({ type: "ALL_TASKS_DONE", uncommittedEdits: false });
           break;

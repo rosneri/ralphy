@@ -4,7 +4,57 @@
   "rules": {
     "no-explicit-any": "error",
     "import/no-cycle": "error",
-    "no-console": "warn"
+    "no-console": "warn",
+    "no-restricted-imports": [
+      "warn",
+      {
+        "paths": [
+          {
+            "name": "node:fs",
+            "importNames": [
+              "readFileSync",
+              "writeFileSync",
+              "appendFileSync",
+              "existsSync",
+              "unlinkSync",
+              "renameSync",
+              "mkdirSync",
+              "rmdirSync",
+              "rmSync",
+              "readdirSync",
+              "statSync",
+              "lstatSync",
+              "copyFileSync",
+              "cpSync",
+              "accessSync",
+              "chmodSync",
+              "openSync",
+              "closeSync",
+              "readSync",
+              "writeSync",
+              "realpathSync",
+              "truncateSync",
+              "symlinkSync",
+              "readlinkSync",
+              "mkdtempSync",
+              "utimesSync",
+              "opendirSync"
+            ],
+            "message": "node:fs *Sync APIs are banned — use Bun.file(p).text() / Bun.write(p, data) / await Bun.file(p).exists() or async node:fs/promises."
+          },
+          {
+            "name": "node:crypto",
+            "importNames": ["createHash"],
+            "message": "node:crypto createHash is banned — use new Bun.CryptoHasher(algo)."
+          },
+          {
+            "name": "node:fs/promises",
+            "importNames": ["exists"],
+            "message": "the deprecated node:fs/promises exists is banned — use await Bun.file(p).exists()."
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
@@ -43,7 +93,8 @@
       "files": ["**/*.test.ts", "**/*.spec.ts"],
       "rules": {
         "no-console": "off",
-        "no-control-regex": "off"
+        "no-control-regex": "off",
+        "no-restricted-imports": "off"
       }
     },
     {
