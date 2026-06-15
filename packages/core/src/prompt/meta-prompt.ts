@@ -1,5 +1,6 @@
 import type { State } from "@ralphy/types";
 import { detectEffort, EFFORT_GUIDANCE, type Effort } from "./effort";
+import { PROJECT_QUALITY_RULES } from "./project-rules";
 
 export type TaskPhase = "research" | "plan" | "execute" | "review";
 
@@ -56,9 +57,11 @@ const PHASE_GUIDANCE: Record<TaskPhase, string> = {
  * Build the task-level meta-prompt fragment that is prepended to each iteration prompt.
  * Returns an empty string when opts.enabled is false.
  *
- * The output has three sections:
+ * The output has these sections:
  *   1. Always-on preamble  — change name, engine/model, phase, iteration/cost budgets
  *   2. Phase guidance      — behavior guidance specific to the active task phase
+ *   2b. Effort guidance    — tier-specific posture for this ticket
+ *   2c. Project rules      — always-on engineering rules the agent self-enforces
  *   3. Dynamic flags       — notable runtime flags currently in effect
  */
 export function buildMetaPrompt(
@@ -101,6 +104,10 @@ export function buildMetaPrompt(
   // Section 2b: Effort-specific guidance (right-sizes behavior per ticket)
   out += `### Effort Guidance\n\n`;
   out += EFFORT_GUIDANCE[effort] + "\n\n";
+
+  // Section 2c: Project rules (always-on self-enforcement preamble)
+  out += `### Project Rules\n\n`;
+  out += PROJECT_QUALITY_RULES + "\n\n";
 
   // Section 3: Dynamic flags (only emit notable non-default flags)
   const flags: string[] = [];
