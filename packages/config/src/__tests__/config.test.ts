@@ -484,6 +484,20 @@ describe("loopOptions — config/runtime split", () => {
     ).toBeUndefined();
   });
 
+  test("planModel/planEffort flow into LoopOptions; unset stays absent", () => {
+    const withPlan = WorkflowConfigSchema.parse({ planModel: "sonnet", planEffort: "high" });
+    const opts = loopOptionsFromConfig(withPlan, { name: "x", prompt: "", changeStore });
+    expect(opts.planModel).toBe("sonnet");
+    expect(opts.planEffort).toBe("high");
+    const without = loopOptionsFromConfig(WorkflowConfigSchema.parse({}), {
+      name: "x",
+      prompt: "",
+      changeStore,
+    });
+    expect(without.planModel).toBeUndefined();
+    expect(without.planEffort).toBeUndefined();
+  });
+
   test("reviewerEffort flows into reviewPhase, overridable via --review-effort", () => {
     const effective = WorkflowConfigSchema.parse({
       openspec: { reviewPhase: { enabled: true, reviewerEffort: "high" } },

@@ -252,6 +252,8 @@ export function loopOptionsFromConfig(
     engine: effective.engine,
     model: flow.model ?? effective.model,
     ...(effort !== undefined ? { effort } : {}),
+    ...(effective.planModel !== undefined ? { planModel: effective.planModel } : {}),
+    ...(effective.planEffort !== undefined ? { planEffort: effective.planEffort } : {}),
     maxIterations: effective.maxIterationsPerTask,
     maxCostUsd: effective.maxCostUsdPerTask,
     maxRuntimeMinutes: effective.maxRuntimeMinutesPerTask,

@@ -13,7 +13,7 @@ import {
 } from "@ralphy/context";
 import { getProcessBus } from "@ralphy/events";
 import { writeState, updateState, buildInitialState, ensureState, tryReadStateRaw } from "../state";
-import { countOpenFindings } from "../openspec/phase";
+import { countOpenFindings, deriveOpenSpecPhase } from "../openspec/phase";
 import { gitPush, commitTaskDir, getUncommittedFiles } from "../git";
 import { loopMachine, stoppedStateToReason } from "../machines";
 import {
@@ -116,6 +116,10 @@ export interface LoopRunnerOptions {
   model?: string;
   /** Engine reasoning effort (`claude --effort`). Unset → engine default. */
   effort?: string;
+  /** Model / effort for the planning phases (proposal/design/tasks). Unset
+   *  falls back to `model` / `effort`. */
+  planModel?: string;
+  planEffort?: string;
   limits?: LoopRunnerLimits;
   delaySeconds?: number;
   /** Pin a prompt phase; default is `routeTaskPhase` auto-routing. */
@@ -157,6 +161,8 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
   const engine: Engine = options.engine ?? "claude";
   const model = options.model ?? "opus";
   const effort = options.effort;
+  const planModel = options.planModel;
+  const planEffort = options.planEffort;
   const limits = {
     maxIterations: options.limits?.maxIterations ?? 0,
     maxCostUsd: options.limits?.maxCostUsd ?? 0,
@@ -539,6 +545,23 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
           tasks: tasksContent,
         });
 
+        // Planning phases (proposal/design/tasks) can run a dedicated
+        // model/effort; the implement phase always uses the top-level model.
+        // routeTaskPhase collapses tasks→execute, so derive the OpenSpec phase
+        // directly to keep all three planning phases on the plan model.
+        const ospPhase = deriveOpenSpecPhase({
+          proposal: proposalContent,
+          design: designContent,
+          tasks: tasksContent,
+          reviewFindings: null,
+          reviewRounds: 0,
+          maxReviewRounds: 0,
+        });
+        const isPlanningPhase =
+          ospPhase === "proposal" || ospPhase === "design" || ospPhase === "tasks";
+        const iterModel = isPlanningPhase ? (planModel ?? model) : model;
+        const iterEffort = isPlanningPhase ? (planEffort ?? effort) : effort;
+
         emit({
           type: "iteration-started",
           iteration: localIter,
@@ -567,8 +590,8 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
 
           let engineResult = await runEngine({
             engine,
-            model,
-            ...(effort !== undefined ? { effort } : {}),
+            model: iterModel,
+            ...(iterEffort !== undefined ? { effort: iterEffort } : {}),
             prompt: iterationPrompt,
             logFlag: options.log ?? false,
             logFile: join(stateDir, "log.json"),
@@ -601,8 +624,8 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
 
             const resumeResult = await runEngine({
               engine,
-              model,
-              ...(effort !== undefined ? { effort } : {}),
+              model: iterModel,
+              ...(iterEffort !== undefined ? { effort: iterEffort } : {}),
               prompt: buildSteeringPrompt(steerMessage),
               logFlag: options.log ?? false,
               logFile: join(stateDir, "log.json"),
