@@ -255,12 +255,7 @@ describe("mergeConfig — agent overrides (RLF-256)", () => {
     const workflow = WorkflowConfigSchema.parse({});
     const originalTeam = workflow.linear.team;
     const agentOverrides: AgentOverrides = { linearTeam: "ENG", codeReview: false };
-    const { effective, origin } = mergeConfig(
-      workflow,
-      {},
-      new Set(["linear"]),
-      agentOverrides,
-    );
+    const { effective, origin } = mergeConfig(workflow, {}, new Set(["linear"]), agentOverrides);
     expect(effective.linear.team).toBe("ENG");
     expect(effective.linear.codeReviewTrigger).toBe(false);
     // Sibling fields on `linear` survive the rebuild (not clobbered).

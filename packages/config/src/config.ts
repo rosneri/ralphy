@@ -196,7 +196,8 @@ export function serializeOverrides(overrides: Readonly<CliOverrides>): string[] 
  */
 export function serializeAgentOverrides(overrides: Readonly<AgentOverrides>): string[] {
   const argv: string[] = [];
-  if (overrides.concurrency !== undefined) argv.push("--concurrency", String(overrides.concurrency));
+  if (overrides.concurrency !== undefined)
+    argv.push("--concurrency", String(overrides.concurrency));
   if (overrides.pollInterval !== undefined) {
     argv.push("--poll-interval", String(overrides.pollInterval));
   }
