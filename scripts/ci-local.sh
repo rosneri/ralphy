@@ -64,6 +64,7 @@ stage_test() {
   printf '\n%s━━━ Tests ━━━%s\n\n' "$YELLOW" "$NC"
 
   run_step "Test affected files + coverage"  bun run test:affected-files:coverage:ci
+  run_step "Test coverage (affected)"        bun run test:coverage:ci
 }
 
 stage_build() {

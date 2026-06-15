@@ -155,6 +155,18 @@ engine: claude
 # cheapest and fastest; higher tiers cost more per token.
 model: opus
 
+# Reasoning effort the Claude engine runs at: low | medium | high | xhigh | max.
+# Unset lets the engine pick its own default. Applies to the main loop and (when
+# its own reviewerEffort is unset) the review pass.
+effort: medium
+
+# Model / reasoning effort for the planning phases (proposal, design, tasks).
+# Unset falls back to the top-level model/effort above; the implement phase
+# always uses the top-level model. Planning runs at xhigh so proposal/design/
+# tasks get maximum reasoning, while implementation stays at the medium main loop.
+planModel: opus
+planEffort: xhigh
+
 linear:
   # Only pick up issues from this Linear team, given by its key (e.g. ENG).
   # Leave blank to watch every team.
@@ -298,6 +310,9 @@ openspec:
     enabled: true
     maxRounds: 2
     reviewerModel: opus
+    # Review pass runs at xhigh effort (the main loop is medium) so the
+    # quality gate stays maximal.
+    reviewerEffort: xhigh
     reviewerContextStrategy: fresh
 version: 1
 ---
