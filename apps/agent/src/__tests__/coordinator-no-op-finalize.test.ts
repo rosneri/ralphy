@@ -1,11 +1,10 @@
 import { describe, expect, test, mock } from "bun:test";
 import { AgentCoordinator, type CoordinatorDeps } from "../agent/coordinator";
-import { NO_CHANGES_EXIT } from "../agent/post-task";
 import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
-import type { SetIndicator } from "@ralphy/types";
+import { WORKER_EXIT_CODES, type SetIndicator } from "@ralphy/types";
 import { trackerFromFlat } from "../../test/harness/provider-contract";
 
-// When a worker exits NO_CHANGES_EXIT (branch only ever touched meta files —
+// When a worker exits WORKER_EXIT_CODES.noChanges (branch only ever touched meta files —
 // the requested work is already on base), the coordinator must finalize the
 // ticket as DONE with an honest "no changes" comment, NOT quarantine it with
 // setError. This is the LIT-300 fix: a no-op must not re-summon or quarantine.
@@ -82,7 +81,7 @@ const SET_IN_PROGRESS: SetIndicator = { type: "label", value: "in-progress" };
 const SET_DONE: SetIndicator = { type: "label", value: "done" };
 const SET_ERROR: SetIndicator = { type: "label", value: "error" };
 
-describe("AgentCoordinator — NO_CHANGES_EXIT finalization", () => {
+describe("AgentCoordinator — WORKER_EXIT_CODES.noChanges finalization", () => {
   test("marks done with a no-op comment and clears in-progress, never setError", async () => {
     const ctx = makeCtx();
     const coord = new AgentCoordinator(ctx.deps, {
@@ -101,7 +100,7 @@ describe("AgentCoordinator — NO_CHANGES_EXIT finalization", () => {
     expect(ctx.workers).toHaveLength(1);
 
     // Worker finishes its tasks but produced only meta files.
-    ctx.workers[0]!.resolve(NO_CHANGES_EXIT);
+    ctx.workers[0]!.resolve(WORKER_EXIT_CODES.noChanges);
     await tick();
     await tick();
 

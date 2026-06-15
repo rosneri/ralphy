@@ -10,7 +10,7 @@ import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
 import type { Bus } from "@ralphy/events";
 import type { FlowAssignment, FlowDirector, FlowId, FlowRef } from "@ralphy/core/machines";
 import { buildRalphyComment, isStartedComment } from "@ralphy/comms";
-import { NO_CHANGES_EXIT } from "../../agent/post-task";
+import { WORKER_EXIT_CODES } from "@ralphy/types";
 import {
   defaultPriorityFor,
   type MentionTrigger,
@@ -542,7 +542,7 @@ export class WorkerPool {
       this.fill();
       return;
     }
-    const ok = code === 0 || code === NO_CHANGES_EXIT;
+    const ok = code === 0 || code === WORKER_EXIT_CODES.noChanges;
     this.deps.onLog(
       `${ok ? "✓" : "✗"} ${issue.identifier} → ${prep.changeName} exited (code ${code})`,
       ok ? "green" : "red",
@@ -625,10 +625,11 @@ export class WorkerPool {
     trigger: QueueTrigger,
     workerCwd?: string,
   ): Promise<void> {
-    // NO_CHANGES_EXIT (no-op: branch only ever touched meta files, work already
-    // on base) is finalized as a success — done with an honest comment — not a
-    // quarantined failure. Treat it like `ok` for task sync and finalization.
-    const noChanges = code === NO_CHANGES_EXIT;
+    // WORKER_EXIT_CODES.noChanges (no-op: branch only ever touched meta files,
+    // work already on base) is finalized as a success — done with an honest
+    // comment — not a quarantined failure. Treat it like `ok` for task sync and
+    // finalization.
+    const noChanges = code === WORKER_EXIT_CODES.noChanges;
     const ok = code === 0 || noChanges;
 
     // RLF-97: when a normal worker opens a PR and recovery is enabled, the

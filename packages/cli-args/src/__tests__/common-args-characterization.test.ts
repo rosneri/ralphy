@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { COMMON_CLI_OPTIONS, modelOptionValues } from "@ralphy/workflow/cli-options";
+import {
+  COMMON_CLI_OPTIONS,
+  effortOptionValues,
+  modelOptionValues,
+} from "@ralphy/workflow/cli-options";
 import {
   emptyCommonArgs,
   parseCommonArg,
@@ -200,7 +204,8 @@ describe("parseCommonArg characterization", () => {
   });
 });
 
-function sample(kind: "int" | "float" | "model"): string {
+function sample(kind: "int" | "float" | "model" | "effort"): string {
   if (kind === "model") return modelOptionValues()[0] ?? "opus";
+  if (kind === "effort") return effortOptionValues()[0] ?? "medium";
   return kind === "int" ? "3" : "1.5";
 }

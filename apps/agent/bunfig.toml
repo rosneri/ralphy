@@ -6,6 +6,9 @@ coverageThreshold = { lines = 0.9, functions = 0.75 }
 coveragePathIgnorePatterns = [
   "../**",
   "**/dist/**",
+  # Test harness/fixtures (fakes, scripted engines, tmp-fs/-repo) are test
+  # infrastructure, not shipped code — exclude them from the coverage gate.
+  "**/test/**",
   "**/__test-utils__/**",
   "**/components/AgentMode.tsx",
   "**/agent/wire.ts",

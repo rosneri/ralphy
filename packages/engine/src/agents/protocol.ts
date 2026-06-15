@@ -12,6 +12,9 @@ import type { FeedEvent } from "../feed-events";
  */
 export interface AgentRequest {
   model: string;
+  /** Reasoning effort (`claude --effort`). Unset omits the flag. Claude-only;
+   *  other adapters ignore it. */
+  effort?: string;
   prompt: string;
   cwd?: string;
   signal?: AbortSignal;
