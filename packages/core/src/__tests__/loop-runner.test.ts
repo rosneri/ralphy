@@ -738,3 +738,41 @@ describe("LoopRunner — telemetry surface", () => {
     expect(text.includes('from "ws"')).toBe(false);
   });
 });
+
+describe("LoopRunner — planning-phase model/effort", () => {
+  test("uses planModel/planEffort while in a planning phase (no proposal yet)", async () => {
+    // No proposal.md → deriveOpenSpecPhase returns 'proposal' (a planning phase).
+    writeTasks(UNCHECKED_TASKS);
+    const agent = fakeAgent(() => ok());
+    const { runner } = makeRunner(agent, {
+      model: "opus",
+      planModel: "sonnet",
+      planEffort: "low",
+      limits: { maxIterations: 1 },
+    });
+
+    await runner.start();
+
+    expect(agent.calls[0]?.model).toBe("sonnet");
+    expect(agent.calls[0]?.effort).toBe("low");
+  });
+
+  test("uses the top-level model/effort during the implement phase", async () => {
+    // Real proposal + design + unchecked tasks → phase 'implement'.
+    writeFileSync(join(tasksDir, "proposal.md"), "# Proposal\n\nReal proposal body.\n", "utf-8");
+    writeFileSync(join(tasksDir, "design.md"), "# Design\n\nReal design body.\n", "utf-8");
+    writeTasks(UNCHECKED_TASKS);
+    const agent = fakeAgent(() => ok());
+    const { runner } = makeRunner(agent, {
+      model: "opus",
+      planModel: "sonnet",
+      planEffort: "low",
+      limits: { maxIterations: 1 },
+    });
+
+    await runner.start();
+
+    expect(agent.calls[0]?.model).toBe("opus");
+    expect(agent.calls[0]?.effort).toBeUndefined();
+  });
+});

@@ -70,7 +70,7 @@
     "test:coverage": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "bun test --coverage src",
+        "command": "bun test --coverage ./src/",
         "cwd": "{projectRoot}"
       }
     }

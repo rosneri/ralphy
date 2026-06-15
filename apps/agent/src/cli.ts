@@ -90,6 +90,7 @@ const HELP_TEXT = [
   "  --prompt <text>         Task description appended to every scaffolded proposal",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (fable|opus|sonnet|haiku)",
+  "  --effort <level>        Reasoning effort (low|medium|high|xhigh|max; claude only)",
   "  --claude [model]        Use Claude engine (fable|opus|sonnet|haiku, default: opus)",
   "  --codex                 Use Codex engine",
   "  --delay <seconds>       Seconds between iterations",

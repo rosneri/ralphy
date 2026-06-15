@@ -42,6 +42,7 @@ export type ConfigOrigin = "cli" | "workflow" | "default";
 export const OVERRIDE_TO_WORKFLOW_KEY = {
   engine: "engine",
   model: "model",
+  effort: "effort",
   maxIterations: "maxIterationsPerTask",
   maxCostUsd: "maxCostUsdPerTask",
   maxRuntimeMinutes: "maxRuntimeMinutesPerTask",
@@ -55,6 +56,7 @@ export const OVERRIDE_TO_WORKFLOW_KEY = {
 export const OVERRIDE_KEYS: readonly (keyof CliOverrides)[] = [
   "engine",
   "model",
+  "effort",
   "maxIterations",
   "maxCostUsd",
   "maxRuntimeMinutes",
@@ -81,6 +83,23 @@ function asWorkflowModel(
   return fallback;
 }
 
+/** Same narrowing for `--effort` (see `asWorkflowModel`). */
+function asWorkflowEffort(
+  value: string | undefined,
+  fallback: WorkflowConfig["effort"],
+): WorkflowConfig["effort"] {
+  if (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+  ) {
+    return value;
+  }
+  return fallback;
+}
+
 /**
  * Pure merge core — `cli > workflow > default` for every override key, plus
  * the per-key provenance map. `explicitKeys` is the set of top-level
@@ -95,10 +114,14 @@ export function mergeConfig(
   explicitKeys: ReadonlySet<string> = new Set(),
   agentOverrides: AgentOverrides = {},
 ): { effective: WorkflowConfig; origin: Map<OriginKey, ConfigOrigin> } {
+  // `effort` is optional with no default — under exactOptionalPropertyTypes it
+  // is spread in conditionally rather than assigned a possible undefined.
+  const effort = asWorkflowEffort(overrides.effort, workflow.effort);
   const effective: WorkflowConfig = {
     ...workflow,
     engine: overrides.engine ?? workflow.engine,
     model: asWorkflowModel(overrides.model, workflow.model),
+    ...(effort !== undefined ? { effort } : {}),
     maxIterationsPerTask: overrides.maxIterations ?? workflow.maxIterationsPerTask,
     maxCostUsdPerTask: overrides.maxCostUsd ?? workflow.maxCostUsdPerTask,
     maxRuntimeMinutesPerTask: overrides.maxRuntimeMinutes ?? workflow.maxRuntimeMinutesPerTask,
@@ -147,6 +170,7 @@ export function serializeOverrides(overrides: Readonly<CliOverrides>): string[] 
   const argv: string[] = [];
   if (overrides.engine !== undefined) argv.push(`--${overrides.engine}`);
   if (overrides.model !== undefined) argv.push("--model", overrides.model);
+  if (overrides.effort !== undefined) argv.push("--effort", overrides.effort);
   if (overrides.maxIterations !== undefined) {
     argv.push("--max-iterations", String(overrides.maxIterations));
   }
@@ -206,6 +230,7 @@ export interface ReviewPhaseOverrides {
   enabled?: boolean;
   maxRounds?: number;
   reviewerModel?: string;
+  reviewerEffort?: string;
   reviewerContextStrategy?: "fresh" | "warm";
 }
 
@@ -223,6 +248,11 @@ export interface LoopRuntime {
    *  `openspec.reviewPhase` block with the same presence-based precedence as
    *  every other override. */
   reviewPhase?: ReviewPhaseOverrides;
+  /** Recovery flow this worker serves (`--trigger`, set by the agent's
+   *  fix-worker spawns). Selects the per-flow model/effort from
+   *  `prRecovery.{ciFix,conflictFix}{Model,Effort}`, falling back to the
+   *  top-level `model`/`effort`. */
+  trigger?: "ci-fix" | "conflict-fix";
 }
 
 /**
@@ -237,6 +267,7 @@ export function loopOptionsFromConfig(
   const overlay = runtime.reviewPhase ?? {};
   const reviewEnabled = overlay.enabled ?? configReview.enabled;
   const reviewerModel = overlay.reviewerModel ?? configReview.reviewerModel;
+  const reviewerEffort = overlay.reviewerEffort ?? configReview.reviewerEffort;
   const reviewPhase = reviewEnabled
     ? {
         enabled: true,
@@ -244,13 +275,29 @@ export function loopOptionsFromConfig(
         reviewerContextStrategy:
           overlay.reviewerContextStrategy ?? configReview.reviewerContextStrategy,
         ...(reviewerModel !== undefined ? { reviewerModel } : {}),
+        ...(reviewerEffort !== undefined ? { reviewerEffort } : {}),
       }
     : undefined;
+  // Fix workers (`--trigger ci-fix|conflict-fix`) take their model/effort from
+  // the matching prRecovery keys, falling back to the top-level values.
+  const flow: { model?: string | undefined; effort?: WorkflowConfig["effort"] } =
+    runtime.trigger === "ci-fix"
+      ? { model: effective.prRecovery.ciFixModel, effort: effective.prRecovery.ciFixEffort }
+      : runtime.trigger === "conflict-fix"
+        ? {
+            model: effective.prRecovery.conflictFixModel,
+            effort: effective.prRecovery.conflictFixEffort,
+          }
+        : {};
+  const effort = flow.effort ?? effective.effort;
   return {
     name: runtime.name,
     prompt: runtime.prompt,
     engine: effective.engine,
-    model: effective.model,
+    model: flow.model ?? effective.model,
+    ...(effort !== undefined ? { effort } : {}),
+    ...(effective.planModel !== undefined ? { planModel: effective.planModel } : {}),
+    ...(effective.planEffort !== undefined ? { planEffort: effective.planEffort } : {}),
     maxIterations: effective.maxIterationsPerTask,
     maxCostUsd: effective.maxCostUsdPerTask,
     maxRuntimeMinutes: effective.maxRuntimeMinutesPerTask,

@@ -3,6 +3,7 @@ import type { Engine } from "@ralphy/types";
 import type { WorkflowConfig } from "@ralphy/workflow";
 import {
   COMMON_CLI_OPTIONS,
+  effortOptionValues,
   modelOptionValues,
   type CliOption,
 } from "@ralphy/workflow/cli-options";
@@ -32,6 +33,7 @@ import {
 export interface CliOverrides {
   engine?: Engine;
   model?: string;
+  effort?: string;
   maxIterations?: number;
   maxCostUsd?: number;
   maxRuntimeMinutes?: number;
@@ -98,6 +100,10 @@ export interface CliPassthrough {
   prompt: string;
   /** Set when spawned by the agent app (`--from-agent`). */
   fromAgent: boolean;
+  /** Recovery flow this worker was spawned for (`--trigger`). Set by the
+   *  agent's fix-worker spawns only; config resolution uses it to pick the
+   *  per-flow model/effort (`prRecovery.ciFix*` / `prRecovery.conflictFix*`). */
+  trigger?: "ci-fix" | "conflict-fix";
 }
 
 export interface CommonArgs extends CliPassthrough {
@@ -117,6 +123,7 @@ export function emptyCommonArgs(): CommonArgs {
 }
 
 const VALID_MODELS = new Set<string>(modelOptionValues());
+const VALID_EFFORTS = new Set<string>(effortOptionValues());
 
 // ─── Config-backed flags, derived from the shared catalogue ──────────────────
 
@@ -133,6 +140,10 @@ const VALUE_SETTERS: Record<string, ValueSetter> = {
   model: (overrides, raw) => {
     if (!VALID_MODELS.has(raw)) throw new Error("Invalid model");
     overrides.model = raw;
+  },
+  effort: (overrides, raw) => {
+    if (!VALID_EFFORTS.has(raw)) throw new Error("Invalid effort");
+    overrides.effort = raw;
   },
   delay: (overrides, raw) => {
     overrides.delay = parseInt(raw, 10);
@@ -185,7 +196,8 @@ export function isCommonExpectingFlag(flag: string): boolean {
     VALUE_FLAGS.has(flag) ||
     flag === "--project-root" ||
     flag === "--workflow" ||
-    flag === "--claude"
+    flag === "--claude" ||
+    flag === "--trigger"
   );
 }
 
@@ -197,7 +209,8 @@ export function isCommonArg(flag: string): boolean {
     flag === "--workflow" ||
     flag === "--claude" ||
     flag === "--codex" ||
-    flag === "--unlimited"
+    flag === "--unlimited" ||
+    flag === "--trigger"
   );
 }
 
@@ -211,6 +224,7 @@ export interface ParseState {
   expectName: boolean;
   expectPrompt: boolean;
   expectPromptFile: boolean;
+  expectTrigger: boolean;
   /** Path captured from `--prompt-file`, resolved later by `resolvePromptFile`.
    *  null once a later `--prompt` overrides it (preserving last-wins order). */
   promptFilePath: string | null;
@@ -229,6 +243,7 @@ export function emptyParseState(): ParseState {
     expectName: false,
     expectPrompt: false,
     expectPromptFile: false,
+    expectTrigger: false,
     promptFilePath: null,
     workflowFileRaw: null,
   };
@@ -295,6 +310,14 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
     state.expectPromptFile = false;
     return true;
   }
+  if (state.expectTrigger) {
+    state.expectTrigger = false;
+    if (arg !== "ci-fix" && arg !== "conflict-fix") {
+      throw new Error("Invalid --trigger (expected ci-fix or conflict-fix)");
+    }
+    args.trigger = arg;
+    return true;
+  }
 
   const option = OPTION_BY_FLAG.get(arg);
   if (option) {
@@ -333,6 +356,9 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
       return true;
     case "--from-agent":
       args.fromAgent = true;
+      return true;
+    case "--trigger":
+      state.expectTrigger = true;
       return true;
     default:
       return false;
