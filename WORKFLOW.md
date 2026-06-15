@@ -161,11 +161,11 @@ model: opus
 effort: medium
 
 # Model / reasoning effort for the planning phases (proposal, design, tasks).
-# Unset (these stay commented) falls back to the top-level model/effort above;
-# the implement phase always uses the top-level model. Uncomment to give the
-# planning phases a stronger model and/or higher effort than implementation.
-# planModel: opus
-# planEffort: high
+# Unset falls back to the top-level model/effort above; the implement phase
+# always uses the top-level model. Planning runs at xhigh so proposal/design/
+# tasks get maximum reasoning, while implementation stays at the medium main loop.
+planModel: opus
+planEffort: xhigh
 
 linear:
   # Only pick up issues from this Linear team, given by its key (e.g. ENG).
