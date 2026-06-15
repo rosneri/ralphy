@@ -62,6 +62,9 @@ jobs:
       - name: Static error messages (no template literals in Error/Exception constructors)
         run: bun scripts/check-static-error-messages.ts
 
+      - name: Config merge guard
+        run: bun scripts/check-config-merge.ts
+
       - name: No unsafe casts (as any / as unknown)
         run: bash scripts/check-no-unsafe-casts.sh
 
