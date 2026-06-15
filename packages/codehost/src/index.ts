@@ -7,6 +7,7 @@ export type {
   CodeHost,
   CreatePullRequestOptions,
   MergeStrategy,
+  PullRequestDetails,
   PullRequestState,
 } from "./types";
 export { createGhCliCodeHost, openPullRequest, type GhCliCodeHostInput } from "./gh-cli";
@@ -15,6 +16,7 @@ export {
   classifyGhBucket,
   NO_CHECKS_RE,
   PARTIAL_ACCESS_RE,
+  reduceToBucket,
   runGhWithRetry,
   type RawCheck,
 } from "./ci-classify";

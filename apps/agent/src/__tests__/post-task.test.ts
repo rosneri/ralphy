@@ -8,11 +8,19 @@ import {
   runWorktreeCleanupPhase,
   runTeardownPhase,
   summarizeUncommittedStatus,
-  _resetRepoAutoMergeCache,
 } from "../agent/post-task";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
 import type { TrackedIssue } from "@ralphy/tracker";
+
+/**
+ * RLF-255 9a: the PR phase now issues `markReady` / `enableAutoMerge` through
+ * an injected `CodeHost`. Build it from the same scripted `cmd` runner each
+ * test already uses, so the recorded `gh pr ready` / `gh pr merge --auto`
+ * transitions stay assertable on the runner's call log.
+ */
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 
 const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
@@ -104,6 +112,7 @@ describe("runPostTask — teardown", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         git,
         log: () => {},
         runScript: async () => {},
@@ -145,6 +154,7 @@ describe("runPrPhase — isolation", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: (p) => phases.push(p),
         respawnWorker: async () => 0,
@@ -264,6 +274,7 @@ describe("runPostTask — conflict-check loop termination", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         git,
         log: () => {},
         runScript: async () => {},
@@ -331,7 +342,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         wantAutoMerge: false,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(0);
@@ -366,7 +377,13 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         wantAutoMerge: true,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: (p) => phases.push(p), respawnWorker: async () => 0 },
+      {
+        cmd,
+        codeHost: ghHost(cmd),
+        log: () => {},
+        emit: (p) => phases.push(p),
+        respawnWorker: async () => 0,
+      },
     );
 
     expect(code).toBe(0);
@@ -398,7 +415,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         wantAutoMerge: false,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge")).toBeUndefined();
@@ -425,7 +442,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         wantAutoMerge: true,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(0);
@@ -454,6 +471,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -501,6 +519,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -544,6 +563,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -571,7 +591,6 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
       stateFilePath,
       JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
     );
-    _resetRepoAutoMergeCache();
   });
 
   afterEach(async () => {
@@ -613,6 +632,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -648,7 +668,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         wantAutoMerge: true,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(0);
@@ -680,7 +700,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         wantAutoMerge: true,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: false },
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(0);
@@ -709,7 +729,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         wantAutoMerge: false,
         cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(calls.find((c) => c[0] === "gh" && c[1] === "api")).toBeUndefined();
@@ -732,7 +752,6 @@ describe("runPrPhase — prDraft behavior", () => {
       stateFilePath,
       JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
     );
-    _resetRepoAutoMergeCache();
   });
 
   afterEach(async () => {
@@ -774,6 +793,7 @@ describe("runPrPhase — prDraft behavior", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: (p) => phases.push(p),
         respawnWorker: async () => 0,
@@ -817,6 +837,7 @@ describe("runPrPhase — prDraft behavior", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: (p, d) => phases.push(d ? `${p}:${d}` : p),
         respawnWorker: async () => 0,
@@ -854,7 +875,7 @@ describe("runPrPhase — prDraft behavior", () => {
         wantAutoMerge: false,
         cfg: { ...baseCfg, prDraft: false },
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(calls.find((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "ready")).toBeUndefined();
@@ -888,6 +909,7 @@ describe("runPrPhase — prDraft behavior", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: (text, color) => logged.push({ text, color }),
         emit: () => {},
         respawnWorker: async () => 0,
@@ -960,6 +982,7 @@ describe("runPrPhase — only-meta diff guard", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: (p, d) => phases.push({ p, d }),
         respawnWorker: async () => {
@@ -1014,6 +1037,7 @@ describe("runPrPhase — only-meta diff guard", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: (p) => phases.push(p),
         respawnWorker: async () => {
@@ -1050,6 +1074,7 @@ describe("runPrPhase — only-meta diff guard", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => {
@@ -1145,6 +1170,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: (text, color) => logged.push({ text, color }),
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1189,6 +1215,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: (text, color) => logged.push({ text, color }),
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1266,6 +1293,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1305,6 +1333,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1337,6 +1366,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1365,7 +1395,6 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       stateFilePath,
       JSON.stringify({ status: "completed", lastModified: new Date().toISOString() }, null, 2),
     );
-    _resetRepoAutoMergeCache();
   });
 
   afterEach(async () => {
@@ -1405,6 +1434,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1443,6 +1473,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1482,6 +1513,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1521,6 +1553,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 0,
@@ -1556,6 +1589,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => 1,
