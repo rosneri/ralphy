@@ -1,0 +1,19 @@
+[test]
+# apps/ui is a React/Tauri front-end: every .tsx file is integration code
+# (component rendering, Tauri IPC, routing, hooks, context) and is not
+# unit-testable without a DOM/Tauri harness. The coverage floor therefore
+# measures the unit-testable pure logic only (lib/phases.ts, utils/format-cost.ts).
+# Helpers extracted into .tsx files (toggleSection, getAdjacentTask) are still
+# unit-tested for behavior, but their files are excluded from the % because the
+# surrounding render code would otherwise dominate the measurement.
+# Threshold starts at the currently measured ratio and ratchets up — never down.
+coverageThreshold = { lines = 0.9, functions = 0.9 }
+coveragePathIgnorePatterns = [
+  "../**",
+  "**/dist/**",
+  "**/__tests__/**",
+  "**/*.tsx",
+  # React hooks are integration code (Tauri IPC, effects, subscriptions) that
+  # require a DOM harness to exercise; not unit-testable here.
+  "**/hooks/**",
+]

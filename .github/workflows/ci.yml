@@ -87,6 +87,9 @@ jobs:
       - name: Test affected files + coverage
         run: bun run test:affected-files:coverage:ci
 
+      - name: Test coverage (affected)
+        run: bun run test:coverage:ci
+
       - name: Test (full) # local-ci: skip
         if: startsWith(github.ref, 'refs/tags/v')
         run: bun run test:ci
