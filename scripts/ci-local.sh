@@ -57,6 +57,7 @@ stage_static() {
   run_step "Circular dependency check"    bun run check:circular:ci
   run_step "Unused dependency check"      bun run check:unused:ci
   run_step "Outdated dependency check"    bun scripts/check-outdated.ts
+  run_step "Per-file LOC budget"          bun scripts/check-file-size.ts
 }
 
 stage_test() {
