@@ -101,6 +101,8 @@ export interface LoopOptions {
   prompt: string;
   engine: string;
   model: string;
+  /** Engine reasoning effort (`claude --effort`). Unset → engine default. */
+  effort?: string;
   maxIterations: number;
   maxCostUsd: number;
   maxRuntimeMinutes: number;
@@ -118,6 +120,7 @@ export interface LoopOptions {
    *  session is spawned after all tasks complete. */
   reviewPhase?: ReviewPhaseConfig & {
     reviewerModel?: string;
+    reviewerEffort?: string;
     reviewerContextStrategy?: "fresh" | "warm";
   };
   /** Called after each review round completes. Use to emit Linear comments. */

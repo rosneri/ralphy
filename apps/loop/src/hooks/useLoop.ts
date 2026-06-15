@@ -42,6 +42,7 @@ function toRunnerOptions(opts: LoopOptions): LoopRunnerOptions {
     prompt: opts.prompt,
     engine,
     model: opts.model,
+    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     limits: {
       maxIterations: opts.maxIterations,
       maxCostUsd: opts.maxCostUsd,

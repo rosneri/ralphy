@@ -115,6 +115,14 @@ describe("claudeAgent.run", () => {
     expect(events.some((e) => e.type === "result")).toBe(true);
   });
 
+  test("rejects the fable model with an actionable error (temporarily unavailable)", async () => {
+    setupProc([INIT, RESULT]);
+    await expect(
+      claudeAgent.run({ model: "fable", prompt: "go", onFeedEvent: () => {} }),
+    ).rejects.toThrow(/Fable model is currently unavailable.*opus, sonnet, or haiku/i);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
   test("forwards onRawLine for every line of stdout", async () => {
     setupProc([INIT, RESULT]);
 

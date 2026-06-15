@@ -155,6 +155,11 @@ engine: claude
 # cheapest and fastest; higher tiers cost more per token.
 model: opus
 
+# Reasoning effort the Claude engine runs at: low | medium | high | xhigh | max.
+# Unset lets the engine pick its own default. Applies to the main loop and (when
+# its own reviewerEffort is unset) the review pass.
+effort: medium
+
 linear:
   # Only pick up issues from this Linear team, given by its key (e.g. ENG).
   # Leave blank to watch every team.
