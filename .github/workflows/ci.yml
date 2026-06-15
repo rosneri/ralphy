@@ -53,6 +53,12 @@ jobs:
       - name: Tracker-seam leak guard
         run: bun scripts/check-tracker-seam.ts
 
+      - name: Stale changes guard
+        run: bun scripts/check-stale-changes.ts
+
+      - name: Bun-native APIs (no node:fs *Sync / createHash / fs.exists)
+        run: bun scripts/check-bun-native.ts
+
       - name: Static error messages (no template literals in Error/Exception constructors)
         run: bun scripts/check-static-error-messages.ts
 
@@ -98,6 +104,9 @@ jobs:
 
       - name: Test affected files + coverage
         run: bun run test:affected-files:coverage:ci
+
+      - name: Test coverage (affected)
+        run: bun run test:coverage:ci
 
       - name: Test (full) # local-ci: skip
         if: startsWith(github.ref, 'refs/tags/v')

@@ -3,6 +3,7 @@ export {
   type TaskPhase,
   type LoopOptions,
   type StopReason,
+  STOP_REASONS,
   buildTaskPrompt,
   checkStopSignal,
   updateStateIteration,

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./exit-codes";
+
 // --- Project layout ---
 
 export interface ProjectLayout {

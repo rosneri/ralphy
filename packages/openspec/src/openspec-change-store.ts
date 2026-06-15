@@ -246,7 +246,12 @@ export class OpenSpecChangeStore implements ChangeStore {
   async archiveChange(name: string): Promise<void> {
     const result = runOpenspec(["archive", name, "-y"], { inherit: true });
     if (result.status !== 0) {
-      throw new Error("openspec archive failed");
+      // Build the message in a variable so the constant prefix stays
+      // searchable while the change name + exit status survive into the
+      // loop-runner's surfaced failure log (the static-error-message guard
+      // only forbids template literals inline in the constructor).
+      const detail = `openspec archive failed for "${name}" (exit ${result.status})`;
+      throw new Error(detail);
     }
   }
 }

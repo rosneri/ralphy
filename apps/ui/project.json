@@ -58,6 +58,21 @@
         "command": "tsc -b apps/ui/tsconfig.json && tsc -b apps/ui/tsconfig.sidecar.json",
         "cwd": "{workspaceRoot}"
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "dependsOn": [],
+      "options": {
+        "command": "bun test apps/ui/src",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test:coverage": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test --coverage ./src/",
+        "cwd": "{projectRoot}"
+      }
     }
   }
 }

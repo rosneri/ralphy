@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { runPrPhase, NO_CHANGES_EXIT } from "../agent/post-task";
+import { runPrPhase } from "../agent/post-task";
+import { WORKER_EXIT_CODES } from "@ralphy/types";
 import type { CmdRunner } from "../agent/pr";
 import type { TrackedIssue } from "@ralphy/tracker";
 
 // runPrPhase must distinguish a no-op branch (history only ever touched meta
 // files) from a lost implementation. The no-op path finalizes via
-// NO_CHANGES_EXIT without pushing or respawning a doomed reapply loop.
+// WORKER_EXIT_CODES.noChanges without pushing or respawning a doomed reapply loop.
 
 const FAKE_ISSUE: TrackedIssue = {
   id: "issue-1",
@@ -80,7 +81,7 @@ describe("runPrPhase — no-op detection", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  test("returns NO_CHANGES_EXIT and never pushes when history is meta-only (flag on)", async () => {
+  test("returns WORKER_EXIT_CODES.noChanges and never pushes when history is meta-only (flag on)", async () => {
     const { cmd, calls } = makeCmd(NO_OP_RESPONSES);
     const phases: string[] = [];
     let respawns = 0;
@@ -107,7 +108,7 @@ describe("runPrPhase — no-op detection", () => {
       },
     );
 
-    expect(code).toBe(NO_CHANGES_EXIT);
+    expect(code).toBe(WORKER_EXIT_CODES.noChanges);
     expect(phases).toContain("pr-skipped-noop");
     expect(respawns).toBe(0);
     expect(calls.some((c) => c[0] === "git" && c[1] === "push")).toBe(false);
@@ -142,7 +143,7 @@ describe("runPrPhase — no-op detection", () => {
 
     // Legacy behavior: treat as lost implementation, exhaust reapply attempts,
     // then give up — does NOT silently finalize as done.
-    expect(code).not.toBe(NO_CHANGES_EXIT);
+    expect(code).not.toBe(WORKER_EXIT_CODES.noChanges);
     expect(code).not.toBe(0);
     expect(respawns).toBeGreaterThan(0);
   });

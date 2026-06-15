@@ -39,6 +39,7 @@ stage_static() {
 
   run_step "No duplicate declarations"    bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
   run_step "No direct axios in apps/ui"   bun scripts/check-no-direct-http.ts
+  run_step "Bun-native APIs (no node:fs *Sync / createHash / fs.exists)" bun scripts/check-bun-native.ts
   run_step "No prop drilling in React components" bun scripts/check-prop-drilling.ts
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts
   run_step "Folder size check"            bun scripts/check-folder-size.ts
@@ -47,6 +48,7 @@ stage_static() {
   run_step "No re-export-only TSX/TS files" bun scripts/check-no-reexport-tsx.ts
   run_step "Test files live in __tests__" bun scripts/check-test-location.ts
   run_step "Tracker-seam leak guard"      bun scripts/check-tracker-seam.ts
+  run_step "Stale changes guard"          bun scripts/check-stale-changes.ts
   run_step "Static error messages (no template literals in Error/Exception constructors)" bun scripts/check-static-error-messages.ts
   run_step "No unsafe casts (as any / as unknown)" bash scripts/check-no-unsafe-casts.sh
   run_step "Shellcheck"                   bun run check:shell
@@ -67,6 +69,7 @@ stage_test() {
   printf '\n%s━━━ Tests ━━━%s\n\n' "$YELLOW" "$NC"
 
   run_step "Test affected files + coverage"  bun run test:affected-files:coverage:ci
+  run_step "Test coverage (affected)"        bun run test:coverage:ci
 }
 
 stage_build() {

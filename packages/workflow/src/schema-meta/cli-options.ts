@@ -10,7 +10,7 @@
 import { enumValuesAt, schemaHasPath } from "./introspect";
 
 /** How a CLI flag's following token is parsed (or that it is a bare boolean). */
-export type CliValueKind = "int" | "float" | "model" | "boolean";
+export type CliValueKind = "int" | "float" | "model" | "effort" | "boolean";
 
 /**
  * A CLI flag that overrides a WORKFLOW.md setting. `fieldId` is the dotted
@@ -30,6 +30,7 @@ export interface CliOption {
 
 export const COMMON_CLI_OPTIONS: CliOption[] = [
   { fieldId: "model", flag: "--model", argKey: "model", kind: "model" },
+  { fieldId: "effort", flag: "--effort", argKey: "effort", kind: "effort" },
   { fieldId: "iterationDelaySeconds", flag: "--delay", argKey: "delay", kind: "int" },
   { fieldId: "maxCostUsdPerTask", flag: "--max-cost", argKey: "maxCostUsd", kind: "float" },
   {
@@ -58,6 +59,11 @@ export const COMMON_CLI_OPTIONS: CliOption[] = [
 /** Valid model values, sourced from the schema's `model` enum. */
 export function modelOptionValues(): string[] {
   return enumValuesAt(["model"]) ?? [];
+}
+
+/** Valid effort values, sourced from the schema's `effort` enum. */
+export function effortOptionValues(): string[] {
+  return enumValuesAt(["effort"]) ?? [];
 }
 
 /** Whether a CLI option's fieldId resolves to a real schema path. */
