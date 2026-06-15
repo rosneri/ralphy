@@ -37,7 +37,10 @@ export function useTaskStream(taskName: string | undefined) {
       const msg: WsMessage = JSON.parse(event.data);
       const nextId = () => String(idRef.current++);
       const addInfo = (text: string) =>
-        setLogEntries((prev) => [...prev, { id: nextId(), kind: "info", text, timestamp: Date.now() }]);
+        setLogEntries((prev) => [
+          ...prev,
+          { id: nextId(), kind: "info", text, timestamp: Date.now() },
+        ]);
 
       switch (msg.type) {
         case "state":

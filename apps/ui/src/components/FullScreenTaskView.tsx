@@ -156,9 +156,7 @@ export function FullScreenTaskView({ taskName, tasks, onClose }: FullScreenTaskV
         </button>
       </div>
 
-      {state && (
-        <StatusBar state={state} isRunning={effectiveIsRunning} stopReason={stopReason} />
-      )}
+      {state && <StatusBar state={state} isRunning={effectiveIsRunning} stopReason={stopReason} />}
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>

@@ -140,9 +140,7 @@ export function TaskDetailView() {
         </div>
       </div>
 
-      {state && (
-        <StatusBar state={state} isRunning={effectiveIsRunning} stopReason={stopReason} />
-      )}
+      {state && <StatusBar state={state} isRunning={effectiveIsRunning} stopReason={stopReason} />}
 
       {!effectiveIsRunning && !stopReason && state?.status !== "completed" && (
         <div
