@@ -1,14 +1,30 @@
-import { classifyGhBucket, NO_CHECKS_RE, PARTIAL_ACCESS_RE, runGhWithRetry } from "./ci-classify";
+import {
+  classifyGhBucket,
+  NO_CHECKS_RE,
+  PARTIAL_ACCESS_RE,
+  reduceToBucket,
+  runGhWithRetry,
+} from "./ci-classify";
 import type {
   CiStatus,
   CmdRunner,
   CodeHost,
   CreatePullRequestOptions,
   MergeStrategy,
+  PullRequestDetails,
   PullRequestState,
 } from "./types";
 
 const PR_CHECKS_FIELDS = "name,bucket,link,workflow,event";
+
+/** Normalize GitHub's uppercase `state` (OPEN/MERGED/CLOSED) to the port's
+ *  lowercase {@link PullRequestState}; anything unrecognized is treated as open. */
+function normalizeState(raw: string | undefined): PullRequestState {
+  const state = raw?.toUpperCase();
+  if (state === "MERGED") return "merged";
+  if (state === "CLOSED") return "closed";
+  return "open";
+}
 
 interface GhCheck {
   name: string;
@@ -25,6 +41,39 @@ function parseChecks(stdout: string | undefined): GhCheck[] {
   } catch {
     return [];
   }
+}
+
+/** Matches a canonical GitHub PR URL and captures `owner`/`repo`. */
+const REPO_FROM_PR_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/;
+
+/**
+ * The shared idempotency query: the URL of the open PR whose head is `branch`,
+ * or null when none is open. Used both by {@link openPullRequest} (which lets a
+ * `gh` failure propagate) and the port's {@link CodeHost.findOpenPullRequestForBranch}
+ * (which swallows failures to null). Single source so the two never drift.
+ */
+async function queryOpenPrUrl(
+  runner: CmdRunner,
+  cwd: string,
+  branch: string,
+): Promise<string | null> {
+  const { stdout } = await runner.run(
+    [
+      "gh",
+      "pr",
+      "list",
+      "--head",
+      branch,
+      "--state",
+      "open",
+      "--json",
+      "url",
+      "--jq",
+      ".[0].url // empty",
+    ],
+    cwd,
+  );
+  return stdout.trim() || null;
 }
 
 export interface GhCliCodeHostInput {
@@ -78,23 +127,7 @@ export async function openPullRequest(
   await cmdRunner.run(["git", "push", "-u", "origin", options.branch], runCwd);
 
   // If a PR already exists for this branch, just return its URL.
-  const existing = await cmdRunner.run(
-    [
-      "gh",
-      "pr",
-      "list",
-      "--head",
-      options.branch,
-      "--state",
-      "open",
-      "--json",
-      "url",
-      "--jq",
-      ".[0].url // empty",
-    ],
-    runCwd,
-  );
-  const existingUrl = existing.stdout.trim();
+  const existingUrl = await queryOpenPrUrl(cmdRunner, runCwd, options.branch);
   if (existingUrl) {
     await applyLabels(cmdRunner, runCwd, existingUrl, options.labels ?? []);
     return { url: existingUrl, created: false };
@@ -127,14 +160,33 @@ export async function openPullRequest(
 export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
   const { cmdRunner, cwd } = input;
   const ignoredLower = (input.ignoreChecks ?? []).map((n) => n.toLowerCase());
+  // Per-repo auto-merge capability, cached for this adapter's lifetime (the
+  // single coordinator instance) so a multi-PR run probes each repo once.
+  const autoMergeCache = new Map<string, boolean | null>();
 
   return {
     async getPullRequestState(url: string): Promise<PullRequestState> {
       const { stdout } = await cmdRunner.run(["gh", "pr", "view", url, "--json", "state"], cwd);
-      const state = (JSON.parse(stdout.trim() || "{}") as { state?: string }).state?.toUpperCase();
-      if (state === "MERGED") return "merged";
-      if (state === "CLOSED") return "closed";
-      return "open";
+      return normalizeState((JSON.parse(stdout.trim() || "{}") as { state?: string }).state);
+    },
+
+    async getPullRequestDetails(url: string): Promise<PullRequestDetails> {
+      const { stdout } = await cmdRunner.run(
+        ["gh", "pr", "view", url, "--json", "state,headRefName,title,url"],
+        cwd,
+      );
+      const parsed = JSON.parse(stdout.trim() || "{}") as {
+        state?: string;
+        headRefName?: string;
+        title?: string;
+        url?: string;
+      };
+      return {
+        state: normalizeState(parsed.state),
+        headRefName: parsed.headRefName ?? "",
+        title: parsed.title ?? "",
+        url: parsed.url ?? url,
+      };
     },
 
     /**
@@ -169,16 +221,13 @@ export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
           throw err;
         }
       }
-      const checks = parseChecks(out.stdout)
-        .filter((c) => !ignoredLower.includes(c.name.toLowerCase()))
-        .filter((c) => classifyGhBucket(c.bucket) !== "skip");
+      const checks = parseChecks(out.stdout).filter(
+        (c) => !ignoredLower.includes(c.name.toLowerCase()),
+      );
+      const bucket = reduceToBucket(checks.map((c) => classifyGhBucket(c.bucket)));
+      if (bucket !== "fail") return { bucket, failedRunIds: [], failedCheckNames: [] };
 
-      if (checks.some((c) => classifyGhBucket(c.bucket) === "pending")) {
-        return { bucket: "pending", failedRunIds: [], failedCheckNames: [] };
-      }
       const failed = checks.filter((c) => classifyGhBucket(c.bucket) === "fail");
-      if (failed.length === 0) return { bucket: "pass", failedRunIds: [], failedCheckNames: [] };
-
       const ids = new Set<string>();
       for (const c of failed) {
         const m = c.link?.match(/\/actions\/runs\/(\d+)/);
@@ -196,6 +245,39 @@ export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
       return url;
     },
 
+    async findOpenPullRequestForBranch(branch: string): Promise<string | null> {
+      // Best-effort: a transient gh failure must not escalate — callers fall
+      // back (e.g. to the uncommitted-changes warning) rather than error out.
+      try {
+        return await queryOpenPrUrl(cmdRunner, cwd, branch);
+      } catch {
+        return null;
+      }
+    },
+
+    async isAutoMergeAllowed(prUrl: string): Promise<boolean | null> {
+      const m = REPO_FROM_PR_URL.exec(prUrl);
+      if (!m) return null;
+      const repoKey = `${m[1]}/${m[2]}`;
+      if (autoMergeCache.has(repoKey)) return autoMergeCache.get(repoKey) ?? null;
+      let result: boolean | null;
+      try {
+        const { stdout } = await cmdRunner.run(
+          ["gh", "api", `repos/${repoKey}`, "--jq", ".allow_auto_merge"],
+          cwd,
+        );
+        const out = stdout.trim().toLowerCase();
+        result = out === "true" ? true : out === "false" ? false : null;
+      } catch {
+        // Undeterminable (gh failure / offline) — cache null so we neither
+        // re-probe nor regress repos where the API call fails for unrelated
+        // reasons; the caller assumes enabled.
+        result = null;
+      }
+      autoMergeCache.set(repoKey, result);
+      return result;
+    },
+
     async markReady(url: string): Promise<void> {
       await cmdRunner.run(["gh", "pr", "ready", url], cwd);
     },
@@ -206,6 +288,57 @@ export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
 
     async merge(url: string, strategy: MergeStrategy): Promise<void> {
       await cmdRunner.run(["gh", "pr", "merge", url, `--${strategy}`], cwd);
+    },
+
+    // --- Local git operations (run against the caller-supplied worktree) -----
+
+    async headSha(gitCwd: string): Promise<string> {
+      const { stdout } = await cmdRunner.run(["git", "rev-parse", "HEAD"], gitCwd);
+      return stdout.trim();
+    },
+
+    async isAncestor(ancestor: string, descendant: string, gitCwd: string): Promise<boolean> {
+      try {
+        await cmdRunner.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], gitCwd);
+        return true;
+      } catch {
+        // Non-zero exit ≡ "not an ancestor" (or a missing ref); callers treat
+        // both as "history was rewritten", so collapse to false here.
+        return false;
+      }
+    },
+
+    async fetchBranch(branch: string, gitCwd: string): Promise<void> {
+      await cmdRunner.run(["git", "fetch", "origin", branch], gitCwd);
+    },
+
+    async pullBranch(branch: string, gitCwd: string): Promise<void> {
+      await cmdRunner.run(
+        ["git", "pull", "--no-rebase", "--autostash", "--no-edit", "origin", branch],
+        gitCwd,
+      );
+    },
+
+    async abortMerge(gitCwd: string): Promise<void> {
+      await cmdRunner.run(["git", "merge", "--abort"], gitCwd);
+    },
+
+    async changedFiles(range: string, gitCwd: string): Promise<string[]> {
+      const { stdout } = await cmdRunner.run(["git", "diff", "--name-only", range], gitCwd);
+      return stdout
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    },
+
+    async workingTreeStatus(gitCwd: string): Promise<string> {
+      const { stdout } = await cmdRunner.run(["git", "status", "--porcelain"], gitCwd);
+      return stdout;
+    },
+
+    async countCommitsAhead(range: string, gitCwd: string): Promise<number> {
+      const { stdout } = await cmdRunner.run(["git", "rev-list", "--count", range], gitCwd);
+      return Number.parseInt(stdout.trim(), 10) || 0;
     },
   };
 }

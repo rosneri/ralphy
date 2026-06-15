@@ -4,6 +4,7 @@ import {
   baseBranchFromLabels,
 } from "../../shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
+import type { CodeHost } from "@ralphy/codehost";
 import { createPullRequest, type CmdRunner } from "../pr";
 
 const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
@@ -11,34 +12,35 @@ const GITHUB_PR_URL_RE = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 /**
  * Given a list of attachment URLs, return the first one that:
  *   - looks like a GitHub PR URL, and
- *   - `gh pr view --json state` reports as `OPEN`.
+ *   - the code host reports as `open`.
  *
  * Merged/closed PRs are skipped so the conflict scan does not
  * "discover" — and noisily log — PRs that have already landed.
- * Per-URL `gh` failures are logged yellow and the loop continues
+ * Per-URL host failures are logged yellow and the loop continues
  * to the next candidate.
  *
  * The `sawNonOpenPr` flag distinguishes "no PR at all" from "a PR exists
- * but it is MERGED/CLOSED", so callers can suppress the
+ * but it is merged/closed", so callers can suppress the
  * "no open PR found" warning when the PR has already landed.
  */
 export async function pickOpenPrUrlFromAttachments(
   urls: string[],
   issueIdent: string,
-  cmd: CmdRunner,
-  cwd: string,
+  codeHost: CodeHost,
   onLog: (msg: string, color?: string) => void,
 ): Promise<{ url: string | null; sawNonOpenPr: boolean }> {
   const candidates = urls.filter((url) => GITHUB_PR_URL_RE.test(url));
   let sawNonOpenPr = false;
   for (const url of candidates) {
     try {
-      const res = await cmd.run(["gh", "pr", "view", url, "--json", "state"], cwd);
-      const parsed = JSON.parse(res.stdout.trim()) as { state?: string };
-      if (parsed.state === "OPEN") return { url, sawNonOpenPr };
-      if (parsed.state === "MERGED" || parsed.state === "CLOSED") sawNonOpenPr = true;
+      const state = await codeHost.getPullRequestState(url);
+      if (state === "open") return { url, sawNonOpenPr };
+      sawNonOpenPr = true;
     } catch (err) {
-      onLog(`! gh pr view ${url} failed for ${issueIdent}: ${(err as Error).message}`, "yellow");
+      onLog(
+        `! PR state probe for ${url} failed for ${issueIdent}: ${(err as Error).message}`,
+        "yellow",
+      );
     }
   }
   return { url: null, sawNonOpenPr };
@@ -120,8 +122,7 @@ function pickDependencyTip(
  */
 export async function resolveDependencyBaseBranchImpl(
   issue: TrackedIssue,
-  runner: CmdRunner,
-  runnerCwd: string,
+  codeHost: CodeHost,
   deps: { apiKey: string; onLog: (msg: string, color?: string) => void },
 ): Promise<DependencyBase | null> {
   // Re-resolve blockers fresh; fall back to the spawn snapshot if Linear fails.
@@ -158,21 +159,12 @@ export async function resolveDependencyBaseBranchImpl(
     const openPrs: DependencyBase[] = [];
     for (const url of prUrls) {
       try {
-        const res = await runner.run(
-          ["gh", "pr", "view", url, "--json", "state,headRefName,title,url", "--jq", "."],
-          runnerCwd,
-        );
-        const parsed = JSON.parse(res.stdout.trim()) as {
-          state?: string;
-          headRefName?: string;
-          title?: string;
-          url?: string;
-        };
-        if (parsed.state === "OPEN" && parsed.headRefName) {
-          const prUrl = parsed.url ?? url;
-          const titleMatch = parsed.title ? TICKET_IN_TITLE_RE.exec(parsed.title) : null;
+        const details = await codeHost.getPullRequestDetails(url);
+        if (details.state === "open" && details.headRefName) {
+          const prUrl = details.url || url;
+          const titleMatch = details.title ? TICKET_IN_TITLE_RE.exec(details.title) : null;
           openPrs.push({
-            baseBranch: parsed.headRefName,
+            baseBranch: details.headRefName,
             prUrl,
             prNumber: parsePrNumber(prUrl),
             blockerIdentifier: titleMatch ? (titleMatch[1] as string) : null,
@@ -180,7 +172,7 @@ export async function resolveDependencyBaseBranchImpl(
         }
       } catch (err) {
         deps.onLog(
-          `! gh pr view failed for ${url} (blocker of ${issue.identifier}): ${(err as Error).message}`,
+          `! PR details probe failed for ${url} (blocker of ${issue.identifier}): ${(err as Error).message}`,
           "yellow",
         );
       }

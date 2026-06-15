@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { runPrPhase } from "../agent/post-task";
 import { WORKER_EXIT_CODES } from "@ralphy/types";
 import type { CmdRunner } from "../agent/pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 import type { TrackedIssue } from "@ralphy/tracker";
 
 // runPrPhase must distinguish a no-op branch (history only ever touched meta
@@ -99,6 +101,7 @@ describe("runPrPhase — no-op detection", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: (p) => phases.push(p),
         respawnWorker: async () => {
@@ -132,6 +135,7 @@ describe("runPrPhase — no-op detection", () => {
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => {

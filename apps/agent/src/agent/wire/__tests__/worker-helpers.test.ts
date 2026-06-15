@@ -96,6 +96,18 @@ describe("buildTaskCmd", () => {
     const cmd = buildTaskCmd(await baseArgs(), "rlf-1", "/elsewhere/ALT.md");
     expect(cmd[cmd.indexOf("--workflow") + 1]).toBe("/elsewhere/ALT.md");
   });
+
+  test("recovery triggers carry --trigger; other triggers pass nothing", async () => {
+    const args = await baseArgs();
+    for (const trigger of ["ci-fix", "conflict-fix"] as const) {
+      const cmd = buildTaskCmd(args, "rlf-1", WORKFLOW_PATH, trigger);
+      expect(cmd[cmd.indexOf("--trigger") + 1]).toBe(trigger);
+      expect(cmd[cmd.length - 1]).toBe("--from-agent");
+    }
+    for (const trigger of ["fresh", "resume", "review", undefined] as const) {
+      expect(buildTaskCmd(args, "rlf-1", WORKFLOW_PATH, trigger)).not.toContain("--trigger");
+    }
+  });
 });
 
 describe("buildPostTaskInput", () => {

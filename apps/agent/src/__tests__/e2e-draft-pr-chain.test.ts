@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import { runPrPhase } from "../agent/post-task";
 import { createOpenDraftPr } from "../agent/wire/pr-helpers";
 import type { CmdRunner } from "../agent/pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 import type { TrackedIssue } from "@ralphy/tracker";
 
 const ISSUE: TrackedIssue = {
@@ -155,7 +157,13 @@ describe("e2e — prDraft chain: design-ready draft → readied at end (same PR)
           prDraft: true,
         },
       },
-      { cmd: gh.cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      {
+        cmd: gh.cmd,
+        codeHost: ghHost(gh.cmd),
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
     );
 
     expect(code).toBe(0);
@@ -204,7 +212,13 @@ describe("e2e — prDraft chain: design-ready draft → readied at end (same PR)
           prDraft: true,
         },
       },
-      { cmd: ghEnd.cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      {
+        cmd: ghEnd.cmd,
+        codeHost: ghHost(ghEnd.cmd),
+        log: () => {},
+        emit: () => {},
+        respawnWorker: async () => 0,
+      },
     );
 
     expect(code).toBe(0);

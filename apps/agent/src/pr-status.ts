@@ -1,5 +1,5 @@
 import type { CmdRunner } from "./agent/pr";
-import { classifyCheck, runGhWithRetry } from "@ralphy/codehost";
+import { classifyCheck, reduceToBucket, runGhWithRetry } from "@ralphy/codehost";
 import type { RawCheck } from "@ralphy/codehost";
 
 export type CiBucket = "pass" | "fail" | "pending";
@@ -27,8 +27,12 @@ const PR_VIEW_FIELDS = "state,isDraft,mergeable,statusCheckRollup,autoMergeReque
 
 /**
  * Map a `gh pr view --json statusCheckRollup` array into our 3-bucket model.
- * Mirrors the bucketing in `agent/ci.ts::getPrChecksStatus` but works off the
- * `statusCheckRollup` shape returned by `gh pr view` (rather than `gh pr checks`).
+ *
+ * The per-check classification (`classifyCheck`) and the pending > fail > pass
+ * reduction (`reduceToBucket`) are the SAME primitives the codehost adapter's
+ * `getChecksStatus` runs over `gh pr checks` output — this caller only differs
+ * in the input `gh` shape (`statusCheckRollup` vs `gh pr checks`) and the
+ * null-rollup short-circuit (a MERGED PR with no rollup is a pass).
  */
 function bucketChecks(
   rollup: RawCheck[] | null | undefined,
@@ -46,21 +50,7 @@ function bucketChecks(
           return !ignoredLower.includes(id);
         })
       : rollup;
-  if (filtered.length === 0) return "pass";
-  let anyPending = false;
-  let anyFail = false;
-  for (const c of filtered) {
-    const result = classifyCheck(c);
-    if (result === "pending") {
-      anyPending = true;
-    } else if (result === "fail") {
-      anyFail = true;
-    }
-    // pass / skip — no flag set
-  }
-  if (anyPending) return "pending";
-  if (anyFail) return "fail";
-  return "pass";
+  return reduceToBucket(filtered.map(classifyCheck));
 }
 
 interface RawPrView {

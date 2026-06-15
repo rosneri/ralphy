@@ -15,6 +15,7 @@ import type { AgentParsedArgs } from "../../../cli";
 import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
+import type { CodeHost } from "@ralphy/codehost";
 import type { GitRunner } from "../../worktree";
 import {
   fetchIssueComments,
@@ -129,11 +130,17 @@ export function releaseWorkerMaps(maps: WorkerChangeMaps, changeName: string): v
  * re-resolution, not through argv. The `--workflow` flag pins the main
  * checkout's file so a worktree cwd cannot drift the worker's config. The
  * argv always terminates with `--from-agent`.
+ *
+ * Recovery spawns (`ci-fix` / `conflict-fix`) additionally carry `--trigger`
+ * so the worker's config resolution picks the per-flow model/effort
+ * (`prRecovery.ciFix*` / `prRecovery.conflictFix*`). Other triggers (fresh,
+ * resume, review) use the top-level model and pass nothing.
  */
 export function buildTaskCmd(
   args: AgentParsedArgs,
   changeName: string,
   workflowFilePath: string,
+  trigger?: QueueTrigger,
 ): string[] {
   return [
     process.execPath,
@@ -145,6 +152,7 @@ export function buildTaskCmd(
     ...serializeOverrides(args.overrides),
     "--workflow",
     workflowFilePath,
+    ...(trigger === "ci-fix" || trigger === "conflict-fix" ? ["--trigger", trigger] : []),
     "--from-agent",
   ];
 }
@@ -227,6 +235,10 @@ interface SpawnWorkerInput {
   indicators: Indicators;
   cmdRunner: CmdRunner;
   gitRunner: GitRunner;
+  /** The single {@link CodeHost} adapter built once in `wire.ts` (RLF-255 9a),
+   *  forwarded into the post-task PR phase so it issues PR transitions through
+   *  the shared instance instead of re-constructing a gh adapter per call. */
+  codeHost: CodeHost;
   /** Apply a Linear set-indicator. Used to wire the additive `setPrReady`
    *  marker from the PR phase (`onPrReady`). */
   applyIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
@@ -284,6 +296,7 @@ export function createSpawnWorker(
     indicators,
     cmdRunner,
     gitRunner,
+    codeHost,
     applyIndicator,
     bus,
     onLog,
@@ -313,8 +326,8 @@ export function createSpawnWorker(
   // Pin the worker to the main checkout's WORKFLOW.md (honoring --workflow):
   // a worktree cwd must not resolve a different config than the parent did.
   const workflowFilePath = workflowPath(projectRoot, args.workflowFile);
-  const buildTaskCmdFor = (changeName: string): string[] =>
-    buildTaskCmd(args, changeName, workflowFilePath);
+  const buildTaskCmdFor = (changeName: string, trigger?: QueueTrigger): string[] =>
+    buildTaskCmd(args, changeName, workflowFilePath, trigger);
 
   // --agent-debug: one in-memory dedupe set shared across every worker this
   // run spawns. The closure is built once and passed to `runPostTask` only
@@ -392,11 +405,11 @@ export function createSpawnWorker(
     let handle: { exited: Promise<number>; kill: () => void };
     if (injected) {
       logFilePath = join(logsDir, `${changeName}.log`);
-      handle = injected(buildTaskCmdFor(changeName), cwd);
+      handle = injected(buildTaskCmdFor(changeName, trigger), cwd);
     } else {
       const r = defaultSpawn(
         changeName,
-        buildTaskCmdFor(changeName),
+        buildTaskCmdFor(changeName, trigger),
         cwd,
         logsDir,
         onWorkerOutput,
@@ -407,10 +420,10 @@ export function createSpawnWorker(
     }
     const respawn = (): Promise<number> => {
       onWorkerPhase?.(changeName, "working", "respawn");
-      if (injected) return injected(buildTaskCmdFor(changeName), cwd).exited;
+      if (injected) return injected(buildTaskCmdFor(changeName, trigger), cwd).exited;
       return defaultSpawn(
         changeName,
-        buildTaskCmdFor(changeName),
+        buildTaskCmdFor(changeName, trigger),
         cwd,
         logsDir,
         onWorkerOutput,
@@ -561,6 +574,7 @@ export function createSpawnWorker(
         {
           cmd: tracedCmd,
           git: gitRunner,
+          codeHost,
           log: onLog,
           runScript,
           ...retroDepEntry(args.agentDebug, runRetrospectiveHook),
@@ -595,7 +609,7 @@ export function createSpawnWorker(
               onWorkerPhase(changeName, phase, detail),
           }),
           resolveDependencyBaseBranch: (issue) =>
-            resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
+            resolveDependencyBaseBranchImpl(issue, codeHost, { apiKey, onLog }),
         },
       );
       releaseWorkerMaps(
