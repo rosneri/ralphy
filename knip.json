@@ -45,7 +45,7 @@
       "entry": [
         "src-sidecar/server.ts",
         "src/components/**/*.tsx",
-        "src/components/**/*.test.ts",
+        "src/**/__tests__/**/*.{ts,tsx}",
         "src/lib/**/*.ts"
       ]
     },

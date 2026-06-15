@@ -1,0 +1,10 @@
+[
+  "apps/agent/src/agent/baseline/runner.ts",
+  "apps/agent/src/agent/worktree.ts",
+  "apps/loop/src/index.ts",
+  "apps/mcp/src/index.ts",
+  "apps/ui/src-sidecar/server.ts",
+  "packages/context/src/context.ts",
+  "packages/paths/src/paths.ts",
+  "packages/version/src/version.ts"
+]
