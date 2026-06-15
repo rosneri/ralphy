@@ -11,6 +11,9 @@ export type { Agent, AgentRequest, AgentRunResult } from "./agents";
 export interface RunEngineOptions {
   engine: Engine;
   model: string;
+  /** Reasoning effort (`claude --effort`). Unset omits the flag (engine
+   *  default). Claude-only; the codex adapter ignores it. */
+  effort?: string;
   prompt: string;
   logFlag?: boolean;
   /** When `logFlag` is true, append the raw engine stdout (and stderr for codex)
@@ -123,6 +126,7 @@ export async function runEngine(opts: RunEngineOptions): Promise<EngineResult> {
     prompt: opts.prompt,
     onFeedEvent,
   };
+  if (opts.effort !== undefined) request.effort = opts.effort;
   if (opts.cwd !== undefined) request.cwd = opts.cwd;
   if (opts.signal !== undefined) request.signal = opts.signal;
   if (opts.resumeSessionId !== undefined) request.resumeSessionId = opts.resumeSessionId;

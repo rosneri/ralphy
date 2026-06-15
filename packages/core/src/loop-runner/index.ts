@@ -114,12 +114,15 @@ export interface LoopRunnerOptions {
   prompt?: string;
   engine?: Engine;
   model?: string;
+  /** Engine reasoning effort (`claude --effort`). Unset → engine default. */
+  effort?: string;
   limits?: LoopRunnerLimits;
   delaySeconds?: number;
   /** Pin a prompt phase; default is `routeTaskPhase` auto-routing. */
   phase?: TaskPhase;
   reviewPhase?: ReviewPhaseConfig & {
     reviewerModel?: string;
+    reviewerEffort?: string;
     reviewerContextStrategy?: "fresh" | "warm";
   };
   onReviewRound?: (result: ReviewRoundResult) => Promise<void>;
@@ -153,6 +156,7 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
   const prompt = options.prompt ?? "";
   const engine: Engine = options.engine ?? "claude";
   const model = options.model ?? "opus";
+  const effort = options.effort;
   const limits = {
     maxIterations: options.limits?.maxIterations ?? 0,
     maxCostUsd: options.limits?.maxCostUsd ?? 0,
@@ -412,9 +416,11 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
                 "Do not implement any fixes. Only write the findings file.",
               ].join("\n");
 
+              const reviewEffort = reviewPhase.reviewerEffort ?? effort;
               await runEngine({
                 engine,
                 model: reviewPhase.reviewerModel ?? model,
+                ...(reviewEffort !== undefined ? { effort: reviewEffort } : {}),
                 prompt: reviewPrompt,
                 logFlag: options.log ?? false,
                 logFile: join(stateDir, `log-review-${roundNum}.json`),
@@ -562,6 +568,7 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
           let engineResult = await runEngine({
             engine,
             model,
+            ...(effort !== undefined ? { effort } : {}),
             prompt: iterationPrompt,
             logFlag: options.log ?? false,
             logFile: join(stateDir, "log.json"),
@@ -595,6 +602,7 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
             const resumeResult = await runEngine({
               engine,
               model,
+              ...(effort !== undefined ? { effort } : {}),
               prompt: buildSteeringPrompt(steerMessage),
               logFlag: options.log ?? false,
               logFile: join(stateDir, "log.json"),
