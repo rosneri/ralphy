@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { WORKER_EXIT_CODES } from "@ralphy/types";
 import { AGENT_TASKS_FILENAME, prependFixTask } from "@ralphy/core/tasks-md";
 import { fsChange } from "../shared/capabilities/fs-change";
 import { git as gitCap } from "../shared/capabilities/git";
@@ -18,9 +19,6 @@ import { registry as featureRegistry } from "../features/registry";
 import { runFeaturePostTask } from "../features/run-feature";
 import type { FeatureCtx } from "../features/types";
 
-/** Worker exited 0 but the residual-commit / push / PR-create path failed. */
-// allow-duplicate
-const PR_FAILED_EXIT = 71;
 /**
  * Internal retry budget for the PR-create path's push-rejection / merge-conflict
  * fix loop and the only-meta reapply loop. These are mechanical retry guards,
@@ -28,17 +26,6 @@ const PR_FAILED_EXIT = 71;
  * (`prRecovery.*`), so this is a fixed constant rather than a config knob.
  */
 const MAX_PR_CREATE_ATTEMPTS = 5;
-/**
- * Worker exited 0 and finished its tasks, but the branch never touched a
- * non-meta file across its whole history — the requested work is already on
- * the base branch (or was a no-op). Distinct from success-with-PR (0) and
- * failure (70/71): no PR is opened and the ticket is finalized as done with
- * an honest "no changes needed" comment rather than quarantined. See
- * `runPrPhase`'s `blocked: "no-op"` handling and the coordinator's
- * `notifyExited`.
- */
-// allow-duplicate
-export const NO_CHANGES_EXIT = 72;
 
 /**
  * Spawn trigger the worker ran under. Threaded through from the coordinator
@@ -339,7 +326,7 @@ async function runWorkerWithFixTask(
  * the commit phase.
  *
  * Returns `{ pr, gaveUp }`. When `gaveUp` is true the caller should set
- * effectiveCode = PR_FAILED_EXIT; `pr` will be null in that case.
+ * effectiveCode = WORKER_EXIT_CODES.prFailed; `pr` will be null in that case.
  */
 async function createPrWithRetry(
   ctx: PostTaskCtx,
@@ -583,13 +570,13 @@ interface PrPhaseDeps {
 /**
  * Phase 1 — PR creation.
  *
- * Validates that branch + issue are present (returns `PR_FAILED_EXIT` if not),
+ * Validates that branch + issue are present (returns `WORKER_EXIT_CODES.prFailed` if not),
  * pushes the branch, opens or surfaces a PR, enables auto-merge / converts a
  * draft to ready, and returns success. The worker performs NO conflict or CI
  * recovery — once the PR is open the ticket is marked done and the scheduler
  * watcher (`prRecovery.*`) owns all recovery.
  *
- * Returns an effective exit code: 0 on success, PR_FAILED_EXIT on failure.
+ * Returns an effective exit code: 0 on success, WORKER_EXIT_CODES.prFailed on failure.
  */
 export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
   const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg } = input;
@@ -609,7 +596,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
       `! createPr requested but no worktree branch is tracked for ${changeName} (use --worktree)`,
       "yellow",
     );
-    return PR_FAILED_EXIT;
+    return WORKER_EXIT_CODES.prFailed;
   }
 
   const labelBase = baseBranchFromLabels(issue.labels);
@@ -685,7 +672,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     for (const v of violations) {
       log(`    ${v.file} (matched: ${v.pattern})`, "red");
     }
-    return PR_FAILED_EXIT;
+    return WORKER_EXIT_CODES.prFailed;
   }
 
   const maxOuterAttempts = MAX_PR_CREATE_ATTEMPTS;
@@ -694,7 +681,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   const finalizeNoOpAsDone = cfg.finalizeNoOpAsDone !== false;
   while (true) {
     const attempt = await createPrWithRetry(ctx, issue);
-    if (attempt.gaveUp) return PR_FAILED_EXIT;
+    if (attempt.gaveUp) return WORKER_EXIT_CODES.prFailed;
     if (attempt.pr?.blocked === "no-op" && finalizeNoOpAsDone) {
       const files = attempt.pr.blockedFiles ?? [];
       emit("pr-skipped-noop", `${files.length} meta file(s)`);
@@ -705,7 +692,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
         "yellow",
       );
       for (const f of files) log(`    ${f}`, "gray");
-      return NO_CHANGES_EXIT;
+      return WORKER_EXIT_CODES.noChanges;
     }
     // When finalizeNoOpAsDone is disabled, a "no-op" branch falls through to
     // the legacy reapply-then-quarantine path below alongside "only-meta".
@@ -723,7 +710,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
           `! exceeded ${maxOuterAttempts} only-meta recovery attempts for ${changeName} — giving up`,
           "red",
         );
-        return PR_FAILED_EXIT;
+        return WORKER_EXIT_CODES.prFailed;
       }
       const fileList = files.length > 0 ? files.map((f) => `- ${f}`).join("\n") : "(empty diff)";
       const retryCode = await runWorkerWithFixTask(
@@ -748,7 +735,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
       );
       if (retryCode !== 0) {
         log(`! worker re-run after only-meta block exited code ${retryCode} — giving up`, "red");
-        return PR_FAILED_EXIT;
+        return WORKER_EXIT_CODES.prFailed;
       }
       continue; // re-check the diff after the recovery iteration
     }
@@ -773,7 +760,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
         `! ${changeName}: worker exited with uncommitted changes and no commits ahead of ${base} — refusing to mark done`,
         "red",
       );
-      return PR_FAILED_EXIT;
+      return WORKER_EXIT_CODES.prFailed;
     }
     log(`  no commits ahead of ${base} — skipping PR`, "gray");
     return 0;
@@ -781,7 +768,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   const prUrl = pr.url;
   if (!prUrl) {
     log(`! PR creation returned a null URL for ${changeName} — giving up`, "red");
-    return PR_FAILED_EXIT;
+    return WORKER_EXIT_CODES.prFailed;
   }
 
   log(`  ${pr.created ? "opened" : "found existing"} PR: ${prUrl}`, "green");
@@ -1062,7 +1049,7 @@ export async function runValidateOnlyPhase(
  *  Phase 3 (teardown) — always: run `teardownScript` if configured.
  *
  * Returns an "effective" exit code: the worker's own code, overridden to
- * `PR_FAILED_EXIT` or `CI_FAILED_EXIT` when post-task work fails. The
+ * `WORKER_EXIT_CODES.prFailed` or `WORKER_EXIT_CODES.ciFailed` when post-task work fails. The
  * coordinator uses this to decide whether to mark the issue processed.
  */
 export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Promise<number> {
@@ -1178,14 +1165,21 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         );
         emit("gave-up", "unpushed conflict resolution");
         await runWorktreeCleanupPhase(
-          { changeName, cwd, projectRoot, useWorktree, effectiveCode: PR_FAILED_EXIT, cfg },
+          {
+            changeName,
+            cwd,
+            projectRoot,
+            useWorktree,
+            effectiveCode: WORKER_EXIT_CODES.prFailed,
+            cfg,
+          },
           { git, log, emit },
         );
         await runTeardownPhase(
           { cwd, teardownScript: cfg.teardownScript },
           { runScript, log, emit },
         );
-        return PR_FAILED_EXIT;
+        return WORKER_EXIT_CODES.prFailed;
       }
     }
 
@@ -1280,9 +1274,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     );
   }
 
-  // NO_CHANGES_EXIT is a successful "nothing to ship" outcome, not a failure:
+  // WORKER_EXIT_CODES.noChanges is a successful "nothing to ship" outcome, not a failure:
   // surface it as done on the dashboard, not "gave-up".
-  const succeeded = effectiveCode === 0 || effectiveCode === NO_CHANGES_EXIT;
+  const succeeded = effectiveCode === 0 || effectiveCode === WORKER_EXIT_CODES.noChanges;
   emit(succeeded ? "done" : "gave-up", succeeded ? undefined : `exit ${effectiveCode}`);
 
   // Retrospective (opt-in, --agent-debug): runs before worktree cleanup so the

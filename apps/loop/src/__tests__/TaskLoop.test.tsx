@@ -1140,7 +1140,11 @@ describe("TaskLoop", () => {
       await new Promise((r) => setTimeout(r, 500));
 
       const allText = frames.join("\n");
-      expect(allText).toContain("Archive warning");
+      // The headless LoopRunner surfaces archive failures via this exact info
+      // line (see loop-runner.ts and its tests). It was "Archive warning"
+      // before the #401 single-loop-authority refactor renamed it; this
+      // assertion was missed in that rename and had been red on main.
+      expect(allText).toContain('Archive failed for "archive-fail-task": archive boom');
     });
   });
 

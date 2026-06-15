@@ -101,6 +101,12 @@ export interface LoopOptions {
   prompt: string;
   engine: string;
   model: string;
+  /** Engine reasoning effort (`claude --effort`). Unset → engine default. */
+  effort?: string;
+  /** Model / effort for the planning phases (proposal/design/tasks). Unset
+   *  falls back to `model` / `effort`. */
+  planModel?: string;
+  planEffort?: string;
   maxIterations: number;
   maxCostUsd: number;
   maxRuntimeMinutes: number;
@@ -118,6 +124,7 @@ export interface LoopOptions {
    *  session is spawned after all tasks complete. */
   reviewPhase?: ReviewPhaseConfig & {
     reviewerModel?: string;
+    reviewerEffort?: string;
     reviewerContextStrategy?: "fresh" | "warm";
   };
   /** Called after each review round completes. Use to emit Linear comments. */
@@ -667,17 +674,25 @@ export function checkStopSignal(taskDir: string, stateDir: string): string | nul
  * state (`stoppedStateToReason`) — the machine's guards are the only stop
  * arithmetic; there is no imperative re-implementation.
  */
-export type StopReason =
-  | "maxIterations"
-  | "completed"
-  | "costCap"
-  | "runtimeLimit"
-  | "consecutiveFailures"
-  | "rateLimited"
+export const STOP_REASONS = [
+  "maxIterations",
+  "completed",
+  "costCap",
+  "runtimeLimit",
+  "consecutiveFailures",
+  "rateLimited",
   /** All tasks were checked off but the worktree still has uncommitted
    *  edits. The loop refuses to archive a change with stranded work — a
    *  human (or a follow-up reset of `tasks.md`) decides next. See LIT-303. */
-  | "stranded";
+  "stranded",
+] as const;
+
+/**
+ * Single source of truth: the machine-level stop reasons. `StopReason` is
+ * derived from this tuple, `stoppedStateToReason` validates against it, and
+ * the `loopMachine` stopped substates are pinned to it by a test.
+ */
+export type StopReason = (typeof STOP_REASONS)[number];
 
 /**
  * Update state after a completed iteration.

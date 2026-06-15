@@ -1,7 +1,8 @@
 import { createActor } from "xstate";
 import { describe, expect, test } from "bun:test";
-import { loopMachine } from "../loop.machine";
+import { loopMachine, stoppedStateToReason } from "../loop.machine";
 import type { LoopMachineOptions } from "../loop.machine";
+import { STOP_REASONS } from "../../loop";
 
 const baseOptions: LoopMachineOptions = {
   maxIterations: 0,
@@ -136,5 +137,26 @@ describe("loopMachine", () => {
     const actor = startActor();
     actor.send({ type: "STATUS_CHANGED", status: "active" });
     expect(actor.getSnapshot().value).toBe("running");
+  });
+});
+
+describe("stoppedStateToReason", () => {
+  test("returns the reason for a known stopped substate", () => {
+    expect(stoppedStateToReason({ value: { stopped: "costCap" } })).toBe("costCap");
+  });
+
+  test("returns null for an unknown stopped substate instead of casting it", () => {
+    expect(stoppedStateToReason({ value: { stopped: "somethingNew" } })).toBeNull();
+  });
+
+  test("returns null for a non-stopped value", () => {
+    expect(stoppedStateToReason({ value: "running" })).toBeNull();
+  });
+});
+
+describe("loopMachine stopped substates are pinned to STOP_REASONS", () => {
+  test("stopped child-state names equal new Set(STOP_REASONS)", () => {
+    const substates = new Set(Object.keys(loopMachine.states.stopped?.states ?? {}));
+    expect(substates).toEqual(new Set(STOP_REASONS));
   });
 });
