@@ -303,6 +303,9 @@ openspec:
     enabled: true
     maxRounds: 2
     reviewerModel: opus
+    # Review pass runs at xhigh effort (the main loop is medium) so the
+    # quality gate stays maximal.
+    reviewerEffort: xhigh
     reviewerContextStrategy: fresh
 version: 1
 ---
