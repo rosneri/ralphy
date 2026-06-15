@@ -108,4 +108,37 @@ export interface CodeHost {
    *  is unavailable). Throws on failure; callers own the log-and-continue
    *  policy. */
   merge(url: string, strategy: MergeStrategy): Promise<void>;
+
+  // --- Local git operations -------------------------------------------------
+  // The PR / post-task flow runs these against a *per-task worktree*, never the
+  // adapter's construction cwd, so each takes an explicit `cwd`. They are part
+  // of the port (rather than a raw `git` shell-out at the call site) so the
+  // agent has a single seam for every git/gh mechanism. Failures propagate
+  // unchanged (the thrown error's `stderr`/`stdout` carry the blob callers
+  // inspect) except where noted.
+
+  /** `git rev-parse HEAD` — the worktree's current HEAD SHA (trimmed). */
+  headSha(cwd: string): Promise<string>;
+  /** `git merge-base --is-ancestor <ancestor> <descendant>` — true when
+   *  `ancestor` is reachable from `descendant`. A non-zero git exit (not an
+   *  ancestor, or either ref missing) resolves to `false` rather than throwing,
+   *  so callers branch on the boolean instead of try/catch. */
+  isAncestor(ancestor: string, descendant: string, cwd: string): Promise<boolean>;
+  /** `git fetch origin <branch>`. */
+  fetchBranch(branch: string, cwd: string): Promise<void>;
+  /** `git pull --no-rebase --autostash --no-edit origin <branch>` — merge
+   *  (never rebase) the remote branch into the worktree. The thrown error's
+   *  `stderr`/`stdout` carry the merge/conflict output callers classify. */
+  pullBranch(branch: string, cwd: string): Promise<void>;
+  /** `git merge --abort`. */
+  abortMerge(cwd: string): Promise<void>;
+  /** `git diff --name-only <range>` — the changed paths for a diff range
+   *  (e.g. `origin/main...HEAD` or `HEAD..origin/feat`), trimmed and
+   *  blank-filtered. */
+  changedFiles(range: string, cwd: string): Promise<string[]>;
+  /** `git status --porcelain` — raw porcelain output for the worktree. */
+  workingTreeStatus(cwd: string): Promise<string>;
+  /** `git rev-list --count <range>` — commit count for a range
+   *  (e.g. `origin/<branch>..HEAD`), parsed to a number (0 when unparseable). */
+  countCommitsAhead(range: string, cwd: string): Promise<number>;
 }

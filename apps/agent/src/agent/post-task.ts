@@ -216,6 +216,10 @@ interface PostTaskCtx {
   stateFilePath: string;
   cfg: PostTaskInput["cfg"];
   cmd: CmdRunner;
+  /** The single {@link CodeHost} adapter — every git/gh mechanism the PR phase
+   *  runs (head SHA, fetch/pull, merge --abort, diff, status) flows through it
+   *  rather than an inline `git` shell-out. */
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
   respawnWorker: () => Promise<number>;
@@ -295,8 +299,7 @@ async function runWorkerWithFixTask(
   // failure mode that produced PRs whose diff silently lost work.
   let preHead = "";
   try {
-    const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-    preHead = r.stdout.trim();
+    preHead = await ctx.codeHost.headSha(ctx.cwd);
   } catch (err) {
     ctx.log(`! could not snapshot HEAD before fix task: ${(err as Error).message}`, "yellow");
   }
@@ -305,15 +308,9 @@ async function runWorkerWithFixTask(
 
   if (preHead) {
     try {
-      const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-      const postHead = r.stdout.trim();
+      const postHead = await ctx.codeHost.headSha(ctx.cwd);
       if (postHead !== preHead) {
-        let isAncestor = true;
-        try {
-          await ctx.cmd.run(["git", "merge-base", "--is-ancestor", preHead, postHead], ctx.cwd);
-        } catch {
-          isAncestor = false;
-        }
+        const isAncestor = await ctx.codeHost.isAncestor(preHead, postHead, ctx.cwd);
         if (!isAncestor) {
           ctx.log(
             `! fix worker for "${heading}" rewrote history — pre=${preHead.slice(0, 8)} ` +
@@ -399,11 +396,8 @@ async function createPrWithRetry(
           "yellow",
         );
         try {
-          await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
-          await ctx.cmd.run(
-            ["git", "pull", "--no-rebase", "--autostash", "--no-edit", "origin", ctx.branch],
-            ctx.cwd,
-          );
+          await ctx.codeHost.fetchBranch(ctx.branch, ctx.cwd);
+          await ctx.codeHost.pullBranch(ctx.branch, ctx.cwd);
           continue;
         } catch (mergeErr) {
           const re = mergeErr as Error & { stderr?: string; stdout?: string };
@@ -419,7 +413,7 @@ async function createPrWithRetry(
 
           ctx.emit("merging", "conflicts detected — aborting + queueing fix task");
           try {
-            await ctx.cmd.run(["git", "merge", "--abort"], ctx.cwd);
+            await ctx.codeHost.abortMerge(ctx.cwd);
           } catch (err) {
             ctx.log(
               `! git merge --abort failed (worktree may already be clean): ${(err as Error).message}`,
@@ -429,11 +423,8 @@ async function createPrWithRetry(
 
           let conflictedFiles = "";
           try {
-            const r = await ctx.cmd.run(
-              ["git", "diff", "--name-only", `HEAD..origin/${ctx.branch}`],
-              ctx.cwd,
-            );
-            conflictedFiles = r.stdout.trim();
+            const files = await ctx.codeHost.changedFiles(`HEAD..origin/${ctx.branch}`, ctx.cwd);
+            conflictedFiles = files.join("\n");
           } catch (err) {
             ctx.log(`! could not list conflicted files: ${(err as Error).message}`, "yellow");
           }
@@ -544,29 +535,23 @@ interface PrPhaseInput {
  * files that the agent modified anyway, or an empty array when clean.
  */
 async function findNeverTouchViolations(
-  cmd: CmdRunner,
+  codeHost: CodeHost,
   cwd: string,
   base: string,
   neverTouch: string[],
 ): Promise<{ file: string; pattern: string }[]> {
   if (neverTouch.length === 0) return [];
-  let raw = "";
+  let files: string[] = [];
   try {
-    const r = await cmd.run(["git", "diff", "--name-only", `origin/${base}...HEAD`], cwd);
-    raw = r.stdout;
+    files = await codeHost.changedFiles(`origin/${base}...HEAD`, cwd);
   } catch {
     // Fall back to local base ref when origin/<base> isn't fetched.
     try {
-      const r = await cmd.run(["git", "diff", "--name-only", `${base}...HEAD`], cwd);
-      raw = r.stdout;
+      files = await codeHost.changedFiles(`${base}...HEAD`, cwd);
     } catch {
       return [];
     }
   }
-  const files = raw
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
   return findBoundaryViolations(files, neverTouch);
 }
 
@@ -665,14 +650,15 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     stateFilePath,
     cfg,
     cmd,
+    codeHost,
     log,
     emit,
     respawnWorker,
   };
 
   try {
-    const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-    const summary = summarizeUncommittedStatus(status.stdout);
+    const statusOut = await codeHost.workingTreeStatus(cwd);
+    const summary = summarizeUncommittedStatus(statusOut);
     if (summary.count > 0) {
       const existingPrUrl = branch ? await codeHost.findOpenPullRequestForBranch(branch) : null;
       const indented = summary.preview.map((line) => `    ${line}`).join("\n");
@@ -693,7 +679,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
   }
 
-  const violations = await findNeverTouchViolations(cmd, cwd, base, cfg.neverTouch);
+  const violations = await findNeverTouchViolations(codeHost, cwd, base, cfg.neverTouch);
   if (violations.length > 0) {
     log(`! ${changeName} modified files inside boundaries.never_touch — aborting PR:`, "red");
     for (const v of violations) {
@@ -777,8 +763,8 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     // to a done state with no PR (see LIT-303 incident).
     let dirtyAfterWorker = false;
     try {
-      const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-      dirtyAfterWorker = summarizeUncommittedStatus(status.stdout).count > 0;
+      const statusOut = await codeHost.workingTreeStatus(cwd);
+      dirtyAfterWorker = summarizeUncommittedStatus(statusOut).count > 0;
     } catch {
       // If we can't check, fall back to the legacy benign behavior.
     }
@@ -1173,8 +1159,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       let aheadCount = 0;
       let checked = true;
       try {
-        const r = await cmd.run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], cwd);
-        aheadCount = Number.parseInt(r.stdout.trim(), 10) || 0;
+        aheadCount = await deps.codeHost.countCommitsAhead(`origin/${branch}..HEAD`, cwd);
       } catch (err) {
         // Ref missing / detached HEAD / not a worktree — can't determine, so
         // don't block: fall through to the existing mergeability verification.

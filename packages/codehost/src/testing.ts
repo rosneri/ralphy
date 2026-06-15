@@ -34,6 +34,18 @@ export interface FakeCodeHost extends CodeHost {
   setOpenPullRequestForBranch(branch: string, url: string): void;
   /** Script repo auto-merge capability for a PR URL (default null). */
   setAutoMergeAllowed(prUrl: string, allowed: boolean | null): void;
+  /** Script the HEAD SHA returned by {@link CodeHost.headSha} (default "HEAD"). */
+  setHeadSha(sha: string): void;
+  /** Script {@link CodeHost.isAncestor} (default true). */
+  setIsAncestor(value: boolean): void;
+  /** Script the file list returned by {@link CodeHost.changedFiles} for a diff
+   *  range (default []). */
+  setChangedFiles(range: string, files: string[]): void;
+  /** Script the raw `git status --porcelain` output (default ""). */
+  setWorkingTreeStatus(status: string): void;
+  /** Script the commit count returned by {@link CodeHost.countCommitsAhead} for
+   *  a range (default 0). */
+  setCommitsAhead(range: string, count: number): void;
   /** PRs created through the port, keyed by branch. */
   readonly createdByBranch: Map<string, { url: string; options: CreatePullRequestOptions }>;
   /** Auto-merge enablements, ready transitions, and merges by URL. */
@@ -51,6 +63,11 @@ export function createFakeCodeHost(): FakeCodeHost {
   const checksByRef = new Map<string, CiStatus>();
   const openPrByBranch = new Map<string, string>();
   const autoMergeByUrl = new Map<string, boolean | null>();
+  const changedFilesByRange = new Map<string, string[]>();
+  const commitsAheadByRange = new Map<string, number>();
+  let headShaValue = "HEAD";
+  let isAncestorValue = true;
+  let workingTreeStatusValue = "";
   const createdByBranch = new Map<string, { url: string; options: CreatePullRequestOptions }>();
   const autoMergeEnabled = new Map<string, MergeStrategy>();
   const readied = new Set<string>();
@@ -77,6 +94,21 @@ export function createFakeCodeHost(): FakeCodeHost {
     },
     setAutoMergeAllowed(prUrl, allowed) {
       autoMergeByUrl.set(prUrl, allowed);
+    },
+    setHeadSha(sha) {
+      headShaValue = sha;
+    },
+    setIsAncestor(value) {
+      isAncestorValue = value;
+    },
+    setChangedFiles(range, files) {
+      changedFilesByRange.set(range, files);
+    },
+    setWorkingTreeStatus(status) {
+      workingTreeStatusValue = status;
+    },
+    setCommitsAhead(range, count) {
+      commitsAheadByRange.set(range, count);
     },
     async getPullRequestState(url) {
       calls.push({ method: "getPullRequestState", args: [url] });
@@ -126,6 +158,35 @@ export function createFakeCodeHost(): FakeCodeHost {
       calls.push({ method: "merge", args: [url, strategy] });
       merged.set(url, strategy);
       stateByUrl.set(url, "merged");
+    },
+    async headSha(cwd) {
+      calls.push({ method: "headSha", args: [cwd] });
+      return headShaValue;
+    },
+    async isAncestor(ancestor, descendant, cwd) {
+      calls.push({ method: "isAncestor", args: [ancestor, descendant, cwd] });
+      return isAncestorValue;
+    },
+    async fetchBranch(branch, cwd) {
+      calls.push({ method: "fetchBranch", args: [branch, cwd] });
+    },
+    async pullBranch(branch, cwd) {
+      calls.push({ method: "pullBranch", args: [branch, cwd] });
+    },
+    async abortMerge(cwd) {
+      calls.push({ method: "abortMerge", args: [cwd] });
+    },
+    async changedFiles(range, cwd) {
+      calls.push({ method: "changedFiles", args: [range, cwd] });
+      return changedFilesByRange.get(range) ?? [];
+    },
+    async workingTreeStatus(cwd) {
+      calls.push({ method: "workingTreeStatus", args: [cwd] });
+      return workingTreeStatusValue;
+    },
+    async countCommitsAhead(range, cwd) {
+      calls.push({ method: "countCommitsAhead", args: [range, cwd] });
+      return commitsAheadByRange.get(range) ?? 0;
     },
   };
 }

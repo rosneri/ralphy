@@ -289,5 +289,56 @@ export function createGhCliCodeHost(input: GhCliCodeHostInput): CodeHost {
     async merge(url: string, strategy: MergeStrategy): Promise<void> {
       await cmdRunner.run(["gh", "pr", "merge", url, `--${strategy}`], cwd);
     },
+
+    // --- Local git operations (run against the caller-supplied worktree) -----
+
+    async headSha(gitCwd: string): Promise<string> {
+      const { stdout } = await cmdRunner.run(["git", "rev-parse", "HEAD"], gitCwd);
+      return stdout.trim();
+    },
+
+    async isAncestor(ancestor: string, descendant: string, gitCwd: string): Promise<boolean> {
+      try {
+        await cmdRunner.run(["git", "merge-base", "--is-ancestor", ancestor, descendant], gitCwd);
+        return true;
+      } catch {
+        // Non-zero exit ≡ "not an ancestor" (or a missing ref); callers treat
+        // both as "history was rewritten", so collapse to false here.
+        return false;
+      }
+    },
+
+    async fetchBranch(branch: string, gitCwd: string): Promise<void> {
+      await cmdRunner.run(["git", "fetch", "origin", branch], gitCwd);
+    },
+
+    async pullBranch(branch: string, gitCwd: string): Promise<void> {
+      await cmdRunner.run(
+        ["git", "pull", "--no-rebase", "--autostash", "--no-edit", "origin", branch],
+        gitCwd,
+      );
+    },
+
+    async abortMerge(gitCwd: string): Promise<void> {
+      await cmdRunner.run(["git", "merge", "--abort"], gitCwd);
+    },
+
+    async changedFiles(range: string, gitCwd: string): Promise<string[]> {
+      const { stdout } = await cmdRunner.run(["git", "diff", "--name-only", range], gitCwd);
+      return stdout
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    },
+
+    async workingTreeStatus(gitCwd: string): Promise<string> {
+      const { stdout } = await cmdRunner.run(["git", "status", "--porcelain"], gitCwd);
+      return stdout;
+    },
+
+    async countCommitsAhead(range: string, gitCwd: string): Promise<number> {
+      const { stdout } = await cmdRunner.run(["git", "rev-list", "--count", range], gitCwd);
+      return Number.parseInt(stdout.trim(), 10) || 0;
+    },
   };
 }

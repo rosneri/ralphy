@@ -249,4 +249,99 @@ describe("createGhCliCodeHost", () => {
     expect(calls[1]).toEqual(["gh", "pr", "merge", "URL", "--auto", "--squash"]);
     expect(calls[2]).toEqual(["gh", "pr", "merge", "URL", "--rebase"]);
   });
+
+  // --- Local git operations (RLF-255 9e) ------------------------------------
+
+  test("headSha runs in the supplied cwd and trims the SHA", async () => {
+    const { runner, calls } = scriptedRunner({ "git rev-parse HEAD": { stdout: "abc123\n" } });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.headSha("/worktree")).toBe("abc123");
+    expect(calls[0]).toEqual(["git", "rev-parse", "HEAD"]);
+  });
+
+  test("isAncestor returns true on success, false on a non-zero git exit", async () => {
+    const ok = scriptedRunner({ "git merge-base --is-ancestor": {} });
+    const hostOk = createGhCliCodeHost({ cmdRunner: ok.runner, cwd: "/repo" });
+    expect(await hostOk.isAncestor("pre", "post", "/wt")).toBe(true);
+    expect(ok.calls[0]).toEqual(["git", "merge-base", "--is-ancestor", "pre", "post"]);
+
+    const fail = scriptedRunner({ "git merge-base --is-ancestor": { error: "not an ancestor" } });
+    const hostFail = createGhCliCodeHost({ cmdRunner: fail.runner, cwd: "/repo" });
+    expect(await hostFail.isAncestor("pre", "post", "/wt")).toBe(false);
+  });
+
+  test("fetchBranch / pullBranch issue the expected git arg-arrays", async () => {
+    const { runner, calls } = scriptedRunner({ "git fetch": {}, "git pull": {} });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    await host.fetchBranch("feat/x", "/wt");
+    await host.pullBranch("feat/x", "/wt");
+    expect(calls[0]).toEqual(["git", "fetch", "origin", "feat/x"]);
+    expect(calls[1]).toEqual([
+      "git",
+      "pull",
+      "--no-rebase",
+      "--autostash",
+      "--no-edit",
+      "origin",
+      "feat/x",
+    ]);
+  });
+
+  test("pullBranch propagates the merge error with stderr/stdout intact", async () => {
+    const { runner } = scriptedRunner({
+      "git pull": {
+        error: "CONFLICT (content): Merge conflict in foo.ts",
+        stdout: "Auto-merging foo.ts",
+      },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    let err: (Error & { stderr?: string; stdout?: string }) | undefined;
+    try {
+      await host.pullBranch("feat/x", "/wt");
+    } catch (e) {
+      err = e as Error & { stderr?: string; stdout?: string };
+    }
+    expect(err?.stderr).toContain("Merge conflict");
+    expect(err?.stdout).toContain("Auto-merging");
+  });
+
+  test("abortMerge issues git merge --abort", async () => {
+    const { runner, calls } = scriptedRunner({ "git merge --abort": {} });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    await host.abortMerge("/wt");
+    expect(calls[0]).toEqual(["git", "merge", "--abort"]);
+  });
+
+  test("changedFiles splits, trims, and drops blank lines", async () => {
+    const { runner, calls } = scriptedRunner({
+      "git diff --name-only": { stdout: "foo.ts\n bar.ts \n\nbaz.ts\n" },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.changedFiles("origin/main...HEAD", "/wt")).toEqual([
+      "foo.ts",
+      "bar.ts",
+      "baz.ts",
+    ]);
+    expect(calls[0]).toEqual(["git", "diff", "--name-only", "origin/main...HEAD"]);
+  });
+
+  test("workingTreeStatus returns raw porcelain output", async () => {
+    const { runner, calls } = scriptedRunner({
+      "git status --porcelain": { stdout: " M foo.ts\n?? bar.ts\n" },
+    });
+    const host = createGhCliCodeHost({ cmdRunner: runner, cwd: "/repo" });
+    expect(await host.workingTreeStatus("/wt")).toBe(" M foo.ts\n?? bar.ts\n");
+    expect(calls[0]).toEqual(["git", "status", "--porcelain"]);
+  });
+
+  test("countCommitsAhead parses the count, defaulting to 0 when unparseable", async () => {
+    const hit = scriptedRunner({ "git rev-list --count": { stdout: "3\n" } });
+    const hostHit = createGhCliCodeHost({ cmdRunner: hit.runner, cwd: "/repo" });
+    expect(await hostHit.countCommitsAhead("origin/feat..HEAD", "/wt")).toBe(3);
+    expect(hit.calls[0]).toEqual(["git", "rev-list", "--count", "origin/feat..HEAD"]);
+
+    const empty = scriptedRunner({ "git rev-list --count": { stdout: "\n" } });
+    const hostEmpty = createGhCliCodeHost({ cmdRunner: empty.runner, cwd: "/repo" });
+    expect(await hostEmpty.countCommitsAhead("origin/feat..HEAD", "/wt")).toBe(0);
+  });
 });
