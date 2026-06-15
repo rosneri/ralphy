@@ -141,6 +141,13 @@ prRecovery:
   # Recover merge conflicts by re-running the agent. Off leaves conflicting PRs
   # for a human (the watcher still advances mergeable PRs to done).
   fixConflicts: true
+  # CI-fix and conflict-fix workers run a cheaper, separate model/effort than
+  # the main loop: Sonnet at low effort is plenty for mechanical recovery.
+  # Unset would fall back to the top-level model/effort.
+  ciFixModel: sonnet
+  ciFixEffort: low
+  conflictFixModel: sonnet
+  conflictFixEffort: low
   # Give up auto-recovering a red PR after this many re-queue sessions, then
   # apply `ralph:error` for a human.
   maxRecoverySessions: 3
