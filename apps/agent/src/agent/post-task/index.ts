@@ -159,7 +159,13 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         applies: wantValidateOnly === true && effectiveCode === 0,
         run: async () => {
           const code = await runValidateOnlyPhase(
-            { changeName, changeDir, stateFilePath, validateCommands: cfg.validateCommands ?? [], cwd },
+            {
+              changeName,
+              changeDir,
+              stateFilePath,
+              validateCommands: cfg.validateCommands ?? [],
+              cwd,
+            },
             { log, emit, respawnWorker },
           );
           emit(code === 0 ? "done" : "gave-up", code !== 0 ? `exit ${code}` : undefined);
@@ -172,7 +178,12 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         applies: input.mode === "conflict-fix" && effectiveCode === 0,
         run: async () => {
           const code = await runConflictFixVerify(
-            { identifier: issue?.identifier ?? changeName, cwd, branch, prUrl: input.prUrl ?? null },
+            {
+              identifier: issue?.identifier ?? changeName,
+              cwd,
+              branch,
+              prUrl: input.prUrl ?? null,
+            },
             {
               cmd,
               log,
