@@ -41,6 +41,18 @@ jobs:
       - name: Single component per TSX file
         run: bun scripts/check-single-component.ts
 
+      - name: Filename case check
+        run: bun scripts/check-filename-case.ts
+
+      - name: No re-export-only TSX/TS files
+        run: bun scripts/check-no-reexport-tsx.ts
+
+      - name: Test files live in __tests__
+        run: bun scripts/check-test-location.ts
+
+      - name: Tracker-seam leak guard
+        run: bun scripts/check-tracker-seam.ts
+
       - name: Static error messages (no template literals in Error/Exception constructors)
         run: bun scripts/check-static-error-messages.ts
 
@@ -48,7 +60,10 @@ jobs:
         run: bash scripts/check-no-unsafe-casts.sh
 
       - name: Shellcheck
-        run: find . -name '*.sh' -not -path '*/node_modules/*' -not -path '*/.husky/_/*' | xargs shellcheck
+        run: bun run check:shell
+
+      - name: CI ↔ local parity guard
+        run: bun scripts/check-ci-parity.ts
 
       - name: Lint (affected)
         run: bun run lint:ci
