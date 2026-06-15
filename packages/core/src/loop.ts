@@ -103,6 +103,10 @@ export interface LoopOptions {
   model: string;
   /** Engine reasoning effort (`claude --effort`). Unset → engine default. */
   effort?: string;
+  /** Model / effort for the planning phases (proposal/design/tasks). Unset
+   *  falls back to `model` / `effort`. */
+  planModel?: string;
+  planEffort?: string;
   maxIterations: number;
   maxCostUsd: number;
   maxRuntimeMinutes: number;

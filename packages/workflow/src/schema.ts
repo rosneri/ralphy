@@ -321,6 +321,12 @@ export const WorkflowConfigSchema = z.object({
   /** Reasoning-effort level passed to the engine (`claude --effort`). Unset
    *  means the engine's own default. Claude engine only — codex ignores it. */
   effort: EffortSchema.optional(),
+  /** Model / reasoning effort for the planning OpenSpec phases (proposal,
+   *  design, tasks). Unset falls back to the top-level `model` / `effort`. The
+   *  implement phase always uses the top-level model. Free string like
+   *  `reviewerModel`, so full model ids are allowed in addition to tier aliases. */
+  planModel: z.string().optional(),
+  planEffort: EffortSchema.optional(),
   /** Which issue tracker drives the loop. Defaults to `linear`, so a file with
    *  no `tracker` block behaves exactly as before. `github` selects the GitHub
    *  Issues provider (built on the `gh` CLI; see `github.issues`). */
