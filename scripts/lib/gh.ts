@@ -8,7 +8,7 @@
  * Bun-native: uses `Bun.spawn`, no `node:child_process`.
  */
 
-export interface GhInvocation {
+interface GhInvocation {
   code: number;
   stdout: string;
   stderr: string;
