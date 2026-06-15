@@ -44,9 +44,15 @@ stage_static() {
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts
   run_step "Folder size check"            bun scripts/check-folder-size.ts
   run_step "Single component per TSX file" bun scripts/check-single-component.ts
+  run_step "Filename case check"          bun scripts/check-filename-case.ts
+  run_step "No re-export-only TSX/TS files" bun scripts/check-no-reexport-tsx.ts
+  run_step "Test files live in __tests__" bun scripts/check-test-location.ts
+  run_step "Tracker-seam leak guard"      bun scripts/check-tracker-seam.ts
+  run_step "Stale changes guard"          bun scripts/check-stale-changes.ts
   run_step "Static error messages (no template literals in Error/Exception constructors)" bun scripts/check-static-error-messages.ts
   run_step "No unsafe casts (as any / as unknown)" bash scripts/check-no-unsafe-casts.sh
-  run_step "Shellcheck"                   bash -c 'find . -name "*.sh" -not -path "*/node_modules/*" -not -path "*/.husky/_/*" | xargs shellcheck'
+  run_step "Shellcheck"                   bun run check:shell
+  run_step "CI ↔ local parity guard"      bun scripts/check-ci-parity.ts
   run_step "Lint (affected)"              bun run lint:ci
   run_step "Format check (affected)"      bun run fmt:ci
   NODE_OPTIONS=--max-old-space-size=8192 \
