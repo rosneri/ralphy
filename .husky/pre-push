@@ -1,1 +1,2 @@
 bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
+bun scripts/check-test-integrity.ts
