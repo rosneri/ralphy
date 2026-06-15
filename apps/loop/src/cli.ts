@@ -43,6 +43,7 @@ const HELP_TEXT = [
   "  --prompt <text>         Task description",
   "  --prompt-file <path>    Read prompt from file",
   "  --model <model>         Set model (fable|opus|sonnet|haiku)",
+  "  --effort <level>        Reasoning effort (low|medium|high|xhigh|max; claude only)",
   "  --claude [model]        Use Claude engine (fable|opus|sonnet|haiku)",
   "  --codex                 Use Codex engine",
   "  --delay <seconds>       Seconds between iterations",
@@ -56,6 +57,7 @@ const HELP_TEXT = [
   "  --verbose               Verbose output",
   "  --review-enabled        Enable self-review pass after all tasks complete",
   "  --review-model <m>      Model for the review pass (haiku|sonnet|opus); implies --review-enabled",
+  "  --review-effort <e>     Effort for the review pass (low|medium|high|xhigh|max)",
   "  --review-max-rounds <n> Max review-fix rounds (default: 1)",
   "  --review-context-strategy <s>  fresh|warm (default: fresh)",
   "  --help, -h              Show this help message",
@@ -84,6 +86,7 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
 
   const state = emptyParseState();
   let expectReviewModel = false;
+  let expectReviewEffort = false;
   let expectReviewMaxRounds = false;
   let expectReviewContextStrategy = false;
 
@@ -92,6 +95,11 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
       result.review.reviewerModel = arg;
       result.review.enabled = true;
       expectReviewModel = false;
+      continue;
+    }
+    if (expectReviewEffort) {
+      result.review.reviewerEffort = arg;
+      expectReviewEffort = false;
       continue;
     }
     if (expectReviewMaxRounds) {
@@ -116,6 +124,9 @@ export async function parseLoopArgs(argv: string[]): Promise<LoopParsedArgs> {
         break;
       case "--review-model":
         expectReviewModel = true;
+        break;
+      case "--review-effort":
+        expectReviewEffort = true;
         break;
       case "--review-max-rounds":
         expectReviewMaxRounds = true;

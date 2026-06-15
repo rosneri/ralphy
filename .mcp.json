@@ -3,13 +3,17 @@
     "ralph": {
       "type": "stdio",
       "command": "bun",
-      "args": [".ralph/bin/mcp.js"],
+      "args": [
+        "/home/neri/Developer/ralphy/.ralph/bin/mcp.js"
+      ],
       "env": {}
     },
     "xstate-mcp": {
       "type": "stdio",
       "command": "bun",
-      "args": ["./scripts/xstate-mcp-server.ts"],
+      "args": [
+        "./scripts/xstate-mcp-server.ts"
+      ],
       "env": {}
     }
   }
