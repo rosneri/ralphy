@@ -59,6 +59,9 @@ jobs:
       - name: Bun-native APIs (no node:fs *Sync / createHash / fs.exists)
         run: bun scripts/check-bun-native.ts
 
+      - name: No new abbreviated identifiers (ratcheted)
+        run: bun scripts/check-no-abbreviation.ts
+
       - name: Static error messages (no template literals in Error/Exception constructors)
         run: bun scripts/check-static-error-messages.ts
 
