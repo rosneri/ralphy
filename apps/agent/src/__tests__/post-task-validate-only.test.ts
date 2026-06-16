@@ -115,6 +115,36 @@ describe("runValidateOnlyPhase", () => {
     expect(agentTasksContent).not.toContain("Run openspec validation");
   });
 
+  test("failing structure check → fix task prepended and worker respawned", async () => {
+    // The in-loop structural gate (`bun run check:structure`) rides in
+    // validateCommands; its non-zero exit must prepend a fix task and respawn
+    // just like the test/lint gates.
+    let respawned = false;
+    const phases: string[] = [];
+
+    await runValidateOnlyPhase(makeInput(["bun test", "bun run check:structure"]), {
+      log: () => {},
+      emit: (phase, detail) => phases.push(detail ? `${phase}:${detail}` : phase),
+      respawnWorker: async () => {
+        respawned = true;
+        return 0;
+      },
+      runCommand: async (cmd) => {
+        if (cmd === "bun run check:structure")
+          return { exitCode: 1, output: "check-folder-size: packages/core too large" };
+        return { exitCode: 0, output: "ok" };
+      },
+    });
+
+    expect(phases).toContain("validate-fix:bun run check:structure");
+    expect(respawned).toBe(true);
+
+    const agentTasksContent = await Bun.file(join(changeDir, AGENT_TASKS_FILENAME)).text();
+    expect(agentTasksContent).toContain("Fix failing validation: bun run check:structure");
+    expect(agentTasksContent).toContain("check-folder-size: packages/core too large");
+    expect(agentTasksContent).not.toContain("Run openspec validation");
+  });
+
   test("state is reactivated before respawnWorker is called", async () => {
     let stateAtRespawn: { status?: string } | null = null;
 

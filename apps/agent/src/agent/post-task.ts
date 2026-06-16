@@ -10,7 +10,7 @@ import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "./worktree";
 import type { CmdRunner } from "./pr";
 import { createPullRequest } from "./pr";
-import { createGhCliCodeHost } from "@ralphy/codehost";
+import type { CodeHost } from "@ralphy/codehost";
 import type { DependencyBase } from "./wire/pr-helpers";
 import { fetchPrStatus, type PrStatus } from "../pr-status";
 import { waitForMergeability } from "../shared/pr/wait-for-mergeability";
@@ -143,6 +143,9 @@ export interface RetroDispositionInfo {
 interface PostTaskDeps {
   cmd: CmdRunner;
   git: GitRunner;
+  /** The single {@link CodeHost} adapter (RLF-255 9a), forwarded into the PR
+   *  phase. Built once at the coordinator boot (`wire.ts`). */
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   /**
    * Optional opt-in (`--agent-debug`): run a one-shot retrospective self-review
@@ -200,6 +203,10 @@ interface PostTaskCtx {
   stateFilePath: string;
   cfg: PostTaskInput["cfg"];
   cmd: CmdRunner;
+  /** The single {@link CodeHost} adapter — every git/gh mechanism the PR phase
+   *  runs (head SHA, fetch/pull, merge --abort, diff, status) flows through it
+   *  rather than an inline `git` shell-out. */
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
   respawnWorker: () => Promise<number>;
@@ -208,20 +215,6 @@ interface PostTaskCtx {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Detect whether the GitHub repo that owns `prUrl` has auto-merge enabled
- * (`allow_auto_merge: true`). Returns:
- *   - `true`  → repo allows auto-merge (use `gh pr merge --auto`)
- *   - `false` → repo explicitly disables it (caller may fall back to polling)
- *   - `null`  → could not determine (malformed URL, gh failure, unparseable
- *               response). Caller treats this as "assume enabled" so we never
- *               regress repos where the API call fails for unrelated reasons.
- *
- * Results are cached per repo across calls so a multi-PR run only pays the
- * gh API hop once.
- */
-const repoAutoMergeCache = new Map<string, boolean | null>();
 
 /**
  * Parse `git status --porcelain` output for the post-worker uncommitted-changes
@@ -236,75 +229,6 @@ export function summarizeUncommittedStatus(stdout: string): {
   const lines = stdout.split("\n").filter((line) => line.length > 0);
   const preview = lines.slice(0, 10);
   return { count: lines.length, preview, truncated: Math.max(0, lines.length - preview.length) };
-}
-
-/**
- * Best-effort check for an existing open PR for `branch`. Returns the URL or
- * null. Mirrors the query used by `createPullRequest` so the post-task log can
- * pick a quieter log level on long-running PR branches without coupling to the
- * PR-creation path. Failures swallow to null — the caller falls back to the
- * yellow warning rather than escalate transient gh errors.
- */
-async function findExistingOpenPrUrl(
-  cmd: CmdRunner,
-  cwd: string,
-  branch: string,
-): Promise<string | null> {
-  try {
-    const result = await cmd.run(
-      [
-        "gh",
-        "pr",
-        "list",
-        "--head",
-        branch,
-        "--state",
-        "open",
-        "--json",
-        "url",
-        "--jq",
-        ".[0].url // empty",
-      ],
-      cwd,
-    );
-    const url = result.stdout.trim();
-    return url || null;
-  } catch {
-    return null;
-  }
-}
-async function detectRepoAutoMergeAllowed(
-  prUrl: string,
-  cmd: CmdRunner,
-  cwd: string,
-  log: (text: string, color?: string) => void,
-): Promise<boolean | null> {
-  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+/.exec(prUrl);
-  if (!m) return null;
-  const repoKey = `${m[1]}/${m[2]}`;
-  if (repoAutoMergeCache.has(repoKey)) return repoAutoMergeCache.get(repoKey) ?? null;
-  try {
-    const res = await cmd.run(["gh", "api", `repos/${repoKey}`, "--jq", ".allow_auto_merge"], cwd);
-    const out = res.stdout.trim().toLowerCase();
-    let result: boolean | null;
-    if (out === "true") result = true;
-    else if (out === "false") result = false;
-    else result = null;
-    repoAutoMergeCache.set(repoKey, result);
-    return result;
-  } catch (err) {
-    log(
-      `! could not detect repo auto-merge capability for ${repoKey}: ${(err as Error).message}`,
-      "yellow",
-    );
-    repoAutoMergeCache.set(repoKey, null);
-    return null;
-  }
-}
-
-/** Test-only: clear the per-repo auto-merge capability cache. */
-export function _resetRepoAutoMergeCache(): void {
-  repoAutoMergeCache.clear();
 }
 
 /**
@@ -362,8 +286,7 @@ async function runWorkerWithFixTask(
   // failure mode that produced PRs whose diff silently lost work.
   let preHead = "";
   try {
-    const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-    preHead = r.stdout.trim();
+    preHead = await ctx.codeHost.headSha(ctx.cwd);
   } catch (err) {
     ctx.log(`! could not snapshot HEAD before fix task: ${(err as Error).message}`, "yellow");
   }
@@ -372,15 +295,9 @@ async function runWorkerWithFixTask(
 
   if (preHead) {
     try {
-      const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-      const postHead = r.stdout.trim();
+      const postHead = await ctx.codeHost.headSha(ctx.cwd);
       if (postHead !== preHead) {
-        let isAncestor = true;
-        try {
-          await ctx.cmd.run(["git", "merge-base", "--is-ancestor", preHead, postHead], ctx.cwd);
-        } catch {
-          isAncestor = false;
-        }
+        const isAncestor = await ctx.codeHost.isAncestor(preHead, postHead, ctx.cwd);
         if (!isAncestor) {
           ctx.log(
             `! fix worker for "${heading}" rewrote history — pre=${preHead.slice(0, 8)} ` +
@@ -466,11 +383,8 @@ async function createPrWithRetry(
           "yellow",
         );
         try {
-          await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
-          await ctx.cmd.run(
-            ["git", "pull", "--no-rebase", "--autostash", "--no-edit", "origin", ctx.branch],
-            ctx.cwd,
-          );
+          await ctx.codeHost.fetchBranch(ctx.branch, ctx.cwd);
+          await ctx.codeHost.pullBranch(ctx.branch, ctx.cwd);
           continue;
         } catch (mergeErr) {
           const re = mergeErr as Error & { stderr?: string; stdout?: string };
@@ -486,7 +400,7 @@ async function createPrWithRetry(
 
           ctx.emit("merging", "conflicts detected — aborting + queueing fix task");
           try {
-            await ctx.cmd.run(["git", "merge", "--abort"], ctx.cwd);
+            await ctx.codeHost.abortMerge(ctx.cwd);
           } catch (err) {
             ctx.log(
               `! git merge --abort failed (worktree may already be clean): ${(err as Error).message}`,
@@ -496,11 +410,8 @@ async function createPrWithRetry(
 
           let conflictedFiles = "";
           try {
-            const r = await ctx.cmd.run(
-              ["git", "diff", "--name-only", `HEAD..origin/${ctx.branch}`],
-              ctx.cwd,
-            );
-            conflictedFiles = r.stdout.trim();
+            const files = await ctx.codeHost.changedFiles(`HEAD..origin/${ctx.branch}`, ctx.cwd);
+            conflictedFiles = files.join("\n");
           } catch (err) {
             ctx.log(`! could not list conflicted files: ${(err as Error).message}`, "yellow");
           }
@@ -611,35 +522,34 @@ interface PrPhaseInput {
  * files that the agent modified anyway, or an empty array when clean.
  */
 async function findNeverTouchViolations(
-  cmd: CmdRunner,
+  codeHost: CodeHost,
   cwd: string,
   base: string,
   neverTouch: string[],
 ): Promise<{ file: string; pattern: string }[]> {
   if (neverTouch.length === 0) return [];
-  let raw = "";
+  let files: string[] = [];
   try {
-    const r = await cmd.run(["git", "diff", "--name-only", `origin/${base}...HEAD`], cwd);
-    raw = r.stdout;
+    files = await codeHost.changedFiles(`origin/${base}...HEAD`, cwd);
   } catch {
     // Fall back to local base ref when origin/<base> isn't fetched.
     try {
-      const r = await cmd.run(["git", "diff", "--name-only", `${base}...HEAD`], cwd);
-      raw = r.stdout;
+      files = await codeHost.changedFiles(`${base}...HEAD`, cwd);
     } catch {
       return [];
     }
   }
-  const files = raw
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
   return findBoundaryViolations(files, neverTouch);
 }
 
 /** Deps consumed only by the PR phase. */
 interface PrPhaseDeps {
   cmd: CmdRunner;
+  /** The single {@link CodeHost} adapter built once at the coordinator boot
+   *  (`wire.ts`) and threaded down (RLF-255 9a). The PR phase issues its
+   *  `markReady` / `enableAutoMerge` transitions through this instance instead
+   *  of re-constructing a gh adapter per call. */
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
   respawnWorker: () => Promise<number>;
@@ -670,8 +580,16 @@ interface PrPhaseDeps {
  */
 export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
   const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg } = input;
-  const { cmd, log, emit, respawnWorker, registerPr, onPrReady, resolveDependencyBaseBranch } =
-    deps;
+  const {
+    cmd,
+    codeHost,
+    log,
+    emit,
+    respawnWorker,
+    registerPr,
+    onPrReady,
+    resolveDependencyBaseBranch,
+  } = deps;
 
   if (!branch || !issue) {
     log(
@@ -719,16 +637,17 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     stateFilePath,
     cfg,
     cmd,
+    codeHost,
     log,
     emit,
     respawnWorker,
   };
 
   try {
-    const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-    const summary = summarizeUncommittedStatus(status.stdout);
+    const statusOut = await codeHost.workingTreeStatus(cwd);
+    const summary = summarizeUncommittedStatus(statusOut);
     if (summary.count > 0) {
-      const existingPrUrl = branch ? await findExistingOpenPrUrl(cmd, cwd, branch) : null;
+      const existingPrUrl = branch ? await codeHost.findOpenPullRequestForBranch(branch) : null;
       const indented = summary.preview.map((line) => `    ${line}`).join("\n");
       const suffix = summary.truncated ? `\n    ... and ${summary.truncated} more` : "";
       if (existingPrUrl) {
@@ -747,7 +666,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
   }
 
-  const violations = await findNeverTouchViolations(cmd, cwd, base, cfg.neverTouch);
+  const violations = await findNeverTouchViolations(codeHost, cwd, base, cfg.neverTouch);
   if (violations.length > 0) {
     log(`! ${changeName} modified files inside boundaries.never_touch — aborting PR:`, "red");
     for (const v of violations) {
@@ -831,8 +750,8 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     // to a done state with no PR (see LIT-303 incident).
     let dirtyAfterWorker = false;
     try {
-      const status = await cmd.run(["git", "status", "--porcelain"], cwd);
-      dirtyAfterWorker = summarizeUncommittedStatus(status.stdout).count > 0;
+      const statusOut = await codeHost.workingTreeStatus(cwd);
+      dirtyAfterWorker = summarizeUncommittedStatus(statusOut).count > 0;
     } catch {
       // If we can't check, fall back to the legacy benign behavior.
     }
@@ -861,7 +780,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   if (cfg.prDraft === true) {
     emit("pr-ready");
     try {
-      await createGhCliCodeHost({ cmdRunner: cmd, cwd }).markReady(prUrl);
+      await codeHost.markReady(prUrl);
       log(`  converted ${prUrl} from draft to ready`, "green");
     } catch (err) {
       const e = err as Error & { stderr?: string };
@@ -872,7 +791,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
 
   // A draft that could not be converted to ready can't be auto-merged — skip it.
   if (wantAutoMerge && readyOk) {
-    const repoAllowsAutoMerge = await detectRepoAutoMergeAllowed(prUrl, cmd, cwd, log);
+    const repoAllowsAutoMerge = await codeHost.isAutoMergeAllowed(prUrl);
     if (repoAllowsAutoMerge === false) {
       // RLF-97: the worker no longer polls CI in-process, so it can't merge a
       // repo with auto-merge disabled "once checks pass". Leave the PR open for
@@ -885,10 +804,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
       );
     } else {
       try {
-        await createGhCliCodeHost({ cmdRunner: cmd, cwd }).enableAutoMerge(
-          prUrl,
-          cfg.autoMergeStrategy,
-        );
+        await codeHost.enableAutoMerge(prUrl, cfg.autoMergeStrategy);
         log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
         emit("auto-merge-enabled", cfg.autoMergeStrategy);
       } catch (err) {
@@ -1230,8 +1146,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       let aheadCount = 0;
       let checked = true;
       try {
-        const r = await cmd.run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], cwd);
-        aheadCount = Number.parseInt(r.stdout.trim(), 10) || 0;
+        aheadCount = await deps.codeHost.countCommitsAhead(`origin/${branch}..HEAD`, cwd);
       } catch (err) {
         // Ref missing / detached HEAD / not a worktree — can't determine, so
         // don't block: fall through to the existing mergeability verification.
@@ -1270,7 +1185,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
 
     let prUrl: string | null = input.prUrl ?? null;
     if (!prUrl && branch) {
-      prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
+      prUrl = await deps.codeHost.findOpenPullRequestForBranch(branch);
     }
     if (!prUrl) {
       log(
@@ -1346,6 +1261,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       },
       {
         cmd,
+        codeHost: deps.codeHost,
         log,
         emit,
         respawnWorker,

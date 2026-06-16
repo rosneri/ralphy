@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { resolveDependencyBaseBranchImpl } from "../agent/wire";
-import type { CmdRunner } from "../agent/pr";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
+import type { CodeHost, PullRequestState } from "@ralphy/codehost";
 import type { TrackedIssue } from "@ralphy/tracker";
 
 const ISSUE_ID = "dep-issue";
@@ -87,18 +88,20 @@ function makeLinearMock(opts: {
   return Object.assign(impl, { preconnect: () => {} });
 }
 
-/** A `gh pr view` runner that answers from a url → PR-fields map. */
-function makeGhRunner(
-  prs: Record<string, { state: string; headRefName: string; title: string }>,
-  sink?: string[][],
-): CmdRunner {
+/** A CodeHost whose `getPullRequestDetails` answers from a url → PR-fields map.
+ *  Unknown URLs resolve to a closed PR (mirrors a missing/landed attachment). */
+function makeHost(
+  prs: Record<string, { state: PullRequestState; headRefName: string; title: string }>,
+  probed?: string[],
+): CodeHost {
+  const host = createFakeCodeHost();
   return {
-    run: async (args) => {
-      sink?.push(args);
-      const url = args[3] ?? "";
+    ...host,
+    async getPullRequestDetails(url) {
+      probed?.push(url);
       const pr = prs[url];
-      if (!pr) return { stdout: JSON.stringify({ state: "CLOSED" }), stderr: "" };
-      return { stdout: JSON.stringify({ ...pr, url }), stderr: "" };
+      if (!pr) return { state: "closed", headRefName: "", title: "", url };
+      return { ...pr, url };
     },
   };
 }
@@ -118,11 +121,11 @@ describe("resolveDependencyBaseBranchImpl", () => {
       blockedBy: { [ISSUE_ID]: [{ id: "b3" }] },
       attachments: { b3: [{ url: prUrl }] },
     });
-    const runner = makeGhRunner({
-      [prUrl]: { state: "OPEN", headRefName: "feature/blocker-3", title: "RLF-42: build it" },
+    const host = makeHost({
+      [prUrl]: { state: "open", headRefName: "feature/blocker-3", title: "RLF-42: build it" },
     });
 
-    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b3"]), runner, "/cwd", {
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b3"]), host, {
       apiKey: "k",
       onLog: () => {},
     });
@@ -143,11 +146,11 @@ describe("resolveDependencyBaseBranchImpl", () => {
       blockedBy: { [ISSUE_ID]: [{ id: "late" }] },
       attachments: { late: [{ url: prUrl }] },
     });
-    const runner = makeGhRunner({
-      [prUrl]: { state: "OPEN", headRefName: "ralph/late", title: "RLF-7: late link" },
+    const host = makeHost({
+      [prUrl]: { state: "open", headRefName: "ralph/late", title: "RLF-7: late link" },
     });
 
-    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), runner, "/cwd", {
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), host, {
       apiKey: "k",
       onLog: () => {},
     });
@@ -169,17 +172,15 @@ describe("resolveDependencyBaseBranchImpl", () => {
       },
       attachments: { b418: [{ url: pr418 }], b419: [{ url: pr419 }] },
     });
-    const runner = makeGhRunner({
-      [pr418]: { state: "OPEN", headRefName: "ralph/lit-418", title: "LIT-418: schema" },
-      [pr419]: { state: "OPEN", headRefName: "ralph/lit-419", title: "LIT-419: read/write" },
+    const host = makeHost({
+      [pr418]: { state: "open", headRefName: "ralph/lit-418", title: "LIT-418: schema" },
+      [pr419]: { state: "open", headRefName: "ralph/lit-419", title: "LIT-419: read/write" },
     });
 
-    const out = await resolveDependencyBaseBranchImpl(
-      issueWithBlockers(["b418", "b419"]),
-      runner,
-      "/cwd",
-      { apiKey: "k", onLog: () => {} },
-    );
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b418", "b419"]), host, {
+      apiKey: "k",
+      onLog: () => {},
+    });
 
     expect(out?.baseBranch).toBe("ralph/lit-419");
     expect(out?.blockerIdentifier).toBe("LIT-419");
@@ -192,18 +193,16 @@ describe("resolveDependencyBaseBranchImpl", () => {
       blockedBy: { [ISSUE_ID]: [{ id: "ba" }, { id: "bb" }], ba: [], bb: [] },
       attachments: { ba: [{ url: prA }], bb: [{ url: prB }] },
     });
-    const runner = makeGhRunner({
-      [prA]: { state: "OPEN", headRefName: "ralph/a", title: "RLF-1: a" },
-      [prB]: { state: "OPEN", headRefName: "ralph/b", title: "RLF-2: b" },
+    const host = makeHost({
+      [prA]: { state: "open", headRefName: "ralph/a", title: "RLF-1: a" },
+      [prB]: { state: "open", headRefName: "ralph/b", title: "RLF-2: b" },
     });
     const logs: { msg: string; color?: string | undefined }[] = [];
 
-    const out = await resolveDependencyBaseBranchImpl(
-      issueWithBlockers(["ba", "bb"]),
-      runner,
-      "/cwd",
-      { apiKey: "k", onLog: (msg, color) => logs.push({ msg, color }) },
-    );
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["ba", "bb"]), host, {
+      apiKey: "k",
+      onLog: (msg, color) => logs.push({ msg, color }),
+    });
 
     expect(out).toBeNull();
     expect(logs.some((l) => l.msg.includes("no single dependency tip"))).toBe(true);
@@ -215,12 +214,12 @@ describe("resolveDependencyBaseBranchImpl", () => {
       blockedByStatus: 500, // live re-fetch fails → fall back to snapshot ["b1"]
       attachments: { b1: [{ url: prUrl }] },
     });
-    const runner = makeGhRunner({
-      [prUrl]: { state: "OPEN", headRefName: "ralph/b1", title: "RLF-3: snap" },
+    const host = makeHost({
+      [prUrl]: { state: "open", headRefName: "ralph/b1", title: "RLF-3: snap" },
     });
     const logs: { msg: string; color?: string | undefined }[] = [];
 
-    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b1"]), runner, "/cwd", {
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b1"]), host, {
       apiKey: "k",
       onLog: (msg, color) => logs.push({ msg, color }),
     });
@@ -234,15 +233,13 @@ describe("resolveDependencyBaseBranchImpl", () => {
       blockedBy: { [ISSUE_ID]: [{ id: "b1" }, { id: "b2" }] },
       attachmentsStatus: 500,
     });
-    const runner = makeGhRunner({});
+    const host = makeHost({});
     const logs: { msg: string; color?: string | undefined }[] = [];
 
-    const out = await resolveDependencyBaseBranchImpl(
-      issueWithBlockers(["b1", "b2"]),
-      runner,
-      "/cwd",
-      { apiKey: "k", onLog: (msg, color) => logs.push({ msg, color }) },
-    );
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers(["b1", "b2"]), host, {
+      apiKey: "k",
+      onLog: (msg, color) => logs.push({ msg, color }),
+    });
 
     expect(out).toBeNull();
     const yellow = logs.filter((l) => l.color === "yellow");
@@ -257,9 +254,9 @@ describe("resolveDependencyBaseBranchImpl", () => {
       blockedBy: { [ISSUE_ID]: [] },
       onCall: (kind) => calls.push(kind),
     });
-    const runner = makeGhRunner({});
+    const host = makeHost({});
 
-    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), runner, "/cwd", {
+    const out = await resolveDependencyBaseBranchImpl(issueWithBlockers([]), host, {
       apiKey: "k",
       onLog: () => {},
     });

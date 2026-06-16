@@ -159,6 +159,35 @@ describe("buildMetaPrompt", () => {
     expect(result).toContain("Active Flags");
   });
 
+  describe("project rules", () => {
+    const RULE_KEYWORDS = [
+      "Bun-native",
+      "node:fs",
+      "`any`",
+      "abbreviate",
+      "XState",
+      "re-exports",
+      "resolveConfig",
+      "packages/",
+    ];
+
+    test("emits a Project Rules section for all four phases", () => {
+      for (const phase of ["research", "plan", "execute", "review"] as const) {
+        const result = buildMetaPrompt(makeState(), phase);
+        expect(result).toContain("### Project Rules");
+        for (const keyword of RULE_KEYWORDS) {
+          expect(result).toContain(keyword);
+        }
+      }
+    });
+
+    test("omits the Project Rules section when the meta-prompt is disabled", () => {
+      const result = buildMetaPrompt(makeState(), "execute", { enabled: false });
+      expect(result).toBe("");
+      expect(result).not.toContain("### Project Rules");
+    });
+  });
+
   describe("effort layer", () => {
     test("emits an **Effort:** line with a known tier", () => {
       const result = buildMetaPrompt(makeState(), "execute");

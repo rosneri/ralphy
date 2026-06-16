@@ -297,6 +297,7 @@ export function buildAgentCoordinator(
     indicators,
     cmdRunner,
     gitRunner,
+    codeHost,
     applyIndicator: provider.applyIndicator,
     bus,
     onLog,

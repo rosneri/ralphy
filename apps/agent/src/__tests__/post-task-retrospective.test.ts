@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runPostTask, type RetroDispositionInfo } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import type { GitRunner } from "../agent/worktree";
 import type { TrackedIssue } from "@ralphy/tracker";
 
@@ -82,6 +83,7 @@ describe("runPostTask — retrospective hook", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd: makeCmd(),
+      codeHost: createFakeCodeHost(),
       git,
       log: () => {},
       runScript: async () => {},
@@ -107,6 +109,7 @@ describe("runPostTask — retrospective hook", () => {
 
     const withoutDep = await runPostTask(baseInput(), {
       cmd: makeCmd(),
+      codeHost: createFakeCodeHost(),
       git,
       log: () => {},
       runScript: async () => {},
@@ -115,6 +118,7 @@ describe("runPostTask — retrospective hook", () => {
     let called = 0;
     const withDep = await runPostTask(baseInput(), {
       cmd: makeCmd(),
+      codeHost: createFakeCodeHost(),
       git,
       log: () => {},
       runScript: async () => {},

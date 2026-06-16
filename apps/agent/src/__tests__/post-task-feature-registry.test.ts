@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runPostTask } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import type { GitRunner } from "../agent/worktree";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { Bus, EmitInput } from "@ralphy/events";
@@ -94,6 +95,7 @@ describe("runPostTask — feature registry walk", () => {
 
     await runPostTask(baseInput(), {
       cmd: makeCmd(),
+      codeHost: createFakeCodeHost(),
       git,
       log: () => {},
       runScript: async () => {},
@@ -111,6 +113,7 @@ describe("runPostTask — feature registry walk", () => {
     let ctxCalls = 0;
     await runPostTask(baseInput(), {
       cmd: makeCmd(),
+      codeHost: createFakeCodeHost(),
       git,
       log: () => {},
       runScript: async () => {},
@@ -154,6 +157,7 @@ describe("runPostTask — feature registry walk", () => {
     try {
       await runPostTask(baseInput({ exitCode: 7 }), {
         cmd: makeCmd(),
+        codeHost: createFakeCodeHost(),
         git,
         log: () => {},
         runScript: async () => {},
@@ -193,6 +197,7 @@ describe("runPostTask — feature registry walk", () => {
     try {
       await runPostTask(baseInput(), {
         cmd: makeCmd(),
+        codeHost: createFakeCodeHost(),
         git,
         log: () => {},
         runScript: async () => {},
