@@ -46,4 +46,3 @@ Steps:
 
 PR: https://github.com/rosneri/ralphy/pull/451
 ```
-

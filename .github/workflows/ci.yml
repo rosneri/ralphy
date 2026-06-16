@@ -71,6 +71,9 @@ jobs:
       - name: Shellcheck
         run: bun run check:shell
 
+      - name: Prompt rule sync check
+        run: bun scripts/check-prompt-rule-sync.ts
+
       - name: CI ↔ local parity guard
         run: bun scripts/check-ci-parity.ts
 
