@@ -15,6 +15,7 @@ import type { AgentParsedArgs } from "../../../cli";
 import type { RalphyConfig } from "../../config";
 import type { AgentCoordinator } from "../../coordinator";
 import type { CmdRunner } from "../../pr";
+import type { CodeHost } from "@ralphy/codehost";
 import type { GitRunner } from "../../worktree";
 import {
   fetchIssueComments,
@@ -210,9 +211,12 @@ export function buildPostTaskInput(input: {
       manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
       prDraft: cfg.prDraft,
       prLabels: cfg.prLabels,
-      validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
-        (c): c is string => Boolean(c),
-      ),
+      validateCommands: [
+        cfg.commands.test,
+        cfg.commands.lint,
+        cfg.commands.typecheck,
+        cfg.commands.structure,
+      ].filter((c): c is string => Boolean(c)),
     },
     respawnWorker: input.respawnWorker,
   };
@@ -231,6 +235,10 @@ interface SpawnWorkerInput {
   indicators: Indicators;
   cmdRunner: CmdRunner;
   gitRunner: GitRunner;
+  /** The single {@link CodeHost} adapter built once in `wire.ts` (RLF-255 9a),
+   *  forwarded into the post-task PR phase so it issues PR transitions through
+   *  the shared instance instead of re-constructing a gh adapter per call. */
+  codeHost: CodeHost;
   /** Apply a Linear set-indicator. Used to wire the additive `setPrReady`
    *  marker from the PR phase (`onPrReady`). */
   applyIndicator: (issue: TrackedIssue, ind: SetIndicator) => Promise<void>;
@@ -288,6 +296,7 @@ export function createSpawnWorker(
     indicators,
     cmdRunner,
     gitRunner,
+    codeHost,
     applyIndicator,
     bus,
     onLog,
@@ -565,6 +574,7 @@ export function createSpawnWorker(
         {
           cmd: tracedCmd,
           git: gitRunner,
+          codeHost,
           log: onLog,
           runScript,
           ...retroDepEntry(args.agentDebug, runRetrospectiveHook),
@@ -599,7 +609,7 @@ export function createSpawnWorker(
               onWorkerPhase(changeName, phase, detail),
           }),
           resolveDependencyBaseBranch: (issue) =>
-            resolveDependencyBaseBranchImpl(issue, tracedCmd, cwd, { apiKey, onLog }),
+            resolveDependencyBaseBranchImpl(issue, codeHost, { apiKey, onLog }),
         },
       );
       releaseWorkerMaps(

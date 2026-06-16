@@ -53,6 +53,7 @@ stage_static() {
   run_step "Config merge guard"            bun scripts/check-config-merge.ts
   run_step "No unsafe casts (as any / as unknown)" bash scripts/check-no-unsafe-casts.sh
   run_step "Shellcheck"                   bun run check:shell
+  run_step "Prompt rule sync check"        bun scripts/check-prompt-rule-sync.ts
   run_step "CI ↔ local parity guard"      bun scripts/check-ci-parity.ts
   run_step "Lint (affected)"              bun run lint:ci
   run_step "Format check (affected)"      bun run fmt:ci

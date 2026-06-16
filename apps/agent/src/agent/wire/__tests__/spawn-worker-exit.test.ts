@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createNoopBus } from "@ralphy/events";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import { createSpawnWorker } from "../spawn/worker";
 import { runPostTask } from "../../post-task";
 import { loadEffectiveConfig } from "../../config";
@@ -143,6 +144,7 @@ async function buildHarness(opts: HarnessOptions = {}): Promise<Harness> {
     indicators: {},
     cmdRunner: { run: async () => ({ stdout: "", stderr: "" }) },
     gitRunner: { run: async () => ({ stdout: "", stderr: "" }) },
+    codeHost: createFakeCodeHost(),
     applyIndicator: async () => {},
     bus: createNoopBus(),
     onLog: () => {},

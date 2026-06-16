@@ -11,6 +11,7 @@ import {
 } from "./shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { fetchPrStatus, type PrStatus } from "./pr-status";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import type { CmdRunner } from "./agent/pr";
 import { discoverPrUrlFromGitHub } from "./agent/pr-url";
 import { sortRows, type SortableRow } from "./list-sort";
@@ -365,17 +366,15 @@ async function fetchAndPrintLinear(
   );
 
   if (checks) {
+    // Build the gh adapter once for the whole list run (RLF-255 9a) — the
+    // per-row CI probe routes through this single instance instead of
+    // re-constructing one per row.
+    const codeHost = createGhCliCodeHost({ cmdRunner: runner, cwd, ignoreChecks: ignoreCiChecks });
     await Promise.all(
       rows.map(async (row) => {
         if (!row.prUrl || row.status?.kind !== "ok" || row.status.ciBucket !== "fail") return;
         try {
-          const ciStatus = await getPrChecksStatus(
-            row.prUrl,
-            runner,
-            cwd,
-            undefined,
-            ignoreCiChecks,
-          );
+          const ciStatus = await getPrChecksStatus(row.prUrl, codeHost);
           row.failedCheckNames = ciStatus.failedCheckNames;
         } catch {
           row.failedCheckNames = [];

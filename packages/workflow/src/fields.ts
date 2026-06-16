@@ -242,6 +242,13 @@ const CUSTOMIZED_FIELDS: Field[] = [
     description: "Shell command Ralphy runs to confirm the project's types still pass.",
     spec: { kind: "text", placeholder: "bun run typecheck" },
   },
+  {
+    id: "commands.structure",
+    label: "Structure command",
+    description:
+      "Shell command Ralphy runs each iteration to enforce the project's structural guardrails (file size, layering, no-reexport, etc.). Defaults to `bun run check:structure`; set it empty to opt out.",
+    spec: { kind: "text", placeholder: "bun run check:structure" },
+  },
 
   // ── Engine ──
   {

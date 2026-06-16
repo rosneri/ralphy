@@ -16,6 +16,7 @@ import {
   type OpenSpecPhase,
 } from "./openspec/phase";
 import { buildMetaPrompt, type MetaPromptOptions, type TaskPhase } from "./prompt/meta-prompt";
+import { SELF_REVIEW_FAILURE_CLASSES } from "./prompt/project-rules";
 
 export type { MetaPromptOptions, TaskPhase } from "./prompt/meta-prompt";
 export {
@@ -267,7 +268,10 @@ export function buildTaskPrompt(
         prompt += "1. Read `proposal.md` and `design.md` from `openspec/changes/<change-name>/`.\n";
         prompt += "2. Run `git diff main` to review all changes in this branch.\n";
         prompt += "3. Check the implementation against the acceptance criteria in `proposal.md`.\n";
-        prompt += `4. Write findings to \`${reviewFindingsPath}\`:\n`;
+        prompt +=
+          "4. Audit the diff against these recurring failure classes, not just the acceptance criteria:\n\n";
+        prompt += `${SELF_REVIEW_FAILURE_CLASSES}\n\n`;
+        prompt += `5. Write findings to \`${reviewFindingsPath}\`:\n`;
         prompt += "   - If issues found: list them as `- [ ] <finding>` under `## Open`.\n";
         prompt += "   - If no issues: write `(no findings — close round)` under `## Open`.\n\n";
         prompt += "---\n\n";
@@ -390,7 +394,10 @@ export function buildReviewPrompt(state: State, taskDir: string): string {
   prompt += `1. Read \`openspec/changes/${state.name}/proposal.md\` and \`openspec/changes/${state.name}/design.md\`.\n`;
   prompt += "2. Run `git diff main` to review all changes in this branch.\n";
   prompt += "3. Check the implementation against the acceptance criteria in `proposal.md`.\n";
-  prompt += `4. Write findings to \`${reviewFindingsPath}\`:\n`;
+  prompt +=
+    "4. Audit the diff against these recurring failure classes, not just the acceptance criteria:\n\n";
+  prompt += `${SELF_REVIEW_FAILURE_CLASSES}\n\n`;
+  prompt += `5. Write findings to \`${reviewFindingsPath}\`:\n`;
   prompt += "   - If issues found: list them as `- [ ] <finding>` under `## Open`.\n";
   prompt += "   - If no issues: write `(no findings — close round)` under `## Open`.\n\n";
   prompt += "Do not implement any fixes in this phase. Only audit and document findings.\n\n";
