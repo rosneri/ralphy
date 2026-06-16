@@ -11,6 +11,11 @@
 # Tune the cap:  RALPH_MEM_MAX=20G bash scripts/agent-capped.sh ...
 # After a kill:  journalctl --user -u <unit printed below> | tail
 set -u
+# Run in-place instead of letting the agent re-exec into its own tmux session
+# (apps/agent/src/index.ts) — otherwise the real process lands in a separate
+# tmux-spawn scope and escapes this unit's MemoryMax. The caller is expected to
+# provide the terminal (run this inside tmux), same as the managed launch.
+export RALPH_AGENT_MANAGED=1
 MAX="${RALPH_MEM_MAX:-16G}"
 SWAP="${RALPH_SWAP_MAX:-2G}"
 UNIT="ralphy-agent-$(date -u +%Y%m%d-%H%M%S)"
