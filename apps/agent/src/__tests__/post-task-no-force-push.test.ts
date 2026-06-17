@@ -134,7 +134,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -195,7 +195,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -252,7 +252,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -299,7 +299,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );

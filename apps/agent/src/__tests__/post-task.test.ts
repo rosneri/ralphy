@@ -143,7 +143,7 @@ describe("runPrPhase — isolation", () => {
         stateFilePath: "/tmp/.ralph-state.json",
         issue: null,
         wantAutoMerge: false,
-        cfg: {
+        config: {
           teardownScript: null,
           prBaseBranch: "main",
           autoMergeStrategy: "squash" as const,
@@ -182,7 +182,7 @@ describe("runWorktreeCleanupPhase — isolation", () => {
         projectRoot: "/tmp",
         useWorktree: false,
         effectiveCode: 0,
-        cfg: { cleanupWorktreeOnSuccess: true, prBaseBranch: "main" },
+        config: { cleanupWorktreeOnSuccess: true, prBaseBranch: "main" },
       },
       { git, log: () => {}, emit: (p) => phases.push(p) },
     );
@@ -340,7 +340,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -375,7 +375,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -413,7 +413,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -440,7 +440,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -467,7 +467,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, stackPrsOnDependencies: true },
+        config: { ...baseCfg, stackPrsOnDependencies: true },
       },
       {
         cmd,
@@ -515,7 +515,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, stackPrsOnDependencies: true },
+        config: { ...baseCfg, stackPrsOnDependencies: true },
       },
       {
         cmd,
@@ -559,7 +559,7 @@ describe("runPrPhase — base branch override + auto-merge", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, stackPrsOnDependencies: true },
+        config: { ...baseCfg, stackPrsOnDependencies: true },
       },
       {
         cmd,
@@ -628,7 +628,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
+        config: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
       {
         cmd,
@@ -666,7 +666,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
+        config: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -698,7 +698,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: false },
+        config: { ...baseCfg, manualMergeWhenAutoMergeDisabled: false },
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -727,7 +727,7 @@ describe("runPrPhase — manual-merge fallback when repo auto-merge is disabled"
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
+        config: { ...baseCfg, manualMergeWhenAutoMergeDisabled: true },
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -789,7 +789,7 @@ describe("runPrPhase — prDraft behavior", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd,
@@ -833,7 +833,7 @@ describe("runPrPhase — prDraft behavior", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd,
@@ -873,7 +873,7 @@ describe("runPrPhase — prDraft behavior", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, prDraft: false },
+        config: { ...baseCfg, prDraft: false },
       },
       { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
@@ -905,7 +905,7 @@ describe("runPrPhase — prDraft behavior", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd,
@@ -978,7 +978,7 @@ describe("runPrPhase — only-meta diff guard", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1033,7 +1033,7 @@ describe("runPrPhase — only-meta diff guard", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1070,7 +1070,7 @@ describe("runPrPhase — only-meta diff guard", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1166,7 +1166,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1211,7 +1211,7 @@ describe("runPrPhase — uncommitted-changes log behavior", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1289,7 +1289,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1329,7 +1329,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1362,7 +1362,7 @@ describe("runPrPhase — dirty worktree with no commits ahead must not return su
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1430,7 +1430,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1469,7 +1469,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd,
@@ -1509,7 +1509,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd,
@@ -1549,7 +1549,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: true,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -1585,7 +1585,7 @@ describe("runPrPhase — onPrReady (setPrReady) trigger", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,

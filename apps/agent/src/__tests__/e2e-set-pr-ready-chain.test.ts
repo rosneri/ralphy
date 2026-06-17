@@ -169,7 +169,7 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
         stateFilePath,
         issue,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd: gh.cmd,
@@ -216,7 +216,7 @@ describe("e2e — setPrReady chain over a stateful GitHub mock", () => {
         stateFilePath,
         issue,
         wantAutoMerge: true,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd: gh.cmd,
