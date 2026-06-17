@@ -9,6 +9,7 @@ Ralph loop framework.
 - Always use Bun-native APIs (`Bun.spawn` / `Bun.spawnSync`, `Bun.file`, `Bun.write`, `Bun.resolveSync`, `Bun.serve`, etc.). Only fall back to a `node:*` import if no Bun-native exists for the use case.
 - Never use `node:fs` **sync** APIs in source. Callers should be async.
 - Tests that need to mock spawning must patch `Bun.spawnSync` directly (see `packages/openspec/src/__tests__/openspec-change-store.test.ts` for the pattern). Do not `mock.module("node:child_process", ...)`.
+- NEVER run a bare `bun test` (whole-monorepo, single process). It loads every test file into one process — `mock.module` is process-global so mock state accumulates — and balloons to 10+ GB, OOM-killing the worker (and historically the whole fleet). Always scope tests to the package or file you touched: `bun test apps/<app>/src/...` / `bun test packages/<pkg>/src/...`, or use the nx targets (`bun run typecheck`, `nx affected -t test`). Verify only the surface area your change affects.
 
 ## Code Conventions
 

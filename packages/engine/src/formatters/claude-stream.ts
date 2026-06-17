@@ -12,6 +12,19 @@ const LEGACY_BUDGET = 120;
 const LEGACY_VALUE_CAP = 40;
 const PREFIX_PADDING = 20;
 
+// A single feed event's text is retained in the live view and measured/wrapped
+// by Ink. An iteration that produces a very large assistant message or tool
+// result would otherwise hold (and lay out) megabytes per entry — a primary
+// contributor to the OOM. Cap any one entry's text; the full record still goes
+// to the raw/JSON log file. Kept local to the engine to avoid a circular
+// dependency on @ralphy/core (which depends on the engine).
+const MAX_FEED_EVENT_TEXT_CHARS = 64 * 1024;
+function capFeedText(text: string): string {
+  if (text.length <= MAX_FEED_EVENT_TEXT_CHARS) return text;
+  const dropped = text.length - MAX_FEED_EVENT_TEXT_CHARS;
+  return `${text.slice(0, MAX_FEED_EVENT_TEXT_CHARS)}\n… (truncated ${dropped} more chars)`;
+}
+
 function extractToolInputSummary(
   input: Record<string, unknown>,
   maxWidth?: number,
@@ -133,7 +146,7 @@ export function parseClaudeLine(
         const btype = block.type as string;
         if (btype === "text") {
           const text = block.text as string;
-          if (text) events.push({ type: "text", text });
+          if (text) events.push({ type: "text", text: capFeedText(text) });
         } else if (btype === "tool_use") {
           state.toolCount++;
           const name = (block.name as string) ?? "?";
@@ -180,7 +193,9 @@ export function parseClaudeLine(
               .join("\n");
           }
           if (resultText) {
-            const lines = resultText.split("\n");
+            // Only the first few lines are shown — split a bounded prefix so a
+            // multi-megabyte tool result can't allocate a giant line array.
+            const lines = capFeedText(resultText).split("\n");
             const preview = lines.slice(0, 6);
             const ev: Extract<FeedEvent, { type: "tool-result-preview" }> = {
               type: "tool-result-preview",
