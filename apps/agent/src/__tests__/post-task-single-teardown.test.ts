@@ -296,8 +296,9 @@ describe("runPostTask — single teardown invariant", () => {
     const { cmd } = makeCmd({
       "gh pr list": { stdout: "https://github.com/owner/repo/pull/42\n" },
       "gh pr view": { stdout: JSON.stringify({ state: "OPEN", mergeable: "CONFLICTING" }) },
-      "git rev-list --count": { stdout: "2" },
     });
+    const fakeHost = createFakeCodeHost();
+    fakeHost.setCommitsAhead("origin/ralph/my-change..HEAD", 2);
     const c = counters();
     const code = await runPostTask(baseInput({ mode: "conflict-fix" }), {
       cmd,
@@ -305,7 +306,7 @@ describe("runPostTask — single teardown invariant", () => {
       log: () => {},
       runScript: c.runScript,
       onPhase: c.onPhase,
-      codeHost: createFakeCodeHost(),
+      codeHost: fakeHost,
     });
     expect(code).toBe(PR_FAILED_EXIT);
     assertOnce(c);
