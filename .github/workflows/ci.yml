@@ -38,6 +38,9 @@ jobs:
       - name: Folder size check
         run: bun scripts/check-folder-size.ts
 
+      - name: Per-file LOC budget
+        run: bun scripts/check-file-size.ts
+
       - name: Single component per TSX file
         run: bun scripts/check-single-component.ts
 
@@ -58,6 +61,9 @@ jobs:
 
       - name: Bun-native APIs (no node:fs *Sync / createHash / fs.exists)
         run: bun scripts/check-bun-native.ts
+
+      - name: No new abbreviated identifiers (ratcheted)
+        run: bun scripts/check-no-abbreviation.ts
 
       - name: Static error messages (no template literals in Error/Exception constructors)
         run: bun scripts/check-static-error-messages.ts
