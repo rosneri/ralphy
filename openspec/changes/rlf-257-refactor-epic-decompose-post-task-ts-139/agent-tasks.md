@@ -1,6 +1,6 @@
 ## Fix failing CI checks (2026-06-17T12:39:13.391Z)
 
-- [ ] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Fix failing CI checks. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The PR for this change has failing CI checks.
