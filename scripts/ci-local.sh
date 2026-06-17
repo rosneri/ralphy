@@ -41,6 +41,7 @@ stage_static() {
   run_step "No direct axios in apps/ui"   bun scripts/check-no-direct-http.ts
   run_step "Bun-native APIs (no node:fs *Sync / createHash / fs.exists)" bun scripts/check-bun-native.ts
   run_step "No imperative config merges (args.x || cfg.y outside resolveConfig)" bun scripts/check-config-merge.ts
+  run_step "Test integrity (no .only / no new skips / no jest.mock / no mock.module(node:child_process))" bun scripts/check-test-integrity.ts
   run_step "No prop drilling in React components" bun scripts/check-prop-drilling.ts
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts
   run_step "Folder size check"            bun scripts/check-folder-size.ts
