@@ -32,7 +32,6 @@
   "apps/agent/src/runtime/coordination/worker-pool.ts\tidx",
   "apps/agent/src/runtime/tmux.ts\tidx",
   "apps/agent/src/scripts/generate-architecture.ts\trepo",
-  "apps/agent/src/shared/capabilities/github/github-client.ts\trepo",
   "apps/agent/src/shared/pr/review-state.ts\trepo",
   "apps/init/src/SetupWizard.tsx\trepo",
   "apps/init/src/index.ts\trepo",
