@@ -153,7 +153,7 @@ buildPrompt(state, changeDir):
   append base OpenSpec instructions (Why/Spec references, validate command)
 ```
 
-`checkStopCondition` stays (cost / runtime / iterations / consecutive failures).
+Stop conditions (cost / runtime / iterations / consecutive failures) live exclusively in the `loopMachine` guards (`maxIterationsReached`, `costCapReached`, `runtimeLimitReached`, `consecutiveFailuresReached`), consumed by `createLoopRunner`.
 `autoTransitionAfterIteration` → on zero unchecked tasks, mark `status: completed` and call `openspec archive`.
 Terminal signal = `status !== "active"`.
 
