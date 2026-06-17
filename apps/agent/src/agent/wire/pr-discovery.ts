@@ -150,6 +150,12 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
       // flow actor. Returning null here (the old "closed" behavior) stranded a
       // *quarantined* actor forever — it was re-counted on every poll because
       // the clearing path only fires on a non-null mergeable result.
+      //
+      // Mark the PR unavailable first (as the "closed" path does) so once this
+      // poll has cleared the actor, subsequent polls short-circuit instead of
+      // re-querying `gh pr view` for a PR that is already merged and gone.
+      markPrUnavailable(changeName);
+      prUrlByIssue.invalidate(issue.id);
       return { url: prUrl, status: "mergeable" };
     }
     if (outcome.kind === "closed") {
