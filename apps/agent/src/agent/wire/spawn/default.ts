@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { initWorkerLog, logOutput, logSession } from "@ralphy/log";
+import { applyWorkerMemoryCap } from "./memory-cap";
 
 /**
  * Default worker spawner: pipes stdout/stderr through a line-buffered
@@ -57,8 +58,11 @@ export function defaultSpawn(
       /* stream errors are non-fatal — exit drives control flow */
     }
   }
+  // Contain a runaway worker (or any descendant — claude, a stray `bun test`)
+  // in its own memory-capped scope so it can't OOM-kill the whole fleet.
+  const cappedCmd = applyWorkerMemoryCap(cmd, process.env, Bun.which("systemd-run") !== null);
   const p = Bun.spawn({
-    cmd,
+    cmd: cappedCmd,
     cwd,
     stdout: "pipe",
     stderr: "pipe",
