@@ -178,7 +178,7 @@ export async function runAgentJson({
       }
     },
     onWorkerPr: (changeName, prUrl) => {
-      emit({ type: "worker_pr", changeName, prUrl });
+      emit({ type: "worker_pr", changeName, url: prUrl });
     },
     onAwaitingTicket: (info) => {
       // One-shot per round-entry: only emit when this ticket's round number

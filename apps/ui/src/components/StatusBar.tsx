@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import type { State } from "@ralphy/types";
-import type { ProgressCount } from "../hooks/useTaskStream";
 import { formatCost } from "../utils/format-cost";
 
 interface StatusBarProps {
   state: State;
-  progress: ProgressCount | null;
   isRunning: boolean;
   stopReason: string | null;
 }
@@ -17,10 +15,7 @@ function formatDuration(ms: number): string {
   return `${m}m ${s % 60}s`;
 }
 
-export function StatusBar({ state, progress, isRunning, stopReason }: StatusBarProps) {
-  const pct =
-    progress && progress.total > 0 ? Math.round((progress.checked / progress.total) * 100) : null;
-
+export function StatusBar({ state, isRunning, stopReason }: StatusBarProps) {
   // Live elapsed time: track when running started and tick every second
   const [extraMs, setExtraMs] = useState(0);
   const runStartRef = useRef<number | null>(null);
@@ -61,13 +56,6 @@ export function StatusBar({ state, progress, isRunning, stopReason }: StatusBarP
       <span>
         <strong style={{ color: "var(--text)" }}>Total:</strong> {state.iteration} iterations
       </span>
-
-      {pct !== null && (
-        <span>
-          <strong style={{ color: "var(--text)" }}>Progress:</strong> {progress!.checked}/
-          {progress!.total} ({pct}%)
-        </span>
-      )}
 
       <span>
         <strong style={{ color: "var(--text)" }}>Cost:</strong>{" "}

@@ -5,11 +5,16 @@
  * level JSONL log (<projectRoot>/.ralph/agent.log), queries Linear for the
  * current ticket state, queries GitHub for the current PR state, and prints
  * a merged timeline plus a diagnosis of what went wrong.
+ *
+ * All side effects go through the injected `DebugIo` (see debug-io.ts) so the
+ * orchestration here stays unit-testable with a fake.
  */
 
 import { join } from "node:path";
-import { AGENT_LOG_PATH } from "@ralphy/log";
+import type { RalphEvent } from "@ralphy/events";
 import { WORKER_EXIT_CODES } from "@ralphy/types";
+import { defaultDebugIo } from "./debug-io";
+import type { DebugIo } from "./debug-io";
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -31,7 +36,7 @@ function fmtTs(d: Date): string {
 
 const LOG_LINE_RE = /^\[(.+?)\] \[(.+?)\] (.+)$/;
 
-function parseTextLog(content: string): DebugLogLine[] {
+export function parseTextLog(content: string): DebugLogLine[] {
   return content
     .split("\n")
     .filter(Boolean)
@@ -49,25 +54,14 @@ function parseTextLog(content: string): DebugLogLine[] {
 // Used by the project-level agent.log when running in JSON/dashboard mode.
 // ---------------------------------------------------------------------------
 
-interface JsonlEntry {
-  ts: number;
-  type: string;
-  changeName?: string;
-  phase?: string;
-  detail?: string;
-  cmd?: string[];
-  durationMs?: number;
-  ok?: boolean;
-  text?: string;
-  color?: string;
-  found?: number;
-  added?: number;
-  prUrl?: string;
-  exitCode?: number;
-  version?: string;
-}
+// The project-level `agent.log` persists `RalphEvent` values as JSONL, so the
+// reader's view is derived straight from the canonical union (RLF-254) rather
+// than re-declaring each field. `prUrl` is the pre-8a name for `worker_pr`'s
+// `url`; it is intersected back in here — and ONLY here — so historical log
+// lines written before the rename still render.
+type JsonlEntry = RalphEvent & { prUrl?: string };
 
-function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine[] {
+export function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine[] {
   return content
     .split("\n")
     .filter(Boolean)
@@ -82,12 +76,14 @@ function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine
       const ts = new Date(entry.ts);
       if (isNaN(ts.getTime())) return [];
 
+      const changeName = "changeName" in entry ? entry.changeName : undefined;
+
       // If filtering by changeName, skip entries for other changes
-      if (filterChangeName && entry.changeName && entry.changeName !== filterChangeName) {
+      if (filterChangeName && changeName && changeName !== filterChangeName) {
         return [];
       }
 
-      const cn = entry.changeName ?? "";
+      const cn = changeName ?? "";
 
       switch (entry.type) {
         case "started":
@@ -117,7 +113,7 @@ function parseJsonlLog(content: string, filterChangeName?: string): DebugLogLine
             },
           ];
         case "worker_pr":
-          return [{ ts, type: "pr", text: `${cn}: PR → ${entry.prUrl}` }];
+          return [{ ts, type: "pr", text: `${cn}: PR → ${entry.url ?? entry.prUrl}` }];
         case "worker_exited":
           return [
             {
@@ -155,7 +151,7 @@ interface StuckInfo {
   watchingPrUrl: string | undefined;
 }
 
-function detectDebugStuck(lines: DebugLogLine[]): StuckInfo | null {
+export function detectDebugStuck(lines: DebugLogLine[]): StuckInfo | null {
   if (lines.length < 10) return null;
 
   // Count repeats of the same phase in the last 20 entries
@@ -193,66 +189,15 @@ function detectDebugStuck(lines: DebugLogLine[]): StuckInfo | null {
 }
 
 // ---------------------------------------------------------------------------
-// Binary version check
-// ---------------------------------------------------------------------------
-
-interface BinaryInfo {
-  path: string;
-  embeddedVersion: string | undefined;
-  builtAt: Date | undefined;
-}
-
-async function inspectBinary(projectRoot: string): Promise<BinaryInfo | null> {
-  const binPath = join(projectRoot, ".ralph", "bin", "cli.js");
-  const file = Bun.file(binPath);
-  if (!(await file.exists())) return null;
-
-  let embeddedVersion: string | undefined;
-
-  // Read a slice of the binary to find the embedded version string
-  try {
-    const slice = await file.slice(0, 50_000).text();
-    const m = /"(\d+\.\d+\.\d+)"/.exec(slice);
-    if (m) embeddedVersion = m[1];
-  } catch {
-    // binary might not be text-readable
-  }
-
-  let builtAt: Date | undefined;
-  try {
-    // Bun doesn't expose stat directly; use spawnSync
-    const r = Bun.spawnSync(["stat", "-f", "%Sm", "-t", "%Y-%m-%dT%H:%M:%S", binPath], {
-      stderr: "ignore",
-    });
-    const s = r.stdout.toString().trim();
-    if (s) builtAt = new Date(s);
-  } catch {
-    // ignore
-  }
-
-  return { path: binPath, embeddedVersion, builtAt };
-}
-
-// ---------------------------------------------------------------------------
-// Resolve changeName / issueIdentifier — searches both logs
+// Resolve changeName / issueIdentifier — searches the already-read log lines
 // ---------------------------------------------------------------------------
 
 const SPAWN_RE = /▶ (\S+) → (\S+)/;
 
-async function resolveDebugTarget(
-  projectRoot: string,
+export function resolveDebugTarget(
+  allLines: DebugLogLine[],
   opts: { name?: string; issue?: string },
-): Promise<{ changeName: string; identifier: string | undefined }> {
-  // Check text log
-  const agentLogFile = Bun.file(AGENT_LOG_PATH);
-  const textLines = (await agentLogFile.exists()) ? parseTextLog(await agentLogFile.text()) : [];
-
-  // Check JSONL log
-  const jsonlLogFile = Bun.file(join(projectRoot, ".ralph", "agent.log"));
-  const jsonlLines = (await jsonlLogFile.exists()) ? parseJsonlLog(await jsonlLogFile.text()) : [];
-
-  const allLines = [...textLines, ...jsonlLines];
-
+): { changeName: string; identifier: string | undefined } {
   if (opts.name && !opts.issue) {
     // Try to find identifier from spawn events
     for (const line of allLines) {
@@ -288,143 +233,37 @@ async function resolveDebugTarget(
 }
 
 // ---------------------------------------------------------------------------
-// Linear query — identifier-based ("COD-42")
-// ---------------------------------------------------------------------------
-
-interface LinearIssueInfo {
-  identifier: string;
-  title: string;
-  url: string;
-  state: { name: string; type: string };
-  labels: { nodes: { name: string }[] };
-}
-
-async function fetchLinearIssue(identifier: string): Promise<LinearIssueInfo | null> {
-  const apiKey = process.env.LINEAR_API_KEY;
-  if (!apiKey) return null;
-
-  const query = `
-    query($identifier: String!) {
-      issues(filter: { identifier: { eq: $identifier } }, first: 1) {
-        nodes {
-          identifier title url
-          state { name type }
-          labels { nodes { name } }
-        }
-      }
-    }
-  `;
-
-  try {
-    const res = await fetch("https://api.linear.app/graphql", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: apiKey },
-      body: JSON.stringify({ query, variables: { identifier } }),
-    });
-    const json = (await res.json()) as {
-      data?: { issues?: { nodes?: LinearIssueInfo[] } };
-    };
-    return json.data?.issues?.nodes?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// GitHub PR query — uses gh CLI with array args (no shell interpolation)
-// ---------------------------------------------------------------------------
-
-interface PrInfo {
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  mergeable: string;
-  checks: { name: string; state: string; conclusion: string | null }[];
-}
-
-function spawnGh<T>(args: string[]): T | null {
-  const result = Bun.spawnSync(["gh", ...args], { stderr: "ignore" });
-  if (result.exitCode !== 0) return null;
-  try {
-    return JSON.parse(result.stdout.toString()) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchGithubPr(changeName: string): Promise<PrInfo | null> {
-  const branch = `ralph/${changeName}`;
-
-  const prs = spawnGh<
-    { number: number; title: string; url: string; state: string; mergeable: string }[]
-  >([
-    "pr",
-    "list",
-    "--head",
-    branch,
-    "--state",
-    "all",
-    "--json",
-    "number,title,url,state,mergeable",
-  ]);
-
-  if (!prs?.length) return null;
-  const pr = prs[0]!;
-
-  const checks =
-    spawnGh<{ name: string; state: string; conclusion: string | null }[]>([
-      "pr",
-      "checks",
-      String(pr.number),
-      "--json",
-      "name,state,conclusion",
-    ]) ?? [];
-
-  return { ...pr, checks };
-}
-
-function fetchMergeableNow(prUrl: string): string | null {
-  const result = Bun.spawnSync(
-    ["gh", "pr", "view", prUrl, "--json", "mergeable", "--jq", ".mergeable"],
-    { stderr: "ignore" },
-  );
-  return result.exitCode === 0 ? result.stdout.toString().trim() : null;
-}
-
-// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
-export async function runDebug(opts: {
-  name?: string;
-  issue?: string;
-  projectRoot: string;
-}): Promise<void> {
+export async function runDebug(
+  opts: { name?: string; issue?: string; projectRoot: string },
+  io: DebugIo = defaultDebugIo,
+): Promise<void> {
   const { projectRoot } = opts;
-  const out = (s: string) => process.stdout.write(s + "\n");
+  const out = io.out;
 
   // Read both log sources
-  const agentLogFile = Bun.file(AGENT_LOG_PATH);
-  const textLines = (await agentLogFile.exists()) ? parseTextLog(await agentLogFile.text()) : [];
+  const textLog = await io.readOptionalText(io.agentLogPath());
+  const textLines = textLog !== null ? parseTextLog(textLog) : [];
 
   const jsonlLogPath = join(projectRoot, ".ralph", "agent.log");
-  const jsonlLogFile = Bun.file(jsonlLogPath);
-  const hasJsonlLog = await jsonlLogFile.exists();
+  const jsonlLogRaw = await io.readOptionalText(jsonlLogPath);
 
-  // Resolve the change name
-  let { changeName, identifier: issueIdentifier } = await resolveDebugTarget(projectRoot, {
+  // Resolve the change name from the combined logs
+  const resolveLines = [...textLines, ...(jsonlLogRaw !== null ? parseJsonlLog(jsonlLogRaw) : [])];
+  let { changeName, identifier: issueIdentifier } = resolveDebugTarget(resolveLines, {
     ...(opts.name !== undefined ? { name: opts.name } : {}),
     ...(opts.issue !== undefined ? { issue: opts.issue } : {}),
   });
 
   if (!changeName) {
-    process.stderr.write(`! Could not resolve change name for ${opts.issue ?? opts.name}.\n`);
-    process.exit(1);
+    io.errOut(`! Could not resolve change name for ${opts.issue ?? opts.name}.\n`);
+    io.exit(1);
   }
 
   // Parse JSONL log filtered to this change
-  const jsonlLines = hasJsonlLog ? parseJsonlLog(await jsonlLogFile.text(), changeName) : [];
+  const jsonlLines = jsonlLogRaw !== null ? parseJsonlLog(jsonlLogRaw, changeName) : [];
 
   // Filter text log to this change
   const relevantText = textLines.filter(
@@ -434,10 +273,10 @@ export async function runDebug(opts: {
   );
 
   // Worker text log
-  const workerLogFile = Bun.file(join(projectRoot, ".ralph", "logs", `${changeName}.log`));
-  const workerLines = (await workerLogFile.exists())
-    ? parseTextLog(await workerLogFile.text())
-    : [];
+  const workerLogRaw = await io.readOptionalText(
+    join(projectRoot, ".ralph", "logs", `${changeName}.log`),
+  );
+  const workerLines = workerLogRaw !== null ? parseTextLog(workerLogRaw) : [];
 
   // Merge all sources, sort, deduplicate
   const merged = [...relevantText, ...jsonlLines, ...workerLines].sort((a, b) => +a.ts - +b.ts);
@@ -471,7 +310,7 @@ export async function runDebug(opts: {
   const stuck = detectDebugStuck(timeline);
 
   // Binary info
-  const binary = await inspectBinary(projectRoot);
+  const binary = await io.inspectBinary(projectRoot);
 
   out(`\n=== Ralph Debug: ${changeName}${issueIdentifier ? ` (${issueIdentifier})` : ""} ===\n`);
 
@@ -480,13 +319,12 @@ export async function runDebug(opts: {
   if (!timeline.length) {
     out("  (no log entries found)");
   } else {
-    // If stuck, show the first 10 + "... N repeated ..." + last 5
+    // If stuck, show the non-phase events + "... N repeated ..."
     if (stuck && timeline.length > 20) {
       const phaseLines = timeline.filter((l) => l.type === "phase" && l.text.includes(stuck.phase));
       const nonPhase = timeline.filter(
         (l) => !(l.type === "phase" && l.text.includes(stuck.phase)),
       );
-      // Show non-phase events (the interesting ones)
       for (const line of nonPhase) {
         const prefix = line.type === "output" ? "  │" : "  ·";
         out(`${prefix} ${fmtTs(line.ts)}  [${line.type.padEnd(7)}]  ${line.text}`);
@@ -516,10 +354,10 @@ export async function runDebug(opts: {
   out("── Current Linear state ─────────────────────────────────────────────");
   if (!issueIdentifier) {
     out("  (unknown identifier — pass --issue to query Linear directly)");
-  } else if (!process.env.LINEAR_API_KEY) {
+  } else if (!io.linearApiKey()) {
     out("  (set LINEAR_API_KEY to fetch current Linear state)");
   } else {
-    const issue = await fetchLinearIssue(issueIdentifier);
+    const issue = await io.fetchLinearIssue(issueIdentifier);
     if (!issue) {
       out(`  ! Could not fetch ${issueIdentifier} from Linear`);
     } else {
@@ -534,11 +372,11 @@ export async function runDebug(opts: {
 
   // ── GitHub PR ──
   out("── Current GitHub PR ────────────────────────────────────────────────");
-  const pr = await fetchGithubPr(changeName);
+  const pr = await io.fetchGithubPr(changeName);
   if (!pr) {
     // If we know a PR URL from the log, fetch mergeability directly
     if (stuck?.watchingPrUrl) {
-      const m = fetchMergeableNow(stuck.watchingPrUrl);
+      const m = io.fetchMergeableNow(stuck.watchingPrUrl);
       out(`  Watching : ${stuck.watchingPrUrl}`);
       out(`  Mergeable: ${m ?? "(error fetching)"}`);
     } else {
@@ -590,7 +428,7 @@ export async function runDebug(opts: {
       `  ⚠ STUCK in ${stuck.phase} — ${stuck.count} iterations over ${stuck.minutesStuck.toFixed(1)} min`,
     );
     if (stuck.watchingPrUrl) {
-      const mergeable = fetchMergeableNow(stuck.watchingPrUrl);
+      const mergeable = io.fetchMergeableNow(stuck.watchingPrUrl);
       out(`    Watching  : ${stuck.watchingPrUrl}`);
       out(`    Mergeable : ${mergeable ?? "(error)"} (live fetch)`);
       if (mergeable === "MERGEABLE") {
@@ -633,7 +471,7 @@ export async function runDebug(opts: {
   if (pr?.checks.some((c) => c.conclusion === "FAILURE")) out("  ⚠ PR has failing CI checks");
 
   const worktreePath = join(projectRoot, ".ralph", "worktrees", changeName);
-  if (await Bun.file(join(worktreePath, ".git")).exists()) {
+  if (await io.pathExists(join(worktreePath, ".git"))) {
     out(`  Worktree   : ${worktreePath}`);
   }
 

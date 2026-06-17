@@ -38,7 +38,6 @@
   "apps/ui/src/components/FullScreenTaskView.tsx\tdoc",
   "apps/ui/src/components/FullScreenTaskView.tsx\tidx",
   "apps/ui/src/components/PhaseStepper.tsx\tidx",
-  "apps/ui/src/components/StatusBar.tsx\tpct",
   "apps/ui/src/components/SteeringInput.tsx\tmsg",
   "apps/ui/src/hooks/useDocument.ts\tdoc",
   "apps/ui/src/hooks/useTaskStream.ts\tmsg",

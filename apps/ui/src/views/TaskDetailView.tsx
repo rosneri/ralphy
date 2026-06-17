@@ -6,9 +6,8 @@ import { useDocument } from "../hooks/useDocument";
 import { useTasks } from "../hooks/useTasks";
 import { FeedLine } from "../components/FeedLine";
 import { StatusBar } from "../components/StatusBar";
-import { ProgressList } from "../components/ProgressList";
 import { FullScreenTaskView } from "../components/FullScreenTaskView";
-import { DocPanel, panelHeaderStyle } from "../components/DocPanel";
+import { DocPanel } from "../components/DocPanel";
 import type { State } from "@ralphy/types";
 
 export function TaskDetailView() {
@@ -18,8 +17,6 @@ export function TaskDetailView() {
   const {
     state: streamState,
     logEntries,
-    progress,
-    progressItems,
     isRunning,
     stopReason,
     startTask,
@@ -53,7 +50,7 @@ export function TaskDetailView() {
   // Right panel accordion — always visible, one doc expanded
   const log = useDocument(name, "LOG.jsonl");
 
-  type DocKey = "spec" | "plan" | "research" | "progress" | "steering" | "log";
+  type DocKey = "spec" | "plan" | "research" | "steering" | "log";
   const [expandedDoc, setExpandedDoc] = useState<DocKey>("spec");
 
   // Refresh log content when tab is expanded or periodically while running
@@ -143,14 +140,7 @@ export function TaskDetailView() {
         </div>
       </div>
 
-      {state && (
-        <StatusBar
-          state={state}
-          progress={progress}
-          isRunning={effectiveIsRunning}
-          stopReason={stopReason}
-        />
-      )}
+      {state && <StatusBar state={state} isRunning={effectiveIsRunning} stopReason={stopReason} />}
 
       {!effectiveIsRunning && !stopReason && state?.status !== "completed" && (
         <div
@@ -262,28 +252,6 @@ export function TaskDetailView() {
             placeholder="Implementation plan — step-by-step tasks and architecture decisions."
             onExpand={() => setExpandedDoc("plan")}
           />
-
-          {expandedDoc === "progress" ? (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={panelHeaderStyle}>PROGRESS</div>
-              <ProgressList items={progressItems} />
-            </div>
-          ) : (
-            <div
-              onClick={() => setExpandedDoc("progress")}
-              style={{
-                padding: "8px 12px",
-                borderTop: "1px solid var(--border)",
-                background: "var(--bg-surface)",
-                fontWeight: 600,
-                fontSize: 12,
-                cursor: "pointer",
-                color: "var(--text-dim)",
-              }}
-            >
-              PROGRESS
-            </div>
-          )}
 
           <DocPanel
             title="STEERING"

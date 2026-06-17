@@ -56,9 +56,9 @@ import {
 export type LoopRunnerStopReason = StopReason | "cancelled" | "signal" | "error";
 
 /**
- * The public contract — and the de-facto WebSocket wire format for the web
- * UI. Version additions deliberately; `info` is a human-text escape hatch
- * that clients must not parse.
+ * Canonical task-stream wire format — single authored union consumed by
+ * `broadcast` and `useTaskStream`. Lives in `@ralphy/core` (not `@ralphy/events`)
+ * to avoid a cycle. Version additions deliberately; `info` is a human-text escape hatch.
  */
 export type LoopRunnerEvent =
   /** Emitted after every `.ralph-state.json` read/write the runner observes. */
