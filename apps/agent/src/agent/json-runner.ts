@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { VERSION, type AgentParsedArgs } from "../cli";
 import { cleanOutputLine } from "../shared/capabilities/output-utils";
-import { ensureRalphyConfig, loadRalphyConfig } from "./config";
+import { ensureRalphyConfig, loadEffectiveConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
 import {
@@ -86,7 +86,12 @@ export async function runAgentJson({
   const emit = makeEmit(fileSink);
 
   const cfgPath = await ensureRalphyConfig(projectRoot, args.workflowFile);
-  const cfg = await loadRalphyConfig(projectRoot, args.workflowFile, args.overrides);
+  const cfg = await loadEffectiveConfig(
+    projectRoot,
+    args.workflowFile,
+    args.overrides,
+    args.agentOverrides,
+  );
 
   // Persist the JSONL log path + project metadata to
   // `~/.ralph/<basename(projectRoot)>/agent-state.json` so external tools
@@ -109,7 +114,7 @@ export async function runAgentJson({
   }
 
   const pf = await runPreflight({
-    requireRepoWrite: args.createPr || cfg.createPrOnSuccess,
+    requireRepoWrite: cfg.createPrOnSuccess,
     repoCwd: projectRoot,
   });
   if (!pf.ok) {

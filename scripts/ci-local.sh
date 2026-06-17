@@ -54,6 +54,7 @@ stage_static() {
   run_step "Event union completeness check" bun scripts/check-event-union.ts
   run_step "Stale changes guard"          bun scripts/check-stale-changes.ts
   run_step "Static error messages (no template literals in Error/Exception constructors)" bun scripts/check-static-error-messages.ts
+  run_step "Config merge guard"            bun scripts/check-config-merge.ts
   run_step "No unsafe casts (as any / as unknown)" bash scripts/check-no-unsafe-casts.sh
   run_step "Shellcheck"                   bun run check:shell
   run_step "Prompt rule sync check"        bun scripts/check-prompt-rule-sync.ts
