@@ -1,8 +1,7 @@
 # Ralphy Agent Architecture
 
 This document is generated from the static feature registry
-(`apps/agent/src/features/registry.ts`) and the router precedence table
-(`apps/agent/src/runtime/router.ts`). Do not edit by hand — run
+(`apps/agent/src/features/registry.ts`). Do not edit by hand — run
 `bun run build:architecture` to regenerate.
 
 ## Features
@@ -60,27 +59,6 @@ This document is generated from the static feature registry
 - **id**: `stuck`
 - **ownedSlot**: `(none)`
 - **summary**: Recovers issues stuck in a non-terminal state by re-attaching the worker or escalating.
-
-## Router precedence
-
-The router walks this table top-to-bottom and the first match wins.
-The final row is the `idle` catch-all so the router is total.
-
-| #   | Match name            | Flow id           |
-| --- | --------------------- | ----------------- |
-| 1   | awaiting → revise     | `confirmation`    |
-| 2   | awaiting → confirm    | `confirmation`    |
-| 3   | pr conflicting        | `conflict-fix`    |
-| 4   | pr ci failing         | `ci-fix`          |
-| 5   | awaiting-ci pass      | `awaiting-ci`     |
-| 6   | awaiting-ci watch     | `awaiting-ci`     |
-| 7   | review bucket         | `review-followup` |
-| 8   | stuck                 | `stuck`           |
-| 9   | new ticket            | `new-ticket`      |
-| 10  | mention catch-all     | `mention`         |
-| 11  | in-progress implement | `implement`       |
-| 12  | todo implement        | `implement`       |
-| 13  | idle catch-all        | `idle`            |
 
 ## State machines
 

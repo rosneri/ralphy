@@ -145,7 +145,10 @@ export function TaskLoop({ opts }: TaskLoopProps) {
 
   return (
     <Box key={resizeKey} flexDirection="column">
-      <Static items={feedItems}>
+      {/* Remount <Static> when bounded retention drops oldest entries: Ink's
+          Static tracks the last-seen length and would otherwise stop rendering
+          new lines once the array stops growing past the cap. */}
+      <Static key={`feed-${loop.logTrimGeneration}`} items={feedItems}>
         {(item) => {
           if (item.kind === "banner") {
             return (

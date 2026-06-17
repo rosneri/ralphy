@@ -1,15 +1,14 @@
 #!/usr/bin/env bun
 /**
  * Generates ARCHITECTURE.md at the repo root from the static feature
- * registry and the router precedence table. Drift between source and the
- * generated file is gated in CI by `git diff --exit-code ARCHITECTURE.md`.
+ * registry. Drift between source and the generated file is gated in CI by
+ * `git diff --exit-code ARCHITECTURE.md`.
  *
  * Run via `bun run build:architecture`.
  */
 
 import { join } from "node:path";
 import { registry } from "../features/registry";
-import { ROUTER_TABLE } from "../runtime/router";
 
 interface FeatureSummary {
   id: string;
@@ -42,18 +41,6 @@ function buildFeatureSections(): FeatureSummary[] {
   }));
 }
 
-function buildRouterTable(): string {
-  const rows = ROUTER_TABLE.map((row, i) => [String(i + 1), row.name, `\`${row.flowId}\``]);
-  const widths = [
-    Math.max(3, ...rows.map((r) => r[0]!.length)),
-    Math.max(3, "Match name".length, ...rows.map((r) => r[1]!.length)),
-    Math.max(3, "Flow id".length, ...rows.map((r) => r[2]!.length)),
-  ];
-  const fmt = (cells: string[]) => `| ${cells.map((c, i) => c.padEnd(widths[i]!)).join(" | ")} |`;
-  const sep = `| ${widths.map((w) => "-".repeat(w)).join(" | ")} |`;
-  return [fmt(["#", "Match name", "Flow id"]), sep, ...rows.map(fmt)].join("\n");
-}
-
 function render(): string {
   const features = buildFeatureSections();
   const featureBlocks = features
@@ -67,20 +54,12 @@ function render(): string {
     "# Ralphy Agent Architecture",
     "",
     "This document is generated from the static feature registry",
-    "(`apps/agent/src/features/registry.ts`) and the router precedence table",
-    "(`apps/agent/src/runtime/router.ts`). Do not edit by hand — run",
+    "(`apps/agent/src/features/registry.ts`). Do not edit by hand — run",
     "`bun run build:architecture` to regenerate.",
     "",
     "## Features",
     "",
     featureBlocks,
-    "## Router precedence",
-    "",
-    "The router walks this table top-to-bottom and the first match wins.",
-    "The final row is the `idle` catch-all so the router is total.",
-    "",
-    buildRouterTable(),
-    "",
     "## State machines",
     "",
     "Generated Mermaid diagrams for every machine registered with the",

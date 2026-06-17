@@ -1,8 +1,6 @@
 [
   "apps/agent/src/agent/json-runner.ts\tcfg",
   "apps/agent/src/agent/linear-sync/render-pdf.ts\tdoc",
-  "apps/agent/src/agent/post-task.ts\tcfg",
-  "apps/agent/src/agent/post-task.ts\trepo",
   "apps/agent/src/agent/wire.ts\tcfg",
   "apps/agent/src/agent/wire/baseline.ts\tcfg",
   "apps/agent/src/agent/wire/comment-sync.ts\tcfg",

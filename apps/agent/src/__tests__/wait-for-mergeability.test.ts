@@ -25,10 +25,23 @@ describe("waitForMergeability", () => {
     expect(outcome).toEqual({ kind: "conflicting" });
   });
 
-  test("returns closed when state flips to MERGED/CLOSED mid-poll", async () => {
+  test("returns merged when state flips to MERGED mid-poll", async () => {
     const seq = [
       { state: "OPEN", mergeable: "UNKNOWN" },
       { state: "MERGED", mergeable: "UNKNOWN" },
+    ];
+    let i = 0;
+    const outcome = await waitForMergeability({
+      probe: async () => seq[Math.min(i++, seq.length - 1)]!,
+      sleep: noSleep,
+    });
+    expect(outcome).toEqual({ kind: "merged" });
+  });
+
+  test("returns closed when state flips to CLOSED (unmerged) mid-poll", async () => {
+    const seq = [
+      { state: "OPEN", mergeable: "UNKNOWN" },
+      { state: "CLOSED", mergeable: "UNKNOWN" },
     ];
     let i = 0;
     const outcome = await waitForMergeability({

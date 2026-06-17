@@ -109,6 +109,38 @@ describe("parseClaudeLine", () => {
     expect(state.turnCount).toBe(1);
   });
 
+  test("caps an oversized assistant text block (OOM guard)", () => {
+    const huge = "x".repeat(500_000);
+    const { events } = parse({
+      type: "assistant",
+      message: { content: [{ type: "text", text: huge }] },
+    });
+    expect(events).toHaveLength(1);
+    const ev = events[0] as Extract<FeedEvent, { type: "text" }>;
+    expect(ev.type).toBe("text");
+    // bounded well below the original payload, with a truncation marker
+    expect(ev.text.length).toBeLessThan(huge.length);
+    expect(ev.text.length).toBeLessThanOrEqual(64 * 1024 + 64);
+    expect(ev.text).toContain("truncated");
+  });
+
+  test("caps an oversized tool_result preview without splitting the full blob", () => {
+    const huge = Array.from({ length: 200_000 }, (_, i) => `line ${i}`).join("\n");
+    const { events } = parse({
+      type: "user",
+      message: { content: [{ type: "tool_result", content: huge }] },
+    });
+    const preview = events.find((e) => e.type === "tool-result-preview") as Extract<
+      FeedEvent,
+      { type: "tool-result-preview" }
+    >;
+    expect(preview).toBeDefined();
+    expect(preview.lines.length).toBeLessThanOrEqual(6);
+    // the retained preview text must be bounded, not the full 200k-line blob
+    const retained = preview.lines.join("\n").length;
+    expect(retained).toBeLessThanOrEqual(64 * 1024);
+  });
+
   test("handles assistant tool_use block", () => {
     const state = makeState();
     const { events } = parse(
