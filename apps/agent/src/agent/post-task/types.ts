@@ -1,6 +1,7 @@
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { CmdRunner } from "../pr";
 import type { DependencyBase } from "../wire/pr-helpers";
+import type { CodeHost } from "@ralphy/codehost";
 
 /** Worker exited 0 but the residual-commit / push / PR-create path failed. */
 // allow-duplicate
@@ -155,6 +156,7 @@ export interface PostTaskCtx {
   stateFilePath: string;
   cfg: PostTaskInput["cfg"];
   cmd: CmdRunner;
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
   respawnWorker: () => Promise<number>;

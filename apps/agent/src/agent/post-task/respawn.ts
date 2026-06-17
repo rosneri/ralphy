@@ -69,8 +69,7 @@ export async function runWorkerWithFixTask(
   // failure mode that produced PRs whose diff silently lost work.
   let preHead = "";
   try {
-    const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-    preHead = r.stdout.trim();
+    preHead = await ctx.codeHost.headSha(ctx.cwd);
   } catch (err) {
     ctx.log(`! could not snapshot HEAD before fix task: ${(err as Error).message}`, "yellow");
   }
@@ -79,15 +78,9 @@ export async function runWorkerWithFixTask(
 
   if (preHead) {
     try {
-      const r = await ctx.cmd.run(["git", "rev-parse", "HEAD"], ctx.cwd);
-      const postHead = r.stdout.trim();
+      const postHead = await ctx.codeHost.headSha(ctx.cwd);
       if (postHead !== preHead) {
-        let isAncestor = true;
-        try {
-          await ctx.cmd.run(["git", "merge-base", "--is-ancestor", preHead, postHead], ctx.cwd);
-        } catch {
-          isAncestor = false;
-        }
+        const isAncestor = await ctx.codeHost.isAncestor(preHead, postHead, ctx.cwd);
         if (!isAncestor) {
           ctx.log(
             `! fix worker for "${heading}" rewrote history — pre=${preHead.slice(0, 8)} ` +

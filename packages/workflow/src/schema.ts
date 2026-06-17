@@ -8,6 +8,11 @@ import { z } from "zod";
  */
 export const CURRENT_WORKFLOW_VERSION = 8;
 
+/** Reasoning-effort levels accepted by `claude --effort`. Enum order is
+ *  display order (cheapest first); there is deliberately no default — an unset
+ *  effort omits the flag and lets the engine pick its own default. */
+const EffortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
+
 // `value: "!foo"` is shorthand for a negated marker (`{ value: "foo", negate:
 // true }`) on the `label` / `status` / `project` kinds, which is what a config
 // author types as `!something`. Normalized here so the rest of the codebase only
@@ -223,15 +228,24 @@ const ProjectSchema = z
   .strict()
   .default({});
 
+/** Default for the in-loop structural gate (`commands.structure`). Single-sourced
+ *  so the field default and the CommandsSchema container default stay in lockstep. */
+export const DEFAULT_STRUCTURE_COMMAND = "bun run check:structure";
+
 const CommandsSchema = z
   .object({
     test: z.string().optional(),
     lint: z.string().optional(),
     build: z.string().optional(),
     typecheck: z.string().optional(),
+    /** In-loop structural gate run alongside test/lint/typecheck in the
+     *  validate-only phase. Defaults on (`bun run check:structure`) so the
+     *  Ralph loop enforces the project's own structure guardrails each
+     *  iteration; set it to "" in WORKFLOW.md to opt a project out. */
+    structure: z.string().default(DEFAULT_STRUCTURE_COMMAND),
   })
   .catchall(z.string())
-  .default({});
+  .default({ structure: DEFAULT_STRUCTURE_COMMAND });
 
 /**
  * Default meta-only globs used by the pre-PR "substantive diff" guard.
@@ -313,6 +327,15 @@ export const WorkflowConfigSchema = z.object({
   // from this schema (see schema-introspect.ts). `fable` is the Fable line;
   // the Claude tiers follow most-capable-first. Default stays `opus`.
   model: z.enum(["fable", "opus", "sonnet", "haiku"]).default("opus"),
+  /** Reasoning-effort level passed to the engine (`claude --effort`). Unset
+   *  means the engine's own default. Claude engine only — codex ignores it. */
+  effort: EffortSchema.optional(),
+  /** Model / reasoning effort for the planning OpenSpec phases (proposal,
+   *  design, tasks). Unset falls back to the top-level `model` / `effort`. The
+   *  implement phase always uses the top-level model. Free string like
+   *  `reviewerModel`, so full model ids are allowed in addition to tier aliases. */
+  planModel: z.string().optional(),
+  planEffort: EffortSchema.optional(),
   /** Which issue tracker drives the loop. Defaults to `linear`, so a file with
    *  no `tracker` block behaves exactly as before. `github` selects the GitHub
    *  Issues provider (built on the `gh` CLI; see `github.issues`). */
@@ -485,6 +508,14 @@ export const WorkflowConfigSchema = z.object({
       /** Give up auto-recovering a red PR after this many re-queue sessions,
        *  then apply `setError` for a human. */
       maxRecoverySessions: z.number().int().positive().default(3),
+      /** Model / effort for CI-fix workers. Unset falls back to the top-level
+       *  `model` / `effort`. Free string like `reviewerModel`, so full model
+       *  ids are allowed in addition to the tier aliases. */
+      ciFixModel: z.string().optional(),
+      ciFixEffort: EffortSchema.optional(),
+      /** Model / effort for merge-conflict-fix workers. Same fallback rules. */
+      conflictFixModel: z.string().optional(),
+      conflictFixEffort: EffortSchema.optional(),
       /** CI check names the watcher ignores when judging a PR green (e.g.
        *  known-flaky jobs). */
       ignoreChecks: z.array(z.string()).default([]),
@@ -516,6 +547,9 @@ export const WorkflowConfigSchema = z.object({
           enabled: z.boolean().default(false),
           maxRounds: z.number().int().nonnegative().default(1),
           reviewerModel: z.string().optional(),
+          /** Effort for the review pass. Unset falls back to the top-level
+           *  `effort` (then the engine default). */
+          reviewerEffort: EffortSchema.optional(),
           reviewerContextStrategy: z.enum(["fresh", "warm"]).default("fresh"),
         })
         .strict()

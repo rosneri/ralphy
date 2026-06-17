@@ -61,6 +61,13 @@ const PRECEDENCE_TABLE: {
     workflowValue: "sonnet",
   },
   {
+    key: "effort",
+    cliValue: "xhigh",
+    overrides: { effort: "xhigh" },
+    workflowKey: "effort",
+    workflowValue: "low",
+  },
+  {
     key: "maxIterations",
     cliValue: 7,
     overrides: { maxIterations: 7 },
@@ -329,6 +336,24 @@ describe("resolveConfig — WORKFLOW.md lifecycle", () => {
     expect(resolved.origin("maxIterations")).toBe("cli");
   });
 
+  test("commands.structure resolves to the schema default when WORKFLOW.md omits it", async () => {
+    // The in-loop structural gate is on by default — a file that names no
+    // `structure` command still resolves to `bun run check:structure`.
+    const fs = fakeFs({ "/proj/WORKFLOW.md": `---\ncommands:\n  test: bun test\n---\n` });
+    const resolved = await resolveConfig({ argv: [], projectRoot: "/proj", fileSystem: fs });
+    expect(resolved.effective.commands.structure).toBe("bun run check:structure");
+  });
+
+  test("commands.structure honors a WORKFLOW.md override", async () => {
+    // No `args.x || cfg.y` merge logic: the resolved value is exactly what the
+    // file declares (here, an opt-out via the empty string).
+    const fs = fakeFs({
+      "/proj/WORKFLOW.md": `---\ncommands:\n  test: bun test\n  structure: ""\n---\n`,
+    });
+    const resolved = await resolveConfig({ argv: [], projectRoot: "/proj", fileSystem: fs });
+    expect(resolved.effective.commands.structure).toBe("");
+  });
+
   test("--workflow resolves against --project-root regardless of flag order", async () => {
     const fs = fakeFs({ "/proj/config/ALT.md": `---\nmodel: haiku\n---\n` });
     const resolved = await resolveConfig({
@@ -464,6 +489,89 @@ describe("loopOptions — config/runtime split", () => {
       reviewPhase: { maxRounds: 3 },
     });
     expect(opts.reviewPhase).toBeUndefined();
+  });
+
+  test("top-level effort flows into LoopOptions; unset stays absent", () => {
+    const withEffort = WorkflowConfigSchema.parse({ effort: "xhigh" });
+    expect(loopOptionsFromConfig(withEffort, { name: "x", prompt: "", changeStore }).effort).toBe(
+      "xhigh",
+    );
+    const without = WorkflowConfigSchema.parse({});
+    expect(
+      loopOptionsFromConfig(without, { name: "x", prompt: "", changeStore }).effort,
+    ).toBeUndefined();
+  });
+
+  test("planModel/planEffort flow into LoopOptions; unset stays absent", () => {
+    const withPlan = WorkflowConfigSchema.parse({ planModel: "sonnet", planEffort: "high" });
+    const opts = loopOptionsFromConfig(withPlan, { name: "x", prompt: "", changeStore });
+    expect(opts.planModel).toBe("sonnet");
+    expect(opts.planEffort).toBe("high");
+    const without = loopOptionsFromConfig(WorkflowConfigSchema.parse({}), {
+      name: "x",
+      prompt: "",
+      changeStore,
+    });
+    expect(without.planModel).toBeUndefined();
+    expect(without.planEffort).toBeUndefined();
+  });
+
+  test("reviewerEffort flows into reviewPhase, overridable via --review-effort", () => {
+    const effective = WorkflowConfigSchema.parse({
+      openspec: { reviewPhase: { enabled: true, reviewerEffort: "high" } },
+    });
+    const fromWorkflow = loopOptionsFromConfig(effective, { name: "x", prompt: "", changeStore });
+    expect(fromWorkflow.reviewPhase?.reviewerEffort).toBe("high");
+    const fromCli = loopOptionsFromConfig(effective, {
+      name: "x",
+      prompt: "",
+      changeStore,
+      reviewPhase: { reviewerEffort: "low" },
+    });
+    expect(fromCli.reviewPhase?.reviewerEffort).toBe("low");
+  });
+
+  test("--trigger ci-fix selects prRecovery.ciFix{Model,Effort} with top-level fallback", () => {
+    const effective = WorkflowConfigSchema.parse({
+      model: "fable",
+      effort: "xhigh",
+      prRecovery: { ciFixModel: "sonnet", ciFixEffort: "low" },
+    });
+    const ciFix = loopOptionsFromConfig(effective, {
+      name: "x",
+      prompt: "",
+      changeStore,
+      trigger: "ci-fix",
+    });
+    expect(ciFix.model).toBe("sonnet");
+    expect(ciFix.effort).toBe("low");
+    // conflict-fix keys unset → falls back to the top-level model/effort.
+    const conflictFix = loopOptionsFromConfig(effective, {
+      name: "x",
+      prompt: "",
+      changeStore,
+      trigger: "conflict-fix",
+    });
+    expect(conflictFix.model).toBe("fable");
+    expect(conflictFix.effort).toBe("xhigh");
+    // No trigger → top-level values untouched by the prRecovery keys.
+    const regular = loopOptionsFromConfig(effective, { name: "x", prompt: "", changeStore });
+    expect(regular.model).toBe("fable");
+    expect(regular.effort).toBe("xhigh");
+  });
+
+  test("--trigger conflict-fix selects prRecovery.conflictFix{Model,Effort}", () => {
+    const effective = WorkflowConfigSchema.parse({
+      prRecovery: { conflictFixModel: "haiku", conflictFixEffort: "medium" },
+    });
+    const opts = loopOptionsFromConfig(effective, {
+      name: "x",
+      prompt: "",
+      changeStore,
+      trigger: "conflict-fix",
+    });
+    expect(opts.model).toBe("haiku");
+    expect(opts.effort).toBe("medium");
   });
 });
 

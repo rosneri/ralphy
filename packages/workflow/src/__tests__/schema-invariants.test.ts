@@ -5,6 +5,7 @@ import { LINEAR_ASSIGNEE_CHOICE_FIELD_ID, LINEAR_ASSIGNEE_VALUE_FIELD_ID } from 
 import {
   COMMON_CLI_OPTIONS,
   cliOptionFieldExists,
+  effortOptionValues,
   modelOptionValues,
 } from "../schema-meta/cli-options";
 import { enumValuesAt, schemaDefaults, schemaHasPath } from "../schema-meta/introspect";
@@ -71,6 +72,10 @@ describe("schema-keyed overlay invariants", () => {
 
   test("modelOptionValues comes from the schema enum", () => {
     expect(modelOptionValues()).toEqual(["fable", "opus", "sonnet", "haiku"]);
+  });
+
+  test("effortOptionValues comes from the schema enum", () => {
+    expect(effortOptionValues()).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   test("schemaHasPath sees through default/optional/preprocess wrappers", () => {

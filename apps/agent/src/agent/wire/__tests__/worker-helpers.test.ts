@@ -96,6 +96,18 @@ describe("buildTaskCmd", () => {
     const cmd = buildTaskCmd(await baseArgs(), "rlf-1", "/elsewhere/ALT.md");
     expect(cmd[cmd.indexOf("--workflow") + 1]).toBe("/elsewhere/ALT.md");
   });
+
+  test("recovery triggers carry --trigger; other triggers pass nothing", async () => {
+    const args = await baseArgs();
+    for (const trigger of ["ci-fix", "conflict-fix"] as const) {
+      const cmd = buildTaskCmd(args, "rlf-1", WORKFLOW_PATH, trigger);
+      expect(cmd[cmd.indexOf("--trigger") + 1]).toBe(trigger);
+      expect(cmd[cmd.length - 1]).toBe("--from-agent");
+    }
+    for (const trigger of ["fresh", "resume", "review", undefined] as const) {
+      expect(buildTaskCmd(args, "rlf-1", WORKFLOW_PATH, trigger)).not.toContain("--trigger");
+    }
+  });
 });
 
 describe("buildPostTaskInput", () => {
@@ -128,11 +140,26 @@ describe("buildPostTaskInput", () => {
   test("maps the cfg block, dropping falsy validate commands", async () => {
     const input = await build();
     expect(input.cfg.teardownScript).toBe("make clean");
-    // typecheck is "" so it is filtered out of validateCommands.
-    expect(input.cfg.validateCommands).toEqual(["bun test", "bun lint"]);
+    // typecheck is "" so it is filtered out of validateCommands; structure
+    // carries its schema default and rides alongside test + lint.
+    expect(input.cfg.validateCommands).toEqual(["bun test", "bun lint", "bun run check:structure"]);
     expect(input.changeName).toBe("rlf-1");
     expect(input.branch).toBe("feat/rlf-1");
     expect(input.wantPr).toBe(true);
+  });
+
+  test("includes the structure command in validateCommands by default", async () => {
+    // commands.structure defaults to `bun run check:structure`, so the in-loop
+    // structural gate runs each iteration without any WORKFLOW.md opt-in.
+    const cfg = baseCfg({ commands: { test: "bun test" } });
+    const input = await build({ cfg });
+    expect(input.cfg.validateCommands).toContain("bun run check:structure");
+  });
+
+  test("an empty structure command opts the project out of the structural gate", async () => {
+    const cfg = baseCfg({ commands: { test: "bun test", structure: "" } });
+    const input = await build({ cfg });
+    expect(input.cfg.validateCommands).toEqual(["bun test"]);
   });
 
   test("omits mode and prUrl keys unless supplied", async () => {

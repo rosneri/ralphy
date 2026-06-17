@@ -1,7 +1,7 @@
 import type { CmdRunner } from "../pr";
+import type { CodeHost } from "@ralphy/codehost";
 import { fetchPrStatus, type PrStatus } from "../../pr-status";
 import { waitForMergeability } from "../../shared/pr/wait-for-mergeability";
-import { findExistingOpenPrUrl } from "./pr-phase";
 import { PR_FAILED_EXIT, type PostTaskPhase } from "./types";
 
 /** Inputs consumed only by the conflict-fix verify phase. */
@@ -17,6 +17,7 @@ interface ConflictFixVerifyInput {
 /** Deps consumed only by the conflict-fix verify phase. */
 interface ConflictFixVerifyDeps {
   cmd: CmdRunner;
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   emit: (phase: PostTaskPhase, detail?: string) => void;
   /** Override the UNKNOWN-mergeability polling backoff schedule (ms). */
@@ -40,7 +41,7 @@ export async function runConflictFixVerify(
   deps: ConflictFixVerifyDeps,
 ): Promise<number> {
   const { identifier, cwd, branch, prUrl: prefetchedPrUrl } = input;
-  const { cmd, log, emit } = deps;
+  const { cmd, codeHost, log, emit } = deps;
 
   // Push-landed guard. In conflict-fix mode the worker owns the push (see
   // `wire/prepare.ts::prepareTaskForTrigger`); the harness never pushes here.
@@ -58,8 +59,7 @@ export async function runConflictFixVerify(
     let aheadCount = 0;
     let checked = true;
     try {
-      const r = await cmd.run(["git", "rev-list", "--count", `origin/${branch}..HEAD`], cwd);
-      aheadCount = Number.parseInt(r.stdout.trim(), 10) || 0;
+      aheadCount = await codeHost.countCommitsAhead(`origin/${branch}..HEAD`, cwd);
     } catch (err) {
       // Ref missing / detached HEAD / not a worktree — can't determine, so
       // don't block: fall through to the existing mergeability verification.
@@ -85,7 +85,7 @@ export async function runConflictFixVerify(
 
   let prUrl: string | null = prefetchedPrUrl;
   if (!prUrl && branch) {
-    prUrl = await findExistingOpenPrUrl(cmd, cwd, branch);
+    prUrl = await codeHost.findOpenPullRequestForBranch(branch);
   }
   if (!prUrl) {
     log(

@@ -11,10 +11,16 @@ import type { Agent, AgentRequest, AgentRunResult } from "./protocol";
 import { isRateLimitText, isResultErrorLimitText } from "./rate-limit-detection";
 
 // `opus`/`sonnet`/`haiku` are CLI-native aliases the Claude CLI resolves on its
-// own. `fable` is not a bare alias, so map it to the full model id; any other
-// value (already a full id, or an alias) passes through untouched.
+// own. `fable` is temporarily unavailable — reject it with an actionable error
+// instead of spawning a doomed run. Any other value (already a full id, or an
+// alias) passes through untouched.
 function resolveClaudeModel(model: string): string {
-  return model === "fable" ? "claude-fable-5" : model;
+  if (model === "fable") {
+    throw new Error(
+      "The Fable model is currently unavailable. Choose a different model (opus, sonnet, or haiku).",
+    );
+  }
+  return model;
 }
 
 function buildClaudeArgs(
@@ -22,6 +28,7 @@ function buildClaudeArgs(
   resumeSessionId?: string,
   reviewerContextStrategy?: "fresh" | "warm",
   reviewerModel?: string,
+  effort?: string,
 ): string[] {
   const effectiveModel = resolveClaudeModel(reviewerModel ?? model);
   const args = [
@@ -34,6 +41,7 @@ function buildClaudeArgs(
     "stream-json",
     "--verbose",
   ];
+  if (effort) args.push("--effort", effort);
   if (resumeSessionId && reviewerContextStrategy !== "fresh") {
     args.push("--resume", resumeSessionId);
   }
@@ -52,6 +60,7 @@ async function runInteractive(req: AgentRequest): Promise<AgentRunResult> {
       "claude",
       "--model",
       resolveClaudeModel(model),
+      ...(req.effort ? ["--effort", req.effort] : []),
       "--dangerously-skip-permissions",
       [
         `Read the file ${promptFile} for background on the task.`,
@@ -106,6 +115,7 @@ export const claudeAgent: Agent = {
           req.resumeSessionId,
           req.reviewerContextStrategy,
           req.reviewerModel,
+          req.effort,
         ),
       ],
       stdin: "pipe",

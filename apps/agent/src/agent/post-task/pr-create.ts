@@ -67,11 +67,8 @@ export async function createPrWithRetry(
           "yellow",
         );
         try {
-          await ctx.cmd.run(["git", "fetch", "origin", ctx.branch], ctx.cwd);
-          await ctx.cmd.run(
-            ["git", "pull", "--no-rebase", "--autostash", "--no-edit", "origin", ctx.branch],
-            ctx.cwd,
-          );
+          await ctx.codeHost.fetchBranch(ctx.branch, ctx.cwd);
+          await ctx.codeHost.pullBranch(ctx.branch, ctx.cwd);
           continue;
         } catch (mergeErr) {
           const re = mergeErr as Error & { stderr?: string; stdout?: string };
@@ -87,7 +84,7 @@ export async function createPrWithRetry(
 
           ctx.emit("merging", "conflicts detected — aborting + queueing fix task");
           try {
-            await ctx.cmd.run(["git", "merge", "--abort"], ctx.cwd);
+            await ctx.codeHost.abortMerge(ctx.cwd);
           } catch (err) {
             ctx.log(
               `! git merge --abort failed (worktree may already be clean): ${(err as Error).message}`,
@@ -97,11 +94,8 @@ export async function createPrWithRetry(
 
           let conflictedFiles = "";
           try {
-            const r = await ctx.cmd.run(
-              ["git", "diff", "--name-only", `HEAD..origin/${ctx.branch}`],
-              ctx.cwd,
-            );
-            conflictedFiles = r.stdout.trim();
+            const files = await ctx.codeHost.changedFiles(`HEAD..origin/${ctx.branch}`, ctx.cwd);
+            conflictedFiles = files.join("\n");
           } catch (err) {
             ctx.log(`! could not list conflicted files: ${(err as Error).message}`, "yellow");
           }

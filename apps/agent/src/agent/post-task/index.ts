@@ -1,6 +1,7 @@
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { GitRunner } from "../worktree";
 import type { CmdRunner } from "../pr";
+import type { CodeHost } from "@ralphy/codehost";
 import type { DependencyBase } from "../wire/pr-helpers";
 import { registry as featureRegistry } from "../../features/registry";
 import { runFeaturePostTask } from "../../features/run-feature";
@@ -14,7 +15,7 @@ import {
   type PostTaskPhase,
   type RetroDispositionInfo,
 } from "./types";
-import { _resetRepoAutoMergeCache, runPrPhase } from "./pr-phase";
+import { runPrPhase } from "./pr-phase";
 import { runConflictFixVerify } from "./conflict-fix-verify";
 import { runValidateOnlyPhase } from "./validate-only";
 import { runWorktreeCleanupPhase } from "./cleanup";
@@ -25,7 +26,6 @@ import { runTeardownPhase } from "./teardown";
 export {
   NO_CHANGES_EXIT,
   summarizeUncommittedStatus,
-  _resetRepoAutoMergeCache,
   runPrPhase,
   runValidateOnlyPhase,
   runWorktreeCleanupPhase,
@@ -39,6 +39,7 @@ export {
 interface PostTaskDeps {
   cmd: CmdRunner;
   git: GitRunner;
+  codeHost: CodeHost;
   log: (text: string, color?: string) => void;
   /**
    * Optional opt-in (`--agent-debug`): run a one-shot retrospective self-review
@@ -96,7 +97,7 @@ interface PostTaskDeps {
  * coordinator uses this to decide whether to mark the issue processed.
  */
 export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Promise<number> {
-  const { log, cmd, git, runScript } = deps;
+  const { log, cmd, git, codeHost, runScript } = deps;
   const emit = (phase: PostTaskPhase, detail?: string) => deps.onPhase?.(phase, detail);
   const {
     changeName,
@@ -186,6 +187,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
             },
             {
               cmd,
+              codeHost,
               log,
               emit,
               ...(deps._mergeabilityBackoffsMs !== undefined
@@ -205,6 +207,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
             { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg },
             {
               cmd,
+              codeHost,
               log,
               emit,
               respawnWorker,

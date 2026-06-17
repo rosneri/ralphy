@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runPostTask } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 import type { GitRunner } from "../agent/worktree";
 import type { TrackedIssue } from "@ralphy/tracker";
 
@@ -132,6 +134,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: () => {},
       runScript: async () => {},
@@ -153,6 +156,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
@@ -175,6 +179,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
@@ -204,6 +209,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
@@ -230,6 +236,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
@@ -254,6 +261,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     await runPostTask(baseInput({ mode: "fresh" }), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: () => {},
       runScript: async () => {},
@@ -280,6 +288,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: () => {},
       runScript: async () => {},
@@ -301,6 +310,7 @@ describe("runPostTask — conflict-fix verify-only short-circuit", () => {
 
     const code = await runPostTask(baseInput(), {
       cmd,
+      codeHost: ghHost(cmd),
       git,
       log: (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
       runScript: async () => {},
