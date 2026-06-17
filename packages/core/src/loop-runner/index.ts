@@ -56,20 +56,9 @@ import {
 export type LoopRunnerStopReason = StopReason | "cancelled" | "signal" | "error";
 
 /**
- * The canonical task-stream wire format — the public contract and the
- * de-facto WebSocket payload broadcast to the web UI. This is the single
- * authored union for task-stream events; clients (the sidecar `broadcast`,
- * the `useTaskStream` hook) consume it rather than re-declaring their own.
- * Version additions deliberately; `info` is a human-text escape hatch that
- * clients must not parse.
- *
- * It intentionally lives here in `@ralphy/core` and NOT in `@ralphy/events`:
- * its variants reference core-owned types (`State`, `FeedEvent`,
- * `ReviewRoundResult`, `TaskPhase`, `LoopRunnerStopReason`), so hoisting it
- * into `@ralphy/events` — which `@ralphy/core` already depends on — would
- * create an `events → core → events` dependency cycle. The wider-bus event
- * union (`RalphEvent`) stays in `@ralphy/events`; this task-stream union
- * stays here.
+ * Canonical task-stream wire format — single authored union consumed by
+ * `broadcast` and `useTaskStream`. Lives in `@ralphy/core` (not `@ralphy/events`)
+ * to avoid a cycle. Version additions deliberately; `info` is a human-text escape hatch.
  */
 export type LoopRunnerEvent =
   /** Emitted after every `.ralph-state.json` read/write the runner observes. */
