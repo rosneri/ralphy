@@ -68,6 +68,9 @@ jobs:
       - name: No unsafe casts (as any / as unknown)
         run: bash scripts/check-no-unsafe-casts.sh
 
+      - name: Test integrity (no .only / no new skips / no jest.mock / no mock.module(node:child_process))
+        run: bun scripts/check-test-integrity.ts
+
       - name: Shellcheck
         run: bun run check:shell
 
