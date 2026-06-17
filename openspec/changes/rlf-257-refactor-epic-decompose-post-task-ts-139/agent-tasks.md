@@ -1,6 +1,6 @@
 ## Resolve PR merge conflicts (2026-06-16T23:54:58.217Z)
 
-- [ ] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
+- [x] Resolve PR merge conflicts. Read the error block below, fix the underlying problem (do not just retry the failing command), then check this box.
 
 ```
 The PR for this change has merge conflicts with `main`.
