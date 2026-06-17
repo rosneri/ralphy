@@ -41,6 +41,7 @@ stage_static() {
   run_step "No direct axios in apps/ui"   bun scripts/check-no-direct-http.ts
   run_step "Bun-native APIs (no node:fs *Sync / createHash / fs.exists)" bun scripts/check-bun-native.ts
   run_step "No new abbreviated identifiers (ratcheted)" bun scripts/check-no-abbreviation.ts
+  run_step "Test integrity (no .only / no new skips / no jest.mock / no mock.module(node:child_process))" bun scripts/check-test-integrity.ts
   run_step "No prop drilling in React components" bun scripts/check-prop-drilling.ts
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts
   run_step "Folder size check"            bun scripts/check-folder-size.ts
@@ -65,6 +66,7 @@ stage_static() {
   run_step "Circular dependency check"    bun run check:circular:ci
   run_step "Unused dependency check"      bun run check:unused:ci
   run_step "Outdated dependency check"    bun scripts/check-outdated.ts
+  run_step "Per-file LOC budget"          bun scripts/check-file-size.ts
 }
 
 stage_test() {
