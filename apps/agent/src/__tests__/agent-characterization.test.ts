@@ -71,7 +71,7 @@ mock.module("@ralphy/telemetry", () => ({
 }));
 
 import { parseAgentArgs as parseArgs } from "../cli";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 import { buildAgentCoordinator, type AgentRunners } from "../agent/wire";
 import type { GitRunner } from "../agent/worktree";
 import type { CmdRunner } from "../agent/pr";
@@ -908,7 +908,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     }) as typeof fetch;
 
     await writeWorkflow(tempDir, baseWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls } = makeRunners();
@@ -1115,7 +1115,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       },
     };
     await writeWorkflow(tempDir, confirmationWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls } = makeRunners();
@@ -1346,7 +1346,7 @@ describe("agent characterization — Stage-0 regression net", () => {
         },
       };
       await writeWorkflow(tempDir, confirmationWorkflow);
-      const cfg = await loadRalphyConfig(tempDir);
+      const cfg = await loadEffectiveConfig(tempDir);
       const args = await parseArgs([]);
 
       const { runners, workers, spawnCalls, setMergeable } = makeRunners();
@@ -1487,7 +1487,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       },
     };
     await writeWorkflow(tempDir, confirmationWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls, setCiFailing } = makeRunners();
@@ -1628,7 +1628,7 @@ describe("agent characterization — Stage-0 regression net", () => {
         },
       };
       await writeWorkflow(tempDir, confirmationWorkflow);
-      const cfg = await loadRalphyConfig(tempDir);
+      const cfg = await loadEffectiveConfig(tempDir);
       const args = await parseArgs([]);
 
       const { runners, workers, spawnCalls, setMergeable } = makeRunners();
@@ -1798,7 +1798,7 @@ describe("agent characterization — Stage-0 regression net", () => {
       },
     };
     await writeWorkflow(tempDir, confirmationWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls } = makeRunners();
@@ -1989,7 +1989,7 @@ describe("agent characterization — Stage-0 regression net", () => {
     }) as typeof fetch;
 
     await writeWorkflow(tempDir, baseWorkflow);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     const args = await parseArgs([]);
 
     const { runners, workers, spawnCalls, setMergeable } = makeRunners();

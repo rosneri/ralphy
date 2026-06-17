@@ -7,7 +7,7 @@ import { createNoopBus } from "@ralphy/events";
 import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import { createSpawnWorker } from "../spawn/worker";
 import { runPostTask } from "../../post-task";
-import { loadRalphyConfig } from "../../config";
+import { loadEffectiveConfig } from "../../config";
 import { parseAgentArgs } from "../../../cli";
 import type { AgentRunners } from "../runners";
 import type { TrackedIssue } from "@ralphy/tracker";
@@ -90,9 +90,11 @@ async function buildHarness(opts: HarnessOptions = {}): Promise<Harness> {
     runPostTaskOverride,
   } = opts;
 
-  const cfg = await loadRalphyConfig(tempDir);
-  const baseArgs = await parseAgentArgs([]);
-  const args = { ...baseArgs, createPr: wantPrBase };
+  // The PR intent now lives in the effective cfg (RLF-256): `--create-pr` is
+  // folded into `createPrOnSuccess` by the boot pipeline, so the harness sets
+  // it via agentOverrides rather than a now-removed `args.createPr` field.
+  const cfg = await loadEffectiveConfig(tempDir, undefined, {}, { createPr: wantPrBase });
+  const args = await parseAgentArgs([]);
 
   const captured: { input?: PostTaskInput } = {};
   let postTaskCalls = 0;

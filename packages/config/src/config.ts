@@ -13,7 +13,10 @@
  * precedence through one code path.
  */
 import {
+  AGENT_OVERRIDE_KEYS,
+  AGENT_OVERRIDE_TO_WORKFLOW_KEY,
   parseCommonArgv,
+  type AgentOverrides,
   type CliOverrides,
   type CliPassthrough,
   type CommonArgs,
@@ -29,7 +32,7 @@ import {
 } from "@ralphy/workflow";
 import type { LoopChangeStore, LoopOptions, MetaPromptOptions, TaskPhase } from "@ralphy/core/loop";
 
-export type { CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
+export type { AgentOverrides, CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
 export type { WorkflowConfig } from "@ralphy/workflow";
 
 /** Where an effective config value came from. */
@@ -103,11 +106,14 @@ function asWorkflowEffort(
  * WORKFLOW.md keys the author actually wrote (see `explicitWorkflowKeys`);
  * without it every non-CLI value reports `"default"`.
  */
+export type OriginKey = keyof CliOverrides | keyof AgentOverrides;
+
 export function mergeConfig(
   workflow: WorkflowConfig,
   overrides: CliOverrides,
   explicitKeys: ReadonlySet<string> = new Set(),
-): { effective: WorkflowConfig; origin: Map<keyof CliOverrides, ConfigOrigin> } {
+  agentOverrides: AgentOverrides = {},
+): { effective: WorkflowConfig; origin: Map<OriginKey, ConfigOrigin> } {
   // `effort` is optional with no default — under exactOptionalPropertyTypes it
   // is spread in conditionally rather than assigned a possible undefined.
   const effort = asWorkflowEffort(overrides.effort, workflow.effort);
@@ -125,11 +131,29 @@ export function mergeConfig(
     logRawStream: overrides.log ?? workflow.logRawStream,
     taskVerbose: overrides.verbose ?? workflow.taskVerbose,
     enableManualTest: overrides.manualTest ?? workflow.enableManualTest,
+    // Agent-only overrides, applied through the same `cli > workflow > default`
+    // core. `linearTeam` / `codeReview` target nested `linear.*` fields, so the
+    // `linear` container is rebuilt once with both (E2) rather than clobbered.
+    concurrency: agentOverrides.concurrency ?? workflow.concurrency,
+    pollIntervalSeconds: agentOverrides.pollInterval ?? workflow.pollIntervalSeconds,
+    useWorktree: agentOverrides.worktree ?? workflow.useWorktree,
+    createPrOnSuccess: agentOverrides.createPr ?? workflow.createPrOnSuccess,
+    stackPrsOnDependencies: agentOverrides.stackPrs ?? workflow.stackPrsOnDependencies,
+    linear: {
+      ...workflow.linear,
+      team: agentOverrides.linearTeam ?? workflow.linear.team,
+      codeReviewTrigger: agentOverrides.codeReview ?? workflow.linear.codeReviewTrigger,
+    },
   };
-  const origin = new Map<keyof CliOverrides, ConfigOrigin>();
+  const origin = new Map<OriginKey, ConfigOrigin>();
   for (const key of OVERRIDE_KEYS) {
     if (overrides[key] !== undefined) origin.set(key, "cli");
     else if (explicitKeys.has(OVERRIDE_TO_WORKFLOW_KEY[key])) origin.set(key, "workflow");
+    else origin.set(key, "default");
+  }
+  for (const key of AGENT_OVERRIDE_KEYS) {
+    if (agentOverrides[key] !== undefined) origin.set(key, "cli");
+    else if (explicitKeys.has(AGENT_OVERRIDE_TO_WORKFLOW_KEY[key])) origin.set(key, "workflow");
     else origin.set(key, "default");
   }
   return { effective, origin };
@@ -161,6 +185,27 @@ export function serializeOverrides(overrides: Readonly<CliOverrides>): string[] 
   if (overrides.log) argv.push("--log");
   if (overrides.verbose) argv.push("--verbose");
   if (overrides.manualTest) argv.push("--manual-test");
+  return argv;
+}
+
+/**
+ * Re-encode sparse agent overrides as argv for a child worker — the agent-side
+ * mirror of `serializeOverrides`. Exactly the keys the user passed, so a spawned
+ * worker re-derives an identical effective config (E4). Round-trip property:
+ * `parseAgentArgs(serializeAgentOverrides(x)).agentOverrides` equals `x`.
+ */
+export function serializeAgentOverrides(overrides: Readonly<AgentOverrides>): string[] {
+  const argv: string[] = [];
+  if (overrides.concurrency !== undefined)
+    argv.push("--concurrency", String(overrides.concurrency));
+  if (overrides.pollInterval !== undefined) {
+    argv.push("--poll-interval", String(overrides.pollInterval));
+  }
+  if (overrides.linearTeam !== undefined) argv.push("--linear-team", overrides.linearTeam);
+  if (overrides.worktree) argv.push("--worktree");
+  if (overrides.createPr) argv.push("--create-pr");
+  if (overrides.stackPrs) argv.push("--stack-prs");
+  if (overrides.codeReview) argv.push("--code-review");
   return argv;
 }
 
@@ -278,9 +323,11 @@ export interface ResolvedConfig {
   readonly cli: CliPassthrough;
   /** Exactly what argv set — re-serializable for child workers. */
   readonly overrides: Readonly<CliOverrides>;
+  /** Sparse agent-only overrides — `{}` for non-agent callers (e.g. the loop). */
+  readonly agentOverrides: Readonly<AgentOverrides>;
   readonly workflowPath: string;
-  /** Testable precedence witness. */
-  origin(key: keyof CliOverrides): ConfigOrigin;
+  /** Testable precedence witness — accepts both common and agent override keys. */
+  origin(key: OriginKey): ConfigOrigin;
   /** Config-derived fields + caller-injected runtime. */
   loopOptions(runtime: LoopRuntime): LoopOptions;
 }
@@ -320,6 +367,8 @@ export async function resolveConfig(input: ResolveConfigInput): Promise<Resolved
 export interface ResolveParsedConfigInput {
   /** The common slice of an app's parsed argv (sparse overrides + passthrough). */
   args: CommonArgs;
+  /** Sparse agent-only overrides — omit (defaults to `{}`) for non-agent apps. */
+  agentOverrides?: AgentOverrides;
   projectRoot?: string;
   fileSystem?: ConfigFileSystem;
 }
@@ -355,8 +404,15 @@ export async function resolveParsedConfig(
     explicitKeys = explicitWorkflowKeys(migrated.markdown);
   }
 
-  const { effective, origin } = mergeConfig(workflow, args.overrides, explicitKeys);
+  const agentOverridesInput = input.agentOverrides ?? {};
+  const { effective, origin } = mergeConfig(
+    workflow,
+    args.overrides,
+    explicitKeys,
+    agentOverridesInput,
+  );
   const overrides: Readonly<CliOverrides> = { ...args.overrides };
+  const agentOverrides: Readonly<AgentOverrides> = { ...agentOverridesInput };
   const cli: CliPassthrough = {
     projectRoot: args.projectRoot,
     workflowFile: args.workflowFile,
@@ -368,6 +424,7 @@ export async function resolveParsedConfig(
     effective,
     cli,
     overrides,
+    agentOverrides,
     workflowPath: path,
     origin: (key) => origin.get(key) ?? "default",
     loopOptions: (runtime) => loopOptionsFromConfig(effective, runtime),

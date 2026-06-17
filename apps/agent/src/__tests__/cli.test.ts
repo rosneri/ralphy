@@ -1,4 +1,5 @@
 import { describe, expect, test, spyOn } from "bun:test";
+import { serializeAgentOverrides } from "@ralphy/config";
 import { parseAgentArgs as parseArgs, printAgentHelp as printHelp, VERSION } from "../cli";
 
 describe("agent parseArgs", () => {
@@ -13,10 +14,10 @@ describe("agent parseArgs", () => {
       "--concurrency",
       "4",
     ]);
-    expect(result.linearTeam).toBe("ENG");
+    expect(result.agentOverrides.linearTeam).toBe("ENG");
     expect(result.linearAssignee).toBe("me");
-    expect(result.pollInterval).toBe(30);
-    expect(result.concurrency).toBe(4);
+    expect(result.agentOverrides.pollInterval).toBe(30);
+    expect(result.agentOverrides.concurrency).toBe(4);
   });
 
   test("--linear-assignee overrides the assignee for this run", async () => {
@@ -26,12 +27,12 @@ describe("agent parseArgs", () => {
 
   test("parses --worktree flag", async () => {
     const result = await parseArgs(["--worktree"]);
-    expect(result.worktree).toBe(true);
+    expect(result.agentOverrides.worktree).toBe(true);
   });
 
-  test("worktree defaults to false", async () => {
+  test("worktree is unset by default (presence = intent, no sentinel)", async () => {
     const result = await parseArgs([]);
-    expect(result.worktree).toBe(false);
+    expect(result.agentOverrides.worktree).toBeUndefined();
   });
 
   test("parses --workflow flag into an absolute path", async () => {
@@ -136,8 +137,8 @@ describe("agent parseArgs", () => {
   });
 
   test("parses --create-pr flag", async () => {
-    expect((await parseArgs(["--create-pr"])).createPr).toBe(true);
-    expect((await parseArgs([])).createPr).toBe(false);
+    expect((await parseArgs(["--create-pr"])).agentOverrides.createPr).toBe(true);
+    expect((await parseArgs([])).agentOverrides.createPr).toBeUndefined();
   });
 
   test("parses common engine flags", async () => {
@@ -180,8 +181,8 @@ describe("agent parseArgs", () => {
       "--debug",
     ]);
     expect(result.prRecoveryEnabled).toBe(true);
-    expect(result.stackPrs).toBe(true);
-    expect(result.codeReview).toBe(true);
+    expect(result.agentOverrides.stackPrs).toBe(true);
+    expect(result.agentOverrides.codeReview).toBe(true);
     expect(result.jsonOutput).toBe(true);
     expect(result.overrides.manualTest).toBe(true);
     expect(result.debug).toBe(true);
@@ -207,6 +208,46 @@ describe("agent parseArgs", () => {
   test("parses --agent-debug flag; defaults to false", async () => {
     expect((await parseArgs(["--agent-debug"])).agentDebug).toBe(true);
     expect((await parseArgs([])).agentDebug).toBe(false);
+  });
+
+  test("--concurrency 0 records an explicit zero (distinct from unset)", async () => {
+    // E1: presence is the only signal of intent. An explicit `--concurrency 0`
+    // is a real override (recorded as 0), while an unset concurrency leaves the
+    // key absent so the merge falls back to WORKFLOW.md / default.
+    const present = await parseArgs(["--concurrency", "0"]);
+    expect(present.agentOverrides.concurrency).toBe(0);
+    const unset = await parseArgs([]);
+    expect(unset.agentOverrides.concurrency).toBeUndefined();
+  });
+
+  test("with no agent-only flags, agentOverrides carries none of the 7 keys", async () => {
+    const result = await parseArgs([]);
+    expect(Object.keys(result.agentOverrides)).toHaveLength(0);
+    for (const key of [
+      "concurrency",
+      "pollInterval",
+      "linearTeam",
+      "worktree",
+      "createPr",
+      "stackPrs",
+      "codeReview",
+    ] as const) {
+      expect(result.agentOverrides[key]).toBeUndefined();
+    }
+  });
+
+  test("serializeAgentOverrides → parseAgentArgs round-trips the sparse bag (E4)", async () => {
+    const overrides = {
+      concurrency: 4,
+      pollInterval: 30,
+      linearTeam: "ENG",
+      worktree: true,
+      createPr: true,
+      stackPrs: true,
+      codeReview: true,
+    };
+    const parsed = await parseArgs(serializeAgentOverrides(overrides));
+    expect(parsed.agentOverrides).toEqual(overrides);
   });
 
   test("rejects unknown argument with helpful hint", async () => {

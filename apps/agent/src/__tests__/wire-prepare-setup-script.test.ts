@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import YAML from "yaml";
 import { projectLayout } from "@ralphy/core/layout";
 import { parseAgentArgs } from "../cli";
-import { loadRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig } from "../agent/config";
 import { createPrepareHelpers } from "../agent/wire/prepare";
 import { changeNameForIssue } from "../agent/scaffold";
 import type { GitRunner, WorktreeProvider } from "../agent/worktree";
@@ -109,7 +109,7 @@ async function runPrepare(input: {
   worktreeProvider?: WorktreeProvider;
 }): Promise<{ setupRuns: { cmd: string; cwd: string }[] }> {
   await writeWorkflow(input.useWorktree);
-  const cfg = await loadRalphyConfig(tempDir);
+  const cfg = await loadEffectiveConfig(tempDir);
   const args = await parseAgentArgs([]);
   const setupRuns: { cmd: string; cwd: string }[] = [];
 

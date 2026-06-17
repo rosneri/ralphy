@@ -7,6 +7,7 @@ import {
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
+  type AgentOverrides,
   type CommonArgs,
 } from "@ralphy/cli-args";
 
@@ -16,22 +17,18 @@ export type AgentMode = "agent" | "list" | "stop" | "status";
 
 export interface AgentParsedArgs extends CommonArgs {
   mode: AgentMode;
-  linearTeam: string;
+  /** Sparse config overrides for the agent-only flags (`--concurrency`,
+   *  `--poll-interval`, `--linear-team`, `--worktree`, `--create-pr`,
+   *  `--stack-prs`, `--code-review`) — exactly the keys argv set. Merged onto
+   *  WORKFLOW.md by `@ralphy/config` with `cli > workflow > default`; callers
+   *  read the merged value from `resolved.effective`, never from here. */
+  agentOverrides: AgentOverrides;
   /** Runtime assignee override (me / any / unassigned / <email> / <id>). Replaces
    *  the `assignee` clause of the config's `linear.filter` for this run. */
   linearAssignee: string;
-  pollInterval: number;
-  concurrency: number;
-  worktree: boolean;
   /** CLI overrides for the indicator map. Wire layer merges these onto
    *  the config's `linear.indicators`; CLI wins on conflict. */
   indicators: Partial<Indicators>;
-  createPr: boolean;
-  /** Open the PR against a blocker's open-PR head branch when the Linear
-   *  issue is blocked-by another issue with a single open GitHub PR. */
-  stackPrs: boolean;
-  /** Enable the code-review trigger (overrides config). */
-  codeReview: boolean;
   /** Stop picking up new issues after this many have been started (0 = unlimited). */
   maxTickets: number;
   /** Emit JSONL to stdout instead of rendering the Ink dashboard. */
@@ -201,15 +198,9 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   const result: AgentParsedArgs = {
     ...emptyCommonArgs(),
     mode: "agent",
-    linearTeam: "",
+    agentOverrides: {},
     linearAssignee: "",
-    pollInterval: 0,
-    concurrency: 0,
-    worktree: false,
     indicators: {},
-    createPr: false,
-    stackPrs: false,
-    codeReview: false,
     maxTickets: 0,
     jsonOutput: false,
     debug: false,
@@ -232,7 +223,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
 
   for (const arg of argv) {
     if (expectLinearTeam) {
-      result.linearTeam = arg;
+      result.agentOverrides.linearTeam = arg;
       expectLinearTeam = false;
       continue;
     }
@@ -242,12 +233,12 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
       continue;
     }
     if (expectPollInterval) {
-      result.pollInterval = parseInt(arg, 10);
+      result.agentOverrides.pollInterval = parseInt(arg, 10);
       expectPollInterval = false;
       continue;
     }
     if (expectConcurrency) {
-      result.concurrency = parseInt(arg, 10);
+      result.agentOverrides.concurrency = parseInt(arg, 10);
       expectConcurrency = false;
       continue;
     }
@@ -297,19 +288,19 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
         expectTicket = true;
         break;
       case "--worktree":
-        result.worktree = true;
+        result.agentOverrides.worktree = true;
         break;
       case "--indicator":
         expectIndicator = true;
         break;
       case "--create-pr":
-        result.createPr = true;
+        result.agentOverrides.createPr = true;
         break;
       case "--stack-prs":
-        result.stackPrs = true;
+        result.agentOverrides.stackPrs = true;
         break;
       case "--code-review":
-        result.codeReview = true;
+        result.agentOverrides.codeReview = true;
         break;
       case "--json-output":
         result.jsonOutput = true;
@@ -354,7 +345,7 @@ export async function parseAgentArgs(argv: string[]): Promise<AgentParsedArgs> {
   await resolvePromptFile(result, state);
   resolveWorkflowFile(result, state);
 
-  if (result.stackPrs && !result.createPr) {
+  if (result.agentOverrides.stackPrs && !result.agentOverrides.createPr) {
     throw new Error("--stack-prs requires --create-pr");
   }
 

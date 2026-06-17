@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import YAML from "yaml";
-import { loadRalphyConfig, ensureRalphyConfig } from "../agent/config";
+import { loadEffectiveConfig, ensureRalphyConfig } from "../agent/config";
 
 function writeWorkflow(dir: string, frontmatter: unknown, body = ""): Promise<number> {
   const yaml = typeof frontmatter === "string" ? frontmatter : YAML.stringify(frontmatter);
@@ -59,8 +59,8 @@ function makeIssue(overrides: Partial<TrackedIssue> = {}): TrackedIssue {
 }
 
 describe("agent/config", () => {
-  test("loadRalphyConfig returns defaults when file missing", async () => {
-    const cfg = await loadRalphyConfig(tempDir);
+  test("loadEffectiveConfig returns defaults when file missing", async () => {
+    const cfg = await loadEffectiveConfig(tempDir);
     expect(cfg.concurrency).toBe(1);
     expect(cfg.pollIntervalSeconds).toBe(60);
     expect(cfg.engine).toBe("claude");
@@ -69,7 +69,7 @@ describe("agent/config", () => {
     expect(cfg.linear.postComments).toBe(true);
   });
 
-  test("loadRalphyConfig reads indicator map", async () => {
+  test("loadEffectiveConfig reads indicator map", async () => {
     await writeWorkflow(tempDir, {
       concurrency: 5,
       linear: {
@@ -81,7 +81,7 @@ describe("agent/config", () => {
         },
       },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     expect(cfg.concurrency).toBe(5);
     expect(cfg.linear.team).toBe("ENG");
     expect(cfg.linear.indicators.getTodo).toEqual({
@@ -91,24 +91,24 @@ describe("agent/config", () => {
     expect(cfg.linear.indicators.setError).toEqual([{ type: "label", value: "ralph:error" }]);
   });
 
-  test("loadRalphyConfig rejects malformed frontmatter with pretty error", async () => {
+  test("loadEffectiveConfig rejects malformed frontmatter with pretty error", async () => {
     await Bun.write(join(tempDir, "WORKFLOW.md"), "no frontmatter here");
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("frontmatter");
+    await expect(loadEffectiveConfig(tempDir)).rejects.toThrow("frontmatter");
   });
 
-  test("loadRalphyConfig rejects unknown linear keys with pretty error", async () => {
+  test("loadEffectiveConfig rejects unknown linear keys with pretty error", async () => {
     await writeWorkflow(tempDir, { linear: { statuses: ["Todo"], doneLabel: "shipped" } });
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("invalid settings");
-    await expect(loadRalphyConfig(tempDir)).rejects.toThrow("ralph init");
+    await expect(loadEffectiveConfig(tempDir)).rejects.toThrow("invalid settings");
+    await expect(loadEffectiveConfig(tempDir)).rejects.toThrow("ralph init");
   });
 
-  test("loadRalphyConfig loads project / rules / boundaries blocks", async () => {
+  test("loadEffectiveConfig loads project / rules / boundaries blocks", async () => {
     await writeWorkflow(tempDir, {
       project: { name: "demo", language: "TypeScript" },
       rules: ["never break the build"],
       boundaries: { never_touch: ["dist/**"] },
     });
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     expect(cfg.project.name).toBe("demo");
     expect(cfg.rules).toEqual(["never break the build"]);
     expect(cfg.boundaries.never_touch).toEqual(["dist/**"]);
@@ -118,7 +118,7 @@ describe("agent/config", () => {
     const path = await ensureRalphyConfig(tempDir);
     expect(existsSync(path)).toBe(true);
     expect(path.endsWith("WORKFLOW.md")).toBe(true);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     expect(cfg.concurrency).toBe(1);
     expect(cfg.linear.indicators).toEqual({});
   });
@@ -130,7 +130,7 @@ describe("agent/config", () => {
     const returned = await ensureRalphyConfig(tempDir);
     expect(returned).toBe(path);
     expect(readFileSync(path, "utf-8")).toBe(before);
-    const cfg = await loadRalphyConfig(tempDir);
+    const cfg = await loadEffectiveConfig(tempDir);
     expect(cfg.concurrency).toBe(7);
   });
 });

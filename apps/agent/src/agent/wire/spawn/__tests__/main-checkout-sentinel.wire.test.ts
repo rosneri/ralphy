@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { createBus, type RalphEvent } from "@ralphy/events";
 import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import { createSpawnWorker } from "../worker";
-import { loadRalphyConfig } from "../../../config";
+import { loadEffectiveConfig } from "../../../config";
 import { parseAgentArgs } from "../../../../cli";
 import type { AgentRunners } from "../../runners";
 import type { GitRunner } from "../../../worktree";
@@ -92,7 +92,7 @@ function leakingGitRunner(secondStatus: string): GitRunner {
 async function buildHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const { useWorktree = true, gitRunner = leakingGitRunner(" M src/leaked.ts\n") } = opts;
 
-  const cfg = await loadRalphyConfig(tempDir);
+  const cfg = await loadEffectiveConfig(tempDir);
   const args = await parseAgentArgs([]);
 
   // The worktree cwd must differ from projectRoot for the sentinel to arm.

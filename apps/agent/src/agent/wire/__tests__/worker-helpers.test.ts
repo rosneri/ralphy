@@ -174,12 +174,13 @@ describe("buildPostTaskInput", () => {
     expect(input.prUrl).toBe("https://x/pull/1");
   });
 
-  test("propagates the stackPrs CLI override into cfg", async () => {
+  test("passes through the effective stackPrsOnDependencies from cfg", async () => {
+    // The `--stack-prs` CLI override is folded into the effective cfg by the
+    // boot pipeline (RLF-256); buildPostTaskInput just reads cfg, not args.
     const args = await baseArgs();
-    args.stackPrs = true;
     const input = buildPostTaskInput({
       args,
-      cfg: baseCfg(),
+      cfg: baseCfg({ stackPrsOnDependencies: true }),
       changeName: "rlf-1",
       cwd: "/work",
       projectRoot: "/root",

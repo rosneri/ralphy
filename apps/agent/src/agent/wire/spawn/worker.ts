@@ -183,7 +183,7 @@ export function buildPostTaskInput(input: {
   prUrl?: string;
   respawnWorker: () => Promise<number>;
 }): PostTaskInput {
-  const { args, cfg } = input;
+  const { cfg } = input;
   return {
     ...(input.trigger ? { mode: input.trigger as PostTaskMode } : {}),
     ...(input.prUrl ? { prUrl: input.prUrl } : {}),
@@ -204,7 +204,7 @@ export function buildPostTaskInput(input: {
       prBaseBranch: cfg.prBaseBranch,
       autoMergeStrategy: cfg.autoMergeStrategy,
       cleanupWorktreeOnSuccess: cfg.cleanupWorktreeOnSuccess,
-      stackPrsOnDependencies: args.stackPrs || cfg.stackPrsOnDependencies,
+      stackPrsOnDependencies: cfg.stackPrsOnDependencies,
       neverTouch: cfg.boundaries.never_touch,
       metaOnlyFiles: cfg.boundaries.meta_only_files,
       finalizeNoOpAsDone: cfg.finalizeNoOpAsDone,
@@ -446,7 +446,7 @@ export function createSpawnWorker(
         )
       : cmdRunner;
 
-    const wantPrBase = args.createPr || cfg.createPrOnSuccess;
+    const wantPrBase = cfg.createPrOnSuccess;
     const issueForChange = issueByChange.get(changeName);
     const wantAutoMerge = issueForChange
       ? issueMatchesGetIndicator(issueForChange, indicators.getAutoMerge)

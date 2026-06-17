@@ -14,7 +14,7 @@ import { join } from "node:path";
 import YAML from "yaml";
 import { markersOf } from "@ralphy/types";
 import { parseAgentArgs } from "../../../../cli";
-import { loadRalphyConfig } from "../../../config";
+import { loadEffectiveConfig } from "../../../config";
 import { createTracker, type CreateTrackerInput } from "../create-tracker";
 
 let tempDir: string;
@@ -30,7 +30,7 @@ afterEach(() => {
 
 async function makeInput(workflow: unknown): Promise<CreateTrackerInput> {
   await Bun.write(join(tempDir, "WORKFLOW.md"), `---\n${YAML.stringify(workflow)}---\n`);
-  const cfg = await loadRalphyConfig(tempDir);
+  const cfg = await loadEffectiveConfig(tempDir);
   const args = await parseAgentArgs([]);
   return {
     cfg,

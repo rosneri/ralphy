@@ -3,7 +3,7 @@ import { getStorage, getLayout, getArgs } from "@ralphy/context";
 import { resolveLinearFilter, linearFilterScope, applyAssigneeOverride } from "@ralphy/workflow";
 import type { GetIndicator, Indicators, LinearFilterScope, Marker } from "@ralphy/types";
 import { worktreesDir } from "./agent/worktree";
-import { loadRalphyConfig } from "./agent/config";
+import { loadEffectiveConfig } from "./agent/config";
 import {
   fetchOpenIssues,
   fetchAttachmentsForIssues,
@@ -427,7 +427,7 @@ async function fetchAndPrintLinear(
 }
 
 interface RunListInput {
-  linearTeamOverride: string;
+  linearTeamOverride: string | undefined;
   linearAssigneeOverride: string;
   debug: boolean;
   name: string;
@@ -459,10 +459,13 @@ export async function runList(input: RunListInput): Promise<void> {
   const rows = buildLocalRows();
   printLocalRows(rows);
 
-  const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
+  const args = getArgs();
+  const extra =
+    input.linearTeamOverride === undefined ? {} : { linearTeam: input.linearTeamOverride };
+  const cfg = await loadEffectiveConfig(projectRoot, args.workflowFile, args.overrides, extra);
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
-  const team = input.linearTeamOverride || cfg.linear.team;
+  const team = cfg.linear.team;
   const resolved = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
@@ -526,7 +529,7 @@ export async function runList(input: RunListInput): Promise<void> {
 interface DebugInput {
   identifier: string;
   projectRoot: string;
-  linearTeamOverride: string;
+  linearTeamOverride: string | undefined;
   linearAssigneeOverride: string;
 }
 
@@ -550,15 +553,6 @@ interface RawIssue {
   };
 }
 
-/**
- * Resolve the user-supplied --name argument to a Linear identifier
- * (e.g. "DOO-6"). Accepts either:
- *   - a raw Linear identifier in any case ("DOO-6", "doo-6")
- *   - a local change-name slug produced by changeNameForIssue
- *     ("doo-6-test2") — the leading `<team>-<number>` is extracted.
- * Returns null when the input cannot be coerced into a Linear identifier
- * (including a bare number, which carries no team key).
- */
 function normalizeIdentifier(input: string): string | null {
   let parsed: ParsedTicketIdentifier;
   try {
@@ -644,9 +638,12 @@ async function runListDebug(input: DebugInput): Promise<void> {
     return;
   }
 
-  const cfg = await loadRalphyConfig(projectRoot, getArgs().workflowFile);
+  const args = getArgs();
+  const extra =
+    input.linearTeamOverride === undefined ? {} : { linearTeam: input.linearTeamOverride };
+  const cfg = await loadEffectiveConfig(projectRoot, args.workflowFile, args.overrides, extra);
   const indicators = cfg.linear.indicators as Indicators;
-  const team = input.linearTeamOverride || cfg.linear.team;
+  const team = cfg.linear.team;
   const { assignee, anyAssignee, requireAllLabels, excludeLabels } = resolveLinearFilter(
     applyAssigneeOverride(cfg.linear.filter, input.linearAssigneeOverride),
   );
