@@ -38,6 +38,9 @@ jobs:
       - name: Folder size check
         run: bun scripts/check-folder-size.ts
 
+      - name: Per-file LOC budget
+        run: bun scripts/check-file-size.ts
+
       - name: Single component per TSX file
         run: bun scripts/check-single-component.ts
 
