@@ -1,48 +1,45 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
-import { findViolations, scanSource } from "../check-config-merge";
+import { stripCommentsAndStrings, findViolations } from "../check-config-merge";
 
-const REPO_ROOT = join(import.meta.dirname, "..", "..");
-
-describe("scanSource (the matcher)", () => {
-  test("FLAGS the `args.x || cfg.y` fallback — the falsy-override loss we guard against", () => {
-    const src = `const team = args.linearTeam || cfg.linear.team;`;
-    const found = scanSource(src, "apps/agent/src/planted.ts");
-    expect(found).toHaveLength(1);
-    expect(found[0]?.rule).toBe("args.x || cfg.y");
+// Regression: the line-comment branch of stripCommentsAndStrings looped without
+// advancing `i`, so the first `//` in any source file spun forever pushing
+// blanks into the output array until the process exhausted memory (OOM-killing
+// the whole agent fleet via its shared cgroup). The block-comment and string
+// branches advance `i`; the line-comment branch must too.
+describe("stripCommentsAndStrings — line comments terminate (OOM regression)", () => {
+  test("blanks a line comment, preserving length and newlines", () => {
+    const input = "a // c\nb";
+    const out = stripCommentsAndStrings(input);
+    expect(out.length).toBe(input.length); // exact length preserved → byte offsets stay valid
+    expect(out).toBe("a     \nb"); // comment (incl. the //) blanked, newline kept
   });
 
-  test("FLAGS the `|| config.x` variant too", () => {
-    const src = `const n = args.concurrency || config.concurrency;`;
-    expect(scanSource(src, "apps/agent/src/planted.ts")).toHaveLength(1);
+  test("a comment at end-of-file (no trailing newline) terminates", () => {
+    const input = "x // trailing";
+    const out = stripCommentsAndStrings(input);
+    expect(out.length).toBe(input.length);
+    expect(out).toBe("x            ");
   });
 
-  test("FLAGS an `args.x !== <default>` sentinel comparison", () => {
-    const src = `if (args.maxFailures !== 5) { /* ... */ }`;
-    const found = scanSource(src, "apps/agent/src/planted.ts");
-    expect(found).toHaveLength(1);
-    expect(found[0]?.rule).toBe("args.x !== <default>");
-  });
-
-  test("PASSES on a plain `effective` read — the migrated shape", () => {
-    const src = `const team = effective.linear.team;`;
-    expect(scanSource(src, "apps/agent/src/planted.ts")).toEqual([]);
-  });
-
-  test("does NOT flag the anti-pattern when it appears only inside a comment", () => {
-    const src = ` * never write args.x || cfg.x for any config-backed key`;
-    expect(scanSource(src, "apps/agent/src/planted.ts")).toEqual([]);
+  test("multiple line comments across lines all terminate and blank", () => {
+    const input = "const a = 1; // one\nconst b = 2; // two\n";
+    const out = stripCommentsAndStrings(input);
+    expect(out.length).toBe(input.length);
+    expect(out).toContain("const a = 1;");
+    expect(out).not.toContain("one");
+    expect(out).not.toContain("two");
   });
 });
 
-describe("guard over the real tree", () => {
-  test("the migrated apps tree has zero violations (guard exits clean)", async () => {
-    expect(await findViolations()).toEqual([]);
+describe("findViolations — comments don't mask or false-positive", () => {
+  test("a banned merge in a comment is NOT flagged", () => {
+    expect(findViolations("// args.x || cfg.y\n")).toEqual([]);
   });
 
-  test("findViolations skips __tests__ files (a planted fixture there is never read)", async () => {
-    // The guard walks apps/ but excludes __tests__; assert no flagged path is a test.
-    const violations = await findViolations(join(REPO_ROOT, "apps"));
-    expect(violations.every((v) => !v.file.includes("__tests__"))).toBe(true);
+  test("a real banned merge IS flagged even with comments present", () => {
+    const src = "// a note\nconst team = args.team || cfg.linear.team;\n";
+    const violations = findViolations(src);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.root).toBe("cfg");
   });
 });

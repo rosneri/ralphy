@@ -7,13 +7,13 @@
  *
  * `linearIdentifierStrategy` reproduces today's exact behavior — the existing
  * Linear tests are the guard. `githubIdentifierStrategy` is defined in
- * `github-client.ts` (to avoid a runtime import cycle) and re-exported here;
- * the local annotation enforces its conformance to `IdentifierStrategy`.
+ * `github-identifiers.ts` (to avoid a runtime import cycle) and re-exported
+ * here; the local annotation enforces its conformance to `IdentifierStrategy`.
  */
 
 import type { TrackedIssue } from "@ralphy/tracker";
 import { branchForChange } from "../../../agent/worktree";
-import { githubIdentifierStrategyImpl, type GitHubIssueRef } from "./github-client";
+import { githubIdentifierStrategyImpl, type GitHubIssueRef } from "./github-identifiers";
 
 interface IdentifierStrategy<I> {
   /** Cache/scope key — Linear: team key; GitHub: `owner/repo` or "". */

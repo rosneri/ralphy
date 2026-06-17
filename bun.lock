@@ -170,10 +170,6 @@
         "@ralphy/types": "workspace:*",
       },
     },
-    "packages/agent-protocol": {
-      "name": "@ralphy/agent-protocol",
-      "version": "0.0.0",
-    },
     "packages/change-store": {
       "name": "@ralphy/change-store",
       "version": "0.0.0",
@@ -867,8 +863,6 @@
     "@ralphy/adapter-codex": ["@ralphy/adapter-codex@workspace:packages/adapter-codex"],
 
     "@ralphy/agent": ["@ralphy/agent@workspace:apps/agent"],
-
-    "@ralphy/agent-protocol": ["@ralphy/agent-protocol@workspace:packages/agent-protocol"],
 
     "@ralphy/change-store": ["@ralphy/change-store@workspace:packages/change-store"],
 
