@@ -529,6 +529,27 @@ describe("buildPhasePrompt — execute uses buildTaskPrompt", () => {
     }));
 });
 
+describe("buildReviewPrompt — self-critique failure classes", () => {
+  test("names each recurring failure class in the audit step", () =>
+    withStorage(() => {
+      const state = makeState();
+      writeState(tempDir, state);
+      const prompt = buildReviewPrompt(state, tempDir);
+      expect(prompt).toContain("recurring failure classes");
+      for (const keyword of [
+        "God-files",
+        "Duplication",
+        "Dead code",
+        "Leaky boundaries",
+        "Sentinel config merges",
+        "`node:fs` sync APIs",
+        "Imperative machine guards",
+      ]) {
+        expect(prompt).toContain(keyword);
+      }
+    }));
+});
+
 describe("buildPhasePrompt router", () => {
   test("routes 'execute' to buildTaskPrompt (meta disabled)", () =>
     withStorage(() => {

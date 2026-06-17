@@ -211,9 +211,12 @@ export function buildPostTaskInput(input: {
       manualMergeWhenAutoMergeDisabled: cfg.manualMergeWhenAutoMergeDisabled,
       prDraft: cfg.prDraft,
       prLabels: cfg.prLabels,
-      validateCommands: [cfg.commands.test, cfg.commands.lint, cfg.commands.typecheck].filter(
-        (c): c is string => Boolean(c),
-      ),
+      validateCommands: [
+        cfg.commands.test,
+        cfg.commands.lint,
+        cfg.commands.typecheck,
+        cfg.commands.structure,
+      ].filter((c): c is string => Boolean(c)),
     },
     respawnWorker: input.respawnWorker,
   };

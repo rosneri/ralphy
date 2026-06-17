@@ -10,6 +10,13 @@ Ralph loop framework.
 - Never use `node:fs` **sync** APIs in source. Callers should be async.
 - Tests that need to mock spawning must patch `Bun.spawnSync` directly (see `packages/openspec/src/__tests__/openspec-change-store.test.ts` for the pattern). Do not `mock.module("node:child_process", ...)`.
 
+## Code Conventions
+
+- Spell names out; do not abbreviate identifiers. A reader should never have to expand an acronym to understand a variable, function, or type name.
+- No re-exports — do not add barrel files that re-export another module's symbols. Import each symbol from the module that defines it (enforced by `scripts/check-no-reexport-tsx.ts` in `check:structure`).
+- No `any` and no unsafe casts — keep types honest (`no-explicit-any` is an oxlint error; `scripts/check-no-unsafe-casts.sh` blocks casts).
+- Shared logic lives in `packages/` and is consumed by `apps/`; never reach from a package back into an app.
+
 ## State Machines
 
 The authoritative stop and flow logic lives in XState machines — do not duplicate these guards imperatively:
