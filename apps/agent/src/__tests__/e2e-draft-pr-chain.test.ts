@@ -147,7 +147,7 @@ describe("e2e — prDraft chain: design-ready draft → readied at end (same PR)
         stateFilePath,
         issue: ISSUE,
         wantAutoMerge: false,
-        cfg: {
+        config: {
           teardownScript: null,
           prBaseBranch: "main",
           autoMergeStrategy: "squash" as const,
@@ -202,7 +202,7 @@ describe("e2e — prDraft chain: design-ready draft → readied at end (same PR)
         stateFilePath,
         issue: ISSUE,
         wantAutoMerge: false,
-        cfg: {
+        config: {
           teardownScript: null,
           prBaseBranch: "main",
           autoMergeStrategy: "squash" as const,

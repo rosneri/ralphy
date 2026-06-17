@@ -28,7 +28,8 @@ interface MergeabilityProbe {
 type MergeabilityOutcome =
   | { kind: "mergeable" }
   | { kind: "conflicting" }
-  | { kind: "closed" } // state flipped to CLOSED/MERGED mid-poll
+  | { kind: "merged" } // state flipped to MERGED mid-poll — the PR landed
+  | { kind: "closed" } // state flipped to CLOSED (unmerged) mid-poll
   | { kind: "unknown" } // exhausted retries with mergeable still UNKNOWN
   | { kind: "error"; message: string }; // probe threw and bailOnError=true
 
@@ -73,6 +74,11 @@ export async function waitForMergeability(
 
     if (probe) {
       const state = probe.state?.toUpperCase();
+      // A merged PR landed — distinct from an abandoned (CLOSED, unmerged) one.
+      // Callers settle a quarantined/recovering ticket to done on "merged";
+      // "closed" is a dead end. Collapsing the two stranded quarantined actors
+      // whose PR merged out-of-band (they were never cleared).
+      if (state === "MERGED") return { kind: "merged" };
       if (state && state !== "OPEN") return { kind: "closed" };
 
       const m = probe.mergeable?.toUpperCase();

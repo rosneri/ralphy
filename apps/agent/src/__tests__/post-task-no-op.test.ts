@@ -97,7 +97,7 @@ describe("runPrPhase — no-op detection", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, finalizeNoOpAsDone: true },
+        config: { ...baseCfg, finalizeNoOpAsDone: true },
       },
       {
         cmd,
@@ -131,7 +131,7 @@ describe("runPrPhase — no-op detection", () => {
         stateFilePath,
         issue: FAKE_ISSUE,
         wantAutoMerge: false,
-        cfg: { ...baseCfg, finalizeNoOpAsDone: false },
+        config: { ...baseCfg, finalizeNoOpAsDone: false },
       },
       {
         cmd,

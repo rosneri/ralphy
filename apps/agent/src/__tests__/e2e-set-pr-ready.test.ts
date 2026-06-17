@@ -120,7 +120,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
         stateFilePath,
         issue,
         wantAutoMerge: false,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
@@ -167,7 +167,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
         stateFilePath,
         issue,
         wantAutoMerge: true,
-        cfg: { ...baseCfg, prDraft: true },
+        config: { ...baseCfg, prDraft: true },
       },
       {
         cmd,
@@ -204,7 +204,7 @@ describe("RLF-214 — setPrReady integration (real runPrPhase + fake-linear)", (
         stateFilePath,
         issue,
         wantAutoMerge: true,
-        cfg: baseCfg,
+        config: baseCfg,
       },
       {
         cmd,
