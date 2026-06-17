@@ -2,7 +2,7 @@ import { useState } from "react";
 import { appendBounded } from "@ralphy/core/log-retention";
 import { logCoord } from "@ralphy/log";
 
-export interface LogLine {
+interface LogLine {
   id: string;
   text: string;
   timestamp: string;
@@ -22,7 +22,7 @@ function nextId(): string {
 }
 
 /** Append function plus the state a `<Static>` log view needs to render. */
-export interface BoundedLogs {
+interface BoundedLogs {
   logs: LogLine[];
   /** Bumped when bounded retention drops oldest lines, so `<Static>` remounts and
    *  keeps flushing new lines (Ink's Static stops once the array stops growing). */
