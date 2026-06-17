@@ -67,7 +67,7 @@ import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
 import { useHoldToClose } from "@ralphy/ui-shared/useHoldToClose";
 import { SteeringField } from "./SteeringField";
 import { appendSteeringMessage } from "@ralphy/core/loop";
-import { appendBounded } from "@ralphy/core/log-retention";
+import { useBoundedLogs } from "./useBoundedLogs";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import {
@@ -102,25 +102,6 @@ interface AgentModeProps {
   loadConfig?: typeof loadRalphyConfigImpl;
   /** Test injection — defaults to the real `runPreflight`. */
   runPreflight?: (opts?: PreflightOptions) => Promise<PreflightResult>;
-}
-
-interface LogLine {
-  id: string;
-  text: string;
-  timestamp: string;
-  color?: string | undefined;
-}
-
-/** Local wall-clock stamp prefixed to every scrolling log line (HH:MM:SS). */
-export function formatLogTimestamp(date: Date = new Date()): string {
-  const pad = (n: number): string => String(n).padStart(2, "0");
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-let lineCounter = 0;
-function nextId(): string {
-  lineCounter += 1;
-  return `${Date.now()}-${lineCounter}`;
 }
 
 interface WorkerMeta {
@@ -464,10 +445,7 @@ export function AgentMode({
   const { exit } = useApp();
   const { isRawModeSupported } = useStdin();
   const { columns, rows, resizeKey } = useTerminalSize();
-  const [logs, setLogs] = useState<LogLine[]>([]);
-  // Bumped when bounded retention drops oldest lines, so <Static> remounts and
-  // keeps flushing new lines (Ink's Static stops once the array stops growing).
-  const [logTrimGeneration, setLogTrimGeneration] = useState(0);
+  const { logs, logTrimGeneration, appendLog } = useBoundedLogs();
   const [preflightError, setPreflightError] = useState<{ tool: string; message: string } | null>(
     null,
   );
@@ -531,17 +509,6 @@ export function AgentMode({
     filterDesc: "",
     lastBoard: [],
   });
-
-  function appendLog(text: string, color?: string, workerLogFile?: string) {
-    setLogs((prev) => {
-      const { entries, dropped } = appendBounded(prev, [
-        { id: nextId(), text, timestamp: formatLogTimestamp(), color },
-      ]);
-      if (dropped > 0) setLogTrimGeneration((generation) => generation + 1);
-      return entries;
-    });
-    logCoord(text, workerLogFile);
-  }
 
   const fileSinkRef = useRef<ReturnType<typeof createJsonLogFileSink> | null>(null);
   if (fileSinkRef.current === null) {

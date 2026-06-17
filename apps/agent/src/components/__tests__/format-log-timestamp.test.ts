@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatLogTimestamp } from "../AgentMode";
+import { formatLogTimestamp } from "../useBoundedLogs";
 
 describe("formatLogTimestamp", () => {
   test("renders local wall-clock time as zero-padded HH:MM:SS", () => {
