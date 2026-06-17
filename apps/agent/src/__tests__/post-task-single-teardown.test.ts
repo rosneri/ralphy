@@ -9,6 +9,7 @@ const PR_FAILED_EXIT = 71;
 import type { CmdRunner } from "../agent/pr";
 import type { GitRunner } from "../agent/worktree";
 import type { TrackedIssue } from "@ralphy/tracker";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
 
 // RLF-257 keystone invariant: worktree cleanup + teardown must each run
 // EXACTLY ONCE for every terminal outcome of runPostTask — including the
@@ -160,6 +161,7 @@ describe("runPostTask — single teardown invariant", () => {
       log: () => {},
       runScript: c.runScript,
       onPhase: c.onPhase,
+      codeHost: createFakeCodeHost(),
     });
     expect(code).toBe(0);
     assertOnce(c);
@@ -180,6 +182,7 @@ describe("runPostTask — single teardown invariant", () => {
       log: () => {},
       runScript: c.runScript,
       onPhase: c.onPhase,
+      codeHost: createFakeCodeHost(),
     });
     expect(code).toBe(PR_FAILED_EXIT);
     assertOnce(c);
@@ -210,7 +213,14 @@ describe("runPostTask — single teardown invariant", () => {
           finalizeNoOpAsDone: true,
         },
       }),
-      { cmd, git, log: () => {}, runScript: c.runScript, onPhase: c.onPhase },
+      {
+        cmd,
+        git,
+        log: () => {},
+        runScript: c.runScript,
+        onPhase: c.onPhase,
+        codeHost: createFakeCodeHost(),
+      },
     );
     expect(code).toBe(NO_CHANGES_EXIT);
     assertOnce(c);
@@ -225,6 +235,7 @@ describe("runPostTask — single teardown invariant", () => {
       log: () => {},
       runScript: c.runScript,
       onPhase: c.onPhase,
+      codeHost: createFakeCodeHost(),
     });
     expect(code).toBe(0);
     assertOnce(c);
@@ -249,7 +260,14 @@ describe("runPostTask — single teardown invariant", () => {
         // The validate fix path respawns the worker; make it report failure.
         respawnWorker: async () => 1,
       }),
-      { cmd, git, log: () => {}, runScript: c.runScript, onPhase: c.onPhase },
+      {
+        cmd,
+        git,
+        log: () => {},
+        runScript: c.runScript,
+        onPhase: c.onPhase,
+        codeHost: createFakeCodeHost(),
+      },
     );
     expect(code).toBe(1);
     assertOnce(c);
@@ -268,6 +286,7 @@ describe("runPostTask — single teardown invariant", () => {
       log: () => {},
       runScript: c.runScript,
       onPhase: c.onPhase,
+      codeHost: createFakeCodeHost(),
     });
     expect(code).toBe(0);
     assertOnce(c);
@@ -286,6 +305,7 @@ describe("runPostTask — single teardown invariant", () => {
       log: () => {},
       runScript: c.runScript,
       onPhase: c.onPhase,
+      codeHost: createFakeCodeHost(),
     });
     expect(code).toBe(PR_FAILED_EXIT);
     assertOnce(c);
@@ -304,7 +324,14 @@ describe("runPostTask — single teardown invariant", () => {
             throw boom;
           },
         }),
-        { cmd, git, log: () => {}, runScript: c.runScript, onPhase: c.onPhase },
+        {
+          cmd,
+          git,
+          log: () => {},
+          runScript: c.runScript,
+          onPhase: c.onPhase,
+          codeHost: createFakeCodeHost(),
+        },
       ),
     ).rejects.toThrow("respawn blew up");
     assertOnce(c);

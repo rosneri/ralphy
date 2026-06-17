@@ -6,6 +6,7 @@ import { AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
 import { reactivateState, runWorkerWithFixTask } from "../agent/post-task/respawn";
 import type { PostTaskCtx } from "../agent/post-task/types";
 import type { CmdRunner } from "../agent/pr";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
 
 // The respawn tier is the inner fix-and-retry authority (distinct from
 // loopMachine). Its two invariants under test:
@@ -15,33 +16,7 @@ import type { CmdRunner } from "../agent/pr";
 //      (pre-HEAD must be an ancestor of post-HEAD) — the guard against a fix
 //      worker "fixing" a failure by reverting/amending its own commits.
 
-interface CmdScript {
-  // Sequential responses for `git rev-parse HEAD` (first = pre, second = post).
-  revParse?: string[];
-  // When set, `git merge-base --is-ancestor` throws (non-ancestor → rewrite).
-  ancestorFails?: boolean;
-}
-
-function makeCmd(script: CmdScript): { cmd: CmdRunner; calls: string[][] } {
-  const calls: string[][] = [];
-  let revIdx = 0;
-  const cmd: CmdRunner = {
-    run: async (args) => {
-      calls.push([...args]);
-      if (args[0] === "git" && args[1] === "rev-parse") {
-        const seq = script.revParse ?? [];
-        const out = seq[Math.min(revIdx++, seq.length - 1)] ?? "";
-        return { stdout: out, stderr: "" };
-      }
-      if (args[0] === "git" && args[1] === "merge-base") {
-        if (script.ancestorFails) throw new Error("not an ancestor");
-        return { stdout: "", stderr: "" };
-      }
-      return { stdout: "", stderr: "" };
-    },
-  };
-  return { cmd, calls };
-}
+const noop: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
 
 describe("reactivateState", () => {
   let tmpDir: string;
@@ -97,10 +72,11 @@ describe("runWorkerWithFixTask", () => {
   });
 
   function makeCtx(
-    cmd: CmdRunner,
     respawnWorker: () => Promise<number>,
     log: (text: string, color?: string) => void = () => {},
+    codeHostOverride?: Partial<PostTaskCtx["codeHost"]>,
   ): PostTaskCtx {
+    const codeHost = { ...createFakeCodeHost(), ...codeHostOverride };
     return {
       changeName: "my-change",
       cwd: tmpDir,
@@ -116,18 +92,19 @@ describe("runWorkerWithFixTask", () => {
         stackPrsOnDependencies: false,
         neverTouch: [],
       },
-      cmd,
+      cmd: noop,
       log,
       emit: () => {},
       respawnWorker,
+      codeHost,
     };
   }
 
   test("prepends the fix task, reactivates state, and returns the respawn code", async () => {
-    const { cmd } = makeCmd({ revParse: ["abc123", "abc123"] }); // unchanged HEAD
+    // unchanged HEAD: headSha returns same value before and after — no ancestor check needed
     let respawns = 0;
     const code = await runWorkerWithFixTask(
-      makeCtx(cmd, async () => {
+      makeCtx(async () => {
         respawns += 1;
         return 0;
       }),
@@ -146,13 +123,17 @@ describe("runWorkerWithFixTask", () => {
   });
 
   test("returns 1 and logs a red error when the respawn rewrote history", async () => {
-    const { cmd } = makeCmd({ revParse: ["preHEAD0", "postHEAD9"], ancestorFails: true });
+    // Different pre/post HEAD, ancestor check returns false → history rewrite detected.
+    let headCallCount = 0;
     const logs: { text: string; color?: string }[] = [];
     const code = await runWorkerWithFixTask(
       makeCtx(
-        cmd,
         async () => 0,
         (text, color) => logs.push(color !== undefined ? { text, color } : { text }),
+        {
+          headSha: async () => (headCallCount++ === 0 ? "preHEAD0" : "postHEAD9"),
+          isAncestor: async () => false,
+        },
       ),
       "Fix push rejection",
       "body",
@@ -162,24 +143,35 @@ describe("runWorkerWithFixTask", () => {
   });
 
   test("accepts a respawn whose new HEAD is a descendant (append-only)", async () => {
-    const { cmd, calls } = makeCmd({ revParse: ["preHEAD0", "postHEAD9"], ancestorFails: false });
+    // Different pre/post HEAD, ancestor check returns true → append-only verified.
+    let headCallCount = 0;
+    const isAncestorCalls: unknown[][] = [];
     const code = await runWorkerWithFixTask(
-      makeCtx(cmd, async () => 0),
+      makeCtx(
+        async () => 0,
+        () => {},
+        {
+          headSha: async () => (headCallCount++ === 0 ? "preHEAD0" : "postHEAD9"),
+          isAncestor: async (ancestor, descendant, cwd) => {
+            isAncestorCalls.push([ancestor, descendant, cwd]);
+            return true;
+          },
+        },
+      ),
       "Fix",
       "body",
     );
     expect(code).toBe(0);
     // The ancestor check actually ran (HEAD changed → must verify).
-    expect(calls.some((c) => c[1] === "merge-base" && c.includes("--is-ancestor"))).toBe(true);
+    expect(isAncestorCalls.length).toBe(1);
   });
 
   test("returns 1 without respawning when the fix task cannot be prepended", async () => {
     // Point changeDir at a path whose tasks file can't be written (parent is a
     // file, not a directory) so prependTask throws.
-    const { cmd } = makeCmd({ revParse: ["abc", "abc"] });
     const badFile = join(tmpDir, "not-a-dir");
     await Bun.write(badFile, "x");
-    const ctx = makeCtx(cmd, async () => 0);
+    const ctx = makeCtx(async () => 0);
     ctx.changeDir = join(badFile, "nested");
     let respawns = 0;
     const code = await runWorkerWithFixTask(

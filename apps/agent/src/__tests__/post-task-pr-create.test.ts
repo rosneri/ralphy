@@ -6,6 +6,7 @@ import { AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
 import { createPrWithRetry } from "../agent/post-task/pr-create";
 import type { PostTaskCtx } from "../agent/post-task/types";
 import type { CmdRunner } from "../agent/pr";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import type { TrackedIssue } from "@ralphy/tracker";
 
 const FAKE_ISSUE: TrackedIssue = {
@@ -76,7 +77,12 @@ describe("createPrWithRetry", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 
-  function makeCtx(cmd: CmdRunner, respawnWorker: () => Promise<number>): PostTaskCtx {
+  function makeCtx(
+    cmd: CmdRunner,
+    respawnWorker: () => Promise<number>,
+    codeHostOverrides?: Partial<PostTaskCtx["codeHost"]>,
+  ): PostTaskCtx {
+    const codeHost = { ...createFakeCodeHost(), ...codeHostOverrides };
     return {
       changeName: "my-change",
       cwd: tmpDir,
@@ -96,6 +102,7 @@ describe("createPrWithRetry", () => {
       log: () => {},
       emit: () => {},
       respawnWorker,
+      codeHost,
     };
   }
 
@@ -133,6 +140,8 @@ describe("createPrWithRetry", () => {
 
   test("non-fast-forward push: merges origin then succeeds on the retry", async () => {
     const prUrl = "https://github.com/owner/repo/pull/9";
+    const fetchCalls: string[] = [];
+    const pullCalls: string[] = [];
     const { cmd, calls } = makeScriptedCmd([
       ...HEAD_OK,
       // First push rejected non-ff, second push succeeds.
@@ -143,31 +152,42 @@ describe("createPrWithRetry", () => {
           { stdout: "" },
         ],
       },
-      { match: "git fetch origin", replies: [{ stdout: "" }] },
-      { match: "git pull --no-rebase", replies: [{ stdout: "Merge made" }] },
       { match: "gh pr list", replies: [{ stdout: "" }] },
       { match: "gh pr create", replies: [{ stdout: prUrl }] },
     ]);
     let respawns = 0;
     const result = await createPrWithRetry(
-      makeCtx(cmd, async () => {
-        respawns += 1;
-        return 0;
-      }),
+      makeCtx(
+        cmd,
+        async () => {
+          respawns += 1;
+          return 0;
+        },
+        {
+          fetchBranch: async (branch) => {
+            fetchCalls.push(branch);
+          },
+          pullBranch: async (branch) => {
+            pullCalls.push(branch);
+          },
+        },
+      ),
       FAKE_ISSUE,
     );
     expect(result.gaveUp).toBe(false);
     expect(result.pr?.url).toBe(prUrl);
     // The non-ff path merges (no rebase) and never respawns the worker.
     expect(respawns).toBe(0);
-    expect(calls.some((c) => c[1] === "pull" && c.includes("--no-rebase"))).toBe(true);
+    expect(fetchCalls).toHaveLength(1);
+    expect(pullCalls).toHaveLength(1);
     // Append-only: never force-push.
     expect(calls.some((c) => c[1] === "push" && c.includes("--force"))).toBe(false);
   });
 
   test("non-ff merge produces conflicts: aborts, prepends a Resolve-merge-conflict fix task, retries", async () => {
     const prUrl = "https://github.com/owner/repo/pull/10";
-    const { cmd, calls } = makeScriptedCmd([
+    let abortMergeCalls = 0;
+    const { cmd } = makeScriptedCmd([
       ...HEAD_OK,
       {
         match: "git push -u origin",
@@ -176,29 +196,36 @@ describe("createPrWithRetry", () => {
           { stdout: "" },
         ],
       },
-      { match: "git fetch origin", replies: [{ stdout: "" }] },
-      // The merge attempt conflicts.
-      {
-        match: "git pull --no-rebase",
-        replies: [{ throw: true, stdout: "CONFLICT (content): Merge conflict in src/a.ts" }],
-      },
-      { match: "git merge --abort", replies: [{ stdout: "" }] },
-      { match: "git diff --name-only HEAD..origin", replies: [{ stdout: "src/a.ts" }] },
       { match: "gh pr list", replies: [{ stdout: "" }] },
       { match: "gh pr create", replies: [{ stdout: prUrl }] },
     ]);
     let respawns = 0;
     const result = await createPrWithRetry(
-      makeCtx(cmd, async () => {
-        respawns += 1;
-        return 0;
-      }),
+      makeCtx(
+        cmd,
+        async () => {
+          respawns += 1;
+          return 0;
+        },
+        {
+          fetchBranch: async () => {},
+          pullBranch: async () => {
+            const err = new Error("Merge failed") as Error & { stdout?: string };
+            err.stdout = "CONFLICT (content): Merge conflict in src/a.ts";
+            throw err;
+          },
+          abortMerge: async () => {
+            abortMergeCalls += 1;
+          },
+          changedFiles: async () => ["src/a.ts"],
+        },
+      ),
       FAKE_ISSUE,
     );
     expect(result.gaveUp).toBe(false);
     expect(result.pr?.url).toBe(prUrl);
     // Conflict path aborts the merge and respawns exactly once to resolve.
-    expect(calls.some((c) => c[1] === "merge" && c.includes("--abort"))).toBe(true);
+    expect(abortMergeCalls).toBe(1);
     expect(respawns).toBe(1);
     const tasks = await Bun.file(join(changeDir, AGENT_TASKS_FILENAME)).text();
     expect(tasks).toContain("Resolve merge conflict with origin/ralph/my-change");
