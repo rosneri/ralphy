@@ -114,8 +114,6 @@ export function buildAgentCoordinator(
     );
   };
 
-  // `cfg` is the EFFECTIVE config — agent-only CLI flags were already merged in
-  // by the boot pipeline (`resolveParsedConfig`), so read it straight.
   const concurrency = cfg.concurrency;
   const pollInterval = cfg.pollIntervalSeconds;
 
