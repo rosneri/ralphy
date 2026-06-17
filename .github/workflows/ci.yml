@@ -71,6 +71,12 @@ jobs:
       - name: Prompt rule sync check
         run: bun scripts/check-prompt-rule-sync.ts
 
+      - name: Tag boundary check
+        run: bun scripts/check-tag-boundaries.ts
+
+      - name: Orphan packages check
+        run: bun scripts/check-orphan-packages.ts
+
       - name: CI ↔ local parity guard
         run: bun scripts/check-ci-parity.ts
 
