@@ -11,6 +11,7 @@
     "./init": "./src/init.ts",
     "./loop": "./src/loop.ts",
     "./loop-runner": "./src/loop-runner/index.ts",
+    "./log-retention": "./src/log-retention/index.ts",
     "./tasks-md": "./src/tasks-md.ts",
     "./layout": "./src/layout.ts",
     "./progress": "./src/progress.ts",

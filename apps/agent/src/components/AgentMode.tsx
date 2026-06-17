@@ -67,6 +67,7 @@ import { useTerminalSize } from "@ralphy/ui-shared/useTerminalSize";
 import { useHoldToClose } from "@ralphy/ui-shared/useHoldToClose";
 import { SteeringField } from "./SteeringField";
 import { appendSteeringMessage } from "@ralphy/core/loop";
+import { appendBounded } from "@ralphy/core/log-retention";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import {
@@ -464,6 +465,9 @@ export function AgentMode({
   const { isRawModeSupported } = useStdin();
   const { columns, rows, resizeKey } = useTerminalSize();
   const [logs, setLogs] = useState<LogLine[]>([]);
+  // Bumped when bounded retention drops oldest lines, so <Static> remounts and
+  // keeps flushing new lines (Ink's Static stops once the array stops growing).
+  const [logTrimGeneration, setLogTrimGeneration] = useState(0);
   const [preflightError, setPreflightError] = useState<{ tool: string; message: string } | null>(
     null,
   );
@@ -529,7 +533,13 @@ export function AgentMode({
   });
 
   function appendLog(text: string, color?: string, workerLogFile?: string) {
-    setLogs((prev) => [...prev, { id: nextId(), text, timestamp: formatLogTimestamp(), color }]);
+    setLogs((prev) => {
+      const { entries, dropped } = appendBounded(prev, [
+        { id: nextId(), text, timestamp: formatLogTimestamp(), color },
+      ]);
+      if (dropped > 0) setLogTrimGeneration((generation) => generation + 1);
+      return entries;
+    });
     logCoord(text, workerLogFile);
   }
 
@@ -973,9 +983,11 @@ export function AgentMode({
     <Box key={resizeKey} flexDirection="column">
       {/* ── Scrolling log history ──────────────────────────────
           Rendered via <Static> so each line is permanently flushed
-          to stdout above the live UI. The terminal's native
-          scrollback owns history — no in-app cap or truncation. */}
-      <Static items={logs}>
+          to stdout above the live UI. The terminal's native scrollback owns
+          full history; the in-memory array is bounded (appendBounded) to keep
+          a long run from growing memory unboundedly, and <Static> is remounted
+          on trim so it keeps flushing new lines past the cap. */}
+      <Static key={`logs-${logTrimGeneration}`} items={logs}>
         {(line) => (
           <Text key={line.id}>
             <Text dimColor>{line.timestamp} </Text>

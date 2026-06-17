@@ -6,6 +6,7 @@ import {
   type LoopRunnerEvent,
   type LoopRunnerOptions,
 } from "@ralphy/core/loop-runner";
+import { appendBounded } from "@ralphy/core/log-retention";
 import { STOP_REASONS, type StopReason, type LoopOptions } from "../loop";
 
 export type LogEntry =
@@ -18,6 +19,9 @@ interface UseLoopResult {
   iteration: number;
   consecutiveFailures: number;
   logLines: LogEntry[];
+  /** Bumped whenever bounded retention drops oldest entries, so an
+   *  append-only `<Static>` can remount and keep rendering new lines. */
+  logTrimGeneration: number;
   stopReason: StopReason | null;
   isRunning: boolean;
   isResume: boolean;
@@ -95,6 +99,7 @@ function toLogEntries(event: LoopRunnerEvent, nextId: () => string): LogEntry[] 
 export function useLoop(opts: LoopOptions): UseLoopResult {
   const [runner] = useState(() => createLoopRunner(toRunnerOptions(opts)));
   const [logLines, setLogLines] = useState<LogEntry[]>([]);
+  const [logTrimGeneration, setLogTrimGeneration] = useState(0);
   const [startedAt] = useState(() => Date.now());
   const lineIdRef = useRef(0);
 
@@ -104,7 +109,12 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
     const nextId = () => String(lineIdRef.current++);
     const unsubscribe = runner.subscribe((event) => {
       const entries = toLogEntries(event, nextId);
-      if (entries.length > 0) setLogLines((previous) => [...previous, ...entries]);
+      if (entries.length === 0) return;
+      setLogLines((previous) => {
+        const { entries: bounded, dropped } = appendBounded(previous, entries);
+        if (dropped > 0) setLogTrimGeneration((generation) => generation + 1);
+        return bounded;
+      });
     });
     void runner.start();
     return () => {
@@ -118,6 +128,7 @@ export function useLoop(opts: LoopOptions): UseLoopResult {
     iteration: snapshot.iteration,
     consecutiveFailures: snapshot.consecutiveFailures,
     logLines,
+    logTrimGeneration,
     stopReason: toMachineStopReason(snapshot.stopReason),
     isRunning: snapshot.isRunning,
     isResume: snapshot.isResume,
