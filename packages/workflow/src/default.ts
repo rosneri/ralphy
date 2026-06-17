@@ -24,6 +24,7 @@ commands:
   lint: bun run lint
   build: bun run build
   typecheck: bun run typecheck
+  structure: bun run check:structure
 
 rules: []
 

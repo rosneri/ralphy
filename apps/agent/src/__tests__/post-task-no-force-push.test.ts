@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { runPrPhase } from "../agent/post-task";
 import type { CmdRunner } from "../agent/pr";
+import { createGhCliCodeHost } from "@ralphy/codehost";
+const ghHost = (cmd: CmdRunner) => createGhCliCodeHost({ cmdRunner: cmd, cwd: "/wt" });
 import type { TrackedIssue } from "@ralphy/tracker";
 
 const FAKE_ISSUE: TrackedIssue = {
@@ -134,7 +136,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         wantAutoMerge: false,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(0);
@@ -197,6 +199,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
       },
       {
         cmd,
+        codeHost: ghHost(cmd),
         log: () => {},
         emit: () => {},
         respawnWorker: async () => {
@@ -251,7 +254,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         wantAutoMerge: false,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(71); // PR_FAILED_EXIT — we gave up rather than forcing.
@@ -298,7 +301,7 @@ describe("runPrPhase — non-fast-forward push never force-pushes, always merges
         wantAutoMerge: false,
         cfg: baseCfg,
       },
-      { cmd, log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
+      { cmd, codeHost: ghHost(cmd), log: () => {}, emit: () => {}, respawnWorker: async () => 0 },
     );
 
     expect(code).toBe(71); // PR_FAILED_EXIT
