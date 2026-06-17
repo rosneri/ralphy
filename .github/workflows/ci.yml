@@ -38,6 +38,9 @@ jobs:
       - name: Folder size check
         run: bun scripts/check-folder-size.ts
 
+      - name: Per-file LOC budget
+        run: bun scripts/check-file-size.ts
+
       - name: Single component per TSX file
         run: bun scripts/check-single-component.ts
 
@@ -59,17 +62,32 @@ jobs:
       - name: Bun-native APIs (no node:fs *Sync / createHash / fs.exists)
         run: bun scripts/check-bun-native.ts
 
+      - name: No imperative config merges (args.x || cfg.y outside resolveConfig)
+        run: bun scripts/check-config-merge.ts
+
+      - name: No new abbreviated identifiers (ratcheted)
+        run: bun scripts/check-no-abbreviation.ts
+
       - name: Static error messages (no template literals in Error/Exception constructors)
         run: bun scripts/check-static-error-messages.ts
 
       - name: No unsafe casts (as any / as unknown)
         run: bash scripts/check-no-unsafe-casts.sh
 
+      - name: Test integrity (no .only / no new skips / no jest.mock / no mock.module(node:child_process))
+        run: bun scripts/check-test-integrity.ts
+
       - name: Shellcheck
         run: bun run check:shell
 
       - name: Prompt rule sync check
         run: bun scripts/check-prompt-rule-sync.ts
+
+      - name: Tag boundary check
+        run: bun scripts/check-tag-boundaries.ts
+
+      - name: Orphan packages check
+        run: bun scripts/check-orphan-packages.ts
 
       - name: CI ↔ local parity guard
         run: bun scripts/check-ci-parity.ts

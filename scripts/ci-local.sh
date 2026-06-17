@@ -40,6 +40,9 @@ stage_static() {
   run_step "No duplicate declarations"    bun scripts/check-duplicate-declarations.ts --diff --no-ts2300 --no-sonar --no-jscpd
   run_step "No direct axios in apps/ui"   bun scripts/check-no-direct-http.ts
   run_step "Bun-native APIs (no node:fs *Sync / createHash / fs.exists)" bun scripts/check-bun-native.ts
+  run_step "No imperative config merges (args.x || cfg.y outside resolveConfig)" bun scripts/check-config-merge.ts
+  run_step "No new abbreviated identifiers (ratcheted)" bun scripts/check-no-abbreviation.ts
+  run_step "Test integrity (no .only / no new skips / no jest.mock / no mock.module(node:child_process))" bun scripts/check-test-integrity.ts
   run_step "No prop drilling in React components" bun scripts/check-prop-drilling.ts
   run_step "Hooks must live in useSomething files" bun scripts/check-hooks-location.ts
   run_step "Folder size check"            bun scripts/check-folder-size.ts
@@ -53,6 +56,8 @@ stage_static() {
   run_step "No unsafe casts (as any / as unknown)" bash scripts/check-no-unsafe-casts.sh
   run_step "Shellcheck"                   bun run check:shell
   run_step "Prompt rule sync check"        bun scripts/check-prompt-rule-sync.ts
+  run_step "Tag boundary check"            bun scripts/check-tag-boundaries.ts
+  run_step "Orphan packages check"         bun scripts/check-orphan-packages.ts
   run_step "CI ↔ local parity guard"      bun scripts/check-ci-parity.ts
   run_step "Lint (affected)"              bun run lint:ci
   run_step "Format check (affected)"      bun run fmt:ci
@@ -64,6 +69,7 @@ stage_static() {
   run_step "Circular dependency check"    bun run check:circular:ci
   run_step "Unused dependency check"      bun run check:unused:ci
   run_step "Outdated dependency check"    bun scripts/check-outdated.ts
+  run_step "Per-file LOC budget"          bun scripts/check-file-size.ts
 }
 
 stage_test() {
