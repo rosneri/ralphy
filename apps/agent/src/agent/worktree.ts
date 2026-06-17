@@ -202,14 +202,32 @@ async function provisionWorktree(
 /**
  * Hook script body installed into each worktree's `.ralph-hooks/pre-push`.
  *
- * Reads git's per-push stdin (`<local ref> <local sha> <remote ref> <remote sha>`)
- * and rejects pushes that target anything other than `refs/heads/ralph/*`,
- * and rejects force pushes unless `RALPH_ALLOW_FORCE_PUSH=1` is set.
+ * Pointing `core.hooksPath` at `.ralph-hooks` disables the repo's husky hooks
+ * inside the worktree, so this script must re-assert every gate a worker push
+ * needs to clear before a PR is opened. It does three things:
+ *
+ *   1. Reads git's per-push stdin
+ *      (`<local ref> <local sha> <remote ref> <remote sha>`) and rejects pushes
+ *      that target anything other than `refs/heads/ralph/*`.
+ *   2. Rejects force pushes unless `RALPH_ALLOW_FORCE_PUSH=1` is set.
+ *   3. Runs the same fast static quality gates CI runs (`check:structure` and
+ *      `fmt:check`) so violations that CI would catch — oversized files, folder
+ *      budgets, formatting — fail the push locally instead of after a PR exists.
+ *      A rejected push is fed back into the worker's recovery loop (see
+ *      `runPrPhase` in post-task.ts), so the worker fixes the violation and
+ *      re-pushes before the PR is ever created — which is what keeps CI green
+ *      and stops failing PRs from piling up into quarantine.
+ *
+ * The gates auto-skip when there is no `package.json` at the worktree root (so
+ * the hook stays usable outside a bun project, e.g. in unit tests) and can be
+ * bypassed in an emergency with `RALPH_SKIP_PREPUSH_GATES=1`.
  */
 export const PRE_PUSH_HOOK_SCRIPT = `#!/usr/bin/env bash
 # Installed by ralphy createWorktree (RLF-107).
 # Rejects any push whose remote ref is not refs/heads/ralph/*,
-# and rejects force pushes unless RALPH_ALLOW_FORCE_PUSH=1.
+# rejects force pushes unless RALPH_ALLOW_FORCE_PUSH=1,
+# and runs the CI quality gates (check:structure, fmt:check) so a push that
+# would fail CI is rejected here instead — feeding the worker's recovery loop.
 set -euo pipefail
 ZERO="0000000000000000000000000000000000000000"
 while read local_ref local_sha remote_ref remote_sha; do
@@ -224,6 +242,20 @@ while read local_ref local_sha remote_ref remote_sha; do
     fi
   fi
 done
+
+# Quality gates: mirror the static checks CI runs so a push that would fail CI
+# is rejected here, where the worker's recovery loop can fix it before the PR
+# exists. Skipped outside a bun project, or when RALPH_SKIP_PREPUSH_GATES=1.
+if [ "\${RALPH_SKIP_PREPUSH_GATES:-0}" != "1" ] && [ -f package.json ]; then
+  if ! bun run check:structure 1>&2; then
+    echo "ralph: pre-push hook rejected — \\\`bun run check:structure\\\` failed (fix the reported violations, then re-push)" >&2
+    exit 1
+  fi
+  if ! bun run fmt:check 1>&2; then
+    echo "ralph: pre-push hook rejected — \\\`bun run fmt:check\\\` failed (run \\\`bun run fmt\\\` to auto-format, then re-push)" >&2
+    exit 1
+  fi
+fi
 exit 0
 `;
 

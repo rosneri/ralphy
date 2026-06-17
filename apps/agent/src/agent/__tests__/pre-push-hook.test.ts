@@ -133,6 +133,48 @@ describe("pre-push hook policy", () => {
     expect(res.exitCode).toBe(0);
   });
 
+  // A new-branch push (remote sha zero) clears the ref + force guards, so these
+  // exercise the quality-gate stage that follows. `bun run <script>` resolves
+  // against the worktree-root package.json, so a fake one stands in for the real
+  // (heavy) checks.
+  const newBranchPush = `refs/heads/ralph/foo deadbeef refs/heads/ralph/foo ${ZERO}\n`;
+
+  async function writePackageJson(scripts: Record<string, string>): Promise<void> {
+    await Bun.write(join(repo, "package.json"), JSON.stringify({ name: "fake", scripts }));
+  }
+
+  test("runs check:structure + fmt:check gates and allows push when both pass", async () => {
+    await writePackageJson({ "check:structure": "exit 0", "fmt:check": "exit 0" });
+    const res = await runHook(hookPath, repo, newBranchPush);
+    expect(res.exitCode).toBe(0);
+  });
+
+  test("rejects push when check:structure gate fails", async () => {
+    await writePackageJson({ "check:structure": "exit 1", "fmt:check": "exit 0" });
+    const res = await runHook(hookPath, repo, newBranchPush);
+    expect(res.exitCode).not.toBe(0);
+    expect(res.stderr).toMatch(/check:structure/);
+  });
+
+  test("rejects push when fmt:check gate fails", async () => {
+    await writePackageJson({ "check:structure": "exit 0", "fmt:check": "exit 1" });
+    const res = await runHook(hookPath, repo, newBranchPush);
+    expect(res.exitCode).not.toBe(0);
+    expect(res.stderr).toMatch(/fmt:check/);
+  });
+
+  test("skips gates when RALPH_SKIP_PREPUSH_GATES=1", async () => {
+    await writePackageJson({ "check:structure": "exit 1", "fmt:check": "exit 1" });
+    const res = await runHook(hookPath, repo, newBranchPush, { RALPH_SKIP_PREPUSH_GATES: "1" });
+    expect(res.exitCode).toBe(0);
+  });
+
+  test("skips gates when no package.json is present", async () => {
+    // No package.json written → gates are skipped, push allowed.
+    const res = await runHook(hookPath, repo, newBranchPush);
+    expect(res.exitCode).toBe(0);
+  });
+
   test("allows fast-forward push (remote sha is ancestor of local)", async () => {
     const sh = async (args: string[]) => {
       const p = Bun.spawn(["git", ...args], { cwd: repo, stdout: "pipe" });
