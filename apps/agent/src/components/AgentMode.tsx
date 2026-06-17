@@ -548,7 +548,12 @@ export function AgentMode({
     async function init() {
       logSession(`=== session start ${SESSION_START} ===`);
       const cfgPath = await ensureConfig(projectRoot, args.workflowFile);
-      const cfg = await loadConfig(projectRoot, args.workflowFile, args.overrides, args.agentOverrides);
+      const cfg = await loadConfig(
+        projectRoot,
+        args.workflowFile,
+        args.overrides,
+        args.agentOverrides,
+      );
       cfgRef.current = cfg;
       appendLog(`agent mode v${VERSION} — config: ${cfgPath}`, "gray");
 
