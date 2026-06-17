@@ -51,7 +51,7 @@ function TaskModeWrapper({ args, resolved, taskPhase }: TaskModeWrapperProps) {
         createPr: args.fromAgent,
         changeStore: new OpenSpecChangeStore(),
         reviewPhase: args.review,
-        trigger: args.trigger,
+        ...(args.trigger !== undefined ? { trigger: args.trigger } : {}),
         ...(taskPhase !== undefined ? { phase: taskPhase } : {}),
       })}
     />
