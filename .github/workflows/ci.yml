@@ -53,6 +53,9 @@ jobs:
       - name: Tracker-seam leak guard
         run: bun scripts/check-tracker-seam.ts
 
+      - name: Event union completeness check
+        run: bun scripts/check-event-union.ts
+
       - name: Stale changes guard
         run: bun scripts/check-stale-changes.ts
 
