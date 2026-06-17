@@ -11,7 +11,7 @@ interface WorktreeCleanupPhaseInput {
   projectRoot: string;
   useWorktree: boolean;
   effectiveCode: number;
-  cfg: Pick<PostTaskInput["cfg"], "cleanupWorktreeOnSuccess" | "prBaseBranch">;
+  config: Pick<PostTaskInput["cfg"], "cleanupWorktreeOnSuccess" | "prBaseBranch">;
 }
 
 /** Deps consumed only by the worktree cleanup phase. */
@@ -36,19 +36,19 @@ export async function runWorktreeCleanupPhase(
   input: WorktreeCleanupPhaseInput,
   deps: WorktreeCleanupPhaseDeps,
 ): Promise<void> {
-  const { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg } = input;
+  const { changeName, cwd, projectRoot, useWorktree, effectiveCode, config } = input;
   const { git, log, emit } = deps;
 
   if (!useWorktree || cwd === projectRoot) return;
 
   emit("cleanup", "checking worktree safety");
 
-  if (effectiveCode !== 0 || !cfg.cleanupWorktreeOnSuccess) return;
+  if (effectiveCode !== 0 || !config.cleanupWorktreeOnSuccess) return;
 
   // Strict pre-removal guard: never `git worktree remove --force` a worktree
   // that still has uncommitted files or commits not yet pushed/PR'd — `--force`
   // would destroy them silently.
-  const check = await isWorktreeSafeToRemove(cwd, cfg.prBaseBranch, git).catch((err) => ({
+  const check = await isWorktreeSafeToRemove(cwd, config.prBaseBranch, git).catch((err) => ({
     safe: false as const,
     reason: `safety check failed: ${(err as Error).message}`,
     dirty: "",

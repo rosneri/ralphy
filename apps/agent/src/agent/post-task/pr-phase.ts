@@ -30,7 +30,7 @@ interface PrPhaseInput {
   stateFilePath: string;
   issue: TrackedIssue | null;
   wantAutoMerge: boolean;
-  cfg: PostTaskInput["cfg"];
+  config: PostTaskInput["cfg"];
 }
 
 /**
@@ -75,7 +75,7 @@ interface PrPhaseDeps {
   onPrReady?: (prUrl: string) => Promise<void>;
   /** Optional: resolve the blocker PR (branch + ticket + PR) the given issue
    *  should stack onto, or null when no unambiguous blocker PR exists. Invoked
-   *  only when `cfg.stackPrsOnDependencies` is true and no `ralph:branch:`
+   *  only when `config.stackPrsOnDependencies` is true and no `ralph:branch:`
    *  label override is present. */
   resolveDependencyBaseBranch?: (issue: TrackedIssue) => Promise<DependencyBase | null>;
 }
@@ -92,7 +92,7 @@ interface PrPhaseDeps {
  * Returns an effective exit code: 0 on success, PR_FAILED_EXIT on failure.
  */
 export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promise<number> {
-  const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg } = input;
+  const { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, config } = input;
   const {
     cmd,
     codeHost,
@@ -113,11 +113,11 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   }
 
   const labelBase = baseBranchFromLabels(issue.labels);
-  let base = labelBase ?? cfg.prBaseBranch;
+  let base = labelBase ?? config.prBaseBranch;
   let stackedOn: DependencyBase | undefined;
-  if (labelBase && labelBase !== cfg.prBaseBranch) {
+  if (labelBase && labelBase !== config.prBaseBranch) {
     log(`  base branch override from label: ${labelBase}`, "gray");
-  } else if (cfg.stackPrsOnDependencies && resolveDependencyBaseBranch) {
+  } else if (config.stackPrsOnDependencies && resolveDependencyBaseBranch) {
     try {
       const dependencyBase = await resolveDependencyBaseBranch(issue);
       if (dependencyBase && dependencyBase.baseBranch !== base) {
@@ -148,7 +148,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     ...(stackedOn ? { stackedOn } : {}),
     changeDir,
     stateFilePath,
-    cfg,
+    cfg: config,
     cmd,
     codeHost,
     log,
@@ -179,7 +179,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
     log(`! git status check failed for ${changeName}: ${(err as Error).message}`, "yellow");
   }
 
-  const violations = await findNeverTouchViolations(codeHost, cwd, base, cfg.neverTouch);
+  const violations = await findNeverTouchViolations(codeHost, cwd, base, config.neverTouch);
   if (violations.length > 0) {
     log(`! ${changeName} modified files inside boundaries.never_touch — aborting PR:`, "red");
     for (const v of violations) {
@@ -191,7 +191,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   const maxOuterAttempts = MAX_PR_CREATE_ATTEMPTS;
   let onlyMetaAttempts = 0;
   let pr: Awaited<ReturnType<typeof createPullRequest>> = null;
-  const finalizeNoOpAsDone = cfg.finalizeNoOpAsDone !== false;
+  const finalizeNoOpAsDone = config.finalizeNoOpAsDone !== false;
   while (true) {
     const attempt = await createPrWithRetry(ctx, issue);
     if (attempt.gaveUp) return PR_FAILED_EXIT;
@@ -290,7 +290,7 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
   // Convert a draft PR to ready first — no CI wait needed. From here GitHub's
   // own auto-merge (and the scheduler watcher) handle CI; the worker is done.
   let readyOk = true;
-  if (cfg.prDraft === true) {
+  if (config.prDraft === true) {
     emit("pr-ready");
     try {
       await codeHost.markReady(prUrl);
@@ -304,22 +304,22 @@ export async function runPrPhase(input: PrPhaseInput, deps: PrPhaseDeps): Promis
 
   // A draft that could not be converted to ready can't be auto-merged — skip it.
   if (wantAutoMerge && readyOk) {
-    const repoAllowsAutoMerge = await codeHost.isAutoMergeAllowed(prUrl);
-    if (repoAllowsAutoMerge === false) {
+    const repositoryAllowsAutoMerge = await codeHost.isAutoMergeAllowed(prUrl);
+    if (repositoryAllowsAutoMerge === false) {
       // RLF-97: the worker no longer polls CI in-process, so it can't merge a
       // repo with auto-merge disabled "once checks pass". Leave the PR open for
       // a human / repo settings to merge instead of merging speculatively now.
       log(
-        cfg.manualMergeWhenAutoMergeDisabled !== false
+        config.manualMergeWhenAutoMergeDisabled !== false
           ? `  repo has auto-merge disabled — leaving ${prUrl} open for manual merge once checks pass`
           : `  repo has auto-merge disabled (manual-merge fallback off) — ${prUrl} will not auto-merge`,
         "yellow",
       );
     } else {
       try {
-        await codeHost.enableAutoMerge(prUrl, cfg.autoMergeStrategy);
-        log(`  enabled auto-merge (${cfg.autoMergeStrategy}) on ${prUrl}`, "green");
-        emit("auto-merge-enabled", cfg.autoMergeStrategy);
+        await codeHost.enableAutoMerge(prUrl, config.autoMergeStrategy);
+        log(`  enabled auto-merge (${config.autoMergeStrategy}) on ${prUrl}`, "green");
+        emit("auto-merge-enabled", config.autoMergeStrategy);
       } catch (err) {
         const e = err as Error & { stderr?: string };
         log(

@@ -112,7 +112,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     wantPr,
     wantAutoMerge,
     wantValidateOnly,
-    cfg,
+    cfg: config,
     respawnWorker,
   } = input;
 
@@ -164,7 +164,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
               changeName,
               changeDir,
               stateFilePath,
-              validateCommands: cfg.validateCommands ?? [],
+              validateCommands: config.validateCommands ?? [],
               cwd,
             },
             { log, emit, respawnWorker },
@@ -204,7 +204,7 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
         applies: effectiveCode === 0 && wantPr,
         run: async () => {
           const code = await runPrPhase(
-            { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, cfg },
+            { changeName, cwd, branch, changeDir, stateFilePath, issue, wantAutoMerge, config },
             {
               cmd,
               codeHost,
@@ -265,9 +265,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
     // Phase 2 (cleanup) + Phase 3 (teardown) — run once for every terminal
     // outcome, including the throw path.
     await runWorktreeCleanupPhase(
-      { changeName, cwd, projectRoot, useWorktree, effectiveCode, cfg },
+      { changeName, cwd, projectRoot, useWorktree, effectiveCode, config },
       { git, log, emit },
     );
-    await runTeardownPhase({ cwd, teardownScript: cfg.teardownScript }, { runScript, log, emit });
+    await runTeardownPhase({ cwd, teardownScript: config.teardownScript }, { runScript, log, emit });
   }
 }
