@@ -460,7 +460,8 @@ export async function runList(input: RunListInput): Promise<void> {
   printLocalRows(rows);
 
   const args = getArgs();
-  const extra = { linearTeam: input.linearTeamOverride };
+  const extra =
+    input.linearTeamOverride === undefined ? {} : { linearTeam: input.linearTeamOverride };
   const cfg = await loadEffectiveConfig(projectRoot, args.workflowFile, args.overrides, extra);
   const apiKey = process.env["LINEAR_API_KEY"];
   const indicators = cfg.linear.indicators as Indicators;
@@ -638,7 +639,8 @@ async function runListDebug(input: DebugInput): Promise<void> {
   }
 
   const args = getArgs();
-  const extra = { linearTeam: input.linearTeamOverride };
+  const extra =
+    input.linearTeamOverride === undefined ? {} : { linearTeam: input.linearTeamOverride };
   const cfg = await loadEffectiveConfig(projectRoot, args.workflowFile, args.overrides, extra);
   const indicators = cfg.linear.indicators as Indicators;
   const team = cfg.linear.team;

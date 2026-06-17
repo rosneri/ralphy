@@ -1,11 +1,5 @@
 {
-  "apps/agent/src/agent/json-runner.ts": 1,
   "apps/agent/src/agent/post-task/pr-phase.ts": 1,
-  "apps/agent/src/agent/wire.ts": 5,
-  "apps/agent/src/agent/wire/mention-scan.ts": 1,
   "apps/agent/src/agent/wire/prepare.ts": 1,
-  "apps/agent/src/agent/wire/spawn/worker.ts": 2,
-  "apps/agent/src/components/AgentMode.tsx": 3,
-  "apps/agent/src/index.ts": 1,
-  "apps/agent/src/list.ts": 2
+  "apps/agent/src/components/AgentMode.tsx": 2
 }
