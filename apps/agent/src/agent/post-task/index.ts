@@ -268,6 +268,9 @@ export async function runPostTask(input: PostTaskInput, deps: PostTaskDeps): Pro
       { changeName, cwd, projectRoot, useWorktree, effectiveCode, config },
       { git, log, emit },
     );
-    await runTeardownPhase({ cwd, teardownScript: config.teardownScript }, { runScript, log, emit });
+    await runTeardownPhase(
+      { cwd, teardownScript: config.teardownScript },
+      { runScript, log, emit },
+    );
   }
 }
