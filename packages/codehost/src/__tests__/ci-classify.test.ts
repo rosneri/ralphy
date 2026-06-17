@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { classifyCheck } from "../ci-classify";
+import { classifyCheck, reduceToBucket } from "../ci-classify";
 
 describe("classifyCheck", () => {
   describe("GitHub Actions checks", () => {
@@ -53,5 +53,44 @@ describe("classifyCheck", () => {
     it("returns fail for ERROR state", () => {
       expect(classifyCheck({ state: "ERROR" })).toBe("fail");
     });
+  });
+});
+
+describe("reduceToBucket", () => {
+  it("returns pass when every check passed", () => {
+    expect(reduceToBucket(["pass", "pass", "pass"])).toBe("pass");
+  });
+
+  it("returns fail when all settled and at least one failed", () => {
+    expect(reduceToBucket(["pass", "fail", "pass"])).toBe("fail");
+  });
+
+  it("returns pending when any check is still pending — even alongside a failure", () => {
+    expect(reduceToBucket(["pass", "fail", "pending"])).toBe("pending");
+  });
+
+  it("drops skipped checks — a skipped failure-free set is a pass", () => {
+    expect(reduceToBucket(["pass", "skip", "pass"])).toBe("pass");
+  });
+
+  it("treats an all-skipped set as a pass (skips never gate a merge)", () => {
+    expect(reduceToBucket(["skip", "skip"])).toBe("pass");
+  });
+
+  it("ignores skipped checks when deciding fail", () => {
+    expect(reduceToBucket(["skip", "fail"])).toBe("fail");
+  });
+
+  it("returns pass for an empty set (all checks ignored/none reported)", () => {
+    expect(reduceToBucket([])).toBe("pass");
+  });
+
+  it("composes with classifyCheck over a rollup-shaped fixture", () => {
+    const rollup = [
+      { status: "COMPLETED", conclusion: "SUCCESS" },
+      { status: "COMPLETED", conclusion: "SKIPPED" },
+      { status: "IN_PROGRESS" },
+    ];
+    expect(reduceToBucket(rollup.map(classifyCheck))).toBe("pending");
   });
 });

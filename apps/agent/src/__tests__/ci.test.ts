@@ -1,6 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { getPrChecksStatus, fetchFailedRunLogs } from "../agent/ci";
+import { createGhCliCodeHost } from "@ralphy/codehost";
 import type { CmdRunner } from "../agent/pr";
+
+/**
+ * RLF-255 9a: `getPrChecksStatus` now takes an injected `CodeHost` rather than
+ * re-constructing one per call. These tests still exercise the real gh adapter
+ * (its retry/backoff, "no checks" pass, partial-access salvage, and ignore-list
+ * handling) by building it from the scripted runner and passing it in.
+ */
+function host(
+  runner: CmdRunner,
+  opts: {
+    ignoreChecks?: string[];
+    onTransientRetry?: (attempt: number, delayMs: number, reason: string) => void;
+  } = {},
+) {
+  return createGhCliCodeHost({ cmdRunner: runner, cwd: "/wt", ...opts });
+}
 
 interface ResponseSpec {
   stdout?: string;
@@ -39,7 +56,7 @@ describe("getPrChecksStatus", () => {
         ]),
       },
     });
-    expect(await getPrChecksStatus("123", runner, "/wt")).toEqual({
+    expect(await getPrChecksStatus("123", host(runner))).toEqual({
       bucket: "pending",
       failedRunIds: [],
       failedCheckNames: [],
@@ -55,7 +72,7 @@ describe("getPrChecksStatus", () => {
         ]),
       },
     });
-    expect(await getPrChecksStatus("123", runner, "/wt")).toEqual({
+    expect(await getPrChecksStatus("123", host(runner))).toEqual({
       bucket: "pass",
       failedRunIds: [],
       failedCheckNames: [],
@@ -84,7 +101,7 @@ describe("getPrChecksStatus", () => {
         ]),
       },
     });
-    const status = await getPrChecksStatus("123", runner, "/wt");
+    const status = await getPrChecksStatus("123", host(runner));
     expect(status.bucket).toBe("fail");
     expect(status.failedRunIds.sort()).toEqual(["12345", "55555"]);
     expect(status.failedCheckNames.sort()).toEqual(["build", "lint", "test"]);
@@ -108,7 +125,7 @@ describe("getPrChecksStatus", () => {
         ]),
       },
     });
-    const status = await getPrChecksStatus("123", runner, "/wt");
+    const status = await getPrChecksStatus("123", host(runner));
     expect(status.bucket).toBe("fail");
     expect(status.failedCheckNames.sort()).toEqual(["integration", "unit-tests"]);
   });
@@ -124,7 +141,7 @@ describe("getPrChecksStatus ignoreCiChecks", () => {
         ]),
       },
     });
-    const status = await getPrChecksStatus("123", runner, "/wt", undefined, ["Vercel"]);
+    const status = await getPrChecksStatus("123", host(runner, { ignoreChecks: ["Vercel"] }));
     expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
 
@@ -136,7 +153,7 @@ describe("getPrChecksStatus ignoreCiChecks", () => {
         ]),
       },
     });
-    const status = await getPrChecksStatus("123", runner, "/wt", undefined, ["VERCEL"]);
+    const status = await getPrChecksStatus("123", host(runner, { ignoreChecks: ["VERCEL"] }));
     expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
 });
@@ -168,9 +185,14 @@ describe("getPrChecksStatus retry on transient failure", () => {
       realSetTimeout(fn, 0)) as typeof setTimeout;
     try {
       const retries: number[] = [];
-      const status = await getPrChecksStatus("123", runner, "/wt", (n) => {
-        retries.push(n);
-      });
+      const status = await getPrChecksStatus(
+        "123",
+        host(runner, {
+          onTransientRetry: (n) => {
+            retries.push(n);
+          },
+        }),
+      );
       expect(status.bucket).toBe("pass");
       expect(calls).toBe(3);
       expect(retries).toEqual([1, 2]);
@@ -191,7 +213,7 @@ describe("getPrChecksStatus retry on transient failure", () => {
         throw err;
       },
     };
-    await expect(getPrChecksStatus("123", runner, "/wt")).rejects.toThrow();
+    await expect(getPrChecksStatus("123", host(runner))).rejects.toThrow();
     expect(calls).toBe(1);
   });
 
@@ -205,7 +227,7 @@ describe("getPrChecksStatus retry on transient failure", () => {
         throw err;
       },
     };
-    const status = await getPrChecksStatus("139", runner, "/wt");
+    const status = await getPrChecksStatus("139", host(runner));
     expect(status).toEqual({ bucket: "pass", failedRunIds: [], failedCheckNames: [] });
   });
 
@@ -234,7 +256,7 @@ describe("getPrChecksStatus retry on transient failure", () => {
         throw err;
       },
     };
-    const status = await getPrChecksStatus("607", runner, "/wt");
+    const status = await getPrChecksStatus("607", host(runner));
     expect(status.bucket).toBe("fail");
     expect(status.failedRunIds).toEqual(["27100787848"]);
     expect(status.failedCheckNames).toEqual(["Test (affected)"]);
@@ -251,7 +273,7 @@ describe("getPrChecksStatus retry on transient failure", () => {
         throw err;
       },
     };
-    await expect(getPrChecksStatus("607", runner, "/wt")).rejects.toThrow();
+    await expect(getPrChecksStatus("607", host(runner))).rejects.toThrow();
   });
 });
 

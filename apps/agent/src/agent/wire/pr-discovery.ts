@@ -67,7 +67,7 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
       );
       return { url: null, sawNonOpenPr: false };
     }
-    return pickOpenPrUrlFromAttachments(links, issue.identifier, cmdRunner, projectRoot, onLog);
+    return pickOpenPrUrlFromAttachments(links, issue.identifier, codeHost, onLog);
   }
 
   async function discoverPrUrl(issue: TrackedIssue, changeName: string): Promise<string | null> {

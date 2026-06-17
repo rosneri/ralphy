@@ -91,3 +91,25 @@ export function classifyGhBucket(bucket: string): "pass" | "fail" | "pending" | 
   if (bucket === "pending") return "pending";
   return "pass";
 }
+
+/**
+ * Reduce a set of per-check classifications into the agent's 3-bucket CI
+ * model. Shared by every CI bucketer — the `gh pr checks` reader in the
+ * codehost adapter (`getChecksStatus`) and the `statusCheckRollup` reader in
+ * the agent's PR-status table (`pr-status.ts:bucketChecks`) — so the
+ * pending > fail > pass precedence and skip-dropping live in exactly one place
+ * regardless of which `gh` shape produced the classifications.
+ *
+ * - `skip` classifications are dropped (a skipped check never gates a merge).
+ * - "pending" if any remaining check is still in progress.
+ * - "fail" if every remaining check has settled and at least one failed.
+ * - "pass" otherwise — including when no checks remain (all skipped/ignored).
+ */
+export function reduceToBucket(
+  classified: Array<"pass" | "fail" | "pending" | "skip">,
+): "pass" | "fail" | "pending" {
+  const settled = classified.filter((b) => b !== "skip");
+  if (settled.some((b) => b === "pending")) return "pending";
+  if (settled.some((b) => b === "fail")) return "fail";
+  return "pass";
+}

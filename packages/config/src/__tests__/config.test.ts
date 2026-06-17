@@ -336,6 +336,24 @@ describe("resolveConfig — WORKFLOW.md lifecycle", () => {
     expect(resolved.origin("maxIterations")).toBe("cli");
   });
 
+  test("commands.structure resolves to the schema default when WORKFLOW.md omits it", async () => {
+    // The in-loop structural gate is on by default — a file that names no
+    // `structure` command still resolves to `bun run check:structure`.
+    const fs = fakeFs({ "/proj/WORKFLOW.md": `---\ncommands:\n  test: bun test\n---\n` });
+    const resolved = await resolveConfig({ argv: [], projectRoot: "/proj", fileSystem: fs });
+    expect(resolved.effective.commands.structure).toBe("bun run check:structure");
+  });
+
+  test("commands.structure honors a WORKFLOW.md override", async () => {
+    // No `args.x || cfg.y` merge logic: the resolved value is exactly what the
+    // file declares (here, an opt-out via the empty string).
+    const fs = fakeFs({
+      "/proj/WORKFLOW.md": `---\ncommands:\n  test: bun test\n  structure: ""\n---\n`,
+    });
+    const resolved = await resolveConfig({ argv: [], projectRoot: "/proj", fileSystem: fs });
+    expect(resolved.effective.commands.structure).toBe("");
+  });
+
   test("--workflow resolves against --project-root regardless of flag order", async () => {
     const fs = fakeFs({ "/proj/config/ALT.md": `---\nmodel: haiku\n---\n` });
     const resolved = await resolveConfig({

@@ -1,108 +1,91 @@
 import { describe, expect, test } from "bun:test";
 import { pickOpenPrUrlFromAttachments } from "../agent/wire";
-import type { CmdRunner } from "../agent/pr";
+import { createFakeCodeHost } from "@ralphy/codehost/testing";
+import type { CodeHost, PullRequestState } from "@ralphy/codehost";
 
-type GhCall = { args: string[]; cwd: string };
-
-function makeRunner(
-  states: Record<string, "OPEN" | "MERGED" | "CLOSED" | "throw">,
-  calls: GhCall[] = [],
-): CmdRunner {
+/** Build a CodeHost whose `getPullRequestState` is scripted per-URL. "throw"
+ *  makes the probe reject (mirrors a `gh` failure). Probed URLs are recorded. */
+function makeHost(
+  states: Record<string, PullRequestState | "throw">,
+  probed: string[] = [],
+): CodeHost {
+  const host = createFakeCodeHost();
   return {
-    run: async (args, cwd) => {
-      calls.push({ args, cwd });
-      const url = args[3] ?? "";
+    ...host,
+    async getPullRequestState(url) {
+      probed.push(url);
       const verdict = states[url];
-      if (verdict === "throw") {
-        throw new Error("gh boom");
-      }
-      return { stdout: JSON.stringify({ state: verdict ?? "OPEN" }), stderr: "" };
+      if (verdict === "throw") throw new Error("gh boom");
+      return verdict ?? "open";
     },
   };
 }
 
 describe("pickOpenPrUrlFromAttachments", () => {
   test("returns null when no attachment is a GitHub PR URL", async () => {
-    const calls: GhCall[] = [];
-    const runner = makeRunner({}, calls);
+    const probed: string[] = [];
+    const host = makeHost({}, probed);
     const logs: string[] = [];
     const result = await pickOpenPrUrlFromAttachments(
       ["https://example.com/something", "https://github.com/x/y/issues/1"],
       "RLF-1",
-      runner,
-      "/cwd",
+      host,
       (m) => logs.push(m),
     );
     expect(result).toEqual({ url: null, sawNonOpenPr: false });
-    expect(calls).toEqual([]);
+    expect(probed).toEqual([]);
     expect(logs).toEqual([]);
   });
 
-  test("skips MERGED PRs, returns null with sawNonOpenPr=true", async () => {
+  test("skips merged PRs, returns null with sawNonOpenPr=true", async () => {
     const url = "https://github.com/o/r/pull/42";
-    const calls: GhCall[] = [];
-    const runner = makeRunner({ [url]: "MERGED" }, calls);
+    const probed: string[] = [];
+    const host = makeHost({ [url]: "merged" }, probed);
     const logs: string[] = [];
-    const result = await pickOpenPrUrlFromAttachments([url], "RLF-2", runner, "/cwd", (m) =>
-      logs.push(m),
-    );
+    const result = await pickOpenPrUrlFromAttachments([url], "RLF-2", host, (m) => logs.push(m));
     expect(result).toEqual({ url: null, sawNonOpenPr: true });
-    expect(calls).toHaveLength(1);
+    expect(probed).toHaveLength(1);
     // No noisy log line for the merged PR.
     expect(logs).toEqual([]);
   });
 
-  test("skips CLOSED PRs, returns null with sawNonOpenPr=true", async () => {
+  test("skips closed PRs, returns null with sawNonOpenPr=true", async () => {
     const url = "https://github.com/o/r/pull/99";
-    const runner = makeRunner({ [url]: "CLOSED" });
-    const result = await pickOpenPrUrlFromAttachments([url], "RLF-2b", runner, "/cwd", () => {});
+    const host = makeHost({ [url]: "closed" });
+    const result = await pickOpenPrUrlFromAttachments([url], "RLF-2b", host, () => {});
     expect(result).toEqual({ url: null, sawNonOpenPr: true });
   });
 
-  test("returns the first OPEN PR URL, skipping merged ones in order", async () => {
+  test("returns the first open PR URL, skipping merged ones in order", async () => {
     const merged = "https://github.com/o/r/pull/1";
     const open = "https://github.com/o/r/pull/2";
-    const calls: GhCall[] = [];
-    const runner = makeRunner({ [merged]: "MERGED", [open]: "OPEN" }, calls);
+    const probed: string[] = [];
+    const host = makeHost({ [merged]: "merged", [open]: "open" }, probed);
     const logs: string[] = [];
-    const result = await pickOpenPrUrlFromAttachments(
-      [merged, open],
-      "RLF-3",
-      runner,
-      "/cwd",
-      (m) => logs.push(m),
+    const result = await pickOpenPrUrlFromAttachments([merged, open], "RLF-3", host, (m) =>
+      logs.push(m),
     );
     expect(result.url).toBe(open);
-    expect(calls.map((c) => c.args[3])).toEqual([merged, open]);
+    expect(probed).toEqual([merged, open]);
   });
 
-  test("returns the OPEN URL immediately without checking later candidates", async () => {
+  test("returns the open URL immediately without checking later candidates", async () => {
     const open = "https://github.com/o/r/pull/5";
     const later = "https://github.com/o/r/pull/6";
-    const calls: GhCall[] = [];
-    const runner = makeRunner({ [open]: "OPEN", [later]: "OPEN" }, calls);
-    const result = await pickOpenPrUrlFromAttachments(
-      [open, later],
-      "RLF-4",
-      runner,
-      "/cwd",
-      () => {},
-    );
+    const probed: string[] = [];
+    const host = makeHost({ [open]: "open", [later]: "open" }, probed);
+    const result = await pickOpenPrUrlFromAttachments([open, later], "RLF-4", host, () => {});
     expect(result).toEqual({ url: open, sawNonOpenPr: false });
-    expect(calls).toHaveLength(1);
+    expect(probed).toHaveLength(1);
   });
 
-  test("logs yellow on per-URL gh failure but continues to next candidate", async () => {
+  test("logs yellow on per-URL probe failure but continues to next candidate", async () => {
     const broken = "https://github.com/o/r/pull/7";
     const open = "https://github.com/o/r/pull/8";
-    const runner = makeRunner({ [broken]: "throw", [open]: "OPEN" });
+    const host = makeHost({ [broken]: "throw", [open]: "open" });
     const logs: { msg: string; color?: string }[] = [];
-    const result = await pickOpenPrUrlFromAttachments(
-      [broken, open],
-      "RLF-5",
-      runner,
-      "/cwd",
-      (msg, color) => logs.push(color === undefined ? { msg } : { msg, color }),
+    const result = await pickOpenPrUrlFromAttachments([broken, open], "RLF-5", host, (msg, color) =>
+      logs.push(color === undefined ? { msg } : { msg, color }),
     );
     expect(result.url).toBe(open);
     expect(logs).toHaveLength(1);
@@ -111,10 +94,10 @@ describe("pickOpenPrUrlFromAttachments", () => {
     expect(logs[0]!.msg).toContain("RLF-5");
   });
 
-  test("gh failure on only candidate keeps sawNonOpenPr=false", async () => {
+  test("probe failure on only candidate keeps sawNonOpenPr=false", async () => {
     const broken = "https://github.com/o/r/pull/10";
-    const runner = makeRunner({ [broken]: "throw" });
-    const result = await pickOpenPrUrlFromAttachments([broken], "RLF-6", runner, "/cwd", () => {});
+    const host = makeHost({ [broken]: "throw" });
+    const result = await pickOpenPrUrlFromAttachments([broken], "RLF-6", host, () => {});
     expect(result).toEqual({ url: null, sawNonOpenPr: false });
   });
 });
