@@ -24,6 +24,11 @@ interface CreatePrInput {
    *  When every file in the base..HEAD diff matches one of these, the PR is
    *  blocked instead of opened — the substantive change has been lost. */
   metaOnlyFiles?: string[];
+  /** The openspec change name (== branch). When set, this change's own spec
+   *  delta (`openspec/changes/<changeName>/specs/**`) is treated as a
+   *  substantive deliverable rather than "meta", so a spec-authoring ticket
+   *  whose entire output is its spec is not mis-classified as a no-op. */
+  changeName?: string;
   /** When true, creates the PR as a draft (`--draft`). */
   draft?: boolean;
   /** GitHub labels to attach to the PR. Applied best-effort after the PR
@@ -119,6 +124,37 @@ async function diffFilesAgainstBase(
 }
 
 /**
+ * A change's own spec delta is its deliverable, not "meta" scaffolding. For a
+ * spec-authoring ticket the entire output lives under
+ * `openspec/changes/<changeName>/specs/`, which matches the `openspec/**` meta
+ * glob — so without this carve-out the substantive-diff guard mis-reads such a
+ * branch as a no-op and finalizes the ticket without ever opening a PR. Only
+ * the change's *own* spec dir counts; proposal/design/tasks and other changes'
+ * files stay meta.
+ */
+function isOwnSpecDelta(file: string, changeName: string | undefined): boolean {
+  if (!changeName) return false;
+  const norm = file.replace(/\\/g, "/");
+  return norm.startsWith(`openspec/changes/${changeName}/specs/`);
+}
+
+/**
+ * Files that match a meta glob but are the change's own spec delta. These are
+ * substantive and must be removed from the meta set before the no-op verdict.
+ */
+function metaFilesAfterSpecCarveOut(
+  files: readonly string[],
+  metaOnlyFiles: readonly string[],
+  changeName: string | undefined,
+): Set<string> {
+  const metaSet = new Set(findBoundaryViolations(files, metaOnlyFiles).map((v) => v.file));
+  for (const file of metaSet) {
+    if (isOwnSpecDelta(file, changeName)) metaSet.delete(file);
+  }
+  return metaSet;
+}
+
+/**
  * Classify the base..HEAD diff. Returns the file list and whether every
  * file in it matches a meta-only glob (i.e. the substantive change is
  * missing from the branch).
@@ -128,13 +164,13 @@ async function classifyDiffAgainstMeta(
   cwd: string,
   base: string,
   metaOnlyFiles: readonly string[],
+  changeName: string | undefined,
 ): Promise<{ files: string[]; onlyMeta: boolean }> {
   const files = await diffFilesAgainstBase(runner, cwd, base);
   if (files.length === 0 || metaOnlyFiles.length === 0) {
     return { files, onlyMeta: false };
   }
-  const violations = findBoundaryViolations(files, metaOnlyFiles);
-  const metaSet = new Set(violations.map((v) => v.file));
+  const metaSet = metaFilesAfterSpecCarveOut(files, metaOnlyFiles, changeName);
   const onlyMeta = files.every((f) => metaSet.has(f.replace(/\\/g, "/")));
   return { files, onlyMeta };
 }
@@ -160,6 +196,7 @@ async function branchHistoryTouchedOnlyMeta(
   cwd: string,
   base: string,
   metaOnlyFiles: readonly string[],
+  changeName: string | undefined,
 ): Promise<boolean> {
   if (metaOnlyFiles.length === 0) return false;
   let raw = "";
@@ -181,7 +218,7 @@ async function branchHistoryTouchedOnlyMeta(
     ),
   );
   if (touched.length === 0) return false;
-  const metaSet = new Set(findBoundaryViolations(touched, metaOnlyFiles).map((v) => v.file));
+  const metaSet = metaFilesAfterSpecCarveOut(touched, metaOnlyFiles, changeName);
   return touched.every((f) => metaSet.has(f.replace(/\\/g, "/")));
 }
 
@@ -282,7 +319,13 @@ export async function createPullRequest(
   // triggers a fix-task respawn.
   const metaOnlyFiles = input.metaOnlyFiles ?? [];
   if (metaOnlyFiles.length > 0) {
-    const classification = await classifyDiffAgainstMeta(runner, input.cwd, base, metaOnlyFiles);
+    const classification = await classifyDiffAgainstMeta(
+      runner,
+      input.cwd,
+      base,
+      metaOnlyFiles,
+      input.changeName,
+    );
     if (classification.onlyMeta && classification.files.length > 0) {
       if (await branchAlreadyMerged(runner, input.cwd, input.branch, base)) {
         return null;
@@ -296,6 +339,7 @@ export async function createPullRequest(
         input.cwd,
         base,
         metaOnlyFiles,
+        input.changeName,
       );
       return {
         url: null,

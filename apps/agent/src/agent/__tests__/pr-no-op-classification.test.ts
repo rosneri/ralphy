@@ -81,6 +81,60 @@ describe("createPullRequest — no-op vs lost classification", () => {
     expect(result?.blocked).toBe("only-meta");
   });
 
+  test("spec-authoring change: own spec delta is substantive, so a PR is opened (not no-op)", async () => {
+    // A docs/spec ticket whose entire deliverable lives under its own change's
+    // `specs/` dir matches the `openspec/**` meta glob, but it is the real
+    // deliverable — it must be PR'd, not silently finalized as a no-op.
+    const change = "lit-512-spec-doc-world-entity";
+    const specFile = `openspec/changes/${change}/specs/world-entity/spec.md`;
+    const calls: string[] = [];
+    const runner: CmdRunner = {
+      run: async (cmd) => {
+        const key = cmd.join(" ");
+        calls.push(key);
+        if (key === HAS_COMMITS) return { stdout: "abc123 docs(lit-512)", stderr: "" };
+        if (key === NET_DIFF) {
+          return { stdout: `${specFile}\nopenspec/changes/${change}/tasks.md`, stderr: "" };
+        }
+        if (cmd[0] === "gh" && cmd[2] === "create") {
+          return { stdout: "https://github.com/o/r/pull/9", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    };
+    const result = await createPullRequest(
+      { cwd: "/x", branch: "b", issue, base: "main", metaOnlyFiles: META, changeName: change },
+      runner,
+    );
+    expect(result?.blocked).toBeUndefined();
+    expect(result?.url).toBe("https://github.com/o/r/pull/9");
+    expect(calls.some((c) => c.startsWith("git push -u origin b"))).toBe(true);
+  });
+
+  test("carve-out is scoped to the change's OWN spec dir, not another change's", async () => {
+    // A branch that only touches a *different* change's spec is still meta —
+    // the carve-out must not leak across changes.
+    const { runner } = mockRunner({
+      [HAS_COMMITS]: "abc123 docs",
+      [NET_DIFF]: "openspec/changes/lit-999-other/specs/x/spec.md",
+      [MERGED]: "",
+      [CHERRY]: "+ abc123",
+      [HISTORY]: "openspec/changes/lit-999-other/specs/x/spec.md",
+    });
+    const result = await createPullRequest(
+      {
+        cwd: "/x",
+        branch: "b",
+        issue,
+        base: "main",
+        metaOnlyFiles: META,
+        changeName: "lit-512-spec-doc-world-entity",
+      },
+      runner,
+    );
+    expect(result?.blocked).toBe("no-op");
+  });
+
   test("returns null (nothing to PR) when a prior PR for the branch is merged", async () => {
     const { runner } = mockRunner({
       [HAS_COMMITS]: "abc123 docs",

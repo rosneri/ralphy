@@ -273,6 +273,11 @@ export async function installPrePushHook(cwd: string, runner: GitRunner): Promis
   await Bun.write(hookPath, PRE_PUSH_HOOK_SCRIPT);
   const chmod = Bun.spawn(["chmod", "+x", hookPath]);
   await chmod.exited;
+  // `.ralph-hooks/` is a ralphy-generated artifact, not part of the change.
+  // A self-ignoring `.gitignore` (`*` also matches the .gitignore itself) keeps
+  // the whole directory out of the worktree's `git status`, so it never trips
+  // the "uncommitted changes — refusing to archive" guard or pollutes a diff.
+  await Bun.write(join(cwd, ".ralph-hooks", ".gitignore"), "*\n");
   await runner.run(["config", "core.hooksPath", ".ralph-hooks"], cwd);
 }
 

@@ -31,6 +31,7 @@ export async function createPrWithRetry(
           branch: ctx.branch,
           issue,
           base,
+          changeName: ctx.changeName,
           metaOnlyFiles: ctx.cfg.metaOnlyFiles ?? [],
           draft: ctx.cfg.prDraft ?? false,
           labels: ctx.cfg.prLabels ?? [],
