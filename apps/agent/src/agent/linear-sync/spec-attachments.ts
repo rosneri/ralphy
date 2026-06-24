@@ -21,10 +21,9 @@ import { isCommentNotFoundError } from "./comment-sync";
 import { renderMarkdownToPdf } from "./render-pdf";
 import { type LogFn, sha256Hex } from "./utils";
 
-/** Build a Linear-API error suffix that surfaces .status / .body / .messages
- *  fields attached by linearRequest. Without this, every HTTP failure
- *  collapses to the generic message "Linear API request failed", which
- *  hides 4xx vs 5xx and makes recurring failures undiagnosable. */
+/** Build a Linear-API error suffix surfacing .status / .body / .messages from
+ *  linearRequest; without it every HTTP failure collapses to the generic
+ *  "Linear API request failed", hiding 4xx vs 5xx. */
 function describeLinearError(err: unknown): string {
   const e = err as Error & { status?: number; body?: string; messages?: string[] };
   const parts: string[] = [e.message ?? String(err)];
@@ -43,9 +42,8 @@ export type AttachmentFormat = "md" | "pdf";
 type Slot = "design" | "designPdf";
 /** Legacy slot names retained only for purge-on-upgrade. Past versions
  *  uploaded proposal.md / proposal.pdf as their own attachments; we now
- *  publish only design (with tasks.md content embedded), so any state
- *  carrying these slot ids must be cleared and the Linear attachments
- *  deleted on next sync. */
+ *  publish only design (tasks.md embedded), so state carrying these slot
+ *  ids must be cleared and the Linear attachments deleted on next sync. */
 type LegacySlot = "proposal" | "proposalPdf";
 
 interface SlotSpec {
@@ -162,15 +160,17 @@ interface SpecAttachmentsDeps {
   changeDir: string;
   iteration: number;
   log: LogFn;
+  /** File-only sink for recurring unchanged-skip lines; falls back to `log`. */
+  fileLog?: LogFn;
   mutations: SpecAttachmentMutations;
-  /** Formats to upload. Defaults to ["md"] to preserve the legacy
-   *  behaviour. Add "pdf" to also upload a pdfkit-rendered mirror as
-   *  a peer slot keyed off the same source-md hash. */
+  /** Formats to upload. Default ["md"]; add "pdf" for a pdfkit mirror keyed off the same source-md hash. */
   formats?: AttachmentFormat[];
-  /** Post-seal design-attachment behavior. "append" (default) publishes a
-   *  new `#N` revision per design change; "replace" overwrites the canonical
-   *  attachment in place (reusing the pre-seal delete+create path). */
+  /** Post-seal behavior: "append" (default) publishes a new `#N` revision per design change; "replace" overwrites in place. */
   sealedRevisionMode?: "append" | "replace";
+}
+
+function logSkip(deps: SpecAttachmentsDeps, message: string): void {
+  (deps.fileLog ?? deps.log)(message, "gray");
 }
 
 const EMPTY_SLOT: SpecAttachmentSlot = { attachmentId: null, sha256: null };
@@ -441,7 +441,7 @@ async function syncSlotSealed(
 
   // Idempotent: identical bytes to v1 or any published revision → no-op.
   if (hash === v1Sha || revisions.some((r) => r.sha256 === hash)) {
-    deps.log(`  spec-attachments: ${spec.uploadFilename} unchanged (sealed), skipping`, "gray");
+    logSkip(deps, `  spec-attachments: ${spec.uploadFilename} unchanged (sealed), skipping`);
     return;
   }
 
@@ -640,7 +640,7 @@ async function syncSlot(deps: SpecAttachmentsDeps, slot: Slot): Promise<void> {
   }
 
   if (current.attachmentId && current.sha256 === skipHash) {
-    deps.log(`  spec-attachments: ${spec.uploadFilename} unchanged, skipping`, "gray");
+    logSkip(deps, `  spec-attachments: ${spec.uploadFilename} unchanged, skipping`);
     return;
   }
 

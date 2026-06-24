@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { pickOpenPrUrlFromAttachments } from "../agent/wire";
+import { createPrDiscovery } from "../agent/wire/pr-discovery";
 import { createFakeCodeHost } from "@ralphy/codehost/testing";
 import type { CodeHost, PullRequestState } from "@ralphy/codehost";
+import type { CmdRunner } from "../agent/pr";
+import { PollContext } from "../shared/capabilities/poll-context";
+import { makeTrackedIssue } from "@ralphy/tracker/testing";
 
 /** Build a CodeHost whose `getPullRequestState` is scripted per-URL. "throw"
  *  makes the probe reject (mirrors a `gh` failure). Probed URLs are recorded. */
@@ -99,5 +103,54 @@ describe("pickOpenPrUrlFromAttachments", () => {
     const host = makeHost({ [broken]: "throw" });
     const result = await pickOpenPrUrlFromAttachments([broken], "RLF-6", host, () => {});
     expect(result).toEqual({ url: null, sawNonOpenPr: false });
+  });
+});
+
+describe("createPrDiscovery — no-PR log routing", () => {
+  /** A runner whose `gh pr list` returns no rows → no GitHub PR discovered. */
+  const emptyRunner: CmdRunner = { run: async () => ({ stdout: "", stderr: "" }) };
+
+  test("the recurring 'no PR found' line goes to onFileLog, not the agent view", async () => {
+    const onLogLines: string[] = [];
+    const diagLines: string[] = [];
+    const fileLines: string[] = [];
+    const discovery = createPrDiscovery({
+      projectRoot: "/wt",
+      cmdRunner: emptyRunner,
+      codeHost: createFakeCodeHost(),
+      // No tracker PR links either → discovery resolves to null.
+      fetchPullRequestLinks: async () => [],
+      onLog: (t) => onLogLines.push(t),
+      onFileLog: (t) => fileLines.push(t),
+      diag: (_area, message) => diagLines.push(message),
+      prByChange: new Map<string, string>(),
+      getPollContext: () => new PollContext(),
+    });
+
+    const result = await discovery.checkPrStatus(makeTrackedIssue({ identifier: "ENG-7" }));
+
+    expect(result).toBeNull();
+    // File sink gets the diagnostic; the agent-view channels stay clean.
+    expect(fileLines.some((t) => t.includes("ENG-7") && t.includes("no PR found"))).toBe(true);
+    expect(onLogLines.some((t) => t.includes("no PR found"))).toBe(false);
+    expect(diagLines.some((t) => t.includes("no PR found"))).toBe(false);
+  });
+
+  test("falls back to the visible diag channel when no file sink is wired", async () => {
+    const diagLines: string[] = [];
+    const discovery = createPrDiscovery({
+      projectRoot: "/wt",
+      cmdRunner: emptyRunner,
+      codeHost: createFakeCodeHost(),
+      fetchPullRequestLinks: async () => [],
+      onLog: () => {},
+      diag: (_area, message) => diagLines.push(message),
+      prByChange: new Map<string, string>(),
+      getPollContext: () => new PollContext(),
+    });
+
+    await discovery.checkPrStatus(makeTrackedIssue({ identifier: "ENG-8" }));
+
+    expect(diagLines.some((t) => t.includes("ENG-8") && t.includes("no PR found"))).toBe(true);
   });
 });

@@ -205,6 +205,7 @@ export function buildAgentCoordinator(
     codeHost,
     fetchPullRequestLinks: (issue) => trackerRef.current!.fetchPullRequestLinks(issue),
     onLog,
+    ...(onFileLog ? { onFileLog } : {}),
     diag,
     prByChange,
     getPollContext: () => pollContext,
@@ -383,15 +384,14 @@ export function buildAgentCoordinator(
   const prRecoveryEnabled =
     args.prRecoveryEnabled === undefined ? cfg.prRecovery.enabled : args.prRecoveryEnabled;
 
-  // Task sync (plan-once + sticky tasks + steering refresh) to issue comments,
-  // plus the spec sink (RLF-239). The backend-specific IO (comment mutations,
-  // attachment vs comment-embedded spec sink, credential readiness) comes
-  // pre-selected from the tracker bundle — no kind branch here.
+  // Task sync (plan-once + sticky tasks + steering refresh) + the spec sink
+  // (RLF-239). Backend-specific IO comes pre-selected from the tracker bundle.
   const commentSync = createCommentSyncHooks({
     apiKey,
     cfg,
     projectRoot,
     onLog,
+    ...(onFileLog ? { onFileLog } : {}),
     diag,
     cwdByChange,
     issueByChange,

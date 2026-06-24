@@ -568,7 +568,8 @@ export class AgentCoordinator {
       if (!this.dependenciesResolved(issue)) continue;
       const view = await this.director.view(this.flowRef(issue));
       if (view.value === "awaiting-ci") continue;
-      if (await this.maybePromoteFinishedConflicted(issue, view)) continue;
+      const noPrYet = view.value === "working"; // machine leaves `working` on PR_OPENED
+      if (!noPrYet && (await this.maybePromoteFinishedConflicted(issue, view))) continue;
       resumable.push(issue);
     }
 
