@@ -591,9 +591,9 @@ export class AgentCoordinator {
       },
     );
     for (const blockedIssue of plan.blocked) {
-      this.deps.onLog(
+      // File-only: blocked-skip lines recur every poll and flood the UI panel.
+      this.deps.onFileLog?.(
         `  ⏸ ${blockedIssue.identifier} skipped — blocked by unresolved dependency`,
-        "yellow",
       );
     }
     for (const entry of plan.entries) {
@@ -907,16 +907,14 @@ export class AgentCoordinator {
     ]);
     const blocker = issue.blockedByIds.find((bid) => openIds.has(bid));
     if (blocker !== undefined) {
-      this.deps.onLog(
-        `  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`,
-        "yellow",
-      );
+      // File-only: this fires every poll for a blocked issue; UI noise.
+      this.deps.onFileLog?.(`  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`);
       return false;
     }
     // Blockers that aren't in our open view: trust Linear's `blocked_by`
     // pruning (only unresolved blockers are returned). They might still be
     // genuinely open elsewhere — log and skip.
-    this.deps.onLog(`  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`, "yellow");
+    this.deps.onFileLog?.(`  ⏸ ${issue.identifier} skipped — blocked by unresolved dependency`);
     return false;
   }
 
