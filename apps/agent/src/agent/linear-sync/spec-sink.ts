@@ -36,6 +36,11 @@ export interface SpecSyncInput {
   changeDir: string;
   iteration: number;
   log: LogFn;
+  /** File-only sink for high-frequency, low-signal lines (e.g. the
+   *  unchanged-content skip that recurs every sync). When present, those
+   *  lines go here instead of `log` so they stay out of the agent view.
+   *  Falls back to `log` when absent. */
+  fileLog?: LogFn;
 }
 
 export interface SpecSink {
@@ -129,7 +134,7 @@ export function createCommentSpecSink(deps: CommentSpecSinkDeps): SpecSink {
         );
       }
       if (existing && parseRalphyMarker(existing)?.fields.sha === source.hash) {
-        input.log("  spec-sink: design spec unchanged, skipping", "gray");
+        (input.fileLog ?? input.log)("  spec-sink: design spec unchanged, skipping", "gray");
         return;
       }
 

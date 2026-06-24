@@ -190,6 +190,32 @@ describe("syncSpecAttachments", () => {
     expect(m.deletes.length).toBe(0);
   });
 
+  test("unchanged-skip line goes to fileLog, not log, when a file sink is provided", async () => {
+    writeDesign();
+    writeTasks();
+    const m = makeMutations();
+    const log = makeLog();
+    const fileLog = makeLog();
+    const deps = {
+      apiKey: "k",
+      issueId: "iss",
+      statePath,
+      changeDir,
+      iteration: 1,
+      log: log.fn,
+      fileLog: fileLog.fn,
+      mutations: m,
+    };
+    await syncSpecAttachments(deps);
+    log.entries.length = 0;
+    fileLog.entries.length = 0;
+    await syncSpecAttachments({ ...deps, iteration: 2 });
+    // The recurring "unchanged, skipping" line lands in the file sink only —
+    // never in the agent-view log.
+    expect(fileLog.entries.some((e) => e.includes("unchanged, skipping"))).toBe(true);
+    expect(log.entries.some((e) => e.includes("unchanged, skipping"))).toBe(false);
+  });
+
   test("changed content deletes the old attachment and creates a new one (refresh = delete + create)", async () => {
     writeDesign("# design\n\nv1\n");
     writeTasks("- [ ] task v1\n");

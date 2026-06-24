@@ -332,7 +332,11 @@ describe("AgentCoordinator — todo polling", () => {
     // blocker is in flight (active), blocked stays out
     expect(ctx.workers.has("change-eng-1")).toBe(true);
     expect(ctx.workers.has("change-eng-2")).toBe(false);
-    expect(ctx.logs.some((l) => l.text.includes("ENG-2") && l.text.includes("blocked"))).toBe(true);
+    // blocked-skip lines are file-only (recur every poll); never surfaced in the UI log.
+    expect(ctx.fileLogs.some((t) => t.includes("ENG-2") && t.includes("blocked"))).toBe(true);
+    expect(ctx.logs.some((l) => l.text.includes("ENG-2") && l.text.includes("blocked"))).toBe(
+      false,
+    );
   });
 
   test("pollOnce returns per-bucket counts for the dashboard", async () => {

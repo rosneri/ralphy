@@ -40,6 +40,10 @@ interface CommentSyncInput {
   cfg: RalphyConfig;
   projectRoot: string;
   onLog: (text: string, color?: string) => void;
+  /** File-only sink (mirrors the coordinator's `onFileLog`). Routed to the
+   *  spec sinks so their unchanged-content skip lines — which recur every
+   *  sync — land in the log file but not the agent view. */
+  onFileLog?: (text: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   cwdByChange: Map<string, string>;
   issueByChange: Map<string, TrackedIssue>;
@@ -64,7 +68,7 @@ interface CommentSyncHooks {
 }
 
 export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHooks {
-  const { apiKey, cfg, projectRoot, onLog, diag, cwdByChange, issueByChange } = input;
+  const { apiKey, cfg, projectRoot, onLog, onFileLog, diag, cwdByChange, issueByChange } = input;
   // The tasks-comment mirror and the spec-attachment (proposal/design, incl.
   // PDF) upload are independent features that share one `syncTasks` hook.
   // Wire the hook when *either* is on — gating spec attachments behind
@@ -140,6 +144,7 @@ export function createCommentSyncHooks(input: CommentSyncInput): CommentSyncHook
           changeDir,
           iteration,
           log: onLog,
+          ...(onFileLog ? { fileLog: onFileLog } : {}),
         });
       }
     },

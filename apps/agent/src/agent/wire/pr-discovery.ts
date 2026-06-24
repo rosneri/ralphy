@@ -20,6 +20,10 @@ interface PrDiscoveryInput {
    *  attachments; GitHub: identifier-scoped PR search). */
   fetchPullRequestLinks: (issue: TrackedIssue) => Promise<string[]>;
   onLog: (text: string, color?: string) => void;
+  /** File-only sink for high-frequency, low-signal lines (the recurring
+   *  "no PR found … conflict scan skipped" notice). When present, those lines
+   *  land in the log file but not the agent view. */
+  onFileLog?: (text: string) => void;
   diag: (area: string, message: string, color?: string) => void;
   prByChange: Map<string, string>;
   /** Initial poll context; refreshed by setter on each beforePoll. */
@@ -36,7 +40,8 @@ interface PrDiscovery {
 }
 
 export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
-  const { projectRoot, cmdRunner, codeHost, onLog, diag, prByChange, getPollContext } = input;
+  const { projectRoot, cmdRunner, codeHost, onLog, onFileLog, diag, prByChange, getPollContext } =
+    input;
   const prUnavailable = new Map<string, number>();
   const prUrlByIssue = createPrUrlCache(5 * 60 * 1000);
 
@@ -113,11 +118,13 @@ export function createPrDiscovery(input: PrDiscoveryInput): PrDiscovery {
     if (!prUrl) {
       const found = await discoverPrUrl(issue, changeName);
       if (!found) {
-        diag(
-          "pr",
-          `  ${issue.identifier}: no PR found via GitHub search or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`,
-          "gray",
-        );
+        // File-only: a workerless ticket with no PR re-hits this every TTL
+        // window; it's diagnostic, not actionable, so keep it out of the
+        // agent view. Falls back to the visible diag channel when no file
+        // sink is wired (e.g. tests, JSON runner without a log file).
+        const text = `  ${issue.identifier}: no PR found via GitHub search or Linear attachments; conflict scan skipped for ${PR_UNAVAILABLE_TTL_MS / 60000}m`;
+        if (onFileLog) onFileLog(text);
+        else diag("pr", text, "gray");
         return null;
       }
       prUrl = found;
