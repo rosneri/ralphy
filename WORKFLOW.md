@@ -150,7 +150,7 @@ prRecovery:
   conflictFixEffort: low
   # Give up auto-recovering a red PR after this many re-queue sessions, then
   # apply `ralph:error` for a human.
-  maxRecoverySessions: 3
+  maxRecoverySessions: 10
   # CI check names the watcher ignores when judging a PR green (e.g. flaky jobs).
   ignoreChecks: []
 
