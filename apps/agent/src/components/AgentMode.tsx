@@ -70,6 +70,9 @@ import { appendSteeringMessage } from "@ralphy/core/loop";
 import { useBoundedLogs } from "./useBoundedLogs";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { cleanOutputLine } from "../shared/capabilities/output-utils";
+import { useSystemMetrics } from "./useSystemMetrics";
+import { SystemMetricsLine } from "./SystemMetricsLine";
+import { fmtElapsed, trunc } from "./agent-mode-format";
 import {
   readWorkerSnapshot,
   diffWorkerSnapshot,
@@ -180,20 +183,6 @@ const ADVANCING_STATES = new Set<TicketRow["state"]>([
   "review",
   "awaiting-ci",
 ]);
-
-function fmtElapsed(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  const rem = s % 60;
-  if (m < 60) return `${m}m${rem.toString().padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${(m % 60).toString().padStart(2, "0")}m`;
-}
-
-function trunc(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max - 1) + "…" : s;
-}
 
 function calcProgressBar(
   checked: number,
@@ -518,6 +507,8 @@ export function AgentMode({
     fileSinkRef.current?.emit(event);
   };
 
+  const { sysMetrics, sampleNow: sampleSystemMetrics } = useSystemMetrics();
+
   useEffect(() => {
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
@@ -679,7 +670,8 @@ export function AgentMode({
         if (cancelled) return;
         const { found, added, buckets, prStatus, board } = await coord.pollOnce();
         if (cancelled) return;
-        fileEmit({ type: "poll_done", found, added, buckets, prStatus });
+        const sys = await sampleSystemMetrics();
+        fileEmit({ type: "poll_done", found, added, buckets, prStatus, sys });
         if (added > 0) {
           appendLog(`  ${added} new issue${added === 1 ? "" : "s"} queued (found ${found} open)`);
         }
@@ -1021,6 +1013,8 @@ export function AgentMode({
               </Text>
             )}
           </Text>
+          {/* Line 1b: host CPU/memory/swap, sampled each poll. */}
+          {sysMetrics && <SystemMetricsLine metrics={sysMetrics} />}
           {/* Line 2+: Linear filter — wrapped across as many lines as needed */}
           {pollStatus.filterDesc &&
             (() => {

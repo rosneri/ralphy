@@ -1,13 +1,12 @@
 /**
- * Discriminated union of every event flowing through the @ralphy/events bus.
- *
- * The union covers two source flows (audited via grep over the repo):
- *  - Every `capture(...)` event name (telemetry / PostHog).
- *  - Every `type:` literal that `runAgentJson` emits on its JSON stream.
- *
- * Plus the internal `__bus_error__` variant the bus uses to surface
- * subscriber failures without losing them.
+ * Discriminated union of every event flowing through the @ralphy/events bus:
+ * every `capture(...)` telemetry name and every `type:` literal `runAgentJson`
+ * emits on its JSON stream (both audited via grep over the repo), plus the
+ * internal `__bus_error__` variant the bus uses to surface subscriber failures
+ * without losing them.
  */
+
+import type { SystemMetrics } from "./system-metrics";
 
 export interface PollBuckets {
   todo: number;
@@ -213,6 +212,8 @@ export type RalphEvent =
       added: number;
       buckets: PollBuckets;
       prStatus: PrStatusCounts;
+      /** Host CPU/memory/swap snapshot for this tick. Optional so older consumers and replayed logs without it stay valid. */
+      sys?: SystemMetrics;
     }
   | {
       type: "worker_started";

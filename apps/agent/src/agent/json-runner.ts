@@ -12,6 +12,8 @@ import {
   type PreflightOptions,
 } from "@ralphy/engine/preflight";
 import { getProcessBus } from "@ralphy/events";
+import { logCoord } from "@ralphy/log";
+import { createSystemMetricsSampler, formatSystemMetricsLine } from "../shared/system-metrics";
 import { waitForActiveWorkers } from "../runtime/shutdown";
 import {
   readWorkerSnapshot,
@@ -212,6 +214,7 @@ export async function runAgentJson({
 
   let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  const systemMetricsSampler = createSystemMetricsSampler();
 
   const tick = async () => {
     if (cancelled) return;
@@ -227,7 +230,9 @@ export async function runAgentJson({
     if (cancelled) return;
     const { found, added, buckets, prStatus, phase, flow } = await coord.pollOnce();
     if (cancelled) return;
-    emit({ type: "poll_done", found, added, buckets, prStatus, phase, flow });
+    const sys = await systemMetricsSampler.sample();
+    emit({ type: "poll_done", found, added, buckets, prStatus, phase, flow, sys });
+    logCoord(formatSystemMetricsLine(sys));
     pollTimer = setTimeout(tick, pollInterval * 1000);
   };
   void tick();
