@@ -33,6 +33,7 @@ mock.module("@ralphy/core/git", () => ({
   // `git status --porcelain` (empty array = clean worktree). Tests vary this
   // via the `mockUncommittedPorcelain` flag.
   getUncommittedFiles: mock(() => mockUncommittedPorcelain.split("\n").filter((l) => l.length > 0)),
+  excludeFrameworkOwnedPaths: mock((lines: readonly string[]) => lines),
 }));
 
 mock.module("@ralphy/openspec", () => ({
