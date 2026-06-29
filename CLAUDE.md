@@ -60,6 +60,15 @@ Long-running changes with unlimited iterations can burn significant API usage. U
 
 - **Never reduce the coverage threshold unless told to**
 
+## Commit & Push
+
+The gates run automatically: the pre-commit hook runs lint-staged (oxlint `--fix`, oxfmt, secretlint) plus `check:structure`, and the pre-push hook runs `check:structure` + `fmt:check`. Do not run these gates ahead of time. When a change is complete, just commit and push and let the hooks run.
+
+- Do NOT pre-run `bun run fmt`, `fmt:check`, `typecheck`, `check:structure`, oxlint, or the other gate targets before committing. The hooks own them.
+- In particular never run repo-wide formatters like `bun run fmt` (`oxfmt --write .`): it rewrites unrelated files across the whole repo and pollutes your commit. lint-staged only formats the files you staged — let it.
+- If a hook fails, it prints why. Read the failure, fix that specific thing, then commit/push again. Repeat. That is the whole loop — there is no separate "verify first" step.
+- Scoped tests are different from gates: still run `bun test <package-or-file>` for the surface you changed while developing (never a bare `bun test` — see Stack). Tests are not in the commit/push hooks, so verify the behavior you touched yourself.
+
 ## Manual UI Testing
 
 Use agent-browser to manually test the UI at http://localhost:1420/
