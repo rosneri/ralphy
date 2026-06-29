@@ -14,7 +14,7 @@ import {
 import { getProcessBus } from "@ralphy/events";
 import { writeState, updateState, buildInitialState, ensureState, tryReadStateRaw } from "../state";
 import { countOpenFindings, deriveOpenSpecPhase } from "../openspec/phase";
-import { gitPush, commitTaskDir, getUncommittedFiles } from "../git";
+import { gitPush, commitTaskDir, getUncommittedFiles, excludeFrameworkOwnedPaths } from "../git";
 import { loopMachine, stoppedStateToReason } from "../machines";
 import {
   buildPhasePrompt,
@@ -477,7 +477,7 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
           // the loop archived the change and the work was stranded with
           // no PR. Refuse archiving and stop the loop so a human can either
           // commit the work or reset tasks.md to re-trigger iteration.
-          const uncommitted = git.getUncommittedFiles();
+          const uncommitted = excludeFrameworkOwnedPaths(git.getUncommittedFiles());
           if (uncommitted.length > 0) {
             const preview = uncommitted.slice(0, 10).join("\n  ");
             const more =

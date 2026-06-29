@@ -117,4 +117,32 @@ describe("createSystemMetricsSampler", () => {
     expect(second.cpuPercent).toBeGreaterThanOrEqual(0);
     expect(second.cpuPercent).toBeLessThanOrEqual(100);
   });
+
+  test("falls back to node:os totals (swap 0) when /proc/meminfo is unreadable", async () => {
+    // Force the Linux meminfo read to throw so `readMemory` takes the
+    // cross-platform os.* fallback — the path that never runs on the CI
+    // Linux runner where /proc/meminfo is always readable.
+    const originalFile = Bun.file;
+    Object.assign(Bun, {
+      file: () => ({
+        text: async (): Promise<string> => {
+          throw new Error("simulated /proc/meminfo read failure");
+        },
+      }),
+    });
+    try {
+      const sampler = createSystemMetricsSampler();
+      const metrics = await sampler.sample();
+      expect(metrics.memTotalBytes).toBeGreaterThan(0);
+      expect(metrics.memAvailableBytes).toBeGreaterThanOrEqual(0);
+      expect(metrics.memUsedBytes).toBe(
+        Math.max(0, metrics.memTotalBytes - metrics.memAvailableBytes),
+      );
+      // The fallback cannot read swap, so both swap figures are pinned to 0.
+      expect(metrics.swapTotalBytes).toBe(0);
+      expect(metrics.swapUsedBytes).toBe(0);
+    } finally {
+      Object.assign(Bun, { file: originalFile });
+    }
+  });
 });

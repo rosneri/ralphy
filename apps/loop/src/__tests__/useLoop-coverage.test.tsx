@@ -26,6 +26,7 @@ mock.module("@ralphy/core/git", () => ({
   gitCommit: mock(() => {}),
   // Default to a clean worktree so the LIT-303 archive guard doesn't trip.
   getUncommittedFiles: mock(() => []),
+  excludeFrameworkOwnedPaths: mock((lines: readonly string[]) => lines),
 }));
 
 mock.module("@ralphy/openspec", () => ({
