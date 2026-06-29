@@ -328,6 +328,36 @@ describe("LoopRunner — completion and archive", () => {
     expect(infos.some((t) => t.includes("refusing to archive"))).toBe(true);
   });
 
+  test("archives when the only uncommitted change is a framework hook (.ralph-hooks)", async () => {
+    // The litrpg incident: `.ralph-hooks/pre-push` is tracked on main, so
+    // `installPrePushHook` re-writes it every setup and it shows as ` M`
+    // forever. That framework noise must not strand the change. See LIT-303.
+    writeTasks(CHECKED_TASKS);
+    const agent = fakeAgent(() => ok());
+    const store = fakeChangeStore();
+    const { git } = fakeGit(() => [" M .ralph-hooks/pre-push"]);
+    const { runner } = makeRunner(agent, { deps: { changeStore: store, git } });
+
+    const reason = await runner.start();
+
+    expect(reason).toBe("completed");
+    expect(store.archived).toEqual([NAME]);
+    expect(readStateInCtx().status).toBe("completed");
+  });
+
+  test("still strands when a real worker file is dirty alongside a framework hook", async () => {
+    writeTasks(CHECKED_TASKS);
+    const agent = fakeAgent(() => ok());
+    const store = fakeChangeStore();
+    const { git } = fakeGit(() => [" M .ralph-hooks/pre-push", " M src/real.ts"]);
+    const { runner } = makeRunner(agent, { deps: { changeStore: store, git } });
+
+    const reason = await runner.start();
+
+    expect(reason).toBe("stranded");
+    expect(store.archived).toEqual([]);
+  });
+
   test("skips archive but still completes when openspec reports the change incomplete", async () => {
     writeTasks(CHECKED_TASKS);
     const agent = fakeAgent(() => ok());

@@ -92,6 +92,40 @@ export function getUncommittedFiles(): readonly string[] {
 }
 
 /**
+ * Path prefixes ralphy generates and owns inside a worktree. Changes confined
+ * to these are framework artifacts, never worker output. `.ralph-hooks/` holds
+ * the per-worktree pre-push hook that `installPrePushHook` re-writes on every
+ * setup; when a repo has accidentally committed that file (so a self-ignoring
+ * `.gitignore` can no longer hide it), it shows as a permanent ` M` entry. That
+ * noise must not be mistaken for stranded work.
+ */
+const FRAMEWORK_OWNED_PATH_PREFIXES = [".ralph-hooks/"] as const;
+
+/** Extract the worktree path from a single `git status --porcelain` line.
+ *  Strips the two status columns + separating space, takes the destination side
+ *  of a rename (`old -> new`), and unwraps git's quoting of special-char paths. */
+function statusLinePath(statusLine: string): string {
+  const body = statusLine.slice(3);
+  const renameArrow = body.indexOf(" -> ");
+  const path = renameArrow === -1 ? body : body.slice(renameArrow + 4);
+  return path.replace(/^"|"$/g, "");
+}
+
+/**
+ * Drop `git status --porcelain` lines that describe only framework-owned
+ * artifacts (see {@link FRAMEWORK_OWNED_PATH_PREFIXES}). The archive guard
+ * refuses to archive a change that still has leftover *worker* edits; a
+ * tracked-and-rewritten pre-push hook is ralphy's own noise and must not wedge
+ * the loop into an endless stranded → respawn livelock. See LIT-303.
+ */
+export function excludeFrameworkOwnedPaths(statusLines: readonly string[]): readonly string[] {
+  return statusLines.filter((statusLine) => {
+    const path = statusLinePath(statusLine);
+    return !FRAMEWORK_OWNED_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+  });
+}
+
+/**
  * Commit all files in a task directory (state.json + *.md) with the given message.
  */
 export function commitTaskDir(taskDir: string, message: string): void {

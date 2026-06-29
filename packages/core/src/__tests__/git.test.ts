@@ -36,6 +36,7 @@ const {
   commitState,
   commitTaskDir,
   getUncommittedFiles,
+  excludeFrameworkOwnedPaths,
 } = await import("../git");
 
 let tempDir: string;
@@ -179,6 +180,31 @@ describe("getUncommittedFiles", () => {
   test("returns empty array when git status fails", () => {
     nextSpawnResults = [{ exitCode: 1, stdout: "", stderr: "not a git repo" }];
     expect(getUncommittedFiles()).toEqual([]);
+  });
+});
+
+describe("excludeFrameworkOwnedPaths", () => {
+  test("drops .ralph-hooks lines (ralphy re-writes the tracked hook every setup)", () => {
+    expect(excludeFrameworkOwnedPaths([" M .ralph-hooks/pre-push"])).toEqual([]);
+  });
+
+  test("keeps real worker files", () => {
+    expect(excludeFrameworkOwnedPaths([" M src/foo.ts", "?? src/bar.ts"])).toEqual([
+      " M src/foo.ts",
+      "?? src/bar.ts",
+    ]);
+  });
+
+  test("removes only the framework line from a mixed status", () => {
+    expect(excludeFrameworkOwnedPaths([" M .ralph-hooks/pre-push", " M src/real.ts"])).toEqual([
+      " M src/real.ts",
+    ]);
+  });
+
+  test("keeps a rename of a normal file (destination path checked)", () => {
+    expect(excludeFrameworkOwnedPaths(["R  old.ts -> src/new.ts"])).toEqual([
+      "R  old.ts -> src/new.ts",
+    ]);
   });
 });
 
