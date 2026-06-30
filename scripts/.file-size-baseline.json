@@ -22,5 +22,5 @@
   "packages/events/src/types.ts": 401,
   "packages/types/src/types.ts": 455,
   "packages/workflow/src/fields.ts": 784,
-  "packages/workflow/src/schema.ts": 572
+  "packages/workflow/src/schema.ts": 577
 }

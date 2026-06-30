@@ -21,3 +21,5 @@ target/
 .claude/skills/openspec-explore/
 .claude/skills/openspec-propose/.claude/scheduled_tasks.lock
 apps/cli/coverage
+
+.serena/
