@@ -328,6 +328,8 @@ You are working on {{ issue.identifier }}: {{ issue.title }}.
 
 Invoke the `/ponytail` command before implementing — it enforces lazy senior dev mode: the simplest, shortest solution that actually works (YAGNI, stdlib first, no unrequested abstractions).
 
+Run `/caveman lite` so your working notes and progress comments stay terse — drop articles, filler, and pleasantries. Keep code, commits, and PR bodies written normally.
+
 {% if attempt > 1 %}
 Previous attempt failed with: {{ last_error }}
 {% endif %}
