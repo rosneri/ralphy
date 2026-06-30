@@ -793,6 +793,12 @@ async function linearRequest<T>(
   throw lastHttpError ?? new Error("Linear API request failed");
 }
 
+export interface LinearViewer {
+  id: string;
+  name: string;
+  email: string;
+}
+
 /**
  * Fetch the authenticated Linear user — the owner of `apiKey`. Surfaced in
  * `agent list` and the agent view so a key that resolves `assignee: me` to the
@@ -801,14 +807,14 @@ async function linearRequest<T>(
  * (invalid / expired), so a bad key degrades to an explicit hint rather than
  * throwing.
  */
-export async function fetchViewer(
-  apiKey: string,
-): Promise<{ id: string; name: string; email: string } | null> {
+export async function fetchViewer(apiKey: string): Promise<LinearViewer | null> {
   if (!apiKey) return null;
   try {
-    const data = await linearRequest<{
-      viewer: { id: string; name: string; email: string } | null;
-    }>(apiKey, "query { viewer { id name email } }", {});
+    const data = await linearRequest<{ viewer: LinearViewer | null }>(
+      apiKey,
+      "query { viewer { id name email } }",
+      {},
+    );
     return data.viewer ?? null;
   } catch {
     return null;

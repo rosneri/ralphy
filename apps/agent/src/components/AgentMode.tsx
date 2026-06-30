@@ -649,15 +649,15 @@ export function AgentMode({
       });
       setEffective({ concurrency, pollInterval });
 
-      // Resolve the authed user without blocking startup; header renders from state once it lands.
-      void fetchViewer(apiKey).then((viewer) => {
-        if (viewer) setAuthedUser({ name: viewer.name, email: viewer.email });
-      });
+      const viewer = await fetchViewer(apiKey);
+      const authed = viewer ? { name: viewer.name, email: viewer.email } : null;
+      setAuthedUser(authed);
 
       fileEmit({
         type: "started",
         version: VERSION,
         filterDesc,
+        ...(authed ? { authedUser: authed } : {}),
         concurrency,
         pollInterval,
         configPath: cfgPath,
