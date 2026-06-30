@@ -326,6 +326,8 @@ version: 1
 
 You are working on {{ issue.identifier }}: {{ issue.title }}.
 
+Invoke the `/ponytail` command before implementing — it enforces lazy senior dev mode: the simplest, shortest solution that actually works (YAGNI, stdlib first, no unrequested abstractions).
+
 {% if attempt > 1 %}
 Previous attempt failed with: {{ last_error }}
 {% endif %}
