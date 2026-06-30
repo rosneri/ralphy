@@ -198,6 +198,8 @@ export type RalphEvent =
       ts: number;
       version?: string;
       filterDesc?: string;
+      /** Authenticated Linear user (owner of LINEAR_API_KEY); absent when the key resolves no user. */
+      authedUser?: { name: string; email: string };
       concurrency?: number;
       pollInterval?: number;
       configPath?: string;
