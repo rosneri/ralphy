@@ -2,7 +2,7 @@ import { appendFile } from "node:fs/promises";
 import type { GetIndicator, SetIndicator } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { IssueTracker, TrackedIssue } from "@ralphy/tracker";
-import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client";
+import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client/filters";
 import { changeNameForIssue } from "../agent/scaffold";
 import type { TicketRow } from "../components/task-pipeline";
 import {
@@ -26,13 +26,13 @@ import {
   type IssueNotifierDeps,
   type IssueNotifierOpts,
 } from "./coordination/issue-notifier";
+import { WorkerPool } from "./coordination/worker-pool";
 import {
-  WorkerPool,
   type PrepareResult,
   type WorkerHandle,
   type WorkerPoolDeps,
   type WorkerPoolOpts,
-} from "./coordination/worker-pool";
+} from "./coordination/worker-pool-support";
 import { planIntake } from "./coordination/issue-intake";
 import { emitCapture } from "./coordination/telemetry";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
@@ -60,7 +60,7 @@ export {
   completionCommentBody,
   type PrepareResult,
   type WorkerHandle,
-} from "./coordination/worker-pool";
+} from "./coordination/worker-pool-support";
 
 /** Per-bucket counts surfaced by `pollOnce` for the dashboard / JSON
  *  output. `found` is the sum across buckets and `added` is how many

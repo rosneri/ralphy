@@ -1,12 +1,12 @@
 import { log } from "@ralphy/output";
 import { VERSION } from "@ralphy/version";
+import { emptyCommonArgs } from "@ralphy/cli-args";
 import {
-  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
-} from "@ralphy/cli-args";
+} from "@ralphy/cli-args/parse-common-args";
 import type { LoopParsedArgs } from "./cli";
 import type { TaskPhase } from "./loop";
 

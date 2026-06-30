@@ -6,7 +6,7 @@ import {
   postSteeringAndRefreshTasks,
   type CommentMutations,
 } from "../linear-sync/comment-sync";
-import type { SpecAttachmentMutations } from "../linear-sync/spec-attachments";
+import type { SpecAttachmentMutations } from "../linear-sync/spec-attachments/model";
 import {
   createAttachmentSpecSink,
   createCommentSpecSink,
@@ -16,11 +16,13 @@ import {
   createIssueComment,
   updateIssueComment,
   deleteIssueComment,
+} from "../../shared/capabilities/linear-client/comments";
+import {
   uploadFileToLinear,
   createAttachmentForUrl,
   deleteAttachment,
   findIssueAttachmentByTitle,
-} from "../../shared/capabilities/linear-client";
+} from "../../shared/capabilities/linear-client/attachments";
 import type { CmdRunner } from "../pr";
 import { readStickyComment, upsertStickyComment } from "./tracker/sticky-comment";
 import type { TrackedIssue } from "@ralphy/tracker";

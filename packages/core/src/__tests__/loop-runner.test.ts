@@ -737,13 +737,17 @@ describe("LoopRunner — telemetry surface", () => {
   // The runner replaced useLoop as the emitter of the loop.* bus events
   // (RLF-96 Stage 7 contract, relocated here by issue #401).
   test("emits the 5 loop.* bus events", async () => {
-    const SRC = join(
+    const runnerDir = join(
       import.meta.dir.replace("/core/dist/", "/core/src/"),
       "..",
       "loop-runner",
-      "index.ts",
     );
-    const text = await Bun.file(SRC).text();
+    const text = (
+      await Promise.all([
+        Bun.file(join(runnerDir, "index.ts")).text(),
+        Bun.file(join(runnerDir, "runner-internals.ts")).text(),
+      ])
+    ).join("\n");
     for (const t of [
       "loop.task_started",
       "loop.task_stopped",
@@ -756,13 +760,17 @@ describe("LoopRunner — telemetry surface", () => {
   });
 
   test("stays headless — no React/Ink/WebSocket imports", async () => {
-    const SRC = join(
+    const runnerDir = join(
       import.meta.dir.replace("/core/dist/", "/core/src/"),
       "..",
       "loop-runner",
-      "index.ts",
     );
-    const text = await Bun.file(SRC).text();
+    const text = (
+      await Promise.all([
+        Bun.file(join(runnerDir, "index.ts")).text(),
+        Bun.file(join(runnerDir, "runner-internals.ts")).text(),
+      ])
+    ).join("\n");
     expect(text.includes('from "react"')).toBe(false);
     expect(text.includes('from "ink"')).toBe(false);
     expect(text.includes('from "ws"')).toBe(false);

@@ -11,7 +11,10 @@
  */
 import type { Indicators, LinearFilterScope } from "@ralphy/types";
 import type { IssueTrackerProvider, MentionTrigger, TrackedIssue } from "@ralphy/tracker";
-import { addIssueComment, fetchIssueComments } from "../../../shared/capabilities/linear-client";
+import {
+  addIssueComment,
+  fetchIssueComments,
+} from "../../../shared/capabilities/linear-client/comments";
 import { unionMarkers } from "../indicators";
 import { fetchDoneCandidatesWith, type LinearResolvers } from "../linear-resolvers";
 

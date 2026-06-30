@@ -15,12 +15,12 @@
 import {
   AGENT_OVERRIDE_KEYS,
   AGENT_OVERRIDE_TO_WORKFLOW_KEY,
-  parseCommonArgv,
   type AgentOverrides,
   type CliOverrides,
   type CliPassthrough,
   type CommonArgs,
 } from "@ralphy/cli-args";
+import { parseCommonArgv } from "@ralphy/cli-args/parse-common-args";
 import {
   DEFAULT_WORKFLOW_MD,
   explicitWorkflowKeys,
@@ -30,42 +30,17 @@ import {
   workflowPath,
   type WorkflowConfig,
 } from "@ralphy/workflow";
-import type { LoopChangeStore, LoopOptions, MetaPromptOptions, TaskPhase } from "@ralphy/core/loop";
+import type { LoopOptions } from "@ralphy/core/loop";
+import {
+  OVERRIDE_KEYS,
+  OVERRIDE_TO_WORKFLOW_KEY,
+  type ConfigOrigin,
+  type OriginKey,
+} from "./override-keys";
+import { loopOptionsFromConfig, type LoopRuntime } from "./loop-options";
 
 export type { AgentOverrides, CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
 export type { WorkflowConfig } from "@ralphy/workflow";
-
-/** Where an effective config value came from. */
-export type ConfigOrigin = "cli" | "workflow" | "default";
-
-/** Map from each CLI override key to the WORKFLOW.md key it overrides. */
-export const OVERRIDE_TO_WORKFLOW_KEY = {
-  engine: "engine",
-  model: "model",
-  effort: "effort",
-  maxIterations: "maxIterationsPerTask",
-  maxCostUsd: "maxCostUsdPerTask",
-  maxRuntimeMinutes: "maxRuntimeMinutesPerTask",
-  maxConsecutiveFailures: "maxConsecutiveFailuresPerTask",
-  delay: "iterationDelaySeconds",
-  log: "logRawStream",
-  verbose: "taskVerbose",
-  manualTest: "enableManualTest",
-} as const satisfies Record<keyof CliOverrides, keyof WorkflowConfig>;
-
-export const OVERRIDE_KEYS: readonly (keyof CliOverrides)[] = [
-  "engine",
-  "model",
-  "effort",
-  "maxIterations",
-  "maxCostUsd",
-  "maxRuntimeMinutes",
-  "maxConsecutiveFailures",
-  "delay",
-  "log",
-  "verbose",
-  "manualTest",
-];
 
 /**
  * Narrow a CLI model string (already validated by the parser against the
@@ -106,8 +81,6 @@ function asWorkflowEffort(
  * WORKFLOW.md keys the author actually wrote (see `explicitWorkflowKeys`);
  * without it every non-CLI value reports `"default"`.
  */
-export type OriginKey = keyof CliOverrides | keyof AgentOverrides;
-
 export function mergeConfig(
   workflow: WorkflowConfig,
   overrides: CliOverrides,
@@ -159,56 +132,6 @@ export function mergeConfig(
   return { effective, origin };
 }
 
-/**
- * Re-encode sparse overrides as argv for a child worker. Exactly the keys the
- * user passed — the child re-runs `resolveConfig` against the same
- * WORKFLOW.md, so parent and child compute identical effective configs
- * through one code path (no pre-merged values in spawn commands).
- * Round-trip property: parsing the result yields the same overrides.
- */
-export function serializeOverrides(overrides: Readonly<CliOverrides>): string[] {
-  const argv: string[] = [];
-  if (overrides.engine !== undefined) argv.push(`--${overrides.engine}`);
-  if (overrides.model !== undefined) argv.push("--model", overrides.model);
-  if (overrides.effort !== undefined) argv.push("--effort", overrides.effort);
-  if (overrides.maxIterations !== undefined) {
-    argv.push("--max-iterations", String(overrides.maxIterations));
-  }
-  if (overrides.maxCostUsd !== undefined) argv.push("--max-cost", String(overrides.maxCostUsd));
-  if (overrides.maxRuntimeMinutes !== undefined) {
-    argv.push("--max-runtime", String(overrides.maxRuntimeMinutes));
-  }
-  if (overrides.maxConsecutiveFailures !== undefined) {
-    argv.push("--max-failures", String(overrides.maxConsecutiveFailures));
-  }
-  if (overrides.delay !== undefined) argv.push("--delay", String(overrides.delay));
-  if (overrides.log) argv.push("--log");
-  if (overrides.verbose) argv.push("--verbose");
-  if (overrides.manualTest) argv.push("--manual-test");
-  return argv;
-}
-
-/**
- * Re-encode sparse agent overrides as argv for a child worker — the agent-side
- * mirror of `serializeOverrides`. Exactly the keys the user passed, so a spawned
- * worker re-derives an identical effective config (E4). Round-trip property:
- * `parseAgentArgs(serializeAgentOverrides(x)).agentOverrides` equals `x`.
- */
-export function serializeAgentOverrides(overrides: Readonly<AgentOverrides>): string[] {
-  const argv: string[] = [];
-  if (overrides.concurrency !== undefined)
-    argv.push("--concurrency", String(overrides.concurrency));
-  if (overrides.pollInterval !== undefined) {
-    argv.push("--poll-interval", String(overrides.pollInterval));
-  }
-  if (overrides.linearTeam !== undefined) argv.push("--linear-team", overrides.linearTeam);
-  if (overrides.worktree) argv.push("--worktree");
-  if (overrides.createPr) argv.push("--create-pr");
-  if (overrides.stackPrs) argv.push("--stack-prs");
-  if (overrides.codeReview) argv.push("--code-review");
-  return argv;
-}
-
 /** The only effect in this package: reading WORKFLOW.md (and `--prompt-file`). */
 export interface ConfigFileSystem {
   /** Returns null when the file does not exist. */
@@ -225,97 +148,6 @@ const bunFileSystem: ConfigFileSystem = {
     await Bun.write(path, text);
   },
 };
-
-/** Sparse review-phase overrides from the bespoke `--review-*` CLI flags. */
-export interface ReviewPhaseOverrides {
-  enabled?: boolean;
-  maxRounds?: number;
-  reviewerModel?: string;
-  reviewerEffort?: string;
-  reviewerContextStrategy?: "fresh" | "warm";
-}
-
-/** Per-task runtime injections — everything `LoopOptions` needs beyond config. */
-export interface LoopRuntime {
-  name: string;
-  prompt: string;
-  changeStore: LoopChangeStore;
-  phase?: TaskPhase;
-  createPr?: boolean;
-  prDraft?: boolean;
-  onReviewRound?: LoopOptions["onReviewRound"];
-  metaPrompt?: MetaPromptOptions;
-  /** Bespoke `--review-*` CLI flags — sparse, overlaid onto the workflow's
-   *  `openspec.reviewPhase` block with the same presence-based precedence as
-   *  every other override. */
-  reviewPhase?: ReviewPhaseOverrides;
-  /** Recovery flow this worker serves (`--trigger`, set by the agent's
-   *  fix-worker spawns). Selects the per-flow model/effort from
-   *  `prRecovery.{ciFix,conflictFix}{Model,Effort}`, falling back to the
-   *  top-level `model`/`effort`. */
-  trigger?: "ci-fix" | "conflict-fix";
-}
-
-/**
- * Assemble `LoopOptions` from an effective config plus runtime injections —
- * the one place this wiring exists, so callers cannot hand-wire it wrong.
- */
-export function loopOptionsFromConfig(
-  effective: WorkflowConfig,
-  runtime: LoopRuntime,
-): LoopOptions {
-  const configReview = effective.openspec.reviewPhase;
-  const overlay = runtime.reviewPhase ?? {};
-  const reviewEnabled = overlay.enabled ?? configReview.enabled;
-  const reviewerModel = overlay.reviewerModel ?? configReview.reviewerModel;
-  const reviewerEffort = overlay.reviewerEffort ?? configReview.reviewerEffort;
-  const reviewPhase = reviewEnabled
-    ? {
-        enabled: true,
-        maxRounds: overlay.maxRounds ?? configReview.maxRounds,
-        reviewerContextStrategy:
-          overlay.reviewerContextStrategy ?? configReview.reviewerContextStrategy,
-        ...(reviewerModel !== undefined ? { reviewerModel } : {}),
-        ...(reviewerEffort !== undefined ? { reviewerEffort } : {}),
-      }
-    : undefined;
-  // Fix workers (`--trigger ci-fix|conflict-fix`) take their model/effort from
-  // the matching prRecovery keys, falling back to the top-level values.
-  const flow: { model?: string | undefined; effort?: WorkflowConfig["effort"] } =
-    runtime.trigger === "ci-fix"
-      ? { model: effective.prRecovery.ciFixModel, effort: effective.prRecovery.ciFixEffort }
-      : runtime.trigger === "conflict-fix"
-        ? {
-            model: effective.prRecovery.conflictFixModel,
-            effort: effective.prRecovery.conflictFixEffort,
-          }
-        : {};
-  const effort = flow.effort ?? effective.effort;
-  return {
-    name: runtime.name,
-    prompt: runtime.prompt,
-    engine: effective.engine,
-    model: flow.model ?? effective.model,
-    ...(effort !== undefined ? { effort } : {}),
-    ...(effective.planModel !== undefined ? { planModel: effective.planModel } : {}),
-    ...(effective.planEffort !== undefined ? { planEffort: effective.planEffort } : {}),
-    maxIterations: effective.maxIterationsPerTask,
-    maxCostUsd: effective.maxCostUsdPerTask,
-    maxRuntimeMinutes: effective.maxRuntimeMinutesPerTask,
-    maxConsecutiveFailures: effective.maxConsecutiveFailuresPerTask,
-    delay: effective.iterationDelaySeconds,
-    log: effective.logRawStream,
-    verbose: effective.taskVerbose,
-    manualTest: effective.enableManualTest,
-    changeStore: runtime.changeStore,
-    ...(runtime.createPr !== undefined ? { createPr: runtime.createPr } : {}),
-    ...(runtime.prDraft !== undefined ? { prDraft: runtime.prDraft } : {}),
-    ...(runtime.phase !== undefined ? { phase: runtime.phase } : {}),
-    ...(reviewPhase !== undefined ? { reviewPhase } : {}),
-    ...(runtime.onReviewRound !== undefined ? { onReviewRound: runtime.onReviewRound } : {}),
-    ...(runtime.metaPrompt !== undefined ? { metaPrompt: runtime.metaPrompt } : {}),
-  };
-}
 
 /** Resolved values at boot — defaults ⊕ WORKFLOW.md ⊕ CLI, plus provenance. */
 export interface ResolvedConfig {

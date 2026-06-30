@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatReviewCell } from "../list";
+import { formatReviewCell } from "../list/formatting";
 
 describe("formatReviewCell", () => {
   test("returns '-' when prUrl is null (no PR)", () => {

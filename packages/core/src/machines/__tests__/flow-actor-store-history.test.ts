@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createNoopBus } from "@ralphy/events";
 import { FlowActorStore } from "../flow-actor-store";
-import { flowMachine, preemptionActorLogic } from "../flow.machine";
+import { flowMachine } from "../flow.machine";
+import { preemptionActorLogic } from "../flow-machine-actions";
 
 const providedMachine = flowMachine.provide({ actors: { preemption: preemptionActorLogic } });
 

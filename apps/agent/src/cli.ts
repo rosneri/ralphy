@@ -1,15 +1,13 @@
 import { log } from "@ralphy/output";
 import type { Indicators, Marker, SetIndicator, GetIndicator } from "@ralphy/types";
 import { VERSION } from "@ralphy/version";
+import { emptyCommonArgs, type AgentOverrides, type CommonArgs } from "@ralphy/cli-args";
 import {
-  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
-  type AgentOverrides,
-  type CommonArgs,
-} from "@ralphy/cli-args";
+} from "@ralphy/cli-args/parse-common-args";
 
 export { VERSION };
 

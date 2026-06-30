@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { selectNextPickIndex } from "../list";
+import { selectNextPickIndex } from "../list/formatting";
 
 describe("selectNextPickIndex", () => {
   it("returns -1 for empty array", () => {

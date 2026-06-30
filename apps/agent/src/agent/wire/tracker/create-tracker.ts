@@ -23,21 +23,24 @@ import {
   createAttachmentSpecSink,
   type SpecSink,
 } from "../../linear-sync/spec-sink";
+import { fetchBlockedByForIssues } from "../../../shared/capabilities/linear-client/issues";
+import {
+  createIssueComment,
+  deleteIssueComment,
+  fetchIssueComments,
+  updateIssueComment,
+} from "../../../shared/capabilities/linear-client/comments";
 import {
   createAttachmentForUrl,
-  createIssueComment,
   deleteAttachment,
-  deleteIssueComment,
-  fetchBlockedByForIssues,
   fetchIssueAttachments,
-  fetchIssueComments,
   findIssueAttachmentByTitle,
-  updateIssueComment,
   uploadFileToLinear,
-} from "../../../shared/capabilities/linear-client";
+} from "../../../shared/capabilities/linear-client/attachments";
 import { discoverPrUrlFromGitHub } from "../../pr-url";
 import { mergeIndicators, unionMarkers } from "../indicators";
-import { createGithubMentionScanner, createMentionScanner } from "../mention-scan";
+import { createMentionScanner } from "../mention-scan";
+import { createGithubMentionScanner } from "../mention-scan/github-scanner";
 import { createGithubCommentSpecSink } from "../comment-sync";
 import { createGithubProvider, githubIndicators } from "./github";
 import { createGithubCommentMutations } from "./github-comment-mutations";

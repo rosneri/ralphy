@@ -1,5 +1,5 @@
 import type { CmdRunner } from "../../agent/pr";
-import { formatLinearError } from "../../shared/capabilities/linear-client";
+import { formatLinearError } from "../../shared/capabilities/linear-client/request";
 import { githubReactionSlug } from "../../agent/wire/task-bodies";
 
 /** A GitHub issue/PR conversation comment as the mention scan consumes it. The

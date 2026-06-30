@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { retroDepEntry } from "../spawn/worker";
+import { retroDepEntry } from "../spawn/worker-helpers";
 import type { RetroDispositionInfo } from "../../post-task";
 
 // The spawn wrapper must hand `runRetrospective` to `runPostTask` only under

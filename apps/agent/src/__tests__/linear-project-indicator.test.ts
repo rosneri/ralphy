@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { issueMatchesGetIndicator } from "../shared/capabilities/linear-client/filters";
+import { fetchOpenIssues } from "../shared/capabilities/linear-client/issues";
 import {
-  fetchOpenIssues,
   fetchProjectIdByName,
-  issueMatchesGetIndicator,
   setIssueProject,
-} from "../shared/capabilities/linear-client";
+} from "../shared/capabilities/linear-client/labels-and-projects";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

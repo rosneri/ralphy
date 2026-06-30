@@ -6,11 +6,6 @@ import type { AgentParsedArgs } from "../cli";
 import type { RalphyConfig } from "./config";
 import { AgentCoordinator } from "./coordinator";
 import type { IssueTracker, TrackedIssue } from "@ralphy/tracker";
-import { projectLayout } from "@ralphy/core/layout";
-import { changeNameForIssue } from "./scaffold";
-import type { ConfirmationCaps } from "../features/confirmation";
-import type { FeatureCtx } from "../features/types";
-import { processAwaitingForIssue } from "../features/confirmation/awaiting";
 
 import {
   pickOpenPrUrlFromAttachments,
@@ -21,14 +16,27 @@ import { bunGitRunner, bunCmdRunner, type AgentRunners } from "./wire/runners";
 import { describeIndicators } from "./wire/indicators";
 import { githubReactionSlug } from "./wire/task-bodies";
 import { createTracker } from "./wire/tracker/create-tracker";
-import { resolveTicketNumbers } from "../shared/capabilities/linear-client";
+import { resolveTicketNumbers } from "../shared/capabilities/linear-client/ticket-identifier";
 import { createGhCliCodeHost } from "@ralphy/codehost";
 import { createPrepareHelpers } from "./wire/prepare";
 import { createPrDiscovery } from "./wire/pr-discovery";
 import { isChangeArchivedForIssue } from "./wire/mention-scan";
-import { createSpawnWorker, type WorkerPhase } from "./wire/spawn/worker";
+import { createSpawnWorker } from "./wire/spawn/worker";
+import { type WorkerPhase } from "./wire/spawn/worker-helpers";
 import { createBaselineGateRunner } from "./wire/baseline";
 import { createCommentSyncHooks } from "./wire/comment-sync";
+import {
+  buildCoordinatorOptions,
+  createAgentDiagnostics,
+  createConfirmationCaps,
+  createDefaultScriptRunner,
+  createFeatureContextBuilder,
+  createManualMergeFallback,
+  readIterationCount,
+  readTasksFingerprint,
+  resolveUseWorktreeForConcurrency,
+  warnWhenTargetedTicketsLackGetIndicator,
+} from "./wire-coordinator-helpers";
 
 export { pickOpenPrUrlFromAttachments, resolveDependencyBaseBranchImpl, githubReactionSlug };
 export type { AgentRunners };
@@ -106,13 +114,7 @@ export function buildAgentCoordinator(
 
   const bus = createBus();
   subscribeAgentDiag(bus, onLog);
-  const diag = (area: string, message: string, color?: string): void => {
-    bus.emit(
-      color !== undefined
-        ? { type: "agent.diag", area, message, color }
-        : { type: "agent.diag", area, message },
-    );
-  };
+  const diag = createAgentDiagnostics(bus);
 
   const concurrency = cfg.concurrency;
   const pollInterval = cfg.pollIntervalSeconds;
@@ -147,42 +149,9 @@ export function buildAgentCoordinator(
   const coordRef: { current: AgentCoordinator | null } = { current: null };
 
   let pollContext = new PollContext();
-  let useWorktree = cfg.useWorktree;
-  // Concurrency > 1 requires isolated worktrees: parallel workers must not share
-  // one working copy or they clobber each other's files. Force it on (and warn)
-  // rather than silently corrupting the tree. The init wizard enforces the same
-  // invariant up front; this backstops a hand-edited WORKFLOW.md.
-  if (concurrency > 1 && !useWorktree) {
-    diag(
-      "config",
-      `! concurrency is ${concurrency} but useWorktree is off — forcing worktrees on so parallel tasks get isolated working copies`,
-      "yellow",
-    );
-    useWorktree = true;
-  }
+  const useWorktree = resolveUseWorktreeForConcurrency(cfg.useWorktree, concurrency, diag);
 
-  const scriptRunner =
-    input.runners?.runScript ??
-    (async (cmd: string, cwd: string): Promise<number> => {
-      const proc = Bun.spawn({
-        cmd: ["sh", "-c", cmd],
-        cwd,
-        env: { ...process.env, WORKSPACE_ROOT: projectRoot },
-        stdout: "ignore",
-        stderr: "pipe",
-        stdin: "ignore",
-      });
-      const code = await proc.exited;
-      if (code !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        diag(
-          "script",
-          `! script exited code ${code}${stderr ? `: ${stderr.trim().split("\n")[0]}` : ""}`,
-          "yellow",
-        );
-      }
-      return code;
-    });
+  const scriptRunner = input.runners?.runScript ?? createDefaultScriptRunner(projectRoot, diag);
 
   // The CodeHost port (issue #403): the single gh adapter every PR mechanism
   // flows through — state probes, checks classification with the configured
@@ -243,34 +212,9 @@ export function buildAgentCoordinator(
   });
   trackerRef.current = tracker;
 
-  // Manual-merge fallback policy: merge through the CodeHost port, log and
-  // continue on failure (the caller still advances the ticket to done).
-  const mergePr = async (prUrl: string): Promise<boolean> => {
-    try {
-      await codeHost.merge(prUrl, cfg.autoMergeStrategy);
-      return true;
-    } catch (err) {
-      const e = err as Error & { stderr?: string };
-      diag("pr", `! failed to merge ${prUrl}: ${e.stderr?.trim() || e.message}`, "yellow");
-      return false;
-    }
-  };
+  const mergePr = createManualMergeFallback(codeHost, cfg.autoMergeStrategy, diag);
 
-  // RLF-208: when a ticket is targeted but it matches none of the configured
-  // get-indicator buckets, the loop will pick up nothing — surface that so the
-  // operator isn't left wondering why the run is idle.
-  if (ticketNumbers.length > 0) {
-    const hasGetIndicator = [indicators.getTodo, indicators.getInProgress].some(
-      (ind) => ind && ind.filter.length > 0,
-    );
-    if (!hasGetIndicator) {
-      diag(
-        "ticket",
-        `! --ticket set (${ticketNumbers.join(", ")}) but no getTodo/getInProgress indicator is configured — nothing will be picked up`,
-        "yellow",
-      );
-    }
-  }
+  warnWhenTargetedTicketsLackGetIndicator(ticketNumbers, indicators, diag);
 
   const prep = createPrepareHelpers({
     args,
@@ -335,47 +279,29 @@ export function buildAgentCoordinator(
     invalidatePrUrlForIssue: (issueId) => prDiscovery.invalidatePrUrlForIssue(issueId),
   });
 
-  const confirmationCaps: ConfirmationCaps = {
-    detect: (issue) =>
-      processAwaitingForIssue(issue, {
-        cfg,
-        apiKey,
-        projectRoot,
-        useWorktree,
-        indicators,
-        cwdOf: (cn) => cwdByChange.get(cn),
-        awaitingChangeSet,
-        reapForAwaiting: (cn) => coordRef.current?.reapForAwaiting(cn),
-        applyIndicator: provider.applyIndicator,
-        applyMarker: provider.applyMarker,
-        // prDraft: open the draft PR at the design-ready/park point. See
-        // createOpenDraftPr — reuses the idempotent createPullRequest and skips
-        // the meta-only guard so a design-only PR isn't blocked.
-        openDraftPr,
-        ...(onAwaitingTicket ? { onAwaitingTicket } : {}),
-        onLog,
-      }),
-    run: async () => {},
-  };
+  const confirmationCaps = createConfirmationCaps({
+    cfg,
+    apiKey,
+    projectRoot,
+    useWorktree,
+    indicators,
+    cwdByChange,
+    awaitingChangeSet,
+    coordRef,
+    applyIndicator: provider.applyIndicator,
+    applyMarker: provider.applyMarker,
+    openDraftPr,
+    ...(onAwaitingTicket ? { onAwaitingTicket } : {}),
+    onLog,
+  });
 
-  function buildFeatureCtx(issue: TrackedIssue): FeatureCtx {
-    return {
-      issue,
-      worktree: cwdByChange.get(changeNameForIssue(issue)) ?? projectRoot,
-      state: { writeField: async () => {} },
-      bus,
-      caps: {
-        gh: null,
-        linear: null,
-        git: null,
-        fsChange: null,
-        worker: null,
-        confirmation: confirmationCaps,
-      },
-      poll: pollContext,
-      now: () => new Date(),
-    };
-  }
+  const buildFeatureCtx = createFeatureContextBuilder({
+    cwdByChange,
+    projectRoot,
+    bus,
+    confirmationCaps,
+    getPollContext: () => pollContext,
+  });
 
   // PR recovery (RLF-173 / RLF-97). Disabled when the user passes
   // `--no-pr-recovery` or sets `prRecovery.enabled: false` in WORKFLOW.md. The
@@ -421,48 +347,21 @@ export function buildAgentCoordinator(
       ...(onFileLog ? { onFileLog } : {}),
       onWorkersChanged,
       buildFeatureCtx,
-      getIterationCount: async (changeName) => {
-        const root = cwdByChange.get(changeName) ?? projectRoot;
-        const file = Bun.file(projectLayout(root).stateFile(changeName));
-        if (!(await file.exists())) return 0;
-        const json = (await file.json()) as { iteration?: number };
-        return json.iteration ?? 0;
-      },
-      getTasksFingerprint: async (changeName) => {
-        const root = cwdByChange.get(changeName) ?? projectRoot;
-        const changeDir = projectLayout(root).changeDir(changeName);
-        const parts: string[] = [];
-        for (const name of ["tasks.md", "proposal.md", "design.md"]) {
-          const file = Bun.file(join(changeDir, name));
-          if (!(await file.exists())) continue;
-          parts.push(`${name}:${file.lastModified}:${file.size}`);
-        }
-        return parts.length > 0 ? parts.join("|") : null;
-      },
+      getIterationCount: (changeName) => readIterationCount(changeName, cwdByChange, projectRoot),
+      getTasksFingerprint: (changeName) =>
+        readTasksFingerprint(changeName, cwdByChange, projectRoot),
       ...(commentSync.enabled && commentSync.syncTasks ? { syncTasks: commentSync.syncTasks } : {}),
       ...(commentSync.enabled && commentSync.onSteeringAppended
         ? { onSteeringAppended: commentSync.onSteeringAppended }
         : {}),
     },
-    {
+    buildCoordinatorOptions({
       concurrency,
-      ...(indicators.setInProgress !== undefined
-        ? { setInProgress: indicators.setInProgress }
-        : {}),
-      ...(indicators.setDone !== undefined ? { setDone: indicators.setDone } : {}),
-      ...(indicators.setError !== undefined ? { setError: indicators.setError } : {}),
-      ...(indicators.getAutoMerge !== undefined ? { getAutoMerge: indicators.getAutoMerge } : {}),
-      postComments: cfg.linear.postComments,
-      commentEveryIterations: cfg.linear.updateEveryIterations,
-      ...(args.maxTickets > 0 ? { maxTickets: args.maxTickets } : {}),
-      createsPrs: cfg.createPrOnSuccess,
-      prRecovery: {
-        enabled: prRecoveryEnabled,
-        fixCi: cfg.prRecovery.fixCi,
-        fixConflicts: cfg.prRecovery.fixConflicts,
-        maxRecoverySessions: cfg.prRecovery.maxRecoverySessions,
-      },
-    },
+      indicators,
+      cfg,
+      maxTickets: args.maxTickets,
+      prRecoveryEnabled,
+    }),
   );
 
   coordRef.current = coord;

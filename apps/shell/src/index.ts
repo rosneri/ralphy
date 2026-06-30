@@ -11,7 +11,7 @@ if (typeof (globalThis as { Bun?: unknown }).Bun === "undefined") {
 import * as telemetry from "@ralphy/telemetry";
 import { attachDefaults, createBus, setProcessBus } from "@ralphy/events";
 import { VERSION } from "@ralphy/version";
-import { parseWorkflowPathArgs } from "@ralphy/cli-args";
+import { parseWorkflowPathArgs } from "@ralphy/cli-args/parse-common-args";
 
 const SUBCOMMANDS = new Set<string>(["init", "loop", "agent", "task"]);
 

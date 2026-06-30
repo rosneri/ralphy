@@ -1,11 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-  parseTextLog,
-  parseJsonlLog,
-  detectDebugStuck,
-  resolveDebugTarget,
-  runDebug,
-} from "../debug";
+import { parseTextLog, parseJsonlLog, detectDebugStuck } from "../debug-parsers";
+import { resolveDebugTarget, runDebug } from "../debug";
 import type { DebugIo, BinaryInfo, LinearIssueInfo, PrInfo } from "../debug-io";
 
 // `parseJsonlLog` reads the project-level `agent.log` (a JSONL stream of

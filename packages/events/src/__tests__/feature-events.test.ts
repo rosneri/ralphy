@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createBus } from "../bus";
-import type { FeaturePhase, RalphEvent } from "../types";
+import type { FeaturePhase } from "../event-payloads";
+import type { RalphEvent } from "../types";
 
 const FEATURE_IDS = [
   "confirmation",

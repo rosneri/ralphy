@@ -1,5 +1,6 @@
 import type { EventFrom } from "xstate";
-import { flowMachine, type FlowRecovery } from "./flow.machine";
+import { flowMachine } from "./flow.machine";
+import type { FlowRecovery } from "./flow-machine-types";
 import type { FlowActorStore } from "./flow-actor-store";
 
 /** Locator for one issue's flow actor: the registry key (issue id) plus the

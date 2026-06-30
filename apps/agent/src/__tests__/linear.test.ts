@@ -1,18 +1,24 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   baseBranchFromLabels,
-  createAttachmentForUrl,
+  issueMatchesGetIndicator,
+} from "../shared/capabilities/linear-client/filters";
+import {
+  formatLinearError,
+  isRateLimitedError,
+  linearRequestInternals,
+} from "../shared/capabilities/linear-client/request";
+import {
   createIssue,
   fetchMentionScanIssues,
   findOpenIssueByLabel,
-  formatLinearError,
-  isRateLimitedError,
-  issueMatchesGetIndicator,
-  linearRequestInternals,
-  deleteAttachment,
   updateIssueDescription,
+} from "../shared/capabilities/linear-client/issues";
+import {
+  createAttachmentForUrl,
+  deleteAttachment,
   uploadFileToLinear,
-} from "../shared/capabilities/linear-client";
+} from "../shared/capabilities/linear-client/attachments";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

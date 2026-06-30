@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { FlowActorStore } from "../flow-actor-store";
 import { createNoopBus } from "@ralphy/events";
-import type { FlowAssignment } from "../flow.machine";
+import type { FlowAssignment } from "../flow-machine-types";
 
 let tmpDir: string;
 

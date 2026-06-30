@@ -1,5 +1,5 @@
 import { describe, expect, test, spyOn } from "bun:test";
-import { serializeAgentOverrides } from "@ralphy/config";
+import { serializeAgentOverrides } from "@ralphy/config/serialize-overrides";
 import { parseAgentArgs as parseArgs, printAgentHelp as printHelp, VERSION } from "../cli";
 
 describe("agent parseArgs", () => {

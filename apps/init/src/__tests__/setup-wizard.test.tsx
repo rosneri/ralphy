@@ -11,17 +11,14 @@ import {
   indicatorsForPreset,
 } from "@ralphy/workflow/wizard";
 import { fieldsForMode } from "@ralphy/workflow/fields";
+import { SetupWizard } from "../SetupWizard";
+import { EditOrExitPrompt, MigratePrompt, RecreateOrExitPrompt } from "../setup-wizard/prompts";
 import {
-  SetupWizard,
-  EditOrExitPrompt,
-  MigratePrompt,
-  RecreateOrExitPrompt,
   IndicatorBuilder,
-  assembleAnswers,
-  buildFromAnswers,
   CONFIRMATION_STATES,
   CORE_STATES,
-} from "../SetupWizard";
+} from "../setup-wizard/indicator-builder";
+import { assembleAnswers, buildFromAnswers } from "../setup-wizard/answers";
 import type { IndicatorMap } from "@ralphy/workflow/wizard-types";
 import { maybeRunSetupWizard } from "../index";
 

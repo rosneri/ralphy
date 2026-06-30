@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/config.ts"
+    ".": "./src/config.ts",
+    "./override-keys": "./src/override-keys.ts",
+    "./serialize-overrides": "./src/serialize-overrides.ts",
+    "./loop-options": "./src/loop-options.ts"
   },
   "dependencies": {
     "@ralphy/cli-args": "workspace:*",

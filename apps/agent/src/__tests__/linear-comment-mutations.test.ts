@@ -3,7 +3,7 @@ import {
   createIssueComment,
   deleteIssueComment,
   updateIssueComment,
-} from "../shared/capabilities/linear-client";
+} from "../shared/capabilities/linear-client/comments";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

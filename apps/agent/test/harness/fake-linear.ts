@@ -1,7 +1,7 @@
 import type { GetIndicator, SetIndicator, Marker } from "@ralphy/types";
 import { markersOf } from "@ralphy/types";
 import type { IssueTrackerProvider, TrackedIssue } from "@ralphy/tracker";
-import { issueMatchesGetIndicator } from "../../src/shared/capabilities/linear-client";
+import { issueMatchesGetIndicator } from "../../src/shared/capabilities/linear-client/filters";
 import type { AppliedLog, FakeLinearComment, SeedIssue } from "./types";
 import type { MentionTrigger } from "../../src/queue/queue-order";
 

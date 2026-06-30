@@ -8,13 +8,15 @@ import {
   buildPlanPrompt,
   buildReviewPrompt,
   buildPhasePrompt,
+  routeTaskPhase,
+} from "../loop/task-prompts";
+import {
   checkStopSignal,
   updateStateIteration,
   appendSteeringMessage,
   buildSteeringPrompt,
   mergeUsage,
-  routeTaskPhase,
-} from "../loop";
+} from "../loop/stop-and-state";
 import {
   firstUnchecked as extractFirstUncheckedSection,
   allCompleted as allTasksCompleted,

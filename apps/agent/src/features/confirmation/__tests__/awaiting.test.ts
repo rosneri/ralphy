@@ -13,7 +13,7 @@ mock.module("node:os", () => ({
 import { processAwaitingForIssue } from "../awaiting";
 import { changeNameForIssue } from "../../../agent/scaffold";
 import type { TrackedIssue } from "@ralphy/tracker";
-import * as linear from "../../../shared/capabilities/linear-client";
+import * as linear from "../../../shared/capabilities/linear-client/comments";
 import type { RalphyConfig } from "../../../agent/config";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
 import type { Indicators, SetIndicator } from "@ralphy/types";

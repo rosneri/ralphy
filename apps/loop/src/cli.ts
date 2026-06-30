@@ -1,14 +1,13 @@
 import { log } from "@ralphy/output";
 import { VERSION } from "@ralphy/version";
+import { emptyCommonArgs, type CommonArgs } from "@ralphy/cli-args";
 import {
-  emptyCommonArgs,
   parseCommonArg,
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
-  type CommonArgs,
-} from "@ralphy/cli-args";
-import type { ReviewPhaseOverrides } from "@ralphy/config";
+} from "@ralphy/cli-args/parse-common-args";
+import type { ReviewPhaseOverrides } from "@ralphy/config/loop-options";
 
 export { VERSION };
 

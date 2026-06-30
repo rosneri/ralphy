@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { logJsonEvent, initWorkerLog } from "@ralphy/log";
-import { loopOptionsFromConfig, mergeConfig, type CliOverrides } from "@ralphy/config";
+import { mergeConfig, type CliOverrides } from "@ralphy/config";
+import { loopOptionsFromConfig } from "@ralphy/config/loop-options";
 import { loadWorkflow } from "@ralphy/workflow";
 import { OpenSpecChangeStore } from "@ralphy/openspec";
 import { runWithContext, createDefaultContext, getStorage } from "@ralphy/context";

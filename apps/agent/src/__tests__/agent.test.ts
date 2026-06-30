@@ -12,22 +12,28 @@ function writeWorkflow(dir: string, frontmatter: unknown, body = ""): Promise<nu
 import { changeNameForIssue, scaffoldChangeForIssue } from "../agent/scaffold";
 import {
   fetchOpenIssues,
+  fetchWorkflowStates,
+  updateIssueState,
+} from "../shared/capabilities/linear-client/issues";
+import {
   addIssueComment,
   addReactionToComment,
   fetchIssueComments,
+} from "../shared/capabilities/linear-client/comments";
+import {
   fetchIssueAttachments,
   fetchAttachmentsForIssues,
   createRalphyAttachment,
   updateAttachmentSubtitle,
   upsertRalphyAttachment,
-  fetchWorkflowStates,
-  updateIssueState,
+} from "../shared/capabilities/linear-client/attachments";
+import {
   fetchIssueLabels,
   fetchTeamIdByKey,
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
-} from "../shared/capabilities/linear-client";
+} from "../shared/capabilities/linear-client/labels-and-projects";
 import type { TrackedIssue } from "@ralphy/tracker";
 
 let tempDir: string;

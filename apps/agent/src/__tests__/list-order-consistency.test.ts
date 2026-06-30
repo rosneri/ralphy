@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { backlogRankByIssueId } from "../list";
+import { backlogRankByIssueId } from "../list/formatting";
 import { sortRows, type SortableRow } from "../list-sort";
 import { defaultPriorityFor, orderQueueEntries, type QueueEntry } from "../queue/queue-order";
 import type { TrackedIssue } from "@ralphy/tracker";

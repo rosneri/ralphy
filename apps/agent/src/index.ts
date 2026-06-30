@@ -77,7 +77,7 @@ export async function main(argv: string[]): Promise<number> {
   if (args.ticketTokens.length > 0) {
     const { loadEffectiveConfig } = await import("./agent/config");
     const { resolveTicketNumbers, formatTicketError } =
-      await import("./shared/capabilities/linear-client");
+      await import("./shared/capabilities/linear-client/ticket-identifier");
     const cfg = await loadEffectiveConfig(
       projectRoot,
       args.workflowFile,

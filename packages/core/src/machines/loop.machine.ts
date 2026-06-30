@@ -1,5 +1,5 @@
 import { assign, setup } from "xstate";
-import { STOP_REASONS, type StopReason } from "../loop";
+import { STOP_REASONS, type StopReason } from "../loop/stop-and-state";
 
 export interface LoopMachineOptions {
   maxIterations: number;

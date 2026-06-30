@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { orderSubtasksForCappedDisplay } from "../components/AgentMode";
+import { orderSubtasksForCappedDisplay } from "../components/agent-mode/agent-mode-helpers";
 import { parseSubtasks } from "../agent/state/worker-state-poll";
 
 describe("parseSubtasks", () => {

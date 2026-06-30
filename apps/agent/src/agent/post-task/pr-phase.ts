@@ -1,5 +1,5 @@
 import { findBoundaryViolations } from "@ralphy/workflow/boundaries";
-import { baseBranchFromLabels } from "../../shared/capabilities/linear-client";
+import { baseBranchFromLabels } from "../../shared/capabilities/linear-client/filters";
 import type { CodeHost } from "@ralphy/codehost";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { CmdRunner } from "../pr";

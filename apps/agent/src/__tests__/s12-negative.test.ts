@@ -7,7 +7,7 @@
  *   S12.7 — no `main` branch on local repo (todo: prBaseBranch preflight not yet implemented)
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchOpenIssues } from "../shared/capabilities/linear-client";
+import { fetchOpenIssues } from "../shared/capabilities/linear-client/issues";
 
 const originalFetch = globalThis.fetch;
 

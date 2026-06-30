@@ -19,12 +19,9 @@
 import { buildRalphyComment, parseRalphyMarker, type RalphyCommentType } from "@ralphy/comms";
 import type { IssueAttachments } from "@ralphy/tracker";
 import type { LogFn } from "./utils";
-import {
-  composeSpecSource,
-  syncSpecAttachments,
-  type AttachmentFormat,
-  type SpecAttachmentMutations,
-} from "./spec-attachments";
+import { syncSpecAttachments } from "./spec-attachments";
+import { composeSpecSource } from "./spec-attachments/compose";
+import type { AttachmentFormat, SpecAttachmentMutations } from "./spec-attachments/model";
 
 /** Per-change inputs a sink consumes on each sync (the same bag the
  *  comment-sync `syncTasks` hook already threads). */

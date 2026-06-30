@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { formatTicketError, parseTicketIdentifier, resolveTicketNumbers } from "../linear-client";
+import {
+  formatTicketError,
+  parseTicketIdentifier,
+  resolveTicketNumbers,
+} from "../linear-client/ticket-identifier";
 
 describe("parseTicketIdentifier", () => {
   test("parses a full identifier, uppercasing the team key", () => {

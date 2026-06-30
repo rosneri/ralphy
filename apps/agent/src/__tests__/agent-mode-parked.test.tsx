@@ -7,11 +7,11 @@ import React from "react";
 import { render } from "ink-testing-library";
 import { emptyCommonArgs } from "@ralphy/cli-args";
 import { WorkflowConfigSchema } from "@ralphy/workflow/schema";
-import {
-  AgentMode,
-  type AgentModeBuildCoordinator,
-  type AgentModeCoordinator,
-} from "../components/AgentMode";
+import { AgentMode } from "../components/AgentMode";
+import type {
+  AgentModeBuildCoordinator,
+  AgentModeCoordinator,
+} from "../components/agent-mode/agent-mode-coordinator";
 import type { AgentParsedArgs as ParsedArgs } from "../cli";
 import type { RalphyConfig } from "../agent/config";
 

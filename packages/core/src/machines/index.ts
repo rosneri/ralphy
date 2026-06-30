@@ -1,7 +1,7 @@
 export { exampleMachine } from "./example.machine";
+export { flowMachine } from "./flow.machine";
+export { preemptionActorLogic } from "./flow-machine-actions";
 export {
-  flowMachine,
-  preemptionActorLogic,
   type FlowId,
   type BoostBand,
   type FlowAssignment,
@@ -14,7 +14,7 @@ export {
   type FailureReason,
   type RecoveryNotificationKind,
   type PreemptActorInput,
-} from "./flow.machine";
+} from "./flow-machine-types";
 export { FlowActorStore, type FlowActorDeps } from "./flow-actor-store";
 export {
   FlowDirector,

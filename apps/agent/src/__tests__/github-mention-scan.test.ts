@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createGithubMentionScanner } from "../agent/wire/mention-scan";
+import { createGithubMentionScanner } from "../agent/wire/mention-scan/github-scanner";
 import { buildMentionAckComment } from "@ralphy/core/detections";
 import type { CmdRunner } from "../agent/pr";
 import type { TrackedIssue } from "@ralphy/tracker";

@@ -6,11 +6,11 @@ import type { GitRunner } from "../worktree";
 import { resolveBaselineCommands } from "@ralphy/workflow";
 import { runBaselineGate } from "../baseline/gate";
 import {
-  fetchTeamIdByKey,
   findOpenIssueByLabel,
   createIssue,
   updateIssueDescription,
-} from "../../shared/capabilities/linear-client";
+} from "../../shared/capabilities/linear-client/issues";
+import { fetchTeamIdByKey } from "../../shared/capabilities/linear-client/labels-and-projects";
 
 interface BaselineInput {
   args: AgentParsedArgs;

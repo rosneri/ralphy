@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { syncSpecAttachments } from "../agent/linear-sync/spec-attachments";
 import {
   extractImplementationSection,
   isDesignSealed,
   resolveTriggerLabel,
-  syncSpecAttachments,
   versionedTitle,
-  type SpecAttachmentMutations,
-} from "../agent/linear-sync/spec-attachments";
+} from "../agent/linear-sync/spec-attachments/compose";
+import type { SpecAttachmentMutations } from "../agent/linear-sync/spec-attachments/model";
 
 let tempDir: string;
 let changeDir: string;

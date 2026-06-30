@@ -1,36 +1,46 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  fetchMentionScanIssues,
-  fetchOpenIssues,
-  fetchIssueComments,
-  fetchWorkflowStates,
-  fetchTeamIdByKey,
-  fetchIssueLabels,
-  fetchIssueAttachments,
-  findIssueAttachmentByTitle,
-  fetchProjectIdByName,
-  findOpenIssueByLabel,
-  addIssueComment,
-  updateIssueComment,
-  deleteIssueComment,
-  createIssueLabel,
-  addLabelToIssue,
-  removeLabelFromIssue,
-  updateIssueState,
-  createRalphyAttachment,
-  updateAttachmentSubtitle,
-  upsertRalphyAttachment,
-  setIssueProject,
-  createIssue,
-  updateIssueDescription,
   buildIssueFilter,
   clauseFromMarkers,
   baseBranchFromLabels,
+  issueMatchesGetIndicator,
+} from "../linear-client/filters";
+import {
   formatLinearError,
   isRateLimitedError,
-  issueMatchesGetIndicator,
   linearRequestInternals,
-} from "../linear-client";
+} from "../linear-client/request";
+import {
+  fetchMentionScanIssues,
+  fetchOpenIssues,
+  fetchWorkflowStates,
+  findOpenIssueByLabel,
+  updateIssueState,
+  createIssue,
+  updateIssueDescription,
+} from "../linear-client/issues";
+import {
+  fetchIssueComments,
+  addIssueComment,
+  updateIssueComment,
+  deleteIssueComment,
+} from "../linear-client/comments";
+import {
+  fetchIssueAttachments,
+  findIssueAttachmentByTitle,
+  createRalphyAttachment,
+  updateAttachmentSubtitle,
+  upsertRalphyAttachment,
+} from "../linear-client/attachments";
+import {
+  fetchTeamIdByKey,
+  fetchIssueLabels,
+  fetchProjectIdByName,
+  createIssueLabel,
+  addLabelToIssue,
+  removeLabelFromIssue,
+  setIssueProject,
+} from "../linear-client/labels-and-projects";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

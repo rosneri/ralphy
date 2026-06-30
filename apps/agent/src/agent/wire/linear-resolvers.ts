@@ -8,20 +8,24 @@ import type {
 import { markersOf } from "@ralphy/types";
 import type { TrackerProvider } from "./tracker/types";
 import {
+  issueMatchesGetIndicator,
+  type LinearFilterSpec,
+} from "../../shared/capabilities/linear-client/filters";
+import {
   fetchOpenIssues,
   fetchWorkflowStates,
+  updateIssueState,
+} from "../../shared/capabilities/linear-client/issues";
+import { upsertRalphyAttachment } from "../../shared/capabilities/linear-client/attachments";
+import {
   fetchIssueLabels,
   fetchTeamIdByKey,
-  updateIssueState,
-  upsertRalphyAttachment,
   fetchProjectIdByName,
   setIssueProject,
   createIssueLabel,
   addLabelToIssue,
   removeLabelFromIssue,
-  issueMatchesGetIndicator,
-  type LinearFilterSpec,
-} from "../../shared/capabilities/linear-client";
+} from "../../shared/capabilities/linear-client/labels-and-projects";
 import type { TrackedIssue } from "@ralphy/tracker";
 import { linearIdentifierStrategy } from "../../shared/capabilities/github/identifier-strategy";
 

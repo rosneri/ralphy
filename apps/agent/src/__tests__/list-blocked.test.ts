@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatBlockedCell } from "../list";
+import { formatBlockedCell } from "../list/formatting";
 
 describe("formatBlockedCell", () => {
   test("renders '-' for unblocked rows", () => {

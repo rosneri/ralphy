@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildBuckets } from "../list";
+import { buildBuckets } from "../list/formatting";
 import type { Indicators } from "@ralphy/types";
 
 const errorMarker = { type: "label" as const, value: "ralph:error" };

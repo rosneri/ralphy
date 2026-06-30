@@ -1,5 +1,6 @@
 import { createActor, type Actor, type SnapshotFrom, type InspectionEvent } from "xstate";
-import { flowMachine, type FlowAssignment, type FlowInput, type FlowRuntime } from "./flow.machine";
+import { flowMachine } from "./flow.machine";
+import type { FlowAssignment, FlowInput, FlowRuntime } from "./flow-machine-types";
 import { writeField, readSlotSidecar } from "../state/store";
 import { createNoopBus, type Bus } from "@ralphy/events";
 

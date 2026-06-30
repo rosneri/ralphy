@@ -1,12 +1,9 @@
 import { createActor } from "xstate";
 import { describe, expect, it } from "bun:test";
 import { createBus } from "@ralphy/events";
-import {
-  flowMachine,
-  preemptionActorLogic,
-  type FlowAssignment,
-  type FlowWorker,
-} from "../flow.machine";
+import { flowMachine } from "../flow.machine";
+import { preemptionActorLogic } from "../flow-machine-actions";
+import type { FlowAssignment, FlowWorker } from "../flow-machine-types";
 
 const GRACE_MS = 20;
 

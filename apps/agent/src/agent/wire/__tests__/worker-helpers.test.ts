@@ -7,7 +7,7 @@ import {
   computeWantValidateOnly,
   releaseWorkerMaps,
   type WorkerChangeMaps,
-} from "../spawn/worker";
+} from "../spawn/worker-helpers";
 import { parseAgentArgs } from "../../../cli";
 import type { AgentParsedArgs } from "../../../cli";
 import type { RalphyConfig } from "../../config";

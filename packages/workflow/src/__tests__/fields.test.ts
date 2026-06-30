@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { fieldsForMode, findField, FIELD_DESCRIPTIONS, PROMPT_BODY_FIELD_ID } from "../fields";
+import { fieldsForMode, findField, FIELD_DESCRIPTIONS } from "../fields";
+import { PROMPT_BODY_FIELD_ID } from "../fields/field-identifiers";
 
 describe("fieldsForMode", () => {
   test("quick and permissive ask only the three common fields", () => {

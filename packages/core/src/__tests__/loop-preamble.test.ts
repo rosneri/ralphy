@@ -5,8 +5,8 @@ import {
   getStageBlock,
   buildDynamicLoopBlock,
   buildLoopLevelPrompt,
-  type LoopPreambleContext,
-} from "../loop";
+} from "../loop/preamble";
+import { type LoopPreambleContext } from "../loop";
 
 const withCtx = <T>(fn: () => T): T => runWithContext(createDefaultContext(), fn);
 

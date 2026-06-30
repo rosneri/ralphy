@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  fetchMentionScanIssues,
   isRateLimitedError,
   linearRequestInternals,
-} from "../shared/capabilities/linear-client";
+} from "../shared/capabilities/linear-client/request";
+import { fetchMentionScanIssues } from "../shared/capabilities/linear-client/issues";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

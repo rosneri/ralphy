@@ -6,7 +6,7 @@ import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import { ensureRalphyConfig, loadEffectiveConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
-import { fetchViewer } from "../shared/capabilities/linear-client";
+import { fetchViewer } from "../shared/capabilities/linear-client/request";
 import {
   runPreflight as runPreflightImpl,
   type PreflightResult,

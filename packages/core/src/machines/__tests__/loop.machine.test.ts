@@ -2,7 +2,7 @@ import { createActor } from "xstate";
 import { describe, expect, test } from "bun:test";
 import { loopMachine, stoppedStateToReason } from "../loop.machine";
 import type { LoopMachineOptions } from "../loop.machine";
-import { STOP_REASONS } from "../../loop";
+import { STOP_REASONS } from "../../loop/stop-and-state";
 
 const baseOptions: LoopMachineOptions = {
   maxIterations: 0,

@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
-import { fieldsForMode, PROMPT_BODY_FIELD_ID, REPO_LINK_FIELD_ID } from "../fields";
-import { LINEAR_ASSIGNEE_CHOICE_FIELD_ID, LINEAR_ASSIGNEE_VALUE_FIELD_ID } from "../fields";
+import { fieldsForMode } from "../fields";
+import { PROMPT_BODY_FIELD_ID, REPO_LINK_FIELD_ID } from "../fields/field-identifiers";
+import {
+  LINEAR_ASSIGNEE_CHOICE_FIELD_ID,
+  LINEAR_ASSIGNEE_VALUE_FIELD_ID,
+} from "../fields/field-identifiers";
 import {
   COMMON_CLI_OPTIONS,
   cliOptionFieldExists,

@@ -1,8 +1,6 @@
-import {
-  fetchAttachmentsForIssues,
-  fetchBlockedByForIssues,
-  baseBranchFromLabels,
-} from "../../shared/capabilities/linear-client";
+import { baseBranchFromLabels } from "../../shared/capabilities/linear-client/filters";
+import { fetchBlockedByForIssues } from "../../shared/capabilities/linear-client/issues";
+import { fetchAttachmentsForIssues } from "../../shared/capabilities/linear-client/attachments";
 import type { TrackedIssue } from "@ralphy/tracker";
 import type { CodeHost } from "@ralphy/codehost";
 import { createPullRequest, type CmdRunner } from "../pr";

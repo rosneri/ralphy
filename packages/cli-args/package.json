@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/common-args.ts"
+    ".": "./src/common-args.ts",
+    "./parse-common-args": "./src/parse-common-args.ts"
   },
   "dependencies": {
     "@ralphy/types": "workspace:*",

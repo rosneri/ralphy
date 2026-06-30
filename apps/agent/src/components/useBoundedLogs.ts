@@ -22,7 +22,7 @@ function nextId(): string {
 }
 
 /** Append function plus the state a `<Static>` log view needs to render. */
-interface BoundedLogs {
+export interface BoundedLogs {
   logs: LogLine[];
   /** Bumped when bounded retention drops oldest lines, so `<Static>` remounts and
    *  keeps flushing new lines (Ink's Static stops once the array stops growing). */

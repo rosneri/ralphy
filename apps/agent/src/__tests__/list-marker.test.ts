@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatPrStatusMarker } from "../list";
+import { formatPrStatusMarker } from "../list/formatting";
 import type { PrStatus } from "../pr-status";
 
 const failStatus: PrStatus = {

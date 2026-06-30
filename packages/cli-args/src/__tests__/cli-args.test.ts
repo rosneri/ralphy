@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { isAbsolute, resolve } from "node:path";
-import {
-  emptyCommonArgs,
-  parseCommonArg,
-  emptyParseState,
-  parseWorkflowPathArgs,
-} from "../common-args";
+import { emptyCommonArgs } from "../common-args";
+import { parseCommonArg, emptyParseState, parseWorkflowPathArgs } from "../parse-common-args";
 
 describe("parseCommonArg", () => {
   test("parses --claude with model into sparse overrides", () => {

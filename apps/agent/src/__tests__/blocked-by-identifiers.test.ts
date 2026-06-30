@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchOpenIssues, fetchMentionScanIssues } from "../shared/capabilities/linear-client";
-import { formatBlockedCell } from "../list";
+import {
+  fetchOpenIssues,
+  fetchMentionScanIssues,
+} from "../shared/capabilities/linear-client/issues";
+import { formatBlockedCell } from "../list/formatting";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 const originalFetch = globalThis.fetch;

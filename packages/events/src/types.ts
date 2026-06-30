@@ -6,24 +6,8 @@
  * without losing them.
  */
 
+import type { FeaturePhase, PollBuckets, PrStatusCounts } from "./event-payloads";
 import type { SystemMetrics } from "./system-metrics";
-
-export interface PollBuckets {
-  todo: number;
-  inProgress: number;
-  conflicted: number;
-  review: number;
-  mentions: number;
-  awaiting: number;
-}
-
-export interface PrStatusCounts {
-  mergeable: number;
-  conflicted: number;
-  ciFailed: number;
-}
-
-export type FeaturePhase = "detected" | "started" | "completed" | "failed" | "skipped";
 
 export type RalphEvent =
   // --- shell / lifecycle (capture) ---
