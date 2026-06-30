@@ -1,118 +1,64 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
-import {
-  collectSourceFiles,
-  computeUpdatedBaseline,
-  countLines,
-  findViolations,
-  isExcluded,
-  MAX_LINES,
-} from "../check-file-size";
 
-const REPO_ROOT = join(import.meta.dirname, "..", "..");
+import { countLines, findViolations, isExcluded, MAX_LINES } from "../check-file-size";
 
 describe("countLines", () => {
-  test("counts N lines for N-line text with a trailing newline", () => {
-    expect(countLines("a\nb\nc\n")).toBe(3);
-  });
-
-  test("counts N lines for N-line text without a trailing newline", () => {
-    expect(countLines("a\nb\nc")).toBe(3);
-  });
-
-  test("empty file is zero lines", () => {
+  test("empty text counts as zero", () => {
     expect(countLines("")).toBe(0);
+  });
+
+  test("single line without trailing newline", () => {
+    expect(countLines("one")).toBe(1);
+  });
+
+  test("ignores a single trailing newline", () => {
+    expect(countLines("one\ntwo\n")).toBe(2);
+  });
+
+  test("counts blank rows between content", () => {
+    expect(countLines("one\n\nthree")).toBe(3);
   });
 });
 
 describe("isExcluded", () => {
-  test("excludes *.test.ts(x) and *.spec.ts(x)", () => {
+  test("excludes test files", () => {
     expect(isExcluded("apps/agent/src/foo.test.ts")).toBe(true);
-    expect(isExcluded("apps/agent/src/Foo.test.tsx")).toBe(true);
-    expect(isExcluded("apps/agent/src/foo.spec.ts")).toBe(true);
+    expect(isExcluded("packages/core/src/foo.spec.tsx")).toBe(true);
   });
 
-  test("excludes __tests__/, dist/, generated/, __fixtures__/ segments", () => {
+  test("excludes generated, dist, and __tests__ segments", () => {
     expect(isExcluded("apps/agent/src/__tests__/foo.ts")).toBe(true);
-    expect(isExcluded("packages/core/dist/index.ts")).toBe(true);
-    expect(isExcluded("packages/types/src/generated/api.ts")).toBe(true);
-    expect(isExcluded("apps/agent/src/__fixtures__/sample.ts")).toBe(true);
+    expect(isExcluded("packages/core/dist/foo.ts")).toBe(true);
+    expect(isExcluded("packages/core/src/generated/foo.ts")).toBe(true);
   });
 
-  test("includes production source", () => {
-    expect(isExcluded("apps/agent/src/runtime/coordinator.ts")).toBe(false);
-    expect(isExcluded("packages/core/src/loop.ts")).toBe(false);
+  test("keeps ordinary source files", () => {
+    expect(isExcluded("apps/agent/src/foo.ts")).toBe(false);
   });
 });
 
 describe("findViolations", () => {
-  const max = 400;
-
-  test("new file over budget fails", () => {
-    const sizes = { "a.ts": 500 };
-    const v = findViolations(sizes, {}, max);
-    expect(v).toEqual([{ file: "a.ts", lines: 500, baseline: null }]);
+  test("flags only files over the cap", () => {
+    const sizes = {
+      "a.ts": MAX_LINES,
+      "b.ts": MAX_LINES + 1,
+      "c.ts": MAX_LINES + 50,
+    };
+    expect(findViolations(sizes, MAX_LINES)).toEqual([
+      { file: "b.ts", lines: MAX_LINES + 1 },
+      { file: "c.ts", lines: MAX_LINES + 50 },
+    ]);
   });
 
-  test("baselined file that grew fails", () => {
-    const sizes = { "a.ts": 520 };
-    const v = findViolations(sizes, { "a.ts": 500 }, max);
-    expect(v).toEqual([{ file: "a.ts", lines: 520, baseline: 500 }]);
+  test("returns nothing when all files are within the cap", () => {
+    expect(findViolations({ "a.ts": 1, "b.ts": MAX_LINES }, MAX_LINES)).toEqual([]);
   });
 
-  test("baselined file that shrank but stays over budget passes", () => {
-    const sizes = { "a.ts": 480 };
-    expect(findViolations(sizes, { "a.ts": 500 }, max)).toEqual([]);
-  });
-
-  test("baselined file unchanged passes", () => {
-    const sizes = { "a.ts": 500 };
-    expect(findViolations(sizes, { "a.ts": 500 }, max)).toEqual([]);
-  });
-
-  test("under-budget file passes", () => {
-    expect(findViolations({ "a.ts": 399 }, {}, max)).toEqual([]);
-  });
-
-  test("file exactly at budget passes (strict >)", () => {
-    expect(findViolations({ "a.ts": 400 }, {}, max)).toEqual([]);
-  });
-});
-
-describe("computeUpdatedBaseline", () => {
-  const max = 400;
-
-  test("lowers a shrunk entry to the new count", () => {
-    const updated = computeUpdatedBaseline({ "a.ts": 450 }, { "a.ts": 500 }, max);
-    expect(updated).toEqual({ "a.ts": 450 });
-  });
-
-  test("never raises a grown entry above its recorded count", () => {
-    const updated = computeUpdatedBaseline({ "a.ts": 600 }, { "a.ts": 500 }, max);
-    expect(updated).toEqual({ "a.ts": 500 });
-  });
-
-  test("drops a file that fell to/below budget", () => {
-    const updated = computeUpdatedBaseline({ "a.ts": 400 }, { "a.ts": 500 }, max);
-    expect(updated).toEqual({});
-  });
-
-  test("adds a new over-budget file", () => {
-    const updated = computeUpdatedBaseline({ "a.ts": 500 }, {}, max);
-    expect(updated).toEqual({ "a.ts": 500 });
-  });
-});
-
-describe("collectSourceFiles over the real tree", () => {
-  test("returns paths and excludes tests / __tests__/", async () => {
-    const files = await collectSourceFiles(REPO_ROOT);
-    expect(files.length).toBeGreaterThan(0);
-    expect(files).toContain("packages/core/src/loop.ts");
-    expect(files.some((f) => f.includes("__tests__"))).toBe(false);
-    expect(files.some((f) => /\.(?:test|spec)\.(?:ts|tsx)$/.test(f))).toBe(false);
-  });
-
-  test("MAX_LINES is 400", () => {
-    expect(MAX_LINES).toBe(400);
+  test("sorts violations by path", () => {
+    const sizes = { "z.ts": MAX_LINES + 1, "a.ts": MAX_LINES + 1 };
+    expect(findViolations(sizes, MAX_LINES).map((violation) => violation.file)).toEqual([
+      "a.ts",
+      "z.ts",
+    ]);
   });
 });

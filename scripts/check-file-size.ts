@@ -1,24 +1,17 @@
 #!/usr/bin/env bun
 /**
- * Per-file LOC budget guardrail (RLF-258).
+ * Per-file line-count cap (RLF-258).
  *
- * Caps the number of lines in any production source file. A flat hard cap is
- * either impossibly strict (god-files already exist) or uselessly high, so
- * today's offenders are grandfathered into a committed baseline
- * (`scripts/.file-size-baseline.json`) and this guard only blocks:
- *
- *   1. a *new* file over budget, or
- *   2. a *baselined* file that *grew* past its recorded count.
- *
- * Shrinking a file is always allowed and, via `--update`, ratchets the baseline
- * down to lock in the gain.
+ * Enforces a single hard cap on every production source file. There is no
+ * baseline, no grandfathering, and no override: any in-scope file over
+ * {@link MAX_LINES} lines fails the check. Split oversized files into
+ * focused modules instead of raising a limit.
  *
  * Mirrors `check-tracker-seam.ts`: pure helpers are exported so tests import
- * them directly, and `main()` runs only when executed as a script (guarded by
- * `if (import.meta.main)`), so importing the module has no side effects.
+ * them directly, and `main()` only runs when executed as a script (guarded by
+ * `import.meta.main`), so importing this module has no side effects.
  *
- * Bun-native: enumerates with `Bun.Glob`, reads with `Bun.file`, writes with
- * `Bun.write`. No node:fs.
+ * Bun-native: enumerates with `Bun.Glob` and reads with `Bun.file`. No node:fs.
  */
 
 import { join } from "node:path";
@@ -28,31 +21,26 @@ const REPO_ROOT = join(import.meta.dirname, "..");
 /** Maximum allowed lines in a single production source file. */
 export const MAX_LINES = 400;
 
-/** Path of the committed grandfather baseline, repo-relative. */
-export const BASELINE_PATH = "scripts/.file-size-baseline.json";
-
 /**
- * Glob patterns (relative to the repo root) selecting production source. Tests,
+ * Glob patterns (relative to repo root) selecting production source. Tests,
  * generated code, fixtures, and build output are excluded via {@link isExcluded}.
  */
 export const SOURCE_GLOBS = ["packages/*/src/**/*.{ts,tsx}", "apps/*/src/**/*.{ts,tsx}"];
 
 const TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx)$/;
 
-const EXEMPT_SEGMENTS = ["__tests__", "dist", "generated", "__fixtures__"];
+const EXEMPT_SEGMENTS = ["__tests__", "dist", "generated", "node_modules"];
 
-/** True for paths that are out of scope: tests, generated code, fixtures, build output. */
-export function isExcluded(path: string): boolean {
-  const normalized = path.replaceAll("\\", "/");
-  if (TEST_FILE.test(normalized)) return true;
-  const segments = normalized.split("/");
-  return segments.some((seg) => EXEMPT_SEGMENTS.includes(seg));
+/** True when a repo-relative path should be excluded from the budget. */
+export function isExcluded(relativePath: string): boolean {
+  if (TEST_FILE.test(relativePath)) return true;
+  const segments = relativePath.split("/");
+  return segments.some((segment) => EXEMPT_SEGMENTS.includes(segment));
 }
 
 /**
- * Count lines in `text`. A trailing newline does not add a phantom empty line,
- * so a file of N lines terminated by "\n" counts as N. Used for both checking
- * and `--update` generation so a freshly generated baseline always passes.
+ * Count lines the way an editor does: the number of newline-separated rows,
+ * ignoring a single trailing newline. Empty text counts as zero lines.
  */
 export function countLines(text: string): number {
   if (text.length === 0) return 0;
@@ -60,13 +48,13 @@ export function countLines(text: string): number {
   return withoutTrailingNewline.split("\n").length;
 }
 
-/** Production source files in scope, repo-relative POSIX paths, sorted. */
+/** Production source files in scope, as repo-relative POSIX paths, sorted. */
 export async function collectSourceFiles(repoRoot: string): Promise<string[]> {
   const set = new Set<string>();
   for (const pattern of SOURCE_GLOBS) {
     const glob = new Bun.Glob(pattern);
-    for await (const rel of glob.scan({ cwd: repoRoot })) {
-      const normalized = rel.replaceAll("\\", "/");
+    for await (const relativePath of glob.scan({ cwd: repoRoot })) {
+      const normalized = relativePath.replaceAll("\\", "/");
       if (isExcluded(normalized)) continue;
       set.add(normalized);
     }
@@ -74,116 +62,49 @@ export async function collectSourceFiles(repoRoot: string): Promise<string[]> {
   return [...set].sort();
 }
 
-/** Map of repo-relative path → line count for every in-scope source file. */
+/** Map repo-relative path to line count for every in-scope source file. */
 export async function collectSizes(repoRoot: string): Promise<Record<string, number>> {
   const sizes: Record<string, number> = {};
-  for (const rel of await collectSourceFiles(repoRoot)) {
-    const text = await Bun.file(join(repoRoot, rel)).text();
-    sizes[rel] = countLines(text);
+  for (const relativePath of await collectSourceFiles(repoRoot)) {
+    const text = await Bun.file(join(repoRoot, relativePath)).text();
+    sizes[relativePath] = countLines(text);
   }
   return sizes;
-}
-
-/** Read + parse the baseline JSON; return `{}` if the file is missing. */
-export async function loadBaseline(path: string): Promise<Record<string, number>> {
-  const file = Bun.file(path);
-  if (!(await file.exists())) return {};
-  return (await file.json()) as Record<string, number>;
 }
 
 export interface Violation {
   file: string;
   lines: number;
-  /** Recorded baseline count, or `null` if the file is not baselined. */
-  baseline: number | null;
 }
 
-/**
- * Pure core: for each file over `maxLines`, flag it unless its current count is
- * within the recorded baseline. A baselined file that grew past its recorded
- * count is a violation; one that shrank (even if still over budget) is not.
- */
-export function findViolations(
-  sizes: Record<string, number>,
-  baseline: Record<string, number>,
-  maxLines: number,
-): Violation[] {
+/** Pure core: every file whose line count exceeds `maxLines`, sorted by path. */
+export function findViolations(sizes: Record<string, number>, maxLines: number): Violation[] {
   const violations: Violation[] = [];
   for (const [file, lines] of Object.entries(sizes)) {
-    if (lines <= maxLines) continue;
-    const recorded = baseline[file];
-    if (recorded === undefined) {
-      violations.push({ file, lines, baseline: null });
-    } else if (lines > recorded) {
-      violations.push({ file, lines, baseline: recorded });
+    if (lines > maxLines) {
+      violations.push({ file, lines });
     }
   }
   return violations.sort((a, b) => a.file.localeCompare(b.file));
 }
 
-/**
- * `--update` mode: recompute the baseline. Include every file currently over
- * budget; for files already baselined use `min(current, existing)` so entries
- * only ratchet *down*; drop entries for files that fell to/below budget.
- */
-export function computeUpdatedBaseline(
-  sizes: Record<string, number>,
-  existing: Record<string, number>,
-  maxLines: number,
-): Record<string, number> {
-  const updated: Record<string, number> = {};
-  for (const [file, lines] of Object.entries(sizes)) {
-    if (lines <= maxLines) continue;
-    const recorded = existing[file];
-    updated[file] = recorded === undefined ? lines : Math.min(lines, recorded);
-  }
-  return updated;
-}
-
-/** Serialize a baseline with sorted keys and a trailing newline for stable diffs. */
-export function serializeBaseline(baseline: Record<string, number>): string {
-  const sorted: Record<string, number> = {};
-  for (const key of Object.keys(baseline).sort()) {
-    sorted[key] = baseline[key]!;
-  }
-  return `${JSON.stringify(sorted, null, 2)}\n`;
-}
-
 async function main(): Promise<void> {
-  const update = process.argv.includes("--update");
   const sizes = await collectSizes(REPO_ROOT);
-  const baselinePath = join(REPO_ROOT, BASELINE_PATH);
-
-  if (update) {
-    const existing = await loadBaseline(baselinePath);
-    const updated = computeUpdatedBaseline(sizes, existing, MAX_LINES);
-    await Bun.write(baselinePath, serializeBaseline(updated));
-    const count = Object.keys(updated).length;
-    console.log(`✓ Wrote ${BASELINE_PATH} with ${count} grandfathered file(s)`);
-    return;
-  }
-
-  const baseline = await loadBaseline(baselinePath);
-  const violations = findViolations(sizes, baseline, MAX_LINES);
+  const violations = findViolations(sizes, MAX_LINES);
 
   if (violations.length === 0) {
-    console.log(`✓ No source file exceeds ${MAX_LINES} lines (beyond the grandfathered baseline)`);
+    const count = Object.keys(sizes).length;
+    console.log(`✓ All ${count} source files are within ${MAX_LINES} lines.`);
     return;
   }
 
-  console.error(`✘ Found ${violations.length} file(s) over the ${MAX_LINES}-line budget:\n`);
-  for (const v of violations) {
-    const detail =
-      v.baseline === null
-        ? `${v.lines} lines (new file over budget)`
-        : `${v.lines} lines (grew past baseline of ${v.baseline})`;
-    console.error(`  ${v.file} → ${detail}`);
+  console.error(`✗ ${violations.length} file(s) exceed the ${MAX_LINES}-line cap:\n`);
+  for (const violation of violations) {
+    console.error(`  ${violation.file} — ${violation.lines} lines`);
   }
   console.error(
-    `\nKeep production source files at or under ${MAX_LINES} lines. Split large files\n` +
-      "into focused modules. If a file legitimately shrank but is still over budget,\n" +
-      `run \`bun scripts/check-file-size.ts --update\` to ratchet the baseline down.\n` +
-      "Never hand-raise a baseline entry. See scripts/check-file-size.ts.",
+    `\nKeep production source files within ${MAX_LINES} lines. Split large files\n` +
+      "into focused modules. The cap is hard: there is no baseline or override.",
   );
   process.exit(1);
 }
