@@ -793,7 +793,7 @@ async function linearRequest<T>(
   throw lastHttpError ?? new Error("Linear API request failed");
 }
 
-export interface LinearViewer {
+interface LinearViewer {
   id: string;
   name: string;
   email: string;
