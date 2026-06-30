@@ -793,6 +793,28 @@ async function linearRequest<T>(
   throw lastHttpError ?? new Error("Linear API request failed");
 }
 
+/**
+ * Fetch the authenticated Linear user — the owner of `apiKey`. Surfaced in
+ * `agent list` and the agent view so a key that resolves `assignee: me` to the
+ * wrong account (or no account) is visible, instead of silently returning zero
+ * tickets. Returns `null` when the key is missing or does not resolve a viewer
+ * (invalid / expired), so a bad key degrades to an explicit hint rather than
+ * throwing.
+ */
+export async function fetchViewer(
+  apiKey: string,
+): Promise<{ id: string; name: string; email: string } | null> {
+  if (!apiKey) return null;
+  try {
+    const data = await linearRequest<{
+      viewer: { id: string; name: string; email: string } | null;
+    }>(apiKey, "query { viewer { id name email } }", {});
+    return data.viewer ?? null;
+  } catch {
+    return null;
+  }
+}
+
 interface LinearFileUpload {
   fileUpload: {
     uploadFile: {

@@ -7,6 +7,7 @@ import { loadEffectiveConfig } from "./agent/config";
 import {
   fetchOpenIssues,
   fetchAttachmentsForIssues,
+  fetchViewer,
   type LinearFilterSpec,
 } from "./shared/capabilities/linear-client";
 import type { TrackedIssue } from "@ralphy/tracker";
@@ -505,6 +506,18 @@ export async function runList(input: RunListInput): Promise<void> {
   if (team) process.stdout.write(`\nteam: ${team}\n`);
   process.stdout.write(`assignee: ${anyAssignee ? "any" : (assignee ?? "*")}\n`);
   if (ticketNumbers.length > 0) process.stdout.write(`ticket: ${ticketNumbers.join(", ")}\n`);
+
+  // Surface the authenticated user so a key that resolves `assignee: me` to the
+  // wrong account (or no account) is visible — otherwise it silently fetches
+  // zero tickets and looks like nothing matched.
+  const viewer = await fetchViewer(apiKey);
+  if (viewer) {
+    process.stdout.write(`authed as: ${viewer.name} <${viewer.email}>\n`);
+  } else {
+    process.stdout.write(
+      "authed as: (LINEAR_API_KEY did not resolve a user — key may be invalid or expired)\n",
+    );
+  }
 
   await fetchAndPrintLinear(
     apiKey,

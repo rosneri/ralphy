@@ -70,6 +70,7 @@ import { appendSteeringMessage } from "@ralphy/core/loop";
 import { useBoundedLogs } from "./useBoundedLogs";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { cleanOutputLine } from "../shared/capabilities/output-utils";
+import { fetchViewer } from "../shared/capabilities/linear-client";
 import { useSystemMetrics } from "./useSystemMetrics";
 import { SystemMetricsLine } from "./SystemMetricsLine";
 import { fmtElapsed, trunc } from "./agent-mode-format";
@@ -498,6 +499,10 @@ export function AgentMode({
     filterDesc: "",
     lastBoard: [],
   });
+  // Authenticated Linear user (owner of LINEAR_API_KEY); null until resolved or
+  // when the key resolves no user — surfaced in the header so a wrong/expired
+  // key is visible instead of silently matching zero tickets.
+  const [authedUser, setAuthedUser] = useState<{ name: string; email: string } | null>(null);
 
   const fileSinkRef = useRef<ReturnType<typeof createJsonLogFileSink> | null>(null);
   if (fileSinkRef.current === null) {
@@ -643,6 +648,11 @@ export function AgentMode({
         },
       });
       setEffective({ concurrency, pollInterval });
+
+      // Resolve the authed user without blocking startup; header renders from state once it lands.
+      void fetchViewer(apiKey).then((viewer) => {
+        if (viewer) setAuthedUser({ name: viewer.name, email: viewer.email });
+      });
 
       fileEmit({
         type: "started",
@@ -1036,6 +1046,15 @@ export function AgentMode({
                 </Text>
               ));
             })()}
+          {/* Line 3: authenticated Linear user — makes a wrong/expired key
+              visible instead of silently matching zero tickets. */}
+          {authedUser ? (
+            <Text dimColor>{`Auth    ${authedUser.name} <${authedUser.email}>`}</Text>
+          ) : (
+            <Text color="yellow">
+              {"Auth    LINEAR_API_KEY did not resolve a user — key may be invalid or expired"}
+            </Text>
+          )}
         </LabeledBox>
 
         {/* ── TASKS board — one lifecycle row per live ticket ─── */}

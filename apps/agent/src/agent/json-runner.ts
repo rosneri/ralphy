@@ -6,6 +6,7 @@ import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import { ensureRalphyConfig, loadEffectiveConfig } from "./config";
 import { buildAgentCoordinator } from "./wire";
 import { createJsonLogFileSink } from "./json-log/json-log-file";
+import { fetchViewer } from "../shared/capabilities/linear-client";
 import {
   runPreflight as runPreflightImpl,
   type PreflightResult,
@@ -201,10 +202,13 @@ export async function runAgentJson({
     },
   });
 
+  const authedViewer = await fetchViewer(apiKey);
+
   emit({
     type: "started",
     version: VERSION,
     filterDesc,
+    ...(authedViewer ? { authedUser: { name: authedViewer.name, email: authedViewer.email } } : {}),
     concurrency,
     pollInterval,
     configPath: cfgPath,
