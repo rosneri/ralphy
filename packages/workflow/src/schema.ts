@@ -128,6 +128,11 @@ const GetIndicatorSchema = z.object({
 
 const SetIndicatorSchema = z.union([z.array(MarkerSchema).min(1), MarkerSchema]);
 
+/** Like {@link SetIndicatorSchema} but allows an empty array. A `clear*`
+ *  indicator with nothing to remove is valid — e.g. comment-based approval,
+ *  where the gate is satisfied by a comment and there is no marker to clear. */
+const ClearIndicatorSchema = z.union([z.array(MarkerSchema), MarkerSchema]);
+
 const IndicatorsSchema = z.preprocess(
   // Accept `indicators:` (bare) — YAML parses that as null — as an empty
   // map. Lets the default WORKFLOW.md leave the key open for inline edits.
@@ -144,8 +149,8 @@ const IndicatorsSchema = z.preprocess(
       setPrReady: SetIndicatorSchema.optional(),
       setError: SetIndicatorSchema.optional(),
       setAwaitingConfirmation: SetIndicatorSchema.optional(),
-      clearApproved: SetIndicatorSchema.optional(),
-      clearAwaitingConfirmation: SetIndicatorSchema.optional(),
+      clearApproved: ClearIndicatorSchema.optional(),
+      clearAwaitingConfirmation: ClearIndicatorSchema.optional(),
     })
     .superRefine((value, ctx) => {
       for (const key of ["clearApproved", "clearAwaitingConfirmation"] as const) {
