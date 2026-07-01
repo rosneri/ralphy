@@ -99,6 +99,21 @@ async function runInteractive(req: AgentRequest): Promise<AgentRunResult> {
   }
 }
 
+/**
+ * ponytail: when RALPHY_MCP_SERVERS opts a project into a trimmed MCP surface,
+ * force the engine to use ONLY the worktree's (already-allowlist-filtered)
+ * `.mcp.json` and ignore the user-global MCP fleet (plugin marketplace servers,
+ * `~/.claude.json`). Those global servers' tool schemas dominate the per-turn
+ * baseline context and were the real driver of autocompact thrash. Gated on the
+ * env var AND the file existing, so default behavior is unchanged.
+ */
+async function buildStrictMcpArgs(cwd?: string): Promise<string[]> {
+  if (!Bun.env.RALPHY_MCP_SERVERS || !cwd) return [];
+  return (await Bun.file(join(cwd, ".mcp.json")).exists())
+    ? ["--strict-mcp-config", "--mcp-config", ".mcp.json"]
+    : [];
+}
+
 export const claudeAgent: Agent = {
   name: "claude",
 
@@ -107,6 +122,7 @@ export const claudeAgent: Agent = {
       return runInteractive(req);
     }
 
+    const strictMcpArgs = await buildStrictMcpArgs(req.cwd);
     const proc = spawn({
       cmd: [
         "claude",
@@ -117,6 +133,7 @@ export const claudeAgent: Agent = {
           req.reviewerModel,
           req.effort,
         ),
+        ...strictMcpArgs,
       ],
       stdin: "pipe",
       stdout: "pipe",

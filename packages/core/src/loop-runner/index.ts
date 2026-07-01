@@ -35,6 +35,7 @@ import {
   type StopReason,
   type TaskPhase,
 } from "../loop";
+import { createStallGuard, formatRemainingLine } from "./stall-guard";
 
 /**
  * Headless loop authority (issue #401).
@@ -310,6 +311,7 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
 
       // Stops the runner itself decides (the machine cannot express these).
       let runnerStop: "signal" | "error" | null = null;
+      const stallGuard = createStallGuard();
 
       while (!cancelled) {
         // Defense-in-depth: writes are atomic now, but if a partial or
@@ -379,18 +381,7 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
         }
 
         if (tasksContent !== null) {
-          const remaining = countUncheckedTasks(tasksContent);
-          const agentRemaining =
-            agentTasksContent !== null ? countUncheckedTasks(agentTasksContent) : 0;
-          const parts = [
-            `tasks.md: ${remaining} unchecked item${remaining === 1 ? "" : "s"} remaining`,
-          ];
-          if (agentTasksContent !== null) {
-            parts.push(
-              `agent-tasks.md: ${agentRemaining} unchecked item${agentRemaining === 1 ? "" : "s"} remaining`,
-            );
-          }
-          info(parts.join(" · "));
+          info(formatRemainingLine(tasksContent, agentTasksContent));
         }
         const missionDone = tasksContent !== null && allTasksCompleted(tasksContent);
         const agentDone = agentTasksContent === null || allTasksCompleted(agentTasksContent);
@@ -736,6 +727,15 @@ export function createLoopRunner(options: LoopRunnerOptions): LoopRunner {
           }
 
           info(`Completed iteration ${localIter}`);
+
+          // ponytail: stall only on successful iterations; failures capped elsewhere.
+          const tasks = storage.read(join(tasksDir, MISSION_TASKS_FILENAME));
+          const stalledAt = tasks !== null ? stallGuard(countUncheckedTasks(tasks)) : null;
+          if (stalledAt !== null) {
+            info(`Stalled: ${stalledAt} successful iterations with no task progress — stopping.`);
+            runnerStop = "error";
+            break;
+          }
 
           // Delay between iterations
           if (actor.getSnapshot().matches("running") && delaySeconds > 0) {

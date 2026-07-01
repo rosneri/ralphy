@@ -123,6 +123,32 @@ describe("seedWorktreeMcpConfig (§1 manual plan)", () => {
     expect(result).toEqual({ other: "field" });
   });
 
+  test("RALPHY_MCP_SERVERS trims seeded servers to the allowlist", async () => {
+    writeFileSync(
+      join(projectRoot, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          ralphy: { command: "bun", args: [".ralph/bin/mcp.js"] },
+          supabase: { command: "npx", args: ["supabase"] },
+          vercel: { command: "npx", args: ["vercel"] },
+        },
+      }),
+    );
+    const prev = Bun.env.RALPHY_MCP_SERVERS;
+    Bun.env.RALPHY_MCP_SERVERS = "ralphy, game-mcp";
+    try {
+      await seedWorktreeMcpConfig(projectRoot, worktree);
+    } finally {
+      if (prev === undefined) delete Bun.env.RALPHY_MCP_SERVERS;
+      else Bun.env.RALPHY_MCP_SERVERS = prev;
+    }
+
+    const result = JSON.parse(readFileSync(join(worktree, ".mcp.json"), "utf8"));
+    expect(Object.keys(result.mcpServers)).toEqual(["ralphy"]);
+    // Kept server still gets its .ralph/ path rewritten absolute
+    expect(result.mcpServers.ralphy.args[0]).toBe(join(projectRoot, ".ralph/bin/mcp.js"));
+  });
+
   test("server entry without args array is left intact", async () => {
     writeFileSync(
       join(projectRoot, ".mcp.json"),

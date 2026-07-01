@@ -14,7 +14,6 @@
   "apps/agent/src/agent/wire/tracker/github-comment-mutations.ts\trepo",
   "apps/agent/src/agent/wire/tracker/github.ts\trepo",
   "apps/agent/src/agent/wire/tracker/sticky-comment.ts\trepo",
-  "apps/agent/src/agent/worktree.ts\tcfg",
   "apps/agent/src/agent/worktree.ts\trepo",
   "apps/agent/src/components/AgentMode.tsx\tcfg",
   "apps/agent/src/components/AgentMode.tsx\tidx",
