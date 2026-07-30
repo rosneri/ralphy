@@ -293,6 +293,9 @@
     "packages/types": {
       "name": "@ralphy/types",
       "version": "0.0.0",
+      "dependencies": {
+        "zod": "^3.25.76",
+      },
     },
     "packages/ui-shared": {
       "name": "@ralphy/ui-shared",
