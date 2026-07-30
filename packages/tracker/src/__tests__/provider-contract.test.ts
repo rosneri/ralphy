@@ -132,6 +132,7 @@ type ExpectedTrackedIssueKeys =
   | "assignee"
   | "project"
   | "milestone"
+  | "cycle"
   | "labels"
   | "priority"
   | "createdAt"
@@ -139,7 +140,7 @@ type ExpectedTrackedIssueKeys =
   | "blockedByIdentifiers"
   | "comments";
 
-// Every field set, including the optional `milestone`, `blockedByIdentifiers`,
+// Every field set, including the optional `milestone`, `cycle`, `blockedByIdentifiers`,
 // and `comments`, so `satisfies` exercises the full shape.
 const trackedIssueFixture = {
   id: "issue-1",
@@ -151,6 +152,13 @@ const trackedIssueFixture = {
   assignee: { id: "user-1", email: "dev@example.com", name: "Dev" },
   project: { id: "proj-1", name: "Core", priority: 2 },
   milestone: { id: "ms-1", name: "M1", sortOrder: 1, targetDate: "2026-01-01" },
+  cycle: {
+    id: "cycle-1",
+    number: 7,
+    name: "Cycle 7",
+    startsAt: "2026-01-01T00:00:00.000Z",
+    endsAt: "2026-01-15T00:00:00.000Z",
+  },
   labels: ["bug", "p1"],
   priority: 2,
   createdAt: "2026-01-01T00:00:00.000Z",

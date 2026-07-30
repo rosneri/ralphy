@@ -156,6 +156,13 @@ interface LinearNode {
     sortOrder: number;
     targetDate: string | null;
   } | null;
+  cycle: {
+    id: string;
+    number: number;
+    name: string | null;
+    startsAt: string;
+    endsAt: string | null;
+  } | null;
   labels: { nodes: { name: string }[] };
   priority: number;
   createdAt: string;
@@ -495,6 +502,29 @@ function milestoneSpread(
   return m ? { milestone: m } : {};
 }
 
+/** Map a node's `cycle` to the `TrackedIssue.cycle` shape, returning undefined
+ *  when the issue has no cycle (or the cycle carries no `startsAt`). */
+function mapNodeCycle(node: LinearNode): TrackedIssue["cycle"] {
+  const c = node.cycle;
+  if (!c || c.startsAt == null) return undefined;
+  return {
+    id: c.id,
+    number: c.number,
+    ...(c.name != null ? { name: c.name } : {}),
+    startsAt: c.startsAt,
+    ...(c.endsAt != null ? { endsAt: c.endsAt } : {}),
+  };
+}
+
+/** Spread `{ cycle }` only when the node has one. Typed so the optional `cycle`
+ *  field never receives `undefined` (exactOptionalPropertyTypes). */
+function cycleSpread(
+  node: LinearNode,
+): { cycle: NonNullable<TrackedIssue["cycle"]> } | Record<string, never> {
+  const c = mapNodeCycle(node);
+  return c ? { cycle: c } : {};
+}
+
 export async function fetchMentionScanIssues(
   apiKey: string,
   spec: {
@@ -554,6 +584,7 @@ export async function fetchMentionScanIssues(
         assignee { id email name }
         project { id name priority }
         projectMilestone { id name sortOrder targetDate }
+        cycle { id number name startsAt endsAt }
         labels { nodes { name } }
         inverseRelations(first: 50) {
           nodes { type issue { id identifier state { type } } }
@@ -581,6 +612,7 @@ export async function fetchMentionScanIssues(
       assignee: n.assignee,
       project: mapNodeProject(n),
       ...milestoneSpread(n),
+      ...cycleSpread(n),
       labels: n.labels.nodes.map((l) => l.name),
       priority: n.priority,
       createdAt: n.createdAt ?? "",
@@ -613,6 +645,7 @@ export async function fetchOpenIssues(
         assignee { id email name }
         project { id name priority }
         projectMilestone { id name sortOrder targetDate }
+        cycle { id number name startsAt endsAt }
         labels { nodes { name } }
         inverseRelations(first: 50) {
           nodes {
@@ -641,6 +674,7 @@ export async function fetchOpenIssues(
       assignee: n.assignee,
       project: mapNodeProject(n),
       ...milestoneSpread(n),
+      ...cycleSpread(n),
       labels: n.labels.nodes.map((l) => l.name),
       priority: n.priority,
       createdAt: n.createdAt ?? "",

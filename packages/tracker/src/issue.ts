@@ -31,6 +31,11 @@ export interface TrackedIssue {
    * `sortOrder` reflects the milestone's manual ordering within its project.
    */
   milestone?: { id: string; name: string; sortOrder: number; targetDate?: string };
+  /**
+   * Cycle (sprint) the issue is assigned to, or undefined when none. Absent for
+   * the GitHub tracker (no cycle concept) and for un-cycled Linear issues.
+   */
+  cycle?: { id: string; number: number; name?: string; startsAt: string; endsAt?: string };
   labels: string[];
   /** Priority: 1=Urgent, 2=High, 3=Medium, 4=Low, 0=No priority */
   priority: number;
