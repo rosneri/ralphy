@@ -70,7 +70,7 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@commitlint/cli": "^20.5.3",
+    "@commitlint/cli": "^21.2.1",
     "@commitlint/config-conventional": "^20.5.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nx/devkit": "^22.7.1",
