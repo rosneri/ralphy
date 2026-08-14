@@ -1,0 +1,63 @@
+version: 2
+
+updates:
+  # Bun workspaces. `directory: "/"` covers the root manifest and every workspace
+  # member declared in package.json (packages/*, apps/*, tools/generators/*) —
+  # they all resolve against the single root bun.lock, so one entry is enough.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    # commitlint runs @commitlint/config-conventional, so bot commits need a
+    # conventional prefix. This yields "chore(deps): ..." / "chore(deps-dev): ...".
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    groups:
+      # Batch low-risk bumps so the weekly run lands as two reviewable PRs
+      # instead of one per dependency. Majors stay ungrouped and get their own
+      # PR each, so breaking upgrades are reviewed in isolation.
+      production-minor-patch:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development-minor-patch:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      # Only takes effect once Dependabot security updates are enabled in
+      # repo settings; keeps a CVE sweep to a single PR when it does.
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
