@@ -27,7 +27,7 @@
     "@ralphy/workflow": "workspace:*",
     "ink": "^5.1.0",
     "marked": "^18.0.4",
-    "pdfkit": "^0.18.0",
+    "pdfkit": "^0.19.1",
     "react": "^18.3.1",
     "xstate": "^5"
   },
