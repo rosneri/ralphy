@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { LinearFilterSchema, MarkerSchema } from "./linear-filter";
+import { LinearFilterSchema, MarkerSchema } from "./marker-schema";
 
 /**
  * WORKFLOW.md schema version, stamped into the file by `ralphy init`. A file

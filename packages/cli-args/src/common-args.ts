@@ -1,14 +1,12 @@
 import { resolve } from "node:path";
 import type { Engine } from "@ralphy/types";
-import type { WorkflowConfig } from "@ralphy/workflow";
-import { type CliOption } from "@ralphy/workflow/cli-options";
 import {
-  applyBooleanOption,
-  applyValueOption,
-  OPTION_BY_FLAG,
-  VALID_MODELS,
-  VALUE_FLAGS,
-} from "./common-arg-setters";
+  COMMON_CLI_OPTIONS,
+  effortOptionValues,
+  modelOptionValues,
+  negatedFlag,
+  type CliOption,
+} from "@ralphy/workflow/cli-options";
 
 /**
  * Common CLI flags shared by the loop / agent / task entrypoints.
@@ -50,50 +48,6 @@ export interface CliOverrides {
   tokenade?: boolean;
 }
 
-/**
- * Sparse overrides for the agent-only config-backed flags — the loop has no
- * such flags, so they live in their own bag rather than polluting
- * `CliOverrides`. Same contract: presence is the only signal of user intent
- * (no sentinels), threaded through the same `mergeConfig` core with
- * `cli > workflow > default` precedence. `linearTeam` / `codeReview` both
- * target nested `linear.*` keys.
- */
-export interface AgentOverrides {
-  concurrency?: number;
-  pollInterval?: number;
-  linearTeam?: string;
-  worktree?: boolean;
-  createPr?: boolean;
-  stackPrs?: boolean;
-  codeReview?: boolean;
-}
-
-/**
- * Map from each agent override key to the WORKFLOW.md key it overrides. Both
- * `linearTeam` and `codeReview` map to `"linear"` — they set nested fields on
- * the same `linear` container (`linear.team`, `linear.codeReviewTrigger`), so
- * provenance is tracked at the `"linear"` top-level witness granularity.
- */
-export const AGENT_OVERRIDE_TO_WORKFLOW_KEY = {
-  concurrency: "concurrency",
-  pollInterval: "pollIntervalSeconds",
-  linearTeam: "linear",
-  worktree: "useWorktree",
-  createPr: "createPrOnSuccess",
-  stackPrs: "stackPrsOnDependencies",
-  codeReview: "linear",
-} as const satisfies Record<keyof AgentOverrides, keyof WorkflowConfig>;
-
-export const AGENT_OVERRIDE_KEYS: readonly (keyof AgentOverrides)[] = [
-  "concurrency",
-  "pollInterval",
-  "linearTeam",
-  "worktree",
-  "createPr",
-  "stackPrs",
-  "codeReview",
-];
-
 /** Bespoke flags with no WORKFLOW.md counterpart — pass-through, never merged. */
 export interface CliPassthrough {
   projectRoot?: string | undefined;
@@ -126,6 +80,93 @@ export function emptyCommonArgs(): CommonArgs {
     prompt: "",
     fromAgent: false,
   };
+}
+
+const VALID_MODELS = new Set<string>(modelOptionValues());
+const VALID_EFFORTS = new Set<string>(effortOptionValues());
+
+// ─── Config-backed flags, derived from the shared catalogue ──────────────────
+
+/** A flag token resolved back to its option plus the polarity it carries —
+ *  `negated` is true only for the `--no-…` twin of a `negatableBoolean`. */
+interface FlagMatch {
+  option: CliOption;
+  negated: boolean;
+}
+
+const OPTION_BY_FLAG = new Map<string, FlagMatch>();
+for (const option of COMMON_CLI_OPTIONS) {
+  OPTION_BY_FLAG.set(option.flag, { option, negated: false });
+  if (option.kind === "negatableBoolean") {
+    OPTION_BY_FLAG.set(negatedFlag(option), { option, negated: true });
+  }
+}
+
+const VALUE_FLAGS = new Set<string>(
+  COMMON_CLI_OPTIONS.filter(
+    (option) => option.kind !== "boolean" && option.kind !== "negatableBoolean",
+  ).map((option) => option.flag),
+);
+
+/** Typed assignment for each value-taking option, keyed by its `argKey`. */
+type ValueSetter = (overrides: CliOverrides, raw: string) => void;
+const VALUE_SETTERS: Record<string, ValueSetter> = {
+  model: (overrides, raw) => {
+    if (!VALID_MODELS.has(raw)) throw new Error("Invalid model");
+    overrides.model = raw;
+  },
+  effort: (overrides, raw) => {
+    if (!VALID_EFFORTS.has(raw)) throw new Error("Invalid effort");
+    overrides.effort = raw;
+  },
+  delay: (overrides, raw) => {
+    overrides.delay = parseInt(raw, 10);
+  },
+  maxCostUsd: (overrides, raw) => {
+    overrides.maxCostUsd = parseFloat(raw);
+  },
+  maxRuntimeMinutes: (overrides, raw) => {
+    overrides.maxRuntimeMinutes = parseFloat(raw);
+  },
+  maxConsecutiveFailures: (overrides, raw) => {
+    overrides.maxConsecutiveFailures = parseInt(raw, 10);
+  },
+  maxIterations: (overrides, raw) => {
+    overrides.maxIterations = parseInt(raw, 10);
+  },
+};
+
+/** Typed assignment for each boolean option, keyed by its `argKey`. Bare
+ *  `boolean` options are only ever called with `true`; `negatableBoolean`
+ *  options receive the polarity of the token that matched. */
+type BooleanSetter = (overrides: CliOverrides, value: boolean) => void;
+const BOOLEAN_SETTERS: Record<string, BooleanSetter> = {
+  log: (overrides) => {
+    overrides.log = true;
+  },
+  verbose: (overrides) => {
+    overrides.verbose = true;
+  },
+  manualTest: (overrides) => {
+    overrides.manualTest = true;
+  },
+  tokenade: (overrides, value) => {
+    overrides.tokenade = value;
+  },
+};
+
+function applyValueOption(option: CliOption, args: CommonArgs, raw: string): void {
+  const setter = VALUE_SETTERS[option.argKey];
+  // Invariant: every value-kind COMMON_CLI_OPTION must have a setter here.
+  if (!setter) throw new Error("no value setter registered for CLI option");
+  setter(args.overrides, raw);
+}
+
+function applyBooleanOption(option: CliOption, args: CommonArgs, value: boolean): void {
+  const setter = BOOLEAN_SETTERS[option.argKey];
+  // Invariant: every boolean-kind COMMON_CLI_OPTION must have a setter here.
+  if (!setter) throw new Error("no boolean setter registered for CLI option");
+  setter(args.overrides, value);
 }
 
 /** True if `flag` is a common flag that expects a following value. */
@@ -203,7 +244,7 @@ function setEngine(overrides: CliOverrides, engine: Engine): void {
  */
 export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState): boolean {
   if (state.pendingOption) {
-    applyValueOption(state.pendingOption, args.overrides, arg);
+    applyValueOption(state.pendingOption, args, arg);
     state.pendingOption = null;
     return true;
   }
@@ -261,7 +302,7 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
   if (match) {
     const { option, negated } = match;
     if (option.kind === "boolean" || option.kind === "negatableBoolean") {
-      applyBooleanOption(option, args.overrides, !negated);
+      applyBooleanOption(option, args, !negated);
     } else {
       state.pendingOption = option;
     }

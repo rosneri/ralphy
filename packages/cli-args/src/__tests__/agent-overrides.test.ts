@@ -3,7 +3,7 @@ import {
   AGENT_OVERRIDE_KEYS,
   AGENT_OVERRIDE_TO_WORKFLOW_KEY,
   type AgentOverrides,
-} from "../common-args";
+} from "../agent-overrides";
 
 describe("AgentOverrides machinery", () => {
   test("AGENT_OVERRIDE_KEYS covers exactly the 7 agent-only flags", () => {

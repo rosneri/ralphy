@@ -35,8 +35,13 @@ const spawnMock = mock((options: SpawnOptions): MockProc => {
 
 mock.module("../spawn", () => ({ spawn: spawnMock }));
 
-const { tokenadeEnvironment, applyTokenadeEnvironment, resolveTokenadeCommand, warmTokenadeIndex } =
-  await import("../tokenade");
+const {
+  tokenadeEnvironment,
+  applyTokenadeEnvironment,
+  resolveTokenadeCommand,
+  runTokenadePassthrough,
+  warmTokenadeIndex,
+} = await import("../tokenade");
 
 /** Stand-in for a present / absent `@tokenade/cli` dependency. */
 const resolves: ModuleResolver = (specifier) => `/deps/${specifier}`;
@@ -134,5 +139,37 @@ describe("resolveTokenadeCommand", () => {
   test("falls back to PATH when the optional dependency was skipped", () => {
     // --no-optional, --ignore-scripts, or an unsupported platform.
     expect(resolveTokenadeCommand(missing)).toEqual({ command: ["tokenade"], source: "path" });
+  });
+});
+
+describe("runTokenadePassthrough", () => {
+  test("forwards the args with the terminal attached and returns the exit code", async () => {
+    nextExitCodes.push(7);
+    expect(await runTokenadePassthrough(["login", "--force"])).toBe(7);
+    const call = spawnCalls[0]!;
+    expect(call.cmd.slice(-2)).toEqual(["login", "--force"]);
+    // Interactive by design: `tokenade login` opens a browser flow and
+    // `install` prompts, so stdio is inherited rather than piped.
+    expect(call.stdin).toBe("inherit");
+    expect(call.stdout).toBe("inherit");
+    expect(call.stderr).toBe("inherit");
+  });
+
+  test("reports and returns 1 when the CLI cannot be run at all", async () => {
+    spawnMock.mockImplementationOnce(() => {
+      throw new Error("ENOENT: tokenade not found");
+    });
+    const written: string[] = [];
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      written.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(await runTokenadePassthrough(["gain"])).toBe(1);
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    expect(written.join("")).toContain("ENOENT");
   });
 });

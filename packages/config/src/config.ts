@@ -13,14 +13,16 @@
  * precedence through one code path.
  */
 import {
-  AGENT_OVERRIDE_KEYS,
-  AGENT_OVERRIDE_TO_WORKFLOW_KEY,
   parseCommonArgv,
-  type AgentOverrides,
   type CliOverrides,
   type CliPassthrough,
   type CommonArgs,
 } from "@ralphy/cli-args";
+import {
+  AGENT_OVERRIDE_KEYS,
+  AGENT_OVERRIDE_TO_WORKFLOW_KEY,
+  type AgentOverrides,
+} from "@ralphy/cli-args/agent-overrides";
 import {
   DEFAULT_WORKFLOW_MD,
   explicitWorkflowKeys,
@@ -33,7 +35,8 @@ import {
 import type { LoopChangeStore, LoopOptions, MetaPromptOptions, TaskPhase } from "@ralphy/core/loop";
 import { asWorkflowEffort, asWorkflowModel } from "./narrow-overrides";
 
-export type { AgentOverrides, CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
+export type { CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
+export type { AgentOverrides } from "@ralphy/cli-args/agent-overrides";
 export type { WorkflowConfig } from "@ralphy/workflow";
 
 /** Where an effective config value came from. */

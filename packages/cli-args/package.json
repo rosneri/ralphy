@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/common-args.ts"
+    ".": "./src/common-args.ts",
+    "./agent-overrides": "./src/agent-overrides.ts"
   },
   "dependencies": {
     "@ralphy/types": "workspace:*",

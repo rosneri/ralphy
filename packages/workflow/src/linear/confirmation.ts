@@ -1,4 +1,4 @@
-import type { WorkflowConfig } from "./schema";
+import type { WorkflowConfig } from "../schema";
 
 /**
  * Minimal Linear-issue shape needed to evaluate the confirmation gate

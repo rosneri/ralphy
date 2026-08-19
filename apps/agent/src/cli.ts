@@ -7,9 +7,9 @@ import {
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
-  type AgentOverrides,
   type CommonArgs,
 } from "@ralphy/cli-args";
+import type { AgentOverrides } from "@ralphy/cli-args/agent-overrides";
 
 export { VERSION };
 

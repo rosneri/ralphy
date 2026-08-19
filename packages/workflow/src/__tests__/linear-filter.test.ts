@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { resolveLinearFilter, applyAssigneeOverride, linearFilterScope } from "../linear-filter";
+import {
+  resolveLinearFilter,
+  applyAssigneeOverride,
+  linearFilterScope,
+} from "../linear/linear-filter";
 
 describe("resolveLinearFilter", () => {
   it("resolves an empty filter to no assignee constraint and no required labels", () => {
