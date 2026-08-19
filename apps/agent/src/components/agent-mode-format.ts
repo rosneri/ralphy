@@ -15,3 +15,23 @@ export function fmtElapsed(ms: number): string {
 export function trunc(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
+
+/** Extract a short label from a GitHub PR URL, e.g. "#123". */
+export function prLabel(prUrl: string): string {
+  const m = prUrl.match(/\/pull\/(\d+)/);
+  return m ? `#${m[1]}` : "PR";
+}
+
+/** Short badge (text + color) for a worker's spawn mode. */
+export function modeBadge(mode: string): { text: string; color: string } {
+  switch (mode) {
+    case "fresh":
+      return { text: "NEW", color: "cyan" };
+    case "resume":
+      return { text: "RES", color: "yellow" };
+    case "conflict-fix":
+      return { text: "FIX", color: "magenta" };
+    default:
+      return { text: mode.toUpperCase(), color: "white" };
+  }
+}

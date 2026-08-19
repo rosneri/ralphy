@@ -50,6 +50,7 @@ An iterative AI task execution framework. Ralphy runs Claude or Codex in a check
 **Extensibility**
 
 - **MCP server** — exposes `ralph_list_changes` / `get_change` / `create_change` / `append_steering` / `stop` to Claude-side agents (auto-wired on per-project install).
+- **Tokenade** — opt-in [tokenade.net](https://tokenade.net) awareness: preflight that the token-reduction CLI is installed and licensed before a long run, and warm its code index in every fresh worktree. Off by default; `--tokenade` / `--no-tokenade` per run. See **[GUIDE.md](./GUIDE.md#tokenade-token-reduction)**.
 - **`WORKFLOW.md` template body** — Jinja-style prompt rendered per iteration, so project-specific rules / boundaries / labels flow into every task automatically.
 
 ## How it works

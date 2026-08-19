@@ -1,12 +1,14 @@
 import { resolve } from "node:path";
 import type { Engine } from "@ralphy/types";
 import type { WorkflowConfig } from "@ralphy/workflow";
+import { type CliOption } from "@ralphy/workflow/cli-options";
 import {
-  COMMON_CLI_OPTIONS,
-  effortOptionValues,
-  modelOptionValues,
-  type CliOption,
-} from "@ralphy/workflow/cli-options";
+  applyBooleanOption,
+  applyValueOption,
+  OPTION_BY_FLAG,
+  VALID_MODELS,
+  VALUE_FLAGS,
+} from "./common-arg-setters";
 
 /**
  * Common CLI flags shared by the loop / agent / task entrypoints.
@@ -42,6 +44,10 @@ export interface CliOverrides {
   log?: boolean;
   verbose?: boolean;
   manualTest?: boolean;
+  /** `--tokenade` / `--no-tokenade` → `tokenade.enabled`. Negatable, so a run
+   *  can turn a WORKFLOW.md `tokenade.enabled: true` back off; `false` here is
+   *  a real override, not "not passed". */
+  tokenade?: boolean;
 }
 
 /**
@@ -122,74 +128,6 @@ export function emptyCommonArgs(): CommonArgs {
   };
 }
 
-const VALID_MODELS = new Set<string>(modelOptionValues());
-const VALID_EFFORTS = new Set<string>(effortOptionValues());
-
-// ─── Config-backed flags, derived from the shared catalogue ──────────────────
-
-const OPTION_BY_FLAG = new Map<string, CliOption>(
-  COMMON_CLI_OPTIONS.map((option) => [option.flag, option]),
-);
-const VALUE_FLAGS = new Set<string>(
-  COMMON_CLI_OPTIONS.filter((option) => option.kind !== "boolean").map((option) => option.flag),
-);
-
-/** Typed assignment for each value-taking option, keyed by its `argKey`. */
-type ValueSetter = (overrides: CliOverrides, raw: string) => void;
-const VALUE_SETTERS: Record<string, ValueSetter> = {
-  model: (overrides, raw) => {
-    if (!VALID_MODELS.has(raw)) throw new Error("Invalid model");
-    overrides.model = raw;
-  },
-  effort: (overrides, raw) => {
-    if (!VALID_EFFORTS.has(raw)) throw new Error("Invalid effort");
-    overrides.effort = raw;
-  },
-  delay: (overrides, raw) => {
-    overrides.delay = parseInt(raw, 10);
-  },
-  maxCostUsd: (overrides, raw) => {
-    overrides.maxCostUsd = parseFloat(raw);
-  },
-  maxRuntimeMinutes: (overrides, raw) => {
-    overrides.maxRuntimeMinutes = parseFloat(raw);
-  },
-  maxConsecutiveFailures: (overrides, raw) => {
-    overrides.maxConsecutiveFailures = parseInt(raw, 10);
-  },
-  maxIterations: (overrides, raw) => {
-    overrides.maxIterations = parseInt(raw, 10);
-  },
-};
-
-/** Typed assignment for each bare boolean option, keyed by its `argKey`. */
-type BooleanSetter = (overrides: CliOverrides) => void;
-const BOOLEAN_SETTERS: Record<string, BooleanSetter> = {
-  log: (overrides) => {
-    overrides.log = true;
-  },
-  verbose: (overrides) => {
-    overrides.verbose = true;
-  },
-  manualTest: (overrides) => {
-    overrides.manualTest = true;
-  },
-};
-
-function applyValueOption(option: CliOption, args: CommonArgs, raw: string): void {
-  const setter = VALUE_SETTERS[option.argKey];
-  // Invariant: every value-kind COMMON_CLI_OPTION must have a setter here.
-  if (!setter) throw new Error("no value setter registered for CLI option");
-  setter(args.overrides, raw);
-}
-
-function applyBooleanOption(option: CliOption, args: CommonArgs): void {
-  const setter = BOOLEAN_SETTERS[option.argKey];
-  // Invariant: every boolean-kind COMMON_CLI_OPTION must have a setter here.
-  if (!setter) throw new Error("no boolean setter registered for CLI option");
-  setter(args.overrides);
-}
-
 /** True if `flag` is a common flag that expects a following value. */
 export function isCommonExpectingFlag(flag: string): boolean {
   return (
@@ -265,7 +203,7 @@ function setEngine(overrides: CliOverrides, engine: Engine): void {
  */
 export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState): boolean {
   if (state.pendingOption) {
-    applyValueOption(state.pendingOption, args, arg);
+    applyValueOption(state.pendingOption, args.overrides, arg);
     state.pendingOption = null;
     return true;
   }
@@ -319,10 +257,14 @@ export function parseCommonArg(arg: string, args: CommonArgs, state: ParseState)
     return true;
   }
 
-  const option = OPTION_BY_FLAG.get(arg);
-  if (option) {
-    if (option.kind === "boolean") applyBooleanOption(option, args);
-    else state.pendingOption = option;
+  const match = OPTION_BY_FLAG.get(arg);
+  if (match) {
+    const { option, negated } = match;
+    if (option.kind === "boolean" || option.kind === "negatableBoolean") {
+      applyBooleanOption(option, args.overrides, !negated);
+    } else {
+      state.pendingOption = option;
+    }
     return true;
   }
 

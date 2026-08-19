@@ -3,6 +3,8 @@ import {
   COMMON_CLI_OPTIONS,
   effortOptionValues,
   modelOptionValues,
+  negatedFlag,
+  type CliValueKind,
 } from "@ralphy/workflow/cli-options";
 import {
   emptyCommonArgs,
@@ -186,7 +188,15 @@ describe("parseCommonArg characterization", () => {
       expect(isCommonExpectingFlag(flag)).toBe(true);
       expect(isCommonArg(flag)).toBe(true);
     }
-    for (const flag of ["--codex", "--unlimited", "--log", "--verbose", "--manual-test"]) {
+    for (const flag of [
+      "--codex",
+      "--unlimited",
+      "--log",
+      "--verbose",
+      "--manual-test",
+      "--tokenade",
+      "--no-tokenade",
+    ]) {
       expect(isCommonExpectingFlag(flag)).toBe(false);
       expect(isCommonArg(flag)).toBe(true);
     }
@@ -198,14 +208,50 @@ describe("parseCommonArg characterization", () => {
     // Exercise each flag end-to-end so an option added to the catalogue
     // without a matching setter fails here, not at first real use.
     for (const option of COMMON_CLI_OPTIONS) {
-      const argv = option.kind === "boolean" ? [option.flag] : [option.flag, sample(option.kind)];
+      const argv =
+        option.kind === "boolean" || option.kind === "negatableBoolean"
+          ? [option.flag]
+          : [option.flag, sample(option.kind)];
       expect(() => parseAll(argv)).not.toThrow();
+      // A negatable option must also accept its `--no-` twin.
+      if (option.kind === "negatableBoolean") {
+        expect(() => parseAll([negatedFlag(option)])).not.toThrow();
+      }
     }
   });
 });
 
-function sample(kind: "int" | "float" | "model" | "effort"): string {
+function sample(kind: Exclude<CliValueKind, "boolean" | "negatableBoolean">): string {
   if (kind === "model") return modelOptionValues()[0] ?? "opus";
   if (kind === "effort") return effortOptionValues()[0] ?? "medium";
   return kind === "int" ? "3" : "1.5";
 }
+
+describe("negatable boolean flags", () => {
+  test("--tokenade sets true and --no-tokenade sets false", () => {
+    expect(parseAll(["--tokenade"]).overrides.tokenade).toBe(true);
+    expect(parseAll(["--no-tokenade"]).overrides.tokenade).toBe(false);
+  });
+
+  test("an unpassed negatable flag stays absent, not false", () => {
+    // Presence is the only signal of intent — a baked `false` would beat a
+    // WORKFLOW.md `true` that the user never asked to override.
+    expect(parseAll([]).overrides).not.toHaveProperty("tokenade");
+  });
+
+  test("last flag wins when both polarities are passed", () => {
+    expect(parseAll(["--tokenade", "--no-tokenade"]).overrides.tokenade).toBe(false);
+    expect(parseAll(["--no-tokenade", "--tokenade"]).overrides.tokenade).toBe(true);
+  });
+
+  test("negatedFlag derives the --no- twin from the positive flag", () => {
+    for (const option of COMMON_CLI_OPTIONS) {
+      if (option.kind !== "negatableBoolean") continue;
+      expect(negatedFlag(option)).toBe(`--no-${option.flag.slice(2)}`);
+    }
+  });
+
+  test("a bare boolean flag registers no --no- twin", () => {
+    expect(isCommonArg("--no-verbose")).toBe(false);
+  });
+});

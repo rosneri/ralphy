@@ -52,6 +52,9 @@ const {
   checkRepoWriteAccess,
   REPO_WRITE_FAIL_MESSAGE,
   scrubGithubAppTokenEnv,
+  checkTokenade,
+  TOKENADE_MISSING_MESSAGE,
+  TOKENADE_UNHEALTHY_MESSAGE,
   runPreflight,
 } = await import("../preflight");
 
@@ -318,5 +321,105 @@ describe("runPreflight", () => {
     const res = await runPreflight();
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.tool).toBe("claude");
+  });
+});
+
+describe("checkTokenade", () => {
+  test("ok when healthcheck exits 0", async () => {
+    nextResults.push({ exitCode: 0 });
+    const res = await checkTokenade();
+    expect(res.ok).toBe(true);
+    expect(spawnCalls[0]!.cmd).toEqual(["tokenade", "healthcheck"]);
+  });
+
+  test("reports the binary as missing on a command-not-found exit", async () => {
+    nextResults.push({ exitCode: 127 });
+    const res = await checkTokenade();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.tool).toBe("tokenade");
+      expect(res.message).toBe(TOKENADE_MISSING_MESSAGE);
+      expect(res.message).toContain("npm install -g @tokenade/cli");
+    }
+  });
+
+  test("reports the binary as missing when spawn throws (ENOENT)", async () => {
+    spawnMock.mockImplementationOnce(() => {
+      throw new Error("ENOENT: tokenade not found");
+    });
+    const res = await checkTokenade();
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.message).toBe(TOKENADE_MISSING_MESSAGE);
+  });
+
+  test("distinguishes installed-but-unhealthy from missing", async () => {
+    nextResults.push({ exitCode: 1 });
+    const res = await checkTokenade();
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.tool).toBe("tokenade");
+      expect(res.message).toBe(TOKENADE_UNHEALTHY_MESSAGE);
+      expect(res.message).toContain("tokenade login");
+    }
+  });
+});
+
+describe("runPreflight — tokenade", () => {
+  test("skips the probe entirely when tokenade is disabled", async () => {
+    nextResults.push({ exitCode: 0 }); // gh
+    nextResults.push({ exitCode: 0, stdout: "ok" }); // claude
+    const res = await runPreflight({ tokenade: { enabled: false, required: false } });
+    expect(res.ok).toBe(true);
+    expect(spawnCalls).toHaveLength(2);
+  });
+
+  test("probes tokenade last, after gh and claude", async () => {
+    nextResults.push({ exitCode: 0 }); // gh
+    nextResults.push({ exitCode: 0, stdout: "ok" }); // claude
+    nextResults.push({ exitCode: 0 }); // tokenade
+    const res = await runPreflight({ tokenade: { enabled: true, required: false } });
+    expect(res.ok).toBe(true);
+    expect(spawnCalls).toHaveLength(3);
+    expect(spawnCalls[2]!.cmd).toEqual(["tokenade", "healthcheck"]);
+  });
+
+  test("warns instead of halting when tokenade is absent and not required", async () => {
+    nextResults.push({ exitCode: 0 }); // gh
+    nextResults.push({ exitCode: 0, stdout: "ok" }); // claude
+    nextResults.push({ exitCode: 127 }); // tokenade missing
+    const warnings: string[] = [];
+    const res = await runPreflight({
+      tokenade: { enabled: true, required: false },
+      onWarning: (message) => warnings.push(message),
+    });
+    expect(res.ok).toBe(true);
+    expect(warnings).toEqual([TOKENADE_MISSING_MESSAGE]);
+  });
+
+  test("halts and does not warn when tokenade is required", async () => {
+    nextResults.push({ exitCode: 0 }); // gh
+    nextResults.push({ exitCode: 0, stdout: "ok" }); // claude
+    nextResults.push({ exitCode: 127 }); // tokenade missing
+    const warnings: string[] = [];
+    const res = await runPreflight({
+      tokenade: { enabled: true, required: true },
+      onWarning: (message) => warnings.push(message),
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.tool).toBe("tokenade");
+    expect(warnings).toEqual([]);
+  });
+
+  test("emits no warning when an enabled tokenade is healthy", async () => {
+    nextResults.push({ exitCode: 0 });
+    nextResults.push({ exitCode: 0, stdout: "ok" });
+    nextResults.push({ exitCode: 0 });
+    const warnings: string[] = [];
+    const res = await runPreflight({
+      tokenade: { enabled: true, required: false },
+      onWarning: (message) => warnings.push(message),
+    });
+    expect(res.ok).toBe(true);
+    expect(warnings).toEqual([]);
   });
 });

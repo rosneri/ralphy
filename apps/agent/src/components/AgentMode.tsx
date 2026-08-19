@@ -14,6 +14,7 @@ import {
   type PreflightResult,
   type PreflightOptions,
 } from "@ralphy/engine/preflight";
+import { applyTokenadeEnvironment } from "@ralphy/engine/tokenade";
 import { createJsonLogFileSink } from "../agent/json-log/json-log-file";
 import { waitForActiveWorkers } from "../runtime/shutdown";
 import {
@@ -73,7 +74,7 @@ import { cleanOutputLine } from "../shared/capabilities/output-utils";
 import { fetchViewer } from "../shared/capabilities/linear-client";
 import { useSystemMetrics } from "./useSystemMetrics";
 import { SystemMetricsLine } from "./SystemMetricsLine";
-import { fmtElapsed, trunc } from "./agent-mode-format";
+import { fmtElapsed, modeBadge, prLabel, trunc } from "./agent-mode-format";
 import {
   readWorkerSnapshot,
   diffWorkerSnapshot,
@@ -207,12 +208,6 @@ function calcProgressBar(
   return { countStr, filledLeft, leftSlot, filledRight, rightSlot };
 }
 
-/** Extract a short label from a GitHub PR URL, e.g. "#123". */
-function prLabel(prUrl: string): string {
-  const m = prUrl.match(/\/pull\/(\d+)/);
-  return m ? `#${m[1]}` : "PR";
-}
-
 /** Tmux mangles OSC 8 sequences — skip hyperlinks inside tmux. */
 const HYPERLINKS_SUPPORTED = !process.env["TMUX"];
 
@@ -268,19 +263,6 @@ function Link({ url, label, color }: { url: string; label: string; color: string
       </Text>
     </Transform>
   );
-}
-
-function modeBadge(mode: string): { text: string; color: string } {
-  switch (mode) {
-    case "fresh":
-      return { text: "NEW", color: "cyan" };
-    case "resume":
-      return { text: "RES", color: "yellow" };
-    case "conflict-fix":
-      return { text: "FIX", color: "magenta" };
-    default:
-      return { text: mode.toUpperCase(), color: "white" };
-  }
 }
 
 function phaseColor(phase: string): string {
@@ -535,9 +517,16 @@ export function AgentMode({
         throw new Error("LINEAR_API_KEY not set — cannot poll Linear");
       }
 
+      // Publish Tokenade's env before the first worker spawns — engine
+      // processes copy `process.env` at spawn time, so this has to land ahead
+      // of them.
+      applyTokenadeEnvironment(cfg.tokenade);
+
       const pf = await runPreflight({
         requireRepoWrite: cfg.createPrOnSuccess,
         repoCwd: projectRoot,
+        tokenade: { enabled: cfg.tokenade.enabled, required: cfg.tokenade.required },
+        onWarning: (text) => appendLog(`! ${text}`, "yellow"),
       });
       if (!pf.ok) {
         fileEmit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });

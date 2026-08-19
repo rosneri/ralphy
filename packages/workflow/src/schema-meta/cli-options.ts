@@ -9,8 +9,15 @@
  */
 import { enumValuesAt, schemaHasPath } from "./introspect";
 
-/** How a CLI flag's following token is parsed (or that it is a bare boolean). */
-export type CliValueKind = "int" | "float" | "model" | "effort" | "boolean";
+/**
+ * How a CLI flag's following token is parsed.
+ *
+ * `boolean` is a bare on-only flag (`--verbose`); `negatableBoolean` registers
+ * BOTH the positive flag and a `--no-`-prefixed twin (`--tokenade` /
+ * `--no-tokenade`) so a run can override a WORKFLOW.md `true` back to false —
+ * an on-only flag can never express that.
+ */
+export type CliValueKind = "int" | "float" | "model" | "effort" | "boolean" | "negatableBoolean";
 
 /**
  * A CLI flag that overrides a WORKFLOW.md setting. `fieldId` is the dotted
@@ -54,7 +61,21 @@ export const COMMON_CLI_OPTIONS: CliOption[] = [
   { fieldId: "logRawStream", flag: "--log", argKey: "log", kind: "boolean" },
   { fieldId: "taskVerbose", flag: "--verbose", argKey: "verbose", kind: "boolean" },
   { fieldId: "enableManualTest", flag: "--manual-test", argKey: "manualTest", kind: "boolean" },
+  {
+    fieldId: "tokenade.enabled",
+    flag: "--tokenade",
+    argKey: "tokenade",
+    kind: "negatableBoolean",
+  },
 ];
+
+/**
+ * The `--no-…` twin of a negatable boolean flag. Derived rather than declared
+ * so the table cannot drift into a positive/negative name mismatch.
+ */
+export function negatedFlag(option: CliOption): string {
+  return `--no-${option.flag.slice(2)}`;
+}
 
 /** Valid model values, sourced from the schema's `model` enum. */
 export function modelOptionValues(): string[] {

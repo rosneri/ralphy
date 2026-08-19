@@ -125,6 +125,16 @@ const PRECEDENCE_TABLE: {
     workflowKey: "enableManualTest",
     workflowValue: false,
   },
+  {
+    // The negatable flag: WORKFLOW.md turns Tokenade on, `--no-tokenade` turns
+    // it back off for this run. The CLI reaches only `enabled`, so the sibling
+    // keys stay at their workflow values on both sides of the comparison.
+    key: "tokenade",
+    cliValue: { enabled: false, required: true, indexWorktrees: false },
+    overrides: { tokenade: false },
+    workflowKey: "tokenade",
+    workflowValue: { enabled: true, required: true, indexWorktrees: false },
+  },
 ];
 
 describe("mergeConfig — precedence table", () => {
@@ -347,6 +357,7 @@ describe("serializeOverrides — parent/child round-trip", () => {
       log: true,
       verbose: true,
       manualTest: true,
+      tokenade: true,
     };
     const argv = serializeOverrides(overrides);
     const { args, rest } = await parseCommonArgv(argv);
@@ -356,6 +367,15 @@ describe("serializeOverrides — parent/child round-trip", () => {
 
   test("empty overrides serialize to an empty argv", () => {
     expect(serializeOverrides({})).toEqual([]);
+  });
+
+  test("an explicit tokenade:false serializes to --no-tokenade and survives the round-trip", async () => {
+    // A truthiness check here would drop the override and let the child
+    // re-enable Tokenade from WORKFLOW.md — the parent said no.
+    const argv = serializeOverrides({ tokenade: false });
+    expect(argv).toEqual(["--no-tokenade"]);
+    const { args } = await parseCommonArgv(argv);
+    expect(args.overrides.tokenade).toBe(false);
   });
 
   test("an explicit zero limit survives the round-trip", async () => {
@@ -735,5 +755,29 @@ describe("resolveConfig — default Bun-backed file system", () => {
     );
     expect(err?.message).toBe("--prompt-file not found");
     expect(err?.path).toBe("/proj/missing.txt");
+  });
+});
+
+describe("mergeConfig — tokenade", () => {
+  test("--tokenade flips only `enabled`, leaving the rest of the block alone", () => {
+    const workflow = WorkflowConfigSchema.parse({
+      tokenade: { enabled: false, required: true, indexWorktrees: false, readMode: "reference" },
+    });
+    const merged = mergeConfig(workflow, { tokenade: true }, new Set(["tokenade"]));
+    expect(merged.effective.tokenade).toEqual({
+      enabled: true,
+      required: true,
+      indexWorktrees: false,
+      readMode: "reference",
+    });
+    expect(merged.origin.get("tokenade")).toBe("cli");
+  });
+
+  test("defaults to off, non-fatal, warming worktrees", () => {
+    expect(defaults().tokenade).toEqual({
+      enabled: false,
+      required: false,
+      indexWorktrees: true,
+    });
   });
 });

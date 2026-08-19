@@ -4,6 +4,7 @@ import { render } from "ink";
 import { createElement } from "react";
 import { runWithContext, createDefaultContext } from "@ralphy/context";
 import { resolveParsedConfig } from "@ralphy/config";
+import { applyTokenadeEnvironment } from "@ralphy/engine/tokenade";
 import { projectLayout } from "@ralphy/core/layout";
 import { findProjectRoot, worktreesDir } from "@ralphy/paths";
 import { resolveOpenspecBin } from "@ralphy/openspec";
@@ -148,6 +149,9 @@ export async function main(argv: string[]): Promise<number> {
   // One merge point: WORKFLOW.md ⊕ the sparse CLI overrides, resolved once at
   // boot. The TUI reads effective values from here, never from raw args.
   const resolved = await resolveParsedConfig({ args, projectRoot });
+  // Engine processes copy `process.env` at spawn time, so Tokenade's env has to
+  // land before the first iteration spawns one.
+  applyTokenadeEnvironment(resolved.effective.tokenade);
 
   applyWorkerColumnsOverride();
   await runWithContext(createDefaultContext({ layout, args }), async () => {
@@ -183,6 +187,9 @@ export async function taskMain(argv: string[]): Promise<number> {
   await ensureRalphGitignore(projectRoot);
 
   const resolved = await resolveParsedConfig({ args, projectRoot });
+  // Engine processes copy `process.env` at spawn time, so Tokenade's env has to
+  // land before the first iteration spawns one.
+  applyTokenadeEnvironment(resolved.effective.tokenade);
 
   applyWorkerColumnsOverride();
   // parseTaskArgs returns a LoopParsedArgs superset, so App consumes it directly.
