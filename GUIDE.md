@@ -345,13 +345,21 @@ tokenade:
 
 > **`enabled: false` does not disable Tokenade.** The CLI exposes no per-process kill switch, so `false` means Ralphy stays out of the way — it neither probes nor warms. A Tokenade you installed globally keeps optimizing Ralphy's engine spawns regardless. To actually turn it off, use `tokenade uninstall`.
 
-Setup is Tokenade's own, not Ralphy's:
+### Installation and setup
+
+Tokenade ships **with Ralphy** as an optional dependency, so installing Ralphy installs it — nothing separate to fetch. The real binary arrives as a per-platform sub-package straight from the registry (the esbuild pattern), and it is _optional_ so an unsupported platform or an `--no-optional` / `--ignore-scripts` install degrades to "Tokenade absent" instead of failing Ralphy's install.
+
+npm only links the **top-level** package's `bin` onto `PATH`, so a dependency's `tokenade` command is not on your `PATH`. Ralphy resolves the bundled launcher itself, and exposes it for the setup steps you have to run once by hand:
 
 ```sh
-npm install -g @tokenade/cli
-tokenade install   # writes the agent hooks
-tokenade login     # links this machine (free plan, no card)
+ralphy tokenade install   # writes the agent hooks into ~/.claude/settings.json
+ralphy tokenade login     # links this machine (free plan, no card)
+ralphy tokenade gain      # anything else passes through too
 ```
+
+Installing the dependency does **not** by itself save any tokens — Tokenade only starts compacting once `install` has written the hooks and `login` has linked the machine.
+
+If you would rather manage it yourself, `npm install -g @tokenade/cli` still works: Ralphy prefers the bundled copy (version-locked to the Ralphy you are running) and falls back to `tokenade` on `PATH` when the optional dependency is absent.
 
 ## Running under tmux
 

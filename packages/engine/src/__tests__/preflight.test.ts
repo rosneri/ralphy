@@ -329,7 +329,7 @@ describe("checkTokenade", () => {
     nextResults.push({ exitCode: 0 });
     const res = await checkTokenade();
     expect(res.ok).toBe(true);
-    expect(spawnCalls[0]!.cmd).toEqual(["tokenade", "healthcheck"]);
+    expect(spawnCalls[0]!.cmd.at(-1)).toBe("healthcheck");
   });
 
   test("reports the binary as missing on a command-not-found exit", async () => {
@@ -380,7 +380,7 @@ describe("runPreflight — tokenade", () => {
     const res = await runPreflight({ tokenade: { enabled: true, required: false } });
     expect(res.ok).toBe(true);
     expect(spawnCalls).toHaveLength(3);
-    expect(spawnCalls[2]!.cmd).toEqual(["tokenade", "healthcheck"]);
+    expect(spawnCalls[2]!.cmd.at(-1)).toBe("healthcheck");
   });
 
   test("warns instead of halting when tokenade is absent and not required", async () => {

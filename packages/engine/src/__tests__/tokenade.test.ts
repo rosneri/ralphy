@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeEach } from "bun:test";
-import type { TokenadeSettings } from "../tokenade";
+import type { ModuleResolver, TokenadeSettings } from "../tokenade";
 
 interface MockProc {
   stdout: ReadableStream<Uint8Array> | null;
@@ -35,8 +35,14 @@ const spawnMock = mock((options: SpawnOptions): MockProc => {
 
 mock.module("../spawn", () => ({ spawn: spawnMock }));
 
-const { tokenadeEnvironment, applyTokenadeEnvironment, warmTokenadeIndex } =
+const { tokenadeEnvironment, applyTokenadeEnvironment, resolveTokenadeCommand, warmTokenadeIndex } =
   await import("../tokenade");
+
+/** Stand-in for a present / absent `@tokenade/cli` dependency. */
+const resolves: ModuleResolver = (specifier) => `/deps/${specifier}`;
+const missing: ModuleResolver = () => {
+  throw new Error("MODULE_NOT_FOUND");
+};
 
 /** The schema default: opt-in, non-fatal, warms worktrees. */
 const disabled: TokenadeSettings = { enabled: false, required: false, indexWorktrees: true };
@@ -94,7 +100,7 @@ describe("warmTokenadeIndex", () => {
     nextExitCodes.push(0);
     const res = await warmTokenadeIndex("/repo/wt", enabled);
     expect(res).toEqual({ indexed: true, message: null });
-    expect(spawnCalls[0]!.cmd).toEqual(["tokenade", "index"]);
+    expect(spawnCalls[0]!.cmd.at(-1)).toBe("index");
     expect(spawnCalls[0]!.cwd).toBe("/repo/wt");
   });
 
@@ -113,5 +119,20 @@ describe("warmTokenadeIndex", () => {
     const res = await warmTokenadeIndex("/repo/wt", enabled);
     expect(res.indexed).toBe(false);
     expect(res.message).toContain("ENOENT");
+  });
+});
+
+describe("resolveTokenadeCommand", () => {
+  test("prefers the bundled dependency, invoked through the current runtime", () => {
+    // Running the launcher via process.execPath needs neither an exec bit on
+    // the .js nor a `node` on PATH, and works on Windows.
+    const resolved = resolveTokenadeCommand(resolves);
+    expect(resolved.source).toBe("bundled");
+    expect(resolved.command).toEqual([process.execPath, "/deps/@tokenade/cli/bin/tokenade.js"]);
+  });
+
+  test("falls back to PATH when the optional dependency was skipped", () => {
+    // --no-optional, --ignore-scripts, or an unsupported platform.
+    expect(resolveTokenadeCommand(missing)).toEqual({ command: ["tokenade"], source: "path" });
   });
 });

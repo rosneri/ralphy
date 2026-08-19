@@ -1,4 +1,5 @@
 import { spawn } from "../spawn";
+import { resolveTokenadeCommand } from "../tokenade";
 import type { PreflightResult } from "./types";
 
 /**
@@ -10,14 +11,16 @@ import type { PreflightResult } from "./types";
  * `tokenade.required`, whether to halt or merely warn.
  */
 export const TOKENADE_MISSING_MESSAGE =
-  "tokenade CLI not found on PATH. Install it with `npm install -g @tokenade/cli`, " +
-  "then run `tokenade install` and `tokenade login` — or set `tokenade.enabled: false` " +
-  "in WORKFLOW.md (or pass --no-tokenade) to run without it.";
+  "tokenade CLI could not be run. It ships with Ralphy as an optional dependency, so this " +
+  "usually means the install skipped it (--no-optional / --ignore-scripts, or an unsupported " +
+  "platform): reinstall Ralphy, or install it yourself with `npm install -g @tokenade/cli`. " +
+  "Set `tokenade.enabled: false` in WORKFLOW.md (or pass --no-tokenade) to run without it.";
 
 export const TOKENADE_UNHEALTHY_MESSAGE =
-  "tokenade CLI is installed but not ready. Run `tokenade healthcheck` to see which check " +
-  "failed — most often the machine is not linked yet (`tokenade login`). Set " +
-  "`tokenade.enabled: false` in WORKFLOW.md (or pass --no-tokenade) to run without it.";
+  "tokenade CLI is present but not ready. Run `ralphy tokenade healthcheck` to see which " +
+  "check failed — most often the machine is not linked yet (`ralphy tokenade login`) or the " +
+  "agent hooks are not installed (`ralphy tokenade install`). Set `tokenade.enabled: false` " +
+  "in WORKFLOW.md (or pass --no-tokenade) to run without it.";
 
 const PROBE_TIMEOUT_MS = 30_000;
 
@@ -28,7 +31,7 @@ const COMMAND_NOT_FOUND_EXIT = 127;
 export async function checkTokenade(): Promise<PreflightResult> {
   try {
     const proc = spawn({
-      cmd: ["tokenade", "healthcheck"],
+      cmd: [...resolveTokenadeCommand().command, "healthcheck"],
       stdout: "pipe",
       stderr: "pipe",
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),

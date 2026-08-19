@@ -6,6 +6,7 @@
   "dependencies": {
     "@ralphy/agent": "workspace:*",
     "@ralphy/cli-args": "workspace:*",
+    "@ralphy/engine": "workspace:*",
     "@ralphy/events": "workspace:*",
     "@ralphy/init": "workspace:*",
     "@ralphy/loop": "workspace:*",

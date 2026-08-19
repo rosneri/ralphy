@@ -40,6 +40,52 @@ export interface TokenadeSettings {
  *  and the worker starts anyway on a cold index. */
 const INDEX_TIMEOUT_MS = 180_000;
 
+/** Where the Tokenade CLI Ralphy invokes came from. Surfaced in messages so a
+ *  failure says which copy failed. */
+export type TokenadeSource = "bundled" | "path";
+
+export interface TokenadeCommand {
+  /** argv prefix that invokes the CLI; append the subcommand and its flags. */
+  command: string[];
+  source: TokenadeSource;
+}
+
+/** Resolves a module specifier to a filesystem path, or throws when absent.
+ *  Injectable so the resolution branches are testable without a real install. */
+export type ModuleResolver = (specifier: string) => string;
+
+/** Tokenade ships its launcher at a stable path and declares no `exports` map,
+ *  so this subpath resolves under normal node resolution. */
+const BUNDLED_LAUNCHER = "@tokenade/cli/bin/tokenade.js";
+
+const resolveFromHere: ModuleResolver = (specifier) => Bun.resolveSync(specifier, import.meta.dir);
+
+/**
+ * Locate the Tokenade CLI.
+ *
+ * Ralphy declares `@tokenade/cli` as an optional dependency, so installing
+ * Ralphy installs Tokenade too. But npm only links the *top-level* package's
+ * `bin` entries onto `PATH` — a dependency's `tokenade` bin is not on `PATH`,
+ * so it has to be resolved through node resolution instead of assumed.
+ *
+ * The bundled copy wins because it is version-locked to this Ralphy and is
+ * present on a plain `npm i -g @neriros/ralphy`. `PATH` is the fallback, which
+ * covers a separate global `npm i -g @tokenade/cli` and the case where the
+ * optional dependency was skipped (`--no-optional`, an unsupported platform).
+ *
+ * The launcher is invoked through the current runtime (`process.execPath`)
+ * rather than executed directly: that needs neither an exec bit on the file nor
+ * a `node` on `PATH`, and it works on Windows, where a bare `.js` path is not
+ * executable.
+ */
+export function resolveTokenadeCommand(resolve: ModuleResolver = resolveFromHere): TokenadeCommand {
+  try {
+    return { command: [process.execPath, resolve(BUNDLED_LAUNCHER)], source: "bundled" };
+  } catch {
+    return { command: ["tokenade"], source: "path" };
+  }
+}
+
 /**
  * Environment variables Tokenade reads out of the process environment. Pure —
  * returns what to set rather than setting it, so the mapping is testable
@@ -94,7 +140,7 @@ export async function warmTokenadeIndex(
   }
   try {
     const proc = spawn({
-      cmd: ["tokenade", "index"],
+      cmd: [...resolveTokenadeCommand().command, "index"],
       cwd,
       stdout: "pipe",
       stderr: "pipe",
@@ -113,5 +159,30 @@ export async function warmTokenadeIndex(
       indexed: false,
       message: `tokenade index could not run in ${cwd}: ${(err as Error).message}`,
     };
+  }
+}
+
+/**
+ * Run an arbitrary Tokenade subcommand with the terminal attached, and return
+ * its exit code — the engine behind `ralphy tokenade …`.
+ *
+ * Without this, the bundled copy would be unreachable: Tokenade's own setup
+ * (`tokenade install`, `tokenade login`) has to be run by a human, and a
+ * dependency's bin is not on `PATH`.
+ */
+export async function runTokenadePassthrough(args: string[]): Promise<number> {
+  const { command, source } = resolveTokenadeCommand();
+  try {
+    const proc = spawn({
+      cmd: [...command, ...args],
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    return await proc.exited;
+  } catch (err) {
+    const where = source === "bundled" ? "the copy bundled with Ralphy" : "`tokenade` on PATH";
+    process.stderr.write(`Could not run ${where}: ${(err as Error).message}\n`);
+    return 1;
   }
 }
