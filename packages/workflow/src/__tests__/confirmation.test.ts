@@ -5,7 +5,7 @@ import {
   describeApprovalMarker,
   matchesIndicator,
   type ConfirmationTicketView,
-} from "../confirmation";
+} from "../linear/confirmation";
 
 function ticket(overrides: Partial<ConfirmationTicketView> = {}): ConfirmationTicketView {
   return {

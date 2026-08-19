@@ -7,6 +7,7 @@ import {
   cliOptionFieldExists,
   effortOptionValues,
   modelOptionValues,
+  negatedFlag,
 } from "../schema-meta/cli-options";
 import { enumValuesAt, schemaDefaults, schemaHasPath } from "../schema-meta/introspect";
 import { WorkflowConfigSchema } from "../schema";
@@ -47,6 +48,16 @@ describe("schema-keyed overlay invariants", () => {
   test("every CLI option's fieldId resolves to a real schema path", () => {
     for (const option of COMMON_CLI_OPTIONS) {
       expect(cliOptionFieldExists(option)).toBe(true);
+    }
+  });
+
+  test("a negatable boolean's --no- twin is derived, never hand-declared", () => {
+    // Deriving it is what stops the positive and negative spellings drifting
+    // apart; the parser registers both from this one pair.
+    const negatable = COMMON_CLI_OPTIONS.filter((o) => o.kind === "negatableBoolean");
+    expect(negatable.length).toBeGreaterThan(0);
+    for (const option of negatable) {
+      expect(negatedFlag(option)).toBe(`--no-${option.flag.slice(2)}`);
     }
   });
 

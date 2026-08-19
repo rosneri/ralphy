@@ -12,6 +12,7 @@ import {
   type PreflightResult,
   type PreflightOptions,
 } from "@ralphy/engine/preflight";
+import { applyTokenadeEnvironment } from "@ralphy/engine/tokenade";
 import { getProcessBus } from "@ralphy/events";
 import { logCoord } from "@ralphy/log";
 import { createSystemMetricsSampler, formatSystemMetricsLine } from "../shared/system-metrics";
@@ -116,9 +117,15 @@ export async function runAgentJson({
     return;
   }
 
+  // Publish Tokenade's env before the first worker spawns — engine processes
+  // copy `process.env` at spawn time, so this has to land ahead of them.
+  applyTokenadeEnvironment(cfg.tokenade);
+
   const pf = await runPreflight({
     requireRepoWrite: cfg.createPrOnSuccess,
     repoCwd: projectRoot,
+    tokenade: { enabled: cfg.tokenade.enabled, required: cfg.tokenade.required },
+    onWarning: (text) => emit({ type: "log", text: `! ${text}`, color: "yellow" }),
   });
   if (!pf.ok) {
     emit({ type: "error", code: "auth_failure", tool: pf.tool, text: pf.message });

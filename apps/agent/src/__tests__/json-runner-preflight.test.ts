@@ -72,4 +72,29 @@ describe("runAgentJson preflight", () => {
       expect(e.type).not.toBe("poll_done");
     }
   });
+  test("passes the resolved tokenade block to preflight and emits its warnings", async () => {
+    let seen: unknown;
+    await runAgentJson({
+      // @ts-expect-error — minimal args fixture
+      args: { maxTickets: 0 },
+      projectRoot: tempDir,
+      statesDir: join(tempDir, "states"),
+      tasksDir: join(tempDir, "tasks"),
+      runPreflight: async (opts) => {
+        seen = opts?.tokenade;
+        // A non-fatal tokenade finding routes through onWarning; the halt here
+        // is a separate gh failure, so the run still stops deterministically.
+        opts?.onWarning?.("tokenade CLI not found on PATH");
+        return { ok: false, tool: "gh", message: "gh is not authenticated" };
+      },
+    });
+
+    // Schema defaults: opt-in and non-fatal.
+    expect(seen).toEqual({ enabled: false, required: false });
+    const warnings = parseEmittedEvents().filter(
+      (e) => e.type === "log" && String(e.text).includes("tokenade CLI not found"),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.color).toBe("yellow");
+  });
 });

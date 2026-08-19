@@ -137,3 +137,19 @@ export function githubReactionSlug(emoji: string): string {
       return emoji;
   }
 }
+
+/**
+ * Compose the append-prompt handed to the scaffold step from the CLI `--prompt`
+ * override (or the config fallback) and the rendered workflow prompt. Pure and
+ * exported so the precedence + empty-segment dropping is unit-testable in
+ * isolation, mirroring the extracted-helper pattern from `worker-decisions.ts`
+ * (RLF-211). The CLI prompt wins over the config fallback; empty segments are
+ * dropped so a blank workflow render never leaves a trailing separator.
+ */
+export function composeAppendPrompt(
+  promptArg: string,
+  configAppendPrompt: string,
+  workflowPrompt: string,
+): string {
+  return [promptArg || configAppendPrompt || "", workflowPrompt].filter(Boolean).join("\n\n");
+}

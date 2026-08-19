@@ -9,7 +9,8 @@
     "./formatters/claude-stream": "./src/formatters/claude-stream.ts",
     "./formatters/codex-stream": "./src/formatters/codex-stream.ts",
     "./feed-events": "./src/feed-events.ts",
-    "./preflight": "./src/preflight/index.ts"
+    "./preflight": "./src/preflight/index.ts",
+    "./tokenade": "./src/tokenade.ts"
   },
   "dependencies": {
     "@ralphy/adapter-codex": "workspace:*",

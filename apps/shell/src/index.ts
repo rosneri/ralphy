@@ -13,7 +13,7 @@ import { attachDefaults, createBus, setProcessBus } from "@ralphy/events";
 import { VERSION } from "@ralphy/version";
 import { parseWorkflowPathArgs } from "@ralphy/cli-args";
 
-const SUBCOMMANDS = new Set<string>(["init", "loop", "agent", "task"]);
+const SUBCOMMANDS = new Set<string>(["init", "loop", "agent", "task", "tokenade"]);
 
 /** Subcommands that operate on WORKFLOW.md and should trigger first-run setup. */
 const CONFIG_SUBCOMMANDS = new Set<string>(["loop", "agent", "task"]);
@@ -31,6 +31,7 @@ const HELP = [
   "  loop      Run the iterative task loop (task, list, status, init, clean, debug)",
   "  agent     Poll Linear and dispatch task loops concurrently",
   "  task      Run a single phase (research, plan, execute, review)",
+  "  tokenade  Run the bundled Tokenade CLI (setup: `ralphy tokenade install`, then `login`)",
   "",
   "Run `ralphy <subcommand> --help` for subcommand-specific options.",
 ].join("\n");
@@ -63,6 +64,13 @@ async function dispatch(subcommand: string, rest: string[]): Promise<number> {
   if (subcommand === "task") {
     const { taskMain } = await import("@ralphy/loop");
     return taskMain(rest);
+  }
+  if (subcommand === "tokenade") {
+    // Passthrough. Tokenade ships as an optional dependency, and npm does not
+    // link a dependency's bin onto PATH — so this is how a human reaches the
+    // bundled copy to run its one-time `install` / `login` setup.
+    const { runTokenadePassthrough } = await import("@ralphy/engine/tokenade");
+    return runTokenadePassthrough(rest);
   }
   process.stderr.write(`Unknown subcommand: ${subcommand}\n\n${HELP}\n`);
   return 1;

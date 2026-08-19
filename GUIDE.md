@@ -17,6 +17,7 @@ Detailed reference for Ralphy's agent mode, Linear integration, PR + CI flow, an
 - [PR + CI integration](#pr--ci-integration)
 - [Pre-existing error check](#pre-existing-error-check)
 - [Worktrees, setup, teardown](#worktrees-setup-teardown)
+- [Tokenade (token reduction)](#tokenade-token-reduction)
 - [Running under tmux](#running-under-tmux)
 - [Dashboard and logs](#dashboard-and-logs)
 - [CLI reference](#cli-reference)
@@ -316,6 +317,50 @@ Both scripts receive `WORKSPACE_ROOT` in their environment — the absolute path
 
 Both scripts log failures but never block the loop. **`appendPrompt`** (or `--prompt` in agent mode) is appended to every scaffolded `proposal.md` under `## Additional instructions` — use it for cross-cutting guidance every task should see.
 
+## Tokenade (token reduction)
+
+[Tokenade](https://tokenade.net) is a local-first CLI that compacts what a coding agent sends to the model — command output, MCP tool manifests, file reads — before it reaches the API. It works by installing hooks into the agent's own config (`tokenade install` writes into `~/.claude/settings.json`), so **a globally installed Tokenade already optimizes every `claude` / `codex` process Ralphy spawns, with or without this config block.** Ralphy never compacts anything itself and never sits in the token path.
+
+What the `tokenade` block adds is the two things Tokenade can't do for itself inside a long-running, worktree-per-task agent:
+
+- **Preflight** — confirm the binary is installed and the machine is licensed _before_ a multi-hour run burns tokens unoptimized, rather than finding out from the bill. Runs last in the preflight chain, after `gh` and `claude`.
+- **Worktree index warm** — every task runs in a fresh `git worktree`, which is a fresh directory with a cold Tokenade index. Ralphy runs `tokenade index` on first provisioning of each worktree (the same run-once signal as `setupScript`), so the first iterations don't pay full-read costs.
+
+```yaml
+tokenade:
+  enabled: true # off by default
+  required: false # true = a missing/unlicensed tokenade halts the run
+  indexWorktrees: true # run `tokenade index` when a worktree is first created
+  readMode: task # TOKENADE_READ_MODE: aggressive | task | reference | entropy
+```
+
+| Key              | Default | Behavior                                                                                                                                    |
+| ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`        | `false` | Master switch for Ralphy's Tokenade awareness. See the note below on what `false` does _not_ do.                                            |
+| `required`       | `false` | With the default `false`, a missing or unlicensed Tokenade logs a yellow warning and the run continues unoptimized. `true` makes it a halt. |
+| `indexWorktrees` | `true`  | Warm the index on first worktree provisioning. Best-effort — a failure is logged and never blocks the worker.                               |
+| `readMode`       | unset   | Published as `TOKENADE_READ_MODE` for spawned engine processes. Unset leaves Tokenade's own default.                                        |
+
+`--tokenade` / `--no-tokenade` override `tokenade.enabled` for a single run (the rest of the block always comes from `WORKFLOW.md`).
+
+> **`enabled: false` does not disable Tokenade.** The CLI exposes no per-process kill switch, so `false` means Ralphy stays out of the way — it neither probes nor warms. A Tokenade you installed globally keeps optimizing Ralphy's engine spawns regardless. To actually turn it off, use `tokenade uninstall`.
+
+### Installation and setup
+
+Tokenade ships **with Ralphy** as an optional dependency, so installing Ralphy installs it — nothing separate to fetch. The real binary arrives as a per-platform sub-package straight from the registry (the esbuild pattern), and it is _optional_ so an unsupported platform or an `--no-optional` / `--ignore-scripts` install degrades to "Tokenade absent" instead of failing Ralphy's install.
+
+npm only links the **top-level** package's `bin` onto `PATH`, so a dependency's `tokenade` command is not on your `PATH`. Ralphy resolves the bundled launcher itself, and exposes it for the setup steps you have to run once by hand:
+
+```sh
+ralphy tokenade install   # writes the agent hooks into ~/.claude/settings.json
+ralphy tokenade login     # links this machine (free plan, no card)
+ralphy tokenade gain      # anything else passes through too
+```
+
+Installing the dependency does **not** by itself save any tokens — Tokenade only starts compacting once `install` has written the hooks and `login` has linked the machine.
+
+If you would rather manage it yourself, `npm install -g @tokenade/cli` still works: Ralphy prefers the bundled copy (version-locked to the Ralphy you are running) and falls back to `tokenade` on `PATH` when the optional dependency is absent.
+
 ## Running under tmux
 
 If `tmux` is on `$PATH`, `ralphy agent` re-execs itself inside a managed tmux session on first launch (per-workspace name). Detaching the terminal — closing the SSH session, the laptop lid, the `tmux detach` keybind — leaves the agent running. Re-running `ralphy agent` from the same workspace attaches to the existing session instead of starting a second copy.
@@ -348,23 +393,24 @@ Failed workers are not marked processed, so they retry on the next poll. SIGINT 
 
 **Task flags**
 
-| Option                 | Description                                               |
-| ---------------------- | --------------------------------------------------------- |
-| `--name <name>`        | Task name (required for most commands)                    |
-| `--prompt <text>`      | Task description                                          |
-| `--prompt-file <path>` | Read prompt from file                                     |
-| `--claude [model]`     | Use Claude engine (haiku / sonnet / opus, default opus)   |
-| `--codex`              | Use Codex engine                                          |
-| `--model <model>`      | Set model (haiku / sonnet / opus)                         |
-| `--max-iterations <N>` | Stop after N iterations (`0` = unlimited)                 |
-| `--max-cost <N>`       | Stop when total cost exceeds $N                           |
-| `--max-runtime <N>`    | Stop after N minutes                                      |
-| `--max-failures <N>`   | Stop after N consecutive identical failures (default `5`) |
-| `--unlimited`          | Sets max iterations to 0 (default)                        |
-| `--delay <N>`          | Seconds between iterations                                |
-| `--manual-test`        | Enable manual-test phase (creates test tasks)             |
-| `--log`                | Log raw engine stream                                     |
-| `--verbose`            | Verbose output                                            |
+| Option                 | Description                                                              |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `--name <name>`        | Task name (required for most commands)                                   |
+| `--prompt <text>`      | Task description                                                         |
+| `--prompt-file <path>` | Read prompt from file                                                    |
+| `--claude [model]`     | Use Claude engine (haiku / sonnet / opus, default opus)                  |
+| `--codex`              | Use Codex engine                                                         |
+| `--model <model>`      | Set model (haiku / sonnet / opus)                                        |
+| `--max-iterations <N>` | Stop after N iterations (`0` = unlimited)                                |
+| `--max-cost <N>`       | Stop when total cost exceeds $N                                          |
+| `--max-runtime <N>`    | Stop after N minutes                                                     |
+| `--max-failures <N>`   | Stop after N consecutive identical failures (default `5`)                |
+| `--unlimited`          | Sets max iterations to 0 (default)                                       |
+| `--delay <N>`          | Seconds between iterations                                               |
+| `--manual-test`        | Enable manual-test phase (creates test tasks)                            |
+| `--log`                | Log raw engine stream                                                    |
+| `--verbose`            | Verbose output                                                           |
+| `--tokenade`           | Verify Tokenade is ready + warm its index (`--no-tokenade` turns it off) |
 
 **Agent-mode flags**
 

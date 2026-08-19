@@ -7,9 +7,9 @@ import {
   emptyParseState,
   resolvePromptFile,
   resolveWorkflowFile,
-  type AgentOverrides,
   type CommonArgs,
 } from "@ralphy/cli-args";
+import type { AgentOverrides } from "@ralphy/cli-args/agent-overrides";
 
 export { VERSION };
 
@@ -102,6 +102,7 @@ const HELP_TEXT = [
   "  --manual-test           Enable manual testing phase passthrough",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
+  "  --tokenade              Verify Tokenade (tokenade.net) is ready and warm its index; --no-tokenade turns it off",
   "  --linear-team <key>     Linear team key (e.g. ENG)",
   "  --linear-assignee <id>  Assignee override (me / any / unassigned / <email> / <id>); overrides linear.filter's assignee clause",
   "  --poll-interval <s>     Seconds between Linear polls (default: 60)",

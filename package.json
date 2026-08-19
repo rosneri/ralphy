@@ -96,6 +96,9 @@
     "typescript": "^5.9.3",
     "zod": "^3.25.76"
   },
+  "optionalDependencies": {
+    "@tokenade/cli": "^1.1.6"
+  },
   "overrides": {
     "@babel/plugin-transform-modules-systemjs": "^7.29.4",
     "axios": "^1.15.1",

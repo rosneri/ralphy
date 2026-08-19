@@ -7,5 +7,6 @@ export {
 export { checkGhAuth, GH_AUTH_FAIL_MESSAGE } from "./gh";
 export { checkClaudeAuth, CLAUDE_AUTH_FAIL_MESSAGE } from "./claude";
 export { checkRepoWriteAccess, REPO_WRITE_FAIL_MESSAGE } from "./repo";
+export { checkTokenade, TOKENADE_MISSING_MESSAGE, TOKENADE_UNHEALTHY_MESSAGE } from "./tokenade";
 export { runPreflight, type PreflightOptions } from "./run";
 export type { PreflightResult, PreflightTool } from "./types";

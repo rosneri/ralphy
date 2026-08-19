@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { composeAppendPrompt } from "../prepare";
+import { composeAppendPrompt } from "../task-bodies";
 
 // The worked second example of the RLF-211 extracted-helper pattern: a pure
 // decision lifted out of the `prepare` closure so its precedence + empty-segment

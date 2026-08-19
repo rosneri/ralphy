@@ -13,14 +13,16 @@
  * precedence through one code path.
  */
 import {
-  AGENT_OVERRIDE_KEYS,
-  AGENT_OVERRIDE_TO_WORKFLOW_KEY,
   parseCommonArgv,
-  type AgentOverrides,
   type CliOverrides,
   type CliPassthrough,
   type CommonArgs,
 } from "@ralphy/cli-args";
+import {
+  AGENT_OVERRIDE_KEYS,
+  AGENT_OVERRIDE_TO_WORKFLOW_KEY,
+  type AgentOverrides,
+} from "@ralphy/cli-args/agent-overrides";
 import {
   DEFAULT_WORKFLOW_MD,
   explicitWorkflowKeys,
@@ -31,8 +33,10 @@ import {
   type WorkflowConfig,
 } from "@ralphy/workflow";
 import type { LoopChangeStore, LoopOptions, MetaPromptOptions, TaskPhase } from "@ralphy/core/loop";
+import { asWorkflowEffort, asWorkflowModel } from "./narrow-overrides";
 
-export type { AgentOverrides, CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
+export type { CliOverrides, CliPassthrough, CommonArgs } from "@ralphy/cli-args";
+export type { AgentOverrides } from "@ralphy/cli-args/agent-overrides";
 export type { WorkflowConfig } from "@ralphy/workflow";
 
 /** Where an effective config value came from. */
@@ -51,6 +55,7 @@ export const OVERRIDE_TO_WORKFLOW_KEY = {
   log: "logRawStream",
   verbose: "taskVerbose",
   manualTest: "enableManualTest",
+  tokenade: "tokenade",
 } as const satisfies Record<keyof CliOverrides, keyof WorkflowConfig>;
 
 export const OVERRIDE_KEYS: readonly (keyof CliOverrides)[] = [
@@ -65,40 +70,8 @@ export const OVERRIDE_KEYS: readonly (keyof CliOverrides)[] = [
   "log",
   "verbose",
   "manualTest",
+  "tokenade",
 ];
-
-/**
- * Narrow a CLI model string (already validated by the parser against the
- * schema enum) back to the workflow's model type. Falls back to the workflow
- * value for anything unexpected so a hand-constructed override can never
- * poison the effective config.
- */
-function asWorkflowModel(
-  value: string | undefined,
-  fallback: WorkflowConfig["model"],
-): WorkflowConfig["model"] {
-  if (value === "fable" || value === "opus" || value === "sonnet" || value === "haiku") {
-    return value;
-  }
-  return fallback;
-}
-
-/** Same narrowing for `--effort` (see `asWorkflowModel`). */
-function asWorkflowEffort(
-  value: string | undefined,
-  fallback: WorkflowConfig["effort"],
-): WorkflowConfig["effort"] {
-  if (
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh" ||
-    value === "max"
-  ) {
-    return value;
-  }
-  return fallback;
-}
 
 /**
  * Pure merge core — `cli > workflow > default` for every override key, plus
@@ -131,6 +104,13 @@ export function mergeConfig(
     logRawStream: overrides.log ?? workflow.logRawStream,
     taskVerbose: overrides.verbose ?? workflow.taskVerbose,
     enableManualTest: overrides.manualTest ?? workflow.enableManualTest,
+    // `--tokenade` / `--no-tokenade` flips only the master switch; the rest of
+    // the block (required / indexWorktrees / readMode) has no CLI surface and
+    // stays whatever WORKFLOW.md resolved it to.
+    tokenade: {
+      ...workflow.tokenade,
+      enabled: overrides.tokenade ?? workflow.tokenade.enabled,
+    },
     // Agent-only overrides, applied through the same `cli > workflow > default`
     // core. `linearTeam` / `codeReview` target nested `linear.*` fields, so the
     // `linear` container is rebuilt once with both (E2) rather than clobbered.
@@ -185,6 +165,11 @@ export function serializeOverrides(overrides: Readonly<CliOverrides>): string[] 
   if (overrides.log) argv.push("--log");
   if (overrides.verbose) argv.push("--verbose");
   if (overrides.manualTest) argv.push("--manual-test");
+  // Negatable: an explicit `false` must survive to the child as `--no-tokenade`,
+  // so this branches on presence rather than truthiness.
+  if (overrides.tokenade !== undefined) {
+    argv.push(overrides.tokenade ? "--tokenade" : "--no-tokenade");
+  }
   return argv;
 }
 

@@ -55,6 +55,7 @@ const HELP_TEXT = [
   "  --manual-test           Enable manual testing phase (create test tasks in tasks.md)",
   "  --log                   Log raw engine stream",
   "  --verbose               Verbose output",
+  "  --tokenade              Verify Tokenade (tokenade.net) is ready and warm its index; --no-tokenade turns it off",
   "  --review-enabled        Enable self-review pass after all tasks complete",
   "  --review-model <m>      Model for the review pass (haiku|sonnet|opus); implies --review-enabled",
   "  --review-effort <e>     Effort for the review pass (low|medium|high|xhigh|max)",

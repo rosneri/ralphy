@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { projectLayout } from "@ralphy/core/layout";
 import { AGENT_TASKS_FILENAME } from "@ralphy/core/tasks-md";
 import { loadWorkflow, renderWorkflowPrompt } from "@ralphy/workflow";
+import { warmTokenadeIndex } from "@ralphy/engine/tokenade";
 import { fsChange } from "../../shared/capabilities/fs-change";
 import { git } from "../../shared/capabilities/git";
 import { runCapability } from "../../shared/capabilities/run-capability";
@@ -22,23 +23,12 @@ import {
   type WorktreeProvider,
 } from "../worktree";
 import type { PrepareResult, QueueTrigger, MentionTrigger } from "../coordinator";
-import { buildReviewTaskBody, buildMentionTaskBody, isRalphComment } from "./task-bodies";
-
-/**
- * Compose the append-prompt handed to the scaffold step from the CLI `--prompt`
- * override (or the config fallback) and the rendered workflow prompt. Pure and
- * exported so the precedence + empty-segment dropping is unit-testable in
- * isolation, mirroring the extracted-helper pattern from `worker-decisions.ts`
- * (RLF-211). The CLI prompt wins over the config fallback; empty segments are
- * dropped so a blank workflow render never leaves a trailing separator.
- */
-export function composeAppendPrompt(
-  promptArg: string,
-  cfgAppendPrompt: string,
-  workflowPrompt: string,
-): string {
-  return [promptArg || cfgAppendPrompt || "", workflowPrompt].filter(Boolean).join("\n\n");
-}
+import {
+  buildReviewTaskBody,
+  buildMentionTaskBody,
+  composeAppendPrompt,
+  isRalphComment,
+} from "./task-bodies";
 
 interface WireMaps {
   cwdByChange: Map<string, string>;
@@ -242,6 +232,15 @@ export function createPrepareHelpers(input: PrepareInput): PrepareHelpers {
     const runSetup = worktreeCreated ?? isFresh;
     if (cfg.setupScript && runSetup) {
       await runScript("setup", cfg.setupScript, workerCwd);
+    }
+
+    // A fresh worktree is a fresh directory with a cold Tokenade index, so warm
+    // it on the same first-provisioning signal as the setup script. Best-effort:
+    // `warmTokenadeIndex` never throws, and a failure only costs this worker the
+    // optimized reads it would have had.
+    if (runSetup) {
+      const warm = await warmTokenadeIndex(workerCwd, cfg.tokenade);
+      if (warm.message) diag("tokenade", `! ${warm.message}`, "yellow");
     }
 
     return {
