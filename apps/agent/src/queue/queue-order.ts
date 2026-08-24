@@ -71,6 +71,7 @@ export function linearIssueToOrderable(issue: TrackedIssue, tiebreak?: number): 
           },
         }
       : {}),
+    ...(issue.cycle ? { cycle: { startsAt: issue.cycle.startsAt } } : {}),
     priority: issue.priority,
     ...(tiebreak !== undefined ? { tiebreak } : {}),
     blockedByIds: issue.blockedByIds,

@@ -7,6 +7,7 @@ import type { TrackedIssue } from "@ralphy/tracker";
 interface IssueOverrides {
   project?: TrackedIssue["project"];
   milestone?: TrackedIssue["milestone"];
+  cycle?: TrackedIssue["cycle"];
   blockedByIds?: string[];
 }
 
@@ -27,6 +28,7 @@ function issue(
     assignee: null,
     project: overrides.project ?? null,
     ...(overrides.milestone ? { milestone: overrides.milestone } : {}),
+    ...(overrides.cycle ? { cycle: overrides.cycle } : {}),
     labels: [],
     priority,
     createdAt,
@@ -89,5 +91,56 @@ describe("agent list / queue order consistency", () => {
 
     expect(listOrder(issues)).toEqual(queueOrder(issues));
     expect(listOrder(issues)).toEqual(["ENG-C", "ENG-A", "ENG-B"]);
+  });
+});
+
+describe("agent list / queue order consistency — cycles", () => {
+  test("cycle ordering is identical in the queue and the list", () => {
+    const project = { id: "p1", name: "P", priority: 1 };
+    const m = { id: "m1", name: "M", sortOrder: 1 };
+    const current = {
+      id: "c1",
+      number: 7,
+      name: "Cycle 7",
+      startsAt: "2026-03-01T00:00:00Z",
+      endsAt: "2026-03-15T00:00:00Z",
+    };
+    const upcoming = { id: "c2", number: 8, startsAt: "2026-03-15T00:00:00Z" };
+
+    const issues = [
+      // Un-cycled and urgent — still last, cycle outranks item priority.
+      issue("n", "ENG-NONE", 1, "2026-01-01T00:00:00Z", { project, milestone: m }),
+      issue("u", "ENG-UPCOMING", 3, "2026-01-01T00:00:00Z", {
+        project,
+        milestone: m,
+        cycle: upcoming,
+      }),
+      issue("c", "ENG-CURRENT", 3, "2026-01-01T00:00:00Z", {
+        project,
+        milestone: m,
+        cycle: current,
+      }),
+    ];
+
+    const expected = ["ENG-CURRENT", "ENG-UPCOMING", "ENG-NONE"];
+    expect(queueOrder(issues)).toEqual(expected);
+    expect(listOrder(issues)).toEqual(expected);
+  });
+
+  test("a cycled dependent never precedes its un-cycled same-milestone blocker", () => {
+    const m = { id: "m1", name: "M", sortOrder: 1 };
+    const cycle = { id: "c1", number: 7, startsAt: "2026-03-01T00:00:00Z" };
+    const issues = [
+      issue("dep", "ENG-DEP", 1, "2026-01-02T00:00:00Z", {
+        milestone: m,
+        cycle,
+        blockedByIds: ["blk"],
+      }),
+      issue("blk", "ENG-BLK", 4, "2026-01-01T00:00:00Z", { milestone: m }),
+    ];
+
+    const expected = ["ENG-BLK", "ENG-DEP"];
+    expect(queueOrder(issues)).toEqual(expected);
+    expect(listOrder(issues)).toEqual(expected);
   });
 });

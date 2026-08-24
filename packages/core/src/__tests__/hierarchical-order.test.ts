@@ -230,3 +230,122 @@ describe("orderIssuesHierarchically — cycles & stability", () => {
     expect(ids(orderIssuesHierarchically(one))).toEqual(["solo"]);
   });
 });
+
+describe("orderIssuesHierarchically — Linear cycles (sprints)", () => {
+  const P = { id: "P1", priority: 1 };
+  const M = { id: "M1", sortOrder: 1 };
+
+  test("cycled item precedes un-cycled item of equal priority", () => {
+    const issues = [
+      issue({ id: "none", project: P, milestone: M, priority: 2 }),
+      issue({
+        id: "cycled",
+        project: P,
+        milestone: M,
+        priority: 2,
+        cycle: { startsAt: "2026-03-01T00:00:00.000Z" },
+      }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["cycled", "none"]);
+  });
+
+  test("current cycle → upcoming cycle → no cycle", () => {
+    const issues = [
+      issue({ id: "n", project: P, milestone: M, priority: 2 }),
+      issue({
+        id: "upcoming",
+        project: P,
+        milestone: M,
+        priority: 2,
+        cycle: { startsAt: "2026-04-01T00:00:00.000Z" },
+      }),
+      issue({
+        id: "current",
+        project: P,
+        milestone: M,
+        priority: 2,
+        cycle: { startsAt: "2026-03-01T00:00:00.000Z" },
+      }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["current", "upcoming", "n"]);
+  });
+
+  test("cycle outranks item priority but not the dependency constraint", () => {
+    // "blocker" is un-cycled and low priority; "dependent" is urgent and in a
+    // cycle — topo order still places the blocker first.
+    const issues = [
+      issue({
+        id: "dependent",
+        project: P,
+        milestone: M,
+        priority: 1,
+        cycle: { startsAt: "2026-03-01T00:00:00.000Z" },
+        blockedByIds: ["blocker"],
+      }),
+      issue({ id: "blocker", project: P, milestone: M, priority: 4 }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["blocker", "dependent"]);
+  });
+
+  test("cycle beats item priority among dependency-eligible items", () => {
+    const issues = [
+      issue({ id: "urgent-no-cycle", project: P, milestone: M, priority: 1 }),
+      issue({
+        id: "low-cycled",
+        project: P,
+        milestone: M,
+        priority: 4,
+        cycle: { startsAt: "2026-03-01T00:00:00.000Z" },
+      }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["low-cycled", "urgent-no-cycle"]);
+  });
+
+  test("cycle never reorders projects", () => {
+    const issues = [
+      issue({
+        id: "low-project-cycled",
+        project: { id: "P2", priority: 4 },
+        priority: 1,
+        cycle: { startsAt: "2026-03-01T00:00:00.000Z" },
+      }),
+      issue({ id: "high-project-uncycled", project: { id: "P1", priority: 1 }, priority: 4 }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual([
+      "high-project-uncycled",
+      "low-project-cycled",
+    ]);
+  });
+
+  test("cycle never reorders milestones", () => {
+    const issues = [
+      issue({
+        id: "m2-cycled",
+        project: P,
+        milestone: { id: "M2", sortOrder: 2 },
+        priority: 2,
+        cycle: { startsAt: "2026-03-01T00:00:00.000Z" },
+      }),
+      issue({ id: "m1-uncycled", project: P, milestone: { id: "M1", sortOrder: 1 }, priority: 2 }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["m1-uncycled", "m2-cycled"]);
+  });
+
+  test("absent cycle data leaves ordering untouched", () => {
+    const issues = [
+      issue({ id: "b", project: P, milestone: M, priority: 3 }),
+      issue({ id: "a", project: P, milestone: M, priority: 1 }),
+      issue({ id: "c", project: P, milestone: M, priority: 3, tiebreak: -1 }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["a", "c", "b"]);
+  });
+
+  test("equal cycle start falls through to item priority", () => {
+    const cycle = { startsAt: "2026-03-01T00:00:00.000Z" };
+    const issues = [
+      issue({ id: "low", project: P, milestone: M, priority: 4, cycle }),
+      issue({ id: "urgent", project: P, milestone: M, priority: 1, cycle }),
+    ];
+    expect(ids(orderIssuesHierarchically(issues))).toEqual(["urgent", "low"]);
+  });
+});
