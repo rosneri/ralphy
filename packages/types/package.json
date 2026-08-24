@@ -2,8 +2,24 @@
   "name": "@ralphy/types",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rosneri/ralphy.git"
+  },
+  "files": [
+    "src",
+    "!src/__tests__",
+    "README.md"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/types.ts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
   }
 }

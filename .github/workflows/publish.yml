@@ -59,3 +59,14 @@ jobs:
           npm publish --access public --provenance
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The shared cross-repo contract. Kept as the private workspace package
+      # `@ralphy/types` in git (so the @ralphy/*-scoped workspace tooling keeps
+      # working) and given its published identity transiently here, the same way
+      # the root package gets its version stamped from the tag above.
+      - name: Publish shared types
+        working-directory: packages/types
+        run: |
+          npm pkg set name="@neriros/ralphy-types" version="${{ steps.tag.outputs.version }}"
+          npm pkg set private=false --json
+          npm publish --access public --provenance

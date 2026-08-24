@@ -111,6 +111,39 @@ See **[GUIDE.md](./GUIDE.md)** for:
 
 Ralphy ships an MCP server (auto-configured on per-project install) exposing `ralph_list_changes`, `ralph_get_change`, `ralph_create_change`, `ralph_append_steering`, `ralph_stop`. See [GUIDE.md → MCP server](./GUIDE.md#mcp-server).
 
+## Publishing the shared types contract
+
+`packages/types` is the cross-repo wire contract — the `.ralph-state.json` shapes
+(`State`, `HistoryEntry`, `Usage`), the live-stream `FeedEvent` / `ToolInputSummary`
+events, `Engine`, their Zod schemas, and `WORKER_EXIT_CODES`. It is published to npm as
+**`@neriros/ralphy-types`** so external consumers (the Tauri UI, the web viewer) depend
+on a version, never on a git path.
+
+Release flow:
+
+1. Edit `packages/types/src/types.ts` in this monorepo — it is the single source of truth.
+2. Merge to `main`, then tag and push `vX.Y.Z` (the usual release ritual).
+3. `.github/workflows/publish.yml` publishes both `@neriros/ralphy` and
+   `@neriros/ralphy-types` at `X.Y.Z` — the two always version in lockstep.
+4. In the consuming repo: `npm update @neriros/ralphy-types`.
+
+One intentional seam: in git the package is named `@ralphy/types` and is `private`, so the
+`@ralphy/*`-scoped workspace tooling (workspace graph, orphan check, tag-boundary DAG)
+keeps working unchanged. The published `name`/`version`/`private:false` are set transiently
+by the publish job, the same way the root package's version is stamped from the tag. The
+tarball is packed from the same `src/*.ts` the monorepo imports, so internal and published
+shapes cannot drift. It ships TypeScript source, so consumers need bundler resolution
+(Vite, Bun, `moduleResolution: "bundler"`).
+
+Verify a packaging change without publishing:
+
+```bash
+cd packages/types
+npm pkg set name="@neriros/ralphy-types" version="9.9.9" && npm pkg set private=false --json
+npm pack --dry-run
+git checkout package.json   # discard the transient edits
+```
+
 ## Development
 
 ```bash
